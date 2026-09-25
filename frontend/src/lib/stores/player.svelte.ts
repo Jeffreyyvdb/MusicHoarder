@@ -3,11 +3,18 @@ import { browser } from '$app/environment';
 import { toast } from 'svelte-sonner';
 import { coverThumbUrl, fetchRadio, reportSongPlayed, toPlayerSong } from '$lib/api-client';
 import {
+  convertedStreamUrl,
+  createUnplayableFormats,
+  needsConversion,
+  type UnplayableFormats
+} from '$lib/audio-formats';
+import {
   canAutoResume,
   readPlaybackSnapshot,
   writePlaybackSnapshot,
   type PlaybackSnapshot
 } from '$lib/player-snapshot';
+import { previousAction } from '$lib/player-seek';
 import { songsStore } from '$lib/stores/songs.svelte';
 import { artistOf } from '$lib/track-list-view.svelte';
 
@@ -20,6 +27,11 @@ export interface PlayerSong {
   coverUrl?: string | null;
   /** Album name, surfaced on the OS Media Session tile (or null/omitted). */
   album?: string | null;
+  /**
+   * The file's format ('opus', see `formatOf`), when known. Decides whether this browser gets the
+   * file as it is or the server's decoded stream of it; unknown means the original is tried first.
+   */
+  format?: string | null;
 }
 
 let currentSong = $state<PlayerSong | null>(null);
@@ -68,14 +80,36 @@ const RADIO_EXCLUDE_CAP = 400;
  */
 let panelMountedCount = $state(0);
 /**
- * True after the user dismisses the MiniPlayer bar with its close (X) control.
- * Dismissal pauses playback and hides the bar but keeps `currentSong`/`queue`
- * intact — pressing play anywhere (row, panel, OS media keys) clears the flag
- * so the bar comes back with its full state. Only `stop()` tears state down.
+ * True after the user hides the MiniPlayer ("Hide player" in its menu, in Now Playing's ⋯ menu,
+ * or the md+ bar's close). Hiding leaves playback running and keeps `currentSong`/`queue`
+ * intact — the lock screen / Control Center controls keep working, and pressing play anywhere
+ * (row, panel, OS media keys) clears the flag so the bar comes back with its full state. Only
+ * `stop()` tears state down.
  */
 let miniPlayerDismissed = $state(false);
+/**
+ * Whether an AirPlay receiver is in reach. Only Safari reports it (the
+ * `webkitplaybacktargetavailabilitychanged` event on the media element), so everywhere else this
+ * stays false and Now Playing shows no route button — a button that opens nothing is worse than
+ * none.
+ */
+let airPlayAvailable = $state(false);
 
 let audioEl: HTMLAudioElement | null = null;
+/** Whether the loaded source is the server's decoded stream rather than the file as it is. */
+let sourceIsConverted = false;
+/**
+ * Whether the listener wants sound: set by every play intent, cleared by pause. A fallback to the
+ * decoded stream keeps it, so a paused song stays paused and a playing one carries on.
+ */
+let wantsPlayback = false;
+/** A format that looks unplayable here, until its decoded stream loads (see `fallBackToConverted`). */
+let suspectedFormat: {
+  songId: number;
+  format: string;
+  originalReachable: Promise<boolean>;
+} | null = null;
+let unplayable: UnplayableFormats | null = null;
 /** Pre-mute level, restored on unmute so toggling mute is non-destructive. */
 let lastNonZeroVolume = 1;
 let loadGeneration = 0;
@@ -175,7 +209,9 @@ function refreshActionHandlers() {
   };
   set('play', () => resume());
   set('pause', () => pause());
-  set('previoustrack', queueIndex > 0 ? () => playPrevious() : null);
+  // Previous is live whenever a track is loaded: at the head of the queue it restarts the track
+  // (see playPrevious), so greying it out there would hide a working control.
+  set('previoustrack', queueIndex >= 0 ? () => playPrevious() : null);
   set('nexttrack', canAdvance() ? () => playNext() : null);
   set('seekto', (details) => {
     if (typeof details.seekTime === 'number') seek(details.seekTime);
@@ -187,6 +223,120 @@ function refreshActionHandlers() {
 function setPlaybackState(state: MediaSessionPlaybackState) {
   const ms = mediaSession();
   if (ms) ms.playbackState = state;
+}
+
+// ── Background playback ────────────────────────────────────────────────────
+// An installed iOS Home Screen app keeps playing after it leaves the foreground
+// only while its audio session is in the long-form `playback` category, the one
+// Spotify uses. Under the Audio Session API's default `auto` type WebKit infers
+// that category from whatever is audible at each moment, and after ~2s with
+// nothing audible (between two tracks, a stream still buffering) it lets the
+// category lapse. Declaring `playback` pins it. Claimed on each play intent
+// rather than at boot, so opening the app claims nothing; feature-detected, so
+// browsers without `navigator.audioSession` skip it.
+
+type AudioSessionNavigator = Navigator & { audioSession?: { type: string } };
+
+function claimPlaybackAudioSession() {
+  if (!browser) return;
+  const session = (navigator as AudioSessionNavigator).audioSession;
+  if (!session || session.type === 'playback') return;
+  try {
+    session.type = 'playback';
+  } catch {
+    // Refused by this engine — `auto` still plays, just without the pin.
+  }
+}
+
+// ── Formats this browser cannot play ───────────────────────────────────────
+// A song whose file this browser cannot play as it is (Ogg Opus in Safari) streams decoded by the
+// server instead; see `$lib/audio-formats`. Every other song, and every song in a browser
+// that can play it, streams as the original file.
+
+/** `MediaError` codes, spelled out because the global is absent outside a browser. */
+const MEDIA_ERR_DECODE = 3;
+const MEDIA_ERR_SRC_NOT_SUPPORTED = 4;
+
+function unplayableFormats(): UnplayableFormats {
+  if (!unplayable) {
+    let storage: Storage | null = null;
+    try {
+      storage = window.localStorage;
+    } catch {
+      // Storage blocked: the record lasts for this page only.
+    }
+    unplayable = createUnplayableFormats(storage, navigator.userAgent ?? '');
+  }
+  return unplayable;
+}
+
+/** The URL to load for `song` here: the file as it is, unless this browser cannot play it. */
+function streamSourceFor(song: PlayerSong): { url: string; converted: boolean } {
+  const el = audioEl;
+  const canPlayType =
+    el && typeof el.canPlayType === 'function' ? (type: string) => el.canPlayType(type) : null;
+  return needsConversion(song.format, canPlayType, unplayableFormats())
+    ? { url: convertedStreamUrl(song.streamUrl), converted: true }
+    : { url: song.streamUrl, converted: false };
+}
+
+/** Point the element at `song`'s source (see `streamSourceFor`) and start loading it. */
+function loadSource(el: HTMLAudioElement, song: PlayerSong) {
+  const source = streamSourceFor(song);
+  sourceIsConverted = source.converted;
+  suspectedFormat = null;
+  el.src = source.url;
+  el.load();
+}
+
+/**
+ * After the original file failed to load or decode, load the decoded stream instead, from the same
+ * second and in the same play state. Returns false when there is nothing to fall back to, which
+ * leaves the failure to be reported.
+ *
+ * A failure before any metadata arrived may be the format rather than this file, and a format
+ * this browser cannot play should send the rest of the queue straight to decoded streams. The same
+ * error code reports an HTTP failure of the original (a 404, a proxy timeout), which says nothing
+ * about the format, and remembering a format wrongly would convert every song in it from then on.
+ * So the format is only suspected here, and remembered once the original proves reachable and the
+ * decoded stream loads (`confirmSuspectedFormat`).
+ */
+function fallBackToConverted(): boolean {
+  const el = audioEl;
+  const song = currentSong;
+  if (!el || !song || sourceIsConverted) return false;
+  const code = el.error?.code;
+  // A network failure is not the format's fault; converting would not help.
+  if (code !== MEDIA_ERR_DECODE && code !== MEDIA_ERR_SRC_NOT_SUPPORTED) return false;
+
+  suspectedFormat =
+    song.format && !(duration > 0)
+      ? {
+          songId: song.id,
+          format: song.format,
+          originalReachable: fetch(song.streamUrl, { headers: { Range: 'bytes=0-0' } }).then(
+            (res) => res.ok,
+            () => false
+          )
+        }
+      : null;
+  const position = currentTime;
+  sourceIsConverted = true;
+  el.src = convertedStreamUrl(song.streamUrl);
+  el.load();
+  if (position > 0) el.currentTime = position;
+  if (wantsPlayback) playElement();
+  return true;
+}
+
+/** The decoded stream of a suspected format loaded: remember the format if its original was reachable. */
+function confirmSuspectedFormat() {
+  const suspect = suspectedFormat;
+  if (!suspect || !sourceIsConverted || currentSong?.id !== suspect.songId) return;
+  suspectedFormat = null;
+  void suspect.originalReachable.then((reachable) => {
+    if (reachable) unplayableFormats().add(suspect.format);
+  });
 }
 
 /**
@@ -210,9 +360,17 @@ function ensureAudioEl(): HTMLAudioElement | null {
   el.playbackRate = playbackRateState;
   el.preservesPitch = true;
 
+  if (typeof window !== 'undefined' && 'WebKitPlaybackTargetAvailabilityEvent' in window) {
+    el.setAttribute('x-webkit-airplay', 'allow');
+    el.addEventListener('webkitplaybacktargetavailabilitychanged', (event) => {
+      airPlayAvailable = (event as Event & { availability?: string }).availability === 'available';
+    });
+  }
+
   el.addEventListener('loadedmetadata', () => {
     duration = el.duration;
     updatePositionState();
+    confirmSuspectedFormat();
   });
   el.addEventListener('ended', () => {
     stopRaf();
@@ -223,6 +381,7 @@ function ensureAudioEl(): HTMLAudioElement | null {
   el.addEventListener('error', () => {
     stopRaf();
     isPlaying = false;
+    if (fallBackToConverted()) return;
     const song = currentSong;
     if (song) {
       toast.error('Playback failed', { description: `Could not play "${song.title}".` });
@@ -257,6 +416,13 @@ function ensureAudioEl(): HTMLAudioElement | null {
  */
 function attemptPlay() {
   miniPlayerDismissed = false; // any play intent brings the mini player back
+  wantsPlayback = true;
+  playElement();
+}
+
+/** The element half of `attemptPlay`, which leaves a hidden mini player hidden. */
+function playElement() {
+  claimPlaybackAudioSession();
   void audioEl
     ?.play()
     .then(() => (isPlaying = true))
@@ -276,28 +442,35 @@ async function loadAndPlay(song: PlayerSong) {
 
   const gen = ++loadGeneration;
 
-  try {
-    const res = await fetch(song.streamUrl, { headers: { Range: 'bytes=0-0' } });
-    if (!res.ok) {
-      toast.error('Unable to play track', {
-        description: 'The audio file could not be found on the server.'
-      });
+  // The pre-flight turns a missing file into a clear toast while the old song keeps playing, but
+  // it is an await between the decision to play and `play()`. In the background that gap is the
+  // one place a hand-off can die: after `ended` nothing is audible, and a slow round trip to the
+  // server lets iOS stop treating the app as a player before the next song starts. So while the
+  // page is hidden (Home Screen, another app, the lock screen) the swap is synchronous, and a
+  // missing file is reported by the element's own `error` event instead.
+  if (!document.hidden) {
+    try {
+      const res = await fetch(song.streamUrl, { headers: { Range: 'bytes=0-0' } });
+      if (!res.ok) {
+        toast.error('Unable to play track', {
+          description: 'The audio file could not be found on the server.'
+        });
+        return;
+      }
+    } catch {
+      toast.error('Unable to play track', { description: 'Could not connect to the server.' });
       return;
     }
-  } catch {
-    toast.error('Unable to play track', { description: 'Could not connect to the server.' });
-    return;
-  }
 
-  if (gen !== loadGeneration) return;
+    if (gen !== loadGeneration) return;
+  }
 
   currentSong = song;
   currentTime = 0;
   duration = 0;
   updateMediaMetadata(song);
   refreshActionHandlers(); // queue position may have changed (next/prev availability)
-  audioEl.src = song.streamUrl;
-  audioEl.load();
+  loadSource(audioEl, song);
   attemptPlay();
   reportPlay(song.id);
 }
@@ -312,14 +485,8 @@ function reportPlay(songId: number) {
   void reportSongPlayed(songId).catch(() => {});
 }
 
-/**
- * Play a song, optionally seeding the playback queue it belongs to so the
- * player can auto-advance and offer prev/next. Re-clicking the current song
- * toggles play/pause. `index` defaults to the song's position in `contextQueue`.
- */
-async function playSong(song: PlayerSong, contextQueue?: PlayerSong[], index?: number) {
-  if (!ensureAudioEl() || !audioEl) return;
-
+/** Make `contextQueue` (or just `song`) the queue, positioned at `song`. */
+function seedQueue(song: PlayerSong, contextQueue?: PlayerSong[], index?: number) {
   if (contextQueue && contextQueue.length > 0) {
     queue = contextQueue;
     queueIndex = index ?? contextQueue.findIndex((s) => s.id === song.id);
@@ -333,14 +500,52 @@ async function playSong(song: PlayerSong, contextQueue?: PlayerSong[], index?: n
   radioSeedId = song.id;
   radioExhausted = false;
   maybePrefetchRadio();
+}
+
+/**
+ * Play a song, optionally seeding the playback queue it belongs to so the
+ * player can auto-advance and offer prev/next. Re-clicking the current song
+ * toggles play/pause — this is the entry point for controls that show a
+ * Play/Pause glyph for that song. Anything labelled Play or Shuffle, and a
+ * row tap, uses `startQueue` instead. `index` defaults to the song's position
+ * in `contextQueue`.
+ */
+async function playSong(song: PlayerSong, contextQueue?: PlayerSong[], index?: number) {
+  if (!ensureAudioEl() || !audioEl) return;
+
+  seedQueue(song, contextQueue, index);
 
   if (currentSong?.id === song.id) {
     if (audioEl.paused) {
       attemptPlay();
     } else {
-      audioEl.pause();
-      isPlaying = false;
+      pause();
     }
+    return;
+  }
+
+  await loadAndPlay(song);
+}
+
+/**
+ * Play `contextQueue` from `index`, and never pause. The queue is always re-seeded (Play from a
+ * list makes that list the queue); if the target song is the one already loaded it keeps playing,
+ * or resumes when paused, rather than restarting. This is what every control labelled Play or
+ * Shuffle, a row menu's Play, and the phone's row-tap rule call — none of them may toggle.
+ */
+async function startQueue(contextQueue: PlayerSong[], index = 0) {
+  const song = contextQueue[index];
+  if (!song || !ensureAudioEl() || !audioEl) return;
+
+  seedQueue(song, contextQueue, index);
+
+  if (currentSong?.id === song.id) {
+    // A play intent even when nothing needs to start: after "Hide player", pressing Play on a
+    // list that begins with the playing song must bring the bar back. attemptPlay (the other
+    // place that clears this) only runs when paused.
+    miniPlayerDismissed = false;
+    refreshActionHandlers(); // the new queue decides whether Next is live
+    if (audioEl.paused) attemptPlay();
     return;
   }
 
@@ -436,13 +641,26 @@ async function topUpRadio(): Promise<boolean> {
   return radioTopUp;
 }
 
+/**
+ * Previous, the way every player (and the Android client) does it: a few seconds into a track it
+ * restarts the track, otherwise it goes back one item; on the first item it restarts. Reads the
+ * element's exact position rather than the 10 Hz mirror, so a press right at the threshold does
+ * what the displayed time says. Restarting keeps the play/pause state.
+ */
 function playPrevious() {
-  if (queueIndex <= 0) return;
+  const position = audioEl?.currentTime ?? currentTime;
+  const action = previousAction(position, queueIndex);
+  if (action === 'none') return;
+  if (action === 'restart') {
+    seek(0);
+    return;
+  }
   queueIndex -= 1;
   void loadAndPlay(queue[queueIndex]);
 }
 
 function pause() {
+  wantsPlayback = false;
   audioEl?.pause();
   isPlaying = false;
 }
@@ -483,6 +701,12 @@ function setPlaybackRate(rate: number) {
   updatePositionState();
 }
 
+/** Open Safari's AirPlay route picker for the audio element (no-op where it does not exist). */
+function showAirPlayPicker() {
+  const el = audioEl as (HTMLAudioElement & { webkitShowPlaybackTargetPicker?: () => void }) | null;
+  el?.webkitShowPlaybackTargetPicker?.();
+}
+
 /** Mute, or restore the pre-mute level (falling back to 0.8 if muted from 0). */
 function toggleMute() {
   if (volumeState > 0) setVolume(0);
@@ -490,12 +714,14 @@ function toggleMute() {
 }
 
 /**
- * Dismiss the MiniPlayer bar: pause playback and hide the chrome, keeping the
- * current song and queue so play resumes exactly where the user left off. This
- * is what the bar's close (X) affordance calls — it must never destroy state.
+ * Dismiss the MiniPlayer bar: hide the chrome only. Playback is untouched —
+ * Media Session is already fully wired (see `refreshActionHandlers`), so lock
+ * screen / Control Center controls keep working with the bar out of the way.
+ * `attemptPlay()` clears the flag again on the next play intent (a new track,
+ * resume, queue advance), which is how the bar comes back. This is what the
+ * bar's close (X) affordance calls — it must never destroy state.
  */
 function dismissMiniPlayer() {
-  pause();
   miniPlayerDismissed = true;
 }
 
@@ -509,6 +735,9 @@ function stop() {
   }
   currentSong = null;
   isPlaying = false;
+  wantsPlayback = false;
+  sourceIsConverted = false;
+  suspectedFormat = null;
   currentTime = 0;
   duration = 0;
   queue = [];
@@ -641,15 +870,17 @@ function restorePlayback(userId: string) {
   duration = 0;
   updateMediaMetadata(song);
   refreshActionHandlers();
-  el.src = song.streamUrl;
-  el.load();
+  const autoResume = canAutoResume(snapshot, Date.now());
+  wantsPlayback = autoResume;
+  loadSource(el, song);
   // Before metadata arrives this sets the default playback start position, which the element
   // seeks to as soon as it can — so the paused bar shows the right second and a later play
   // starts there, without waiting on `loadedmetadata` ourselves.
   el.currentTime = snapshot.position;
   // No `reportPlay` here: coming back to a track is not another listen of it.
 
-  if (!canAutoResume(snapshot, Date.now())) return;
+  if (!autoResume) return;
+  claimPlaybackAudioSession();
   void el
     .play()
     .then(() => (isPlaying = true))
@@ -707,8 +938,12 @@ export const playerStore = {
   get hasNext() {
     return canAdvance();
   },
+  /** True whenever a track is loaded: Previous restarts the first item rather than going dark. */
   get hasPrevious() {
-    return queueIndex > 0;
+    return currentSong !== null && queueIndex >= 0;
+  },
+  get airPlayAvailable() {
+    return airPlayAvailable;
   },
   get isPanelMounted() {
     return panelMountedCount > 0;
@@ -717,6 +952,7 @@ export const playerStore = {
     return miniPlayerDismissed;
   },
   playSong,
+  startQueue,
   playNext,
   playPrevious,
   pause,
@@ -726,6 +962,7 @@ export const playerStore = {
   setVolume,
   setPlaybackRate,
   toggleMute,
+  showAirPlayPicker,
   dismissMiniPlayer,
   stop,
   registerPanel

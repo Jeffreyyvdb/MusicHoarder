@@ -1,13 +1,17 @@
 <script lang="ts">
-  import { AlertTriangle, Check, Clapperboard, Film, Loader2, Music } from '@lucide/svelte';
-  import * as Dialog from '$lib/components/ui/dialog';
-  import { Button } from '$lib/components/ui/button';
-  import { Input } from '$lib/components/ui/input';
-  import { Label } from '$lib/components/ui/label';
+  import { AlertTriangle, CircleCheck, Clapperboard, Loader2, Music } from '@lucide/svelte';
+  import * as BottomSheet from '$lib/components/ui/bottom-sheet';
+  import * as GroupedList from '$lib/components/ui/grouped-list';
   import { Switch } from '$lib/components/ui/switch';
   import { importTrack, resolveImportUrl, type ImportResolveResult } from '$lib/api-client';
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
+
+  // One BottomSheet at every width: a bottom sheet with a grabber below md (four fields in a
+  // vertically-centred box used to end up under the iOS keyboard with nowhere to scroll), a centred
+  // dialog above it. iOS sheet conventions: Cancel leading, the one prominent action — Add —
+  // trailing, and the form as inset-grouped cells with 16px fields so iOS never zooms on focus.
+  const blurb = 'Paste a Spotify track or YouTube link to download it and add it to your library.';
 
   let url = $state('');
   let resolving = $state(false);
@@ -19,8 +23,9 @@
   let submitting = $state(false);
   let done = $state<string | null>(null);
   let downloadVideo = $state(false);
+  let urlInput = $state<HTMLInputElement | null>(null);
 
-  // Clear transient state whenever the dialog closes so it reopens fresh. Depends only on `open`.
+  // Clear transient state whenever the sheet closes so it reopens fresh. Depends only on `open`.
   $effect(() => {
     if (!open) {
       url = '';
@@ -85,7 +90,7 @@
       done = res.jobStarted
         ? 'Downloading now — it’ll appear in your library once processed.'
         : 'Queued — it’ll download on the next sweep.';
-      // Reset the preview so "Add another" starts clean.
+      // Reset the preview so another link starts clean.
       resolved = null;
       url = '';
       title = '';
@@ -114,138 +119,174 @@
   }
 
   const duration = $derived(resolved ? formatDuration(resolved.durationMs) : null);
+  const canAdd = $derived(resolved != null && !submitting && title.trim().length > 0);
+
+  // A borderless field that fills its cell, as in an iOS form; the caret is its focus indicator.
+  const cellInput =
+    'placeholder:text-muted-foreground text-body min-w-0 flex-1 bg-transparent py-2.5 outline-none disabled:opacity-50 md:py-1.5 md:text-sm';
+  const cellLabel = 'text-body w-16 shrink-0 md:text-sm';
 </script>
 
-<Dialog.Root bind:open>
-  <Dialog.Content class="sm:max-w-md">
-    <Dialog.Header>
-      <Dialog.Title>Add from URL</Dialog.Title>
-      <Dialog.Description>
-        Paste a Spotify track or YouTube link to download it and add it to your library.
-      </Dialog.Description>
-    </Dialog.Header>
+{#snippet status()}
+  {#if error}
+    <span role="alert" class="text-destructive-text flex items-start gap-1.5">
+      <AlertTriangle class="mt-px size-4 shrink-0" />
+      <span>{error}</span>
+    </span>
+  {:else if done}
+    <span role="status" class="text-foreground flex items-start gap-1.5">
+      <CircleCheck class="text-primary mt-px size-4 shrink-0" />
+      <span>{done}</span>
+    </span>
+  {/if}
+{/snippet}
 
-    <div class="flex flex-col gap-3">
-      <div class="flex items-center gap-2">
-        <Input
-          bind:value={url}
-          placeholder="https://open.spotify.com/track/… or youtu.be/…"
-          onkeydown={onKeydown}
-          disabled={resolving}
-          aria-label="Track URL"
-        />
-        <Button variant="outline" onclick={onResolve} disabled={resolving || !url.trim()}>
-          {#if resolving}
-            <Loader2 class="size-4 animate-spin" />
-          {:else}
-            Resolve
-          {/if}
-        </Button>
-      </div>
-
-      {#if error}
-        <div
-          class="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[12.5px] text-amber-700 dark:text-amber-300"
-        >
-          <AlertTriangle class="mt-0.5 size-4 shrink-0" />
-          <span>{error}</span>
-        </div>
-      {/if}
-
-      {#if done}
-        <div
-          class="flex items-start gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-[12.5px] text-emerald-700 dark:text-emerald-300"
-        >
-          <Check class="mt-0.5 size-4 shrink-0" />
-          <span>{done}</span>
-        </div>
-      {/if}
-
-      {#if resolved}
-        <div class="border-border bg-card flex gap-3 rounded-lg border p-3">
-          {#if resolved.coverUrl}
-            <img
-              src={resolved.coverUrl}
-              alt=""
-              class="size-16 shrink-0 rounded-md object-cover"
-              referrerpolicy="no-referrer"
-            />
-          {:else}
-            <div class="bg-muted flex size-16 shrink-0 items-center justify-center rounded-md">
-              <Music class="text-muted-foreground size-6" />
-            </div>
-          {/if}
-          <div class="flex min-w-0 flex-1 flex-col gap-2">
-            <span
-              class="text-muted-foreground inline-flex w-fit items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium"
-            >
-              {#if resolved.source === 'youtube'}
-                <Clapperboard class="size-3" /> YouTube
-              {:else}
-                <Music class="size-3" /> Spotify
-              {/if}
-              {#if duration}<span class="text-muted-foreground/70">· {duration}</span>{/if}
-            </span>
-            <div class="flex flex-col gap-1.5">
-              <Label for="import-title" class="text-[11px]">Title</Label>
-              <Input id="import-title" bind:value={title} disabled={submitting} />
-            </div>
-            <div class="flex flex-col gap-1.5">
-              <Label for="import-artist" class="text-[11px]">Artist</Label>
-              <Input id="import-artist" bind:value={artist} disabled={submitting} />
-            </div>
-            <div class="flex flex-col gap-1.5">
-              <Label for="import-album" class="text-[11px]">Album</Label>
-              <Input
-                id="import-album"
-                bind:value={album}
-                placeholder={title || 'Album'}
-                disabled={submitting}
-              />
-              <span class="text-muted-foreground text-[11px]">
-                Names the album folder and its cover. Left blank, the track is filed as a single
-                named after itself.
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <label
-          class="border-border bg-card flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5"
-        >
-          <span class="flex items-center gap-2 text-[13px]">
-            <Film class="text-muted-foreground size-4" />
-            <span class="flex flex-col">
-              <span>Also download the music video</span>
-              <span class="text-muted-foreground text-[11px]">
-                Plays muted behind the full-screen player, synced to the song.
-              </span>
-            </span>
-          </span>
-          <Switch
-            checked={downloadVideo}
-            onCheckedChange={(v: boolean) => (downloadVideo = v)}
-            disabled={submitting}
-            aria-label="Also download the music video"
-          />
-        </label>
-      {/if}
-    </div>
-
-    <Dialog.Footer>
-      {#if resolved}
-        <Button variant="ghost" onclick={() => (resolved = null)} disabled={submitting}>Back</Button
-        >
-        <Button onclick={onConfirm} disabled={submitting || !title.trim()}>
-          {#if submitting}
-            <Loader2 class="size-4 animate-spin" /> Adding…
-          {:else}
-            Add &amp; download
-          {/if}
-        </Button>
+<BottomSheet.Root
+  bind:open
+  title="Add from link"
+  description={blurb}
+  onOpenAutoFocus={(e) => {
+    // Straight into the link field: the whole point of the sheet is pasting one.
+    e.preventDefault();
+    urlInput?.focus();
+  }}
+>
+  {#snippet leading()}
+    <BottomSheet.Action onclick={() => (open = false)}
+      >{done ? 'Close' : 'Cancel'}</BottomSheet.Action
+    >
+  {/snippet}
+  {#snippet trailing()}
+    <BottomSheet.Action prominent onclick={onConfirm} disabled={!canAdd}>
+      {#if submitting}
+        <Loader2 class="size-4 animate-spin" /> Adding…
       {:else}
-        <Button variant="outline" onclick={() => (open = false)}>Close</Button>
+        Add
       {/if}
-    </Dialog.Footer>
-  </Dialog.Content>
-</Dialog.Root>
+    </BottomSheet.Action>
+  {/snippet}
+
+  <div class="flex flex-col gap-7 pt-1">
+    <GroupedList.Section footer={error || done ? status : undefined}>
+      <GroupedList.Row>
+        <span class="flex items-center gap-2">
+          <input
+            bind:this={urlInput}
+            bind:value={url}
+            type="url"
+            inputmode="url"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck={false}
+            enterkeyhint="go"
+            class={cellInput}
+            placeholder="Spotify or YouTube link"
+            onkeydown={onKeydown}
+            disabled={resolving}
+            aria-label="Track link"
+          />
+          <BottomSheet.Action
+            onclick={onResolve}
+            disabled={resolving || !url.trim()}
+            class="shrink-0"
+          >
+            {#if resolving}
+              <Loader2 class="size-4 animate-spin" />
+              <span class="sr-only">Resolving…</span>
+            {:else}
+              Resolve
+            {/if}
+          </BottomSheet.Action>
+        </span>
+      </GroupedList.Row>
+    </GroupedList.Section>
+
+    {#if resolved}
+      <GroupedList.Section
+        header="Details"
+        footer="The album names the folder and its cover. Left blank, the track is filed as a single named after itself."
+      >
+        <GroupedList.Row>
+          {#snippet leading()}
+            {#if resolved?.coverUrl}
+              <img
+                src={resolved.coverUrl}
+                alt=""
+                class="size-14 shrink-0 rounded-md object-cover"
+                referrerpolicy="no-referrer"
+              />
+            {:else}
+              <span class="bg-muted flex size-14 shrink-0 items-center justify-center rounded-md">
+                <Music class="text-muted-foreground size-6" />
+              </span>
+            {/if}
+          {/snippet}
+          <span class="text-subheadline text-muted-foreground flex items-center gap-1.5 md:text-sm">
+            {#if resolved.source === 'youtube'}
+              <Clapperboard class="size-4" /> YouTube
+            {:else}
+              <Music class="size-4" /> Spotify
+            {/if}
+            {#if duration}<span class="tabular-nums">· {duration}</span>{/if}
+          </span>
+        </GroupedList.Row>
+        <GroupedList.Row>
+          <span class="flex items-center gap-3">
+            <label for="import-title" class={cellLabel}>Title</label>
+            <input
+              id="import-title"
+              class={cellInput}
+              bind:value={title}
+              disabled={submitting}
+              autocorrect="off"
+              spellcheck={false}
+            />
+          </span>
+        </GroupedList.Row>
+        <GroupedList.Row>
+          <span class="flex items-center gap-3">
+            <label for="import-artist" class={cellLabel}>Artist</label>
+            <input
+              id="import-artist"
+              class={cellInput}
+              bind:value={artist}
+              disabled={submitting}
+              autocorrect="off"
+              spellcheck={false}
+            />
+          </span>
+        </GroupedList.Row>
+        <GroupedList.Row>
+          <span class="flex items-center gap-3">
+            <label for="import-album" class={cellLabel}>Album</label>
+            <input
+              id="import-album"
+              class={cellInput}
+              bind:value={album}
+              placeholder={title || 'Album'}
+              disabled={submitting}
+              autocorrect="off"
+              spellcheck={false}
+            />
+          </span>
+        </GroupedList.Row>
+      </GroupedList.Section>
+
+      <GroupedList.Section>
+        <GroupedList.Row
+          label="Also download the music video"
+          sublabel="Plays muted behind the full-screen player, synced to the song."
+        >
+          {#snippet trailing()}
+            <Switch
+              checked={downloadVideo}
+              onCheckedChange={(v: boolean) => (downloadVideo = v)}
+              disabled={submitting}
+              aria-label="Also download the music video"
+            />
+          {/snippet}
+        </GroupedList.Row>
+      </GroupedList.Section>
+    {/if}
+  </div>
+</BottomSheet.Root>

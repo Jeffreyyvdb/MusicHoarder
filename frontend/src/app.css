@@ -1,6 +1,5 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
-@import './lib/styles/mobile.css';
 
 @custom-variant dark (&:is(.dark *));
 
@@ -14,93 +13,258 @@
 }
 
 /*
- * MusicHoarder design token mapping
- * — see /tmp/musichoarder-design/musichoarder/project/src/styles.css for the source.
- *   design --bg            → --background
- *   design --bg-panel      → --card
- *   design --bg-sidebar    → --sidebar
- *   design --bg-hover      → --accent (light hover) or muted/50
- *   design --bg-sunken     → --surface-sunken (added below)
- *   design --accent        → --primary
- *   design --accent-soft   → bg-primary/15 (or oklch(L C H / 0.12) inline)
- *   design --fg / --fg-*   → foreground / muted-foreground (one tier per step)
- * Keep new components on existing tokens; only add to this file when a
- * design element genuinely has no analogue in shadcn's surface scale.
+ * MusicHoarder design tokens — Apple's system palette under shadcn's names.
+ *
+ * One neutral family (Apple's grey, hue ≈286) and one tint (brand green, spent only on things you
+ * can tap and on live state). Surfaces follow iOS's grouped hierarchy instead of drawing structure
+ * with borders:
+ *   --background          plain pages (and the theme-color)
+ *   --background-grouped  grouped pages (hubs, settings, info); cells on it are --card
+ *   --card-elevated       cells inside sheets/dialogs — `[data-elevated]` re-points --card to it
+ *   --sheet               BottomSheet / Dialog surface when its content is grouped
+ *   --popover             menus: solid, never glass
+ * The fills are translucent, like iOS's fill colours, so they read on any of those surfaces:
+ *   --secondary (gray buttons, chips) · --muted (fields, segmented track, skeletons)
+ *   · --accent (row hover/press, selection) · --input (field fill — a FILL, not a stroke)
+ * Because they are translucent, never stack an opacity modifier on them (`bg-muted/50`,
+ * `dark:bg-input/30`): the alphas multiply to nothing. Hover on a secondary fill is
+ * --secondary-hover. A control that keeps a stroke uses the opaque --border.
+ *
+ * Text is tokens only: foreground · muted-foreground · muted-foreground-dim · destructive-text ·
+ * warning-text · primary (tappable things and the now-playing title). Contrast (WCAG 2) is noted
+ * next to each; the dim tier never sits on a fill.
+ *
+ * Mirrored as sRGB hex in the Android client (ui/theme/Color.kt) — keep the two in step.
  */
 :root {
-  /* Mirrored as hex (#f8fafd / dark #060709) for the theme-color meta and the manifest — app.html,
-     routes/+layout.svelte (THEME_COLOR), static/manifest.webmanifest, static/offline.html.
-     Update those when this changes. */
-  --background: oklch(0.985 0.004 260);
-  --foreground: oklch(0.2 0.02 260);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.2 0.02 260);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.2 0.02 260);
-  --primary: oklch(0.5 0.17 145);
-  --primary-foreground: oklch(0.99 0.002 260);
-  --secondary: oklch(0.96 0.01 260);
-  --secondary-foreground: oklch(0.28 0.02 260);
-  --muted: oklch(0.96 0.008 260);
-  --muted-foreground: oklch(0.45 0.02 260);
-  --accent: oklch(0.93 0.04 145);
-  --accent-foreground: oklch(0.28 0.06 145);
-  --destructive: oklch(0.55 0.2 25);
-  --destructive-foreground: oklch(0.99 0 0);
-  --border: oklch(0.9 0.01 260);
-  --input: oklch(0.92 0.01 260);
-  --ring: oklch(0.5 0.17 145);
+  /* Mirrored as hex for the theme-color meta and the manifest — app.html, routes/+layout.svelte
+     (THEME_COLOR), static/manifest.webmanifest, static/offline.html, the auth/callback handoff
+     page. Update those when this changes. */
+  --background: #ffffff;
+  --background-grouped: #f2f2f7;
+  --foreground: #000000;
+  --card: #ffffff;
+  --card-foreground: #000000;
+  --card-elevated: #ffffff;
+  --sheet: #f2f2f7;
+  --popover: #ffffff;
+  --popover-foreground: #000000;
+  /* 6.72:1 on white, 6.03 on grouped, 5.04 as tinted (primary/12) or gray-capsule text over
+     grouped, 4.75 on the light chrome over a black cover (worst case); white on the fill 6.72. */
+  --primary: #006b1f;
+  --primary-foreground: #ffffff;
+  --secondary: rgb(120 120 128 / 0.16);
+  --secondary-hover: rgb(120 120 128 / 0.24);
+  --secondary-foreground: #000000;
+  --muted: rgb(118 118 128 / 0.12);
+  /* 6.35:1 on white, 5.69 on grouped, 4.97 on a --muted field over grouped. */
+  --muted-foreground: #5f5f64;
+  /* Tertiary text — the one step below --muted-foreground, replacing the old opacity ladder
+     (opacity multiplied an already-muted grey down to 1.8–3.5:1). 5.23:1 on white, 4.69 on
+     grouped. Never on a fill: 4.09 on --muted over grouped. */
+  --muted-foreground-dim: #6c6c70;
+  --accent: rgb(116 116 128 / 0.08);
+  --accent-foreground: #000000;
+  /* --destructive is the fill (white label 5.39:1); --destructive-text is the text, a step deeper
+     so it also clears the destructive Button's own tint: 6.63 on white, 5.94 on grouped, 5.66 on
+     the /10 rest tint, 5.22 on the /15 hover. */
+  --destructive: #cc272e;
+  --destructive-foreground: #ffffff;
+  --destructive-text: #b71824;
+  /* Warning: a fill/dot, and a text tone for it (5.28:1 on white, 4.73 on grouped; 4.53 on the
+     warning Badge's /6 tint over grouped). */
+  --warning: #ff9500;
+  --warning-text: #c93400;
+  /* Opaque, used sparingly (a control that keeps a stroke, the sidebar edge). List hairlines use
+     --separator, which is translucent like UIKit's. */
+  --border: #e5e5ea;
+  --separator: rgb(60 60 67 / 0.2);
+  --input: rgb(118 118 128 / 0.12);
+  /* iOS's off track. It is 1.21:1 against white on purpose — state is carried by the thumb's
+     position plus the tint fill, which is the iOS model; Increase Contrast adds a ring. */
+  --switch-off: rgb(120 120 128 / 0.16);
+  --segmented-thumb: #ffffff;
+  --ring: #006b1f;
   --chart-1: oklch(0.5 0.17 145);
   --chart-2: oklch(0.55 0.14 200);
   --chart-3: oklch(0.5 0.14 280);
   --chart-4: oklch(0.65 0.14 60);
   --chart-5: oklch(0.55 0.16 330);
-  --radius: 0.5rem;
-  --sidebar: oklch(0.96 0.003 85);
-  --sidebar-foreground: oklch(0.22 0.008 85);
-  --sidebar-primary: oklch(0.5 0.17 145);
-  --sidebar-primary-foreground: oklch(0.99 0.002 260);
-  --sidebar-accent: oklch(0.955 0.005 85);
-  --sidebar-accent-foreground: oklch(0.22 0.008 85);
-  --sidebar-border: oklch(0.9 0.004 85);
-  --sidebar-ring: oklch(0.5 0.17 145);
-  --surface-sunken: oklch(0.97 0.005 260);
+  --radius: 0.625rem;
+  --sidebar: #f5f5f7;
+  --sidebar-foreground: #000000;
+  --sidebar-primary: #006b1f;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: rgb(116 116 128 / 0.1);
+  --sidebar-accent-foreground: #000000;
+  --sidebar-border: #e5e5ea;
+  --sidebar-ring: #006b1f;
+  /* Wells INSIDE a cell only. On a grouped background it is invisible (1.00:1) — use bg-muted. */
+  --surface-sunken: #f2f2f7;
+  /* Glass for the controls that float (tab bar, search circle, mini player, bar-item circles,
+     bottom decision toolbars) — see .mh-chrome below. The fill is opaque enough that the worst
+     case (over a black cover) keeps the tint at 4.75:1 and muted text at 4.49. */
+  --chrome: rgb(255 255 255 / 0.85);
+  --chrome-rim: rgb(0 0 0 / 0.08);
+  --chrome-solid: #f9f9f9;
+  --chrome-shadow: 0 8px 24px rgb(0 0 0 / 0.12);
+  /* The active tab-bar label. It sits on the selection lozenge (foreground at 8%) ON the glass, and
+     the lozenge moves the backdrop toward the tint's own lightness: plain --primary there measured
+     4.48:1 over the album grid and 3.99 worst case (over black). The Increase Contrast green keeps
+     11px text above 4.5 in every case: 4.90 worst. */
+  --tab-active: #005c1a;
+  /* A device-pixel hairline where the screen can draw one. */
+  --hairline: 1px;
+  /* Dynamic Type scale for the iOS text styles below. $lib/dynamic-type.ts measures the iPhone's
+     Text Size setting and overrides this inline on <html>; everywhere else it stays 1. */
+  --mh-dt: 1;
+  /* Native form controls, scrollbars and <select> popups follow this. mode-watcher sets the
+     resolved value inline once it runs, and app.html's first-paint script does the same before
+     hydration; this is the no-JS fallback. */
+  color-scheme: light dark;
 }
 
 .dark {
-  --background: oklch(0.13 0.005 260);
-  --foreground: oklch(0.95 0 0);
-  --card: oklch(0.16 0.005 260);
-  --card-foreground: oklch(0.95 0 0);
-  --popover: oklch(0.18 0.005 260);
-  --popover-foreground: oklch(0.95 0 0);
-  --primary: oklch(0.65 0.2 145);
-  --primary-foreground: oklch(0.13 0.005 260);
-  --secondary: oklch(0.22 0.005 260);
-  --secondary-foreground: oklch(0.85 0 0);
-  --muted: oklch(0.2 0.005 260);
-  --muted-foreground: oklch(0.55 0 0);
-  --accent: oklch(0.24 0.005 260);
-  --accent-foreground: oklch(0.95 0 0);
-  --destructive: oklch(0.55 0.2 25);
-  --destructive-foreground: oklch(0.95 0 0);
-  --border: oklch(0.25 0.005 260);
-  --input: oklch(0.2 0.005 260);
-  --ring: oklch(0.65 0.2 145);
+  color-scheme: dark;
+  --background: #000000;
+  --background-grouped: #000000;
+  --foreground: #ffffff;
+  --card: #1c1c1e;
+  --card-foreground: #ffffff;
+  --card-elevated: #2c2c2e;
+  --sheet: #1c1c1e;
+  --popover: #2c2c2e;
+  --popover-foreground: #ffffff;
+  /* 8.53:1 on black, 6.91 on #1C1C1E, 5.66 on #2C2C2E; black label on the fill 8.53. */
+  --primary: #2fbd55;
+  --primary-foreground: #000000;
+  --secondary: rgb(120 120 128 / 0.32);
+  --secondary-hover: rgb(120 120 128 / 0.4);
+  --secondary-foreground: #ffffff;
+  --muted: rgb(118 118 128 / 0.24);
+  /* 8.16:1 on black, 6.61 on #1C1C1E, 5.42 on #2C2C2E. */
+  --muted-foreground: #a1a1a6;
+  /* 6.44:1 on black, 5.22 on #1C1C1E — but 4.27 on #2C2C2E, so [data-elevated] lifts it. */
+  --muted-foreground-dim: #8e8e93;
+  --accent: rgb(118 118 128 / 0.18);
+  --accent-foreground: #ffffff;
+  --destructive: #cc272e;
+  --destructive-foreground: #ffffff;
+  /* 7.45:1 on black, 6.03 on #1C1C1E, 4.94 on #2C2C2E, 4.64 on the destructive Button's /12
+     tint over #2C2C2E. */
+  --destructive-text: #ff6961;
+  --warning: #ff9f0a;
+  /* 10.22:1 on black, 8.28 on #1C1C1E. */
+  --warning-text: #ff9f0a;
+  --border: #2c2c2e;
+  --separator: rgb(84 84 88 / 0.45);
+  --input: rgb(118 118 128 / 0.24);
+  --switch-off: rgb(120 120 128 / 0.32);
+  /* White label on it 5.99:1. */
+  --segmented-thumb: #636366;
+  --ring: #2fbd55;
   --chart-1: oklch(0.65 0.2 145);
   --chart-2: oklch(0.6 0.15 200);
   --chart-3: oklch(0.55 0.15 280);
   --chart-4: oklch(0.7 0.15 60);
   --chart-5: oklch(0.6 0.18 330);
-  --sidebar: oklch(0.12 0.003 85);
-  --sidebar-foreground: oklch(0.95 0.002 85);
-  --sidebar-primary: oklch(0.65 0.2 145);
-  --sidebar-primary-foreground: oklch(0.13 0.005 260);
-  --sidebar-accent: oklch(0.18 0.003 85);
-  --sidebar-accent-foreground: oklch(0.95 0.002 85);
-  --sidebar-border: oklch(0.22 0.003 85);
-  --sidebar-ring: oklch(0.65 0.2 145);
-  --surface-sunken: oklch(0.1 0.005 260);
+  --sidebar: #1c1c1e;
+  --sidebar-foreground: #ffffff;
+  --sidebar-primary: #2fbd55;
+  --sidebar-primary-foreground: #000000;
+  --sidebar-accent: rgb(118 118 128 / 0.2);
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #2c2c2e;
+  --sidebar-ring: #2fbd55;
+  --surface-sunken: #1c1c1e;
+  /* Over a white cover (worst case): tint 4.81:1, muted 4.60, label 11.84 — without the tab bar's
+     selection lozenge, which lightens the backdrop under the active label (see --tab-active). */
+  --chrome: rgb(28 28 30 / 0.88);
+  --chrome-rim: rgb(255 255 255 / 0.14);
+  --chrome-solid: #1c1c1e;
+  --chrome-shadow: 0 8px 24px rgb(0 0 0 / 0.45);
+  /* Plain --primary on the lozenge measured 4.43:1 over the album grid, 3.75 worst case (over
+     white); the Increase Contrast green is 5.37 worst. */
+  --tab-active: #4ce070;
+}
+
+@media (min-resolution: 2dppx) {
+  :root {
+    --hairline: 0.5px;
+  }
+}
+
+/* Base vs elevated (iOS): a sheet, dialog or popover advances by moving its cells up a step, so a
+   GroupedList inside a BottomSheet needs no prop. Set `data-elevated` on the content root. In dark
+   the tertiary text tier lifts with it: #8E8E93 is 4.27:1 on #2C2C2E, #98989D is 4.85. */
+[data-elevated] {
+  --card: var(--card-elevated);
+}
+.dark [data-elevated],
+.dark[data-elevated] {
+  --muted-foreground-dim: #98989d;
+}
+
+/* Increase Contrast (iOS/macOS Accessibility → Display → Increase Contrast, Windows high contrast
+   reported as prefers-contrast: more). Every opaque text token moves to ≥ 6:1, strokes clear the
+   3:1 non-text floor and the translucent fills gain ×1.8 alpha; the glass surfaces go opaque below.
+   Every token set in :root is restated under .dark, because :root would otherwise win over the
+   base .dark block for a dark-mode page. */
+@media (prefers-contrast: more) {
+  :root {
+    /* 10.94:1 on white, 9.80 on grouped. */
+    --muted-foreground: #3c3c43;
+    /* 9.09:1 on white, 8.15 on grouped. */
+    --muted-foreground-dim: #48484d;
+    /* 3.44:1 against white. */
+    --border: #8a8a8e;
+    --separator: #8a8a8e;
+    /* 8.25:1 on white, 7.39 on grouped; white label 8.25. */
+    --primary: #005c1a;
+    --ring: #005c1a;
+    --sidebar-primary: #005c1a;
+    --sidebar-ring: #005c1a;
+    /* 8.21:1 on white. */
+    --destructive-text: #9f0f1a;
+    /* 7.16:1 on white, 6.42 on grouped. */
+    --warning-text: #a52a00;
+    --secondary: rgb(120 120 128 / 0.29);
+    --secondary-hover: rgb(120 120 128 / 0.43);
+    --muted: rgb(118 118 128 / 0.22);
+    --input: rgb(118 118 128 / 0.22);
+    --accent: rgb(116 116 128 / 0.14);
+    --sidebar-accent: rgb(116 116 128 / 0.18);
+    --switch-off: rgb(120 120 128 / 0.5);
+  }
+  .dark {
+    /* 12.47:1 on black, 8.28 on #2C2C2E. */
+    --muted-foreground: #c7c7cc;
+    /* 9.50:1 on black, 6.30 on #2C2C2E. */
+    --muted-foreground-dim: #aeaeb2;
+    /* 5.05:1 against black, 4.09 against #1C1C1E. */
+    --border: #7c7c80;
+    --separator: #7c7c80;
+    /* 12.20:1 on black, 9.89 on #1C1C1E; black label 12.20. */
+    --primary: #4ce070;
+    --ring: #4ce070;
+    --sidebar-primary: #4ce070;
+    --sidebar-ring: #4ce070;
+    /* 6.11:1 on #2C2C2E. */
+    --destructive-text: #ff8a82;
+    /* 9.54:1 on #1C1C1E. */
+    --warning-text: #ffb340;
+    --secondary: rgb(120 120 128 / 0.58);
+    --secondary-hover: rgb(120 120 128 / 0.72);
+    --muted: rgb(118 118 128 / 0.43);
+    --input: rgb(118 118 128 / 0.43);
+    --accent: rgb(118 118 128 / 0.32);
+    --sidebar-accent: rgb(118 118 128 / 0.36);
+    --switch-off: rgb(120 120 128 / 0.58);
+  }
+  .dark [data-elevated],
+  .dark[data-elevated] {
+    --muted-foreground-dim: #aeaeb2;
+  }
 }
 
 @theme inline {
@@ -112,36 +276,92 @@
      `text-[Npx]` utilities — named here, at the same values, so the surfaces that share
      an idiom can't drift apart: the nav ones (sidebar, mobile bottom bar, section tab
      strip, top bar) plus PageToolbarV2 / FilterChip, which every page's header is now
-     built from. Page *bodies* still use arbitrary sizes. */
+     built from. Page *bodies* still use arbitrary sizes. Desktop keeps these; compact
+     surfaces use the iOS text styles below. */
   --text-nav: 13px; /* sidebar rows, section title, tab labels */
   --text-nav-sm: 12.5px; /* top-bar buttons, filter chips */
   --text-nav-xs: 11px; /* sidebar footer meta */
-  --text-nav-count: 10.5px; /* counts, mobile labels */
-  --text-nav-badge: 10px; /* attention badge, kbd hint */
+  --text-nav-count: 11px; /* counts, mobile tab labels — 11pt is Apple's minimum */
+  --text-nav-badge: 11px; /* attention badge, kbd hint */
+  /* iOS text styles (Large, the default Text Size), each with its own leading and weight. They
+     scale with --mh-dt, the iPhone's Text Size setting, so the installed app honours Dynamic
+     Type; spacing stays px, so the layout does not zoom. No letter-spacing: SF tracks itself at
+     every size. `font-*` and `leading-*` utilities still override the weight and leading.
+     caption-2 does not scale: it is the tab-bar label, which iOS keeps fixed too. Registered
+     with tailwind-merge in $lib/utils.ts, so they are sizes, not colours, to `cn()`. */
+  --text-large-title: calc(34px * var(--mh-dt, 1));
+  --text-large-title--line-height: calc(41px * var(--mh-dt, 1));
+  --text-large-title--font-weight: 700;
+  --text-title-1: calc(28px * var(--mh-dt, 1));
+  --text-title-1--line-height: calc(34px * var(--mh-dt, 1));
+  --text-title-1--font-weight: 700;
+  --text-title-2: calc(22px * var(--mh-dt, 1));
+  --text-title-2--line-height: calc(28px * var(--mh-dt, 1));
+  --text-title-2--font-weight: 700;
+  --text-title-3: calc(20px * var(--mh-dt, 1));
+  --text-title-3--line-height: calc(25px * var(--mh-dt, 1));
+  --text-title-3--font-weight: 600;
+  --text-headline: calc(17px * var(--mh-dt, 1));
+  --text-headline--line-height: calc(22px * var(--mh-dt, 1));
+  --text-headline--font-weight: 600;
+  --text-body: calc(17px * var(--mh-dt, 1));
+  --text-body--line-height: calc(22px * var(--mh-dt, 1));
+  --text-body--font-weight: 400;
+  --text-callout: calc(16px * var(--mh-dt, 1));
+  --text-callout--line-height: calc(21px * var(--mh-dt, 1));
+  --text-callout--font-weight: 400;
+  --text-subheadline: calc(15px * var(--mh-dt, 1));
+  --text-subheadline--line-height: calc(20px * var(--mh-dt, 1));
+  --text-subheadline--font-weight: 400;
+  --text-footnote: calc(13px * var(--mh-dt, 1));
+  --text-footnote--line-height: calc(18px * var(--mh-dt, 1));
+  --text-footnote--font-weight: 400;
+  --text-caption-1: calc(12px * var(--mh-dt, 1));
+  --text-caption-1--line-height: calc(16px * var(--mh-dt, 1));
+  --text-caption-1--font-weight: 500;
+  --text-caption-2: 11px;
+  --text-caption-2--line-height: 13px;
+  --text-caption-2--font-weight: 500;
   --color-background: var(--background);
+  --color-background-grouped: var(--background-grouped);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
+  --color-card-elevated: var(--card-elevated);
+  --color-sheet: var(--sheet);
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
+  --color-secondary-hover: var(--secondary-hover);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
+  --color-muted-foreground-dim: var(--muted-foreground-dim);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-destructive-text: var(--destructive-text);
+  --color-warning: var(--warning);
+  --color-warning-text: var(--warning-text);
+  --color-tab-active: var(--tab-active);
   --color-border: var(--border);
+  --color-separator: var(--separator);
   --color-input: var(--input);
+  --color-switch-off: var(--switch-off);
+  --color-segmented-thumb: var(--segmented-thumb);
   --color-ring: var(--ring);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+  /* sm 6 · md 8 · lg 10 · xl 14 (with --radius 10px). Conventions: 4 inline badges · 6 thumbs
+     ≤56px · 8 grid art · 10 fields/menu items · 14 grouped sections, cards, menus, dialogs · 24
+     sheet top corners (rounded-3xl) · capsule (rounded-full) for text buttons, chips, segmented,
+     search, tab bar, mini player, bar items. */
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -158,12 +378,18 @@
 }
 
 @layer base {
+  /* The default focus outline is the full-strength tint: where it is the only indicator it must
+     clear 3:1 against the page, which a 50% ring (2.2–2.7:1) does not. A translucent halo is only
+     for controls that also draw a solid border-ring edge (Button, Input). */
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border outline-ring;
   }
   html {
     scroll-behavior: smooth;
   }
+  /* This clamp covers CSS transitions and animations only. Svelte's `transition:fly` (and friends)
+     run through the Web Animations API, which it cannot reach: give those `motionFly(...)` from
+     $lib/motion, which drops the travel under Reduce Motion. */
   @media (prefers-reduced-motion: reduce) {
     html {
       scroll-behavior: auto;
@@ -178,6 +404,12 @@
     .animate-pulse,
     [data-loading] {
       animation-duration: revert !important;
+    }
+    /* A crossfade between two static states is the substitute Reduce Motion asks for, not
+       motion to remove. Without this the clamp turns it into a hard pop (e.g. the video backdrop
+       swapping in over the cover art). Only for opacity transitions. */
+    .mh-crossfade {
+      transition-duration: 500ms !important;
     }
   }
   body {
@@ -194,15 +426,125 @@
   }
 }
 
-/* Page content scrolls behind the floating MiniPlayer / mobile bottom nav. Every
-   ScrollArea viewport inside the main content area (marked `data-mh-content` in
-   AppShellV2) reserves the floating-chrome clearance as trailing scroll padding so
-   the last items still clear the bar. Scoped so portaled dialogs / command palette
-   / the sidebar are untouched; resolves to 0 wherever `--mh-content-pad` is unset.
-   Horizontal-only ScrollAreas (the overview's shelves) are skipped: they never scroll
-   vertically, so the clearance would only open a gap under the row. */
+/* Bottom geometry — the one place the floating chrome's sizes live. Set on the Sidebar.Provider
+   wrapper, which holds the content column, the tab bar and the MiniPlayer but none of the
+   portals: SongDetailHost and the dialogs render into <body> and must NOT inherit a clearance meant
+   for the page (LyricsPanel would gain ~170px of padding). AppShellV2 reports what is showing as
+   data attributes on the same element:
+     data-mh-bar     tabs | toolbar | none — who owns the bottom slot on compact (bottomBar store);
+                     the Inbox decision toolbar takes the tab bar's slot at the tab bar's size
+     data-mh-player  1 | 0 — the MiniPlayer is up
+     data-mh-drawer  1 | 0 — the desktop pipeline drawer is open (it pads the inset itself)
+   The tab bar, the decision toolbar and the MiniPlayer all position from these vars, and the ONE
+   rule below derives `--mh-content-pad` from them, so a height changes in one place. The offset
+   sits the bar 10px into the home-indicator inset (as iOS does) but never closer than 8px to the
+   edge; --mh-vv-bottom is the browser's bottom chrome in a tab (0 in the installed app). */
+[data-slot='sidebar-wrapper'] {
+  --mh-tabbar-h: 62px;
+  /* 56px at the default Text Size, growing with Dynamic Type (--mh-dt): its two lines of text
+     (15/20 + 13/18) plus 18px of padding, so a larger setting never presses them to the edges. */
+  --mh-player-h: max(56px, calc(18px + 38px * var(--mh-dt, 1)));
+  --mh-bottom-inset: max(env(safe-area-inset-bottom), var(--mh-vv-bottom, 0px));
+  --mh-tabbar-offset: max(8px, calc(var(--mh-bottom-inset) - 10px));
+  --mh-bar-h: var(--mh-tabbar-h);
+  /* The MiniPlayer docks 8px above whatever owns the bottom slot, or at the offset when nothing does. */
+  --mh-player-bottom: calc(var(--mh-tabbar-offset) + var(--mh-bar-h) + 8px);
+  --mh-player-space: 0px;
+  --mh-content-pad: calc(var(--mh-tabbar-offset) + var(--mh-bar-h) + 16px + var(--mh-player-space));
+}
+[data-slot='sidebar-wrapper'][data-mh-bar='none'] {
+  --mh-bar-h: 0px;
+  --mh-player-bottom: var(--mh-tabbar-offset);
+}
+[data-slot='sidebar-wrapper'][data-mh-player='1'] {
+  --mh-player-space: calc(var(--mh-player-h) + 8px);
+}
+/* md+ has no tab bar: only the centred MiniPlayer (64px at bottom-3) needs clearing, and not while
+   the pipeline drawer is open — the inset already pads for the drawer, which covers the player. */
+@media (width >= 48rem) {
+  [data-slot='sidebar-wrapper'] {
+    --mh-content-pad: 0px;
+  }
+  [data-slot='sidebar-wrapper'][data-mh-player='1']:not([data-mh-drawer='1']) {
+    --mh-content-pad: 88px;
+  }
+}
+
+/* Toasts sit just above the bottom chrome on compact (routes/+layout.svelte), where a top toast
+   would cover the nav bar's Back and More right after an action. Sonner renders at the body,
+   outside the wrapper, so it cannot read `--mh-content-pad`: it gets the same clearance, plus 8px,
+   under its own name, derived from the wrapper's attributes through :has(). Only the (app) shell
+   uses it; the sizes repeat the wrapper's (62px bar, 56px player). */
+:root {
+  --mh-toast-bar: 62px;
+  --mh-toast-player: 0px;
+  --mh-toast-bottom: calc(
+    max(8px, calc(max(env(safe-area-inset-bottom), var(--mh-vv-bottom, 0px)) - 10px)) +
+      var(--mh-toast-bar) + 16px + var(--mh-toast-player) + 8px
+  );
+}
+:root:has([data-slot='sidebar-wrapper'][data-mh-bar='none']) {
+  --mh-toast-bar: 0px;
+}
+:root:has([data-slot='sidebar-wrapper'][data-mh-player='1']) {
+  --mh-toast-player: calc(max(56px, calc(18px + 38px * var(--mh-dt, 1))) + 8px);
+}
+
+/* Page content scrolls behind the floating MiniPlayer / tab bar. Every ScrollArea
+   viewport inside the main content area (marked `data-mh-content` in AppShellV2)
+   reserves the floating-chrome clearance (`--mh-content-pad`, above) as trailing
+   scroll padding so the last items still clear the bar. Scoped so portaled dialogs /
+   command palette / the sidebar are untouched; resolves to 0 wherever
+   `--mh-content-pad` is unset. Horizontal-only ScrollAreas (the overview's shelves)
+   are skipped: they never scroll vertically, so the clearance would only open a gap
+   under the row. */
 [data-mh-content] [data-slot='scroll-area']:not([data-orientation='horizontal']) > .cn-scroll-area-viewport {
   padding-bottom: var(--mh-content-pad, 0px);
+}
+
+/* The glass material, for the controls that float over content ONLY: the tab bar, the search
+   circle, the mini player, the top-bar item circles and the bottom decision toolbars — never
+   cards, rows, menus or content. Always paired with `.mh-glass`, the accessibility hook below.
+   A utility (not a component class) so it takes variants, e.g. `max-md:mh-chrome`. */
+@utility mh-chrome {
+  background: var(--chrome);
+  -webkit-backdrop-filter: blur(24px) saturate(1.5);
+  backdrop-filter: blur(24px) saturate(1.5);
+  box-shadow:
+    inset 0 0 0 0.5px var(--chrome-rim),
+    var(--chrome-shadow);
+  --mh-glass-solid: var(--chrome-solid);
+}
+
+/* Red text on the dark glass (the Inbox decision bar's Reject): #FF6961 measured 4.21:1 with a
+   white cover behind the chrome (the tab bar's worst case), so it takes the Increase Contrast red,
+   5.21:1 there and 7.70 over black. Re-pointed on the chrome, like [data-elevated] lifts the dim
+   tier, so the button keeps using text-destructive-text. Light chrome is fine as is: #B71824 is
+   4.69:1 over a black backdrop. */
+.dark .mh-chrome {
+  --destructive-text: #ff8a82;
+}
+
+/* The floating glass chrome (tab bar, search circle, MiniPlayer, nav-bar circles, the Inbox
+   decision toolbar, the desktop sidebar panel) is translucent + blurred. Reduce Transparency and
+   Increase Contrast both get it solid and bordered. Unlayered on purpose so it beats the Tailwind
+   utilities it overrides (.mh-chrome is one). A surface whose solid colour is not --background
+   sets --mh-glass-solid (the sidebar uses --sidebar; .mh-chrome uses --chrome-solid). */
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .mh-glass,
+  .mh-chrome {
+    background-color: var(--mh-glass-solid, var(--background));
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border-color: var(--border);
+  }
+  /* The chrome draws its edge as an inset shadow rather than a border, so the solid edge goes
+     there too — without it #1C1C1E chrome sits on a black page at 1.23:1. */
+  .mh-chrome {
+    box-shadow:
+      inset 0 0 0 1px var(--border),
+      var(--chrome-shadow);
+  }
 }
 
 /* Keep toasts inside the viewport on narrow screens. svelte-sonner's default

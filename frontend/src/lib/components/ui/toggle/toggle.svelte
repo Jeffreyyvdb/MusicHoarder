@@ -6,12 +6,15 @@
 		variants: {
 			variant: {
 				default: "bg-transparent",
-				outline: "border-input hover:bg-muted border bg-transparent",
+				outline: "border-border hover:bg-muted border bg-transparent",
 				// Apple-Music-style segmented control: pill segments riding inside the
 				// translucent track drawn by ToggleGroup.Root (see toggle-group.svelte).
 				// The selected segment lifts off the track rather than boxing itself in.
+				// Dark keeps a white wash rather than SegmentedControl's solid thumb: this
+				// variant lives over artwork (lyrics views, the share page), where a
+				// translucent segment picks up the cover colour and a grey slab would not.
 				segmented:
-					"rounded-full bg-transparent font-medium text-muted-foreground hover:bg-transparent hover:text-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-[0_1px_2px_rgba(0,0,0,0.1)] aria-pressed:bg-background aria-pressed:text-foreground dark:data-[state=on]:bg-white/[0.14] dark:aria-pressed:bg-white/[0.14] dark:data-[state=on]:shadow-none",
+					"rounded-full bg-transparent font-medium text-muted-foreground hover:bg-transparent hover:text-foreground data-[state=on]:bg-segmented-thumb data-[state=on]:text-foreground data-[state=on]:shadow-[0_1px_2px_rgb(0_0_0/0.12)] aria-pressed:bg-segmented-thumb aria-pressed:text-foreground dark:data-[state=on]:bg-white/[0.14] dark:aria-pressed:bg-white/[0.14] dark:data-[state=on]:shadow-none",
 			},
 			size: {
 				default: "h-8 min-w-8 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",

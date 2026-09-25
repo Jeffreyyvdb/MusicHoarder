@@ -1,17 +1,30 @@
 <script lang="ts">
-  import { History, Loader2, Undo2 } from '@lucide/svelte';
+  import { untrack } from 'svelte';
+  import { Loader2, Undo2 } from '@lucide/svelte';
   import { fetchDedupActions, revertDedupAction, type DedupAction } from '$lib/api-client';
   import { Button } from '$lib/components/ui/button';
+  import * as GroupedList from '$lib/components/ui/grouped-list';
+  import { toast } from 'svelte-sonner';
   import { cn } from '$lib/utils';
+  import { formatDateTime } from '$lib/formatters';
+  import { dedupKey } from './dedup-undo';
+
+  type Props = {
+    /** Bump to reload quietly (after the queue above made or undid a change). */
+    refresh?: number;
+    /** A revert changed the library; the queue above may have a cluster back. */
+    onreverted?: () => void;
+  };
+  const { refresh = 0, onreverted }: Props = $props();
 
   let actions = $state<DedupAction[]>([]);
   let loading = $state(true);
   let error = $state<string | null>(null);
-  let reverting = $state<number | null>(null);
+  let reverting = $state<string | null>(null);
 
-  async function load() {
+  async function load(quiet = false) {
     try {
-      loading = true;
+      if (!quiet) loading = true;
       error = null;
       const res = await fetchDedupActions();
       actions = res.actions ?? [];
@@ -22,17 +35,21 @@
     }
   }
 
+  // The first run loads; every later bump of `refresh` reloads in place.
   $effect(() => {
-    void load();
+    const quiet = refresh > 0;
+    untrack(() => void load(quiet));
   });
 
   async function revert(action: DedupAction) {
     if (reverting != null) return;
     try {
-      reverting = action.batchTicks;
+      reverting = dedupKey(action);
       error = null;
       await revertDedupAction(action.source, action.batchTicks);
-      await load();
+      toast.success(`Reverted the ${(SOURCE_LABELS[action.source] ?? 'change').toLowerCase()}`);
+      await load(true);
+      onreverted?.();
     } catch (err) {
       error = err instanceof Error ? err.message : 'Revert failed';
     } finally {
@@ -47,75 +64,73 @@
     'album-identity-heal': 'Album heal'
   };
 
+  // The app's one date-and-time style ("Sep 12, 2026, 6:51 AM"), as History and Settings use.
   function when(action: DedupAction): string {
-    return new Date(action.createdAtUtc).toLocaleString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    return formatDateTime(action.createdAtUtc);
   }
+
+  const hasAutoHeal = $derived(actions.some((a) => !a.revertible && !a.reverted));
 </script>
 
 {#if !loading && actions.length === 0 && !error}
   <!-- Nothing to show, nothing to say. -->
 {:else}
-  <div class="border-border bg-surface-sunken mt-5 rounded-lg border p-4">
-    <div class="mb-2 flex items-center gap-2">
-      <History class="text-muted-foreground size-4" />
-      <span class="text-[12.5px] font-semibold">Recent dedup actions</span>
-      {#if loading}
-        <Loader2 class="text-muted-foreground size-3.5 animate-spin" />
-      {/if}
-    </div>
+  <GroupedList.Section header="Recent dedup actions">
     {#if error}
-      <p class="text-destructive mb-2 text-[12px]">{error}</p>
+      <p role="alert" class="text-destructive-text text-subheadline px-4 py-3 md:text-sm">
+        {error}
+      </p>
     {/if}
-    <div class="divide-border divide-y">
-      {#each actions as action (action.source + action.batchTicks)}
-        <div class="flex items-start gap-3 py-2">
-          <div class="min-w-0 flex-1">
-            <div class="flex flex-wrap items-center gap-2">
-              <span class="text-[12.5px] font-medium">{SOURCE_LABELS[action.source] ?? action.source}</span>
-              <span class="text-muted-foreground text-[11px]">{when(action)}</span>
-              <span class="text-muted-foreground text-[11px] tabular-nums">
-                {action.songCount} song{action.songCount === 1 ? '' : 's'}
-              </span>
-              {#if action.reverted}
-                <span class="bg-accent text-muted-foreground rounded-sm px-1.5 py-px text-[10px]">reverted</span>
-              {/if}
-            </div>
-            {#if action.highlights.length > 0}
-              <div class={cn('text-muted-foreground mt-0.5 truncate text-[11.5px]', action.reverted && 'line-through opacity-60')}>
-                {action.highlights.join(' · ')}
-              </div>
-            {/if}
-          </div>
+    {#if loading && actions.length === 0}
+      <div class="text-body text-muted-foreground flex min-h-11 items-center gap-2 px-4 md:text-sm">
+        <Loader2 class="size-4 animate-spin" /> Loading…
+      </div>
+    {/if}
+    {#each actions as action (dedupKey(action))}
+      <GroupedList.Row
+        label={SOURCE_LABELS[action.source] ?? action.source}
+        sublabel="{when(action)} · {action.songCount} track{action.songCount === 1
+          ? ''
+          : 's'}{action.reverted ? ' · Reverted' : ''}"
+      >
+        {#if action.highlights.length > 0}
+          <span
+            class={cn(
+              'text-footnote text-muted-foreground mt-0.5 line-clamp-2 md:text-xs',
+              action.reverted && 'line-through'
+            )}
+          >
+            {action.highlights.join(' · ')}
+          </span>
+        {/if}
+        {#snippet trailing()}
           {#if action.revertible}
             <Button
               variant="outline"
               size="sm"
-              class="h-6 shrink-0 px-2 text-[11px]"
+              class="h-11 gap-1.5 rounded-full px-4 text-[15px] md:h-7 md:rounded-lg md:px-2.5 md:text-[12px]"
               disabled={reverting != null}
               onclick={() => revert(action)}
             >
-              {#if reverting === action.batchTicks}
-                <Loader2 class="mr-1 size-3 animate-spin" />
+              {#if reverting === dedupKey(action)}
+                <Loader2 class="size-4 animate-spin md:size-3" />
               {:else}
-                <Undo2 class="mr-1 size-3" />
+                <Undo2 class="size-4 md:size-3" />
               {/if}
               Revert
             </Button>
           {:else if !action.reverted}
-            <span class="text-muted-foreground/70 shrink-0 text-[10.5px]" title="Heals converge automatically — reverting one would just be re-applied by the next pass.">
-              auto-heal
-            </span>
+            <span class="text-footnote text-muted-foreground md:text-[11px]">Auto-heal</span>
           {/if}
-        </div>
-      {/each}
-    </div>
-    <p class="text-muted-foreground mt-2 text-[11px]">
-      Reverting restores the previous tags and re-tags built files in place — nothing is ever deleted.
-    </p>
-  </div>
+        {/snippet}
+      </GroupedList.Row>
+    {/each}
+    {#snippet footer()}
+      <!-- The second sentence is an expression so it keeps its leading space: Svelte trims the
+           whitespace a block starts with, which glued the two sentences together. -->
+      Reverting restores the previous tags and re-tags built files in place — nothing is ever deleted.{hasAutoHeal
+        ? ' Album heals can’t be reverted: they converge on their own, so the next pass would re-apply one.'
+        : ''}
+    {/snippet}
+  </GroupedList.Section>
 {/if}

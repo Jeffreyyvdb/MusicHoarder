@@ -43,6 +43,8 @@ class SidebarState {
 	// Event handler to apply to the `<svelte:window>`
 	handleShortcutKeydown = (e: KeyboardEvent) => {
 		if (e.key === SIDEBAR_KEYBOARD_SHORTCUT && (e.metaKey || e.ctrlKey)) {
+			// Leave the key to the browser where there is no sidebar to toggle (see toggle()).
+			if (this.#isMobile.current) return;
 			e.preventDefault();
 			this.toggle();
 		}
@@ -52,10 +54,12 @@ class SidebarState {
 		this.openMobile = value;
 	};
 
+	// Desktop only. Below md the app has no sidebar at all — the tab bar and each page's nav bar
+	// replaced the off-canvas drawer — so Cmd/Ctrl+B from a hardware keyboard on an iPhone (or an
+	// iPad in a narrow Split View) must not resurrect it.
 	toggle = () => {
-		return this.#isMobile.current
-			? (this.openMobile = !this.openMobile)
-			: this.setOpen(!this.open);
+		if (this.#isMobile.current) return;
+		this.setOpen(!this.open);
 	};
 }
 

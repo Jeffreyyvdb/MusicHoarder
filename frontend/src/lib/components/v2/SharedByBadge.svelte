@@ -29,8 +29,11 @@
 </script>
 
 {#if grantor}
+  <!-- The fill is already translucent (fill-secondary), so no opacity modifier and no stroke. The
+       icon variant still names the grantor to assistive tech; sighted readers get the name in
+       the row's own context (the page subtitle says "Shared by …"). -->
   <span
-    class="border-border/70 bg-secondary/50 text-muted-foreground inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] leading-none {className}"
+    class="bg-secondary text-muted-foreground text-caption-2 inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 leading-none {className}"
     title={label}
   >
     <Users class="size-3 shrink-0" aria-hidden="true" />

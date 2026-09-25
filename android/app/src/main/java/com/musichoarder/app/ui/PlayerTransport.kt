@@ -17,23 +17,22 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.material.icons.rounded.FastRewind
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -48,22 +47,40 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.musichoarder.app.player.PlayerUiState
+import com.musichoarder.app.ui.theme.LocalMhColors
+import com.musichoarder.app.ui.theme.MhColors
+import com.musichoarder.app.ui.theme.MhMenuShape
 import com.musichoarder.app.ui.theme.MhTheme
 import kotlin.math.roundToInt
 
 /**
- * The web's transport, ported: `SongTransport.svelte` + `Scrubber.svelte`.
+ * The web's transport, ported: `SongTransport.svelte` + `Scrubber.svelte`, in the iOS Now Playing
+ * shape both clients now share.
  *
- * A hairline scrubber over one row — `ghost · 0:10 · ⏪ ▶ ⏩ · 2:54 · 1×`. The glyphs are naked and
- * filled, with no disc and no hover wash (a translucent circle reads as a smudge on dark artwork);
- * the press feedback is a scale on the glyph itself. The ghost on the left is the same width as the
- * speed label on the right, which is what keeps the play button on the screen's centre line.
+ * The scrubber, then the times UNDER it — elapsed at the leading end, time remaining (`−2:04`) at
+ * the trailing end, and a speed capsule between them only while the song is not at 1× — then
+ * previous / play-pause / next spread evenly across the width at 56 / 72 / 56dp. The glyphs are
+ * naked and filled, with no disc and no ripple (a translucent circle reads as a smudge on dark
+ * artwork); the press feedback is a scale on the glyph itself. The row is symmetric, which is what
+ * keeps the play button on the screen's centre line.
+ *
+ * [menuColors] is the palette the speed menu opens in: the player's popups keep the plain dark
+ * tokens on their solid surface rather than its white-on-cover media appearance.
  */
 @Composable
 fun PlayerTransport(
@@ -74,9 +91,8 @@ fun PlayerTransport(
     onSeek: (Long) -> Unit,
     onSetSpeed: (Float) -> Unit,
     modifier: Modifier = Modifier,
-    /** The fullscreen-lyrics footer: scrubber and one big play button, no queue navigation. */
-    minimal: Boolean = false,
     onSurface: Boolean = false,
+    menuColors: MhColors? = null,
 ) {
     val colors = MhTheme.colors
 
@@ -95,16 +111,18 @@ fun PlayerTransport(
     }
     val shownPositionMs =
         if (isScrubbing && hasDuration) (scrubFraction * state.durationMs).toLong() else state.positionMs
+    val remainingMs = (state.durationMs - shownPositionMs).coerceAtLeast(0)
 
     val timeStyle = legible(
-        MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = TABULAR_FIGURES),
+        MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = TABULAR_FIGURES),
         onSurface,
     )
-    val timeColor = colors.mutedForeground
 
     Column(modifier = modifier.fillMaxWidth()) {
         MhScrubber(
             fraction = playedFraction,
+            positionMs = shownPositionMs,
+            durationMs = state.durationMs,
             enabled = hasDuration,
             onScrub = { fraction ->
                 isScrubbing = true
@@ -116,78 +134,89 @@ fun PlayerTransport(
             },
         )
 
-        Spacer(Modifier.height(if (minimal) 4.dp else 6.dp))
-
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                // The bar sits in the middle of its 48dp touch strip, which would leave the times
+                // 22dp under it; tuck them up into the strip's lower half (the web's `mt-1.5`). The
+                // strip still takes the touches there — plain text has no pointer input to steal it.
+                .pullUp(TIMES_PULL_UP),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(if (minimal) 4.dp else 12.dp),
         ) {
-            // Mirrors the speed control on the right so the play glyph stays centred.
-            Spacer(Modifier.width(SPEED_WIDTH))
             Text(
                 text = formatDuration(shownPositionMs),
                 style = timeStyle,
-                color = timeColor,
-                textAlign = TextAlign.End,
-                modifier = Modifier.width(TIME_WIDTH),
-            )
-
-            Row(
+                color = colors.mutedForeground,
                 modifier = Modifier.weight(1f),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (!minimal) {
-                    TransportGlyph(
-                        icon = Icons.Rounded.FastRewind,
-                        contentDescription = "Previous track",
-                        hitSize = 36.dp,
-                        glyphSize = 22.dp,
-                        enabled = state.hasPrevious,
-                        onClick = onPrevious,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                }
-                PlayGlyph(
-                    isPlaying = state.isPlaying,
-                    isBuffering = state.isBuffering,
-                    hitSize = if (minimal) 48.dp else 44.dp,
-                    glyphSize = if (minimal) 32.dp else 28.dp,
-                    onClick = onPlayPause,
-                )
-                if (!minimal) {
-                    Spacer(Modifier.width(8.dp))
-                    TransportGlyph(
-                        icon = Icons.Rounded.FastForward,
-                        contentDescription = "Next track",
-                        hitSize = 36.dp,
-                        glyphSize = 22.dp,
-                        enabled = state.hasNext,
-                        onClick = onNext,
-                    )
-                }
-            }
-
-            Text(
-                text = if (hasDuration) formatDuration(state.durationMs) else "--:--",
-                style = timeStyle,
-                color = timeColor,
-                modifier = Modifier.width(TIME_WIDTH),
             )
-            PlayerSpeedControl(rate = state.playbackRate, onSetSpeed = onSetSpeed)
+            // Only while it says something: at 1× the speed lives in the ⋮ menu, as on the web.
+            if (!isNormalRate(state.playbackRate)) {
+                PlayerSpeedCapsule(rate = state.playbackRate, onSetSpeed = onSetSpeed, menuColors = menuColors)
+            }
+            Text(
+                // U+2212, the web's minus: a hyphen sits too high and too short next to the digits.
+                text = if (hasDuration) "\u2212${formatDuration(remainingMs)}" else "--:--",
+                style = timeStyle,
+                color = colors.mutedForeground,
+                textAlign = TextAlign.End,
+                modifier = Modifier
+                    .weight(1f)
+                    .semantics {
+                        contentDescription =
+                            if (hasDuration) "${formatDuration(remainingMs)} remaining" else "Length unknown"
+                    },
+            )
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TransportGlyph(
+                icon = Icons.Rounded.FastRewind,
+                contentDescription = "Previous track",
+                hitSize = 56.dp,
+                glyphSize = 36.dp,
+                // Never off while a song is loaded: at the top of the queue Previous restarts it
+                // (`seekToPrevious`), the rule both clients now share.
+                enabled = state.isActive,
+                onClick = onPrevious,
+            )
+            PlayGlyph(
+                isPlaying = state.isPlaying,
+                isBuffering = state.isBuffering,
+                hitSize = 72.dp,
+                glyphSize = 48.dp,
+                onClick = onPlayPause,
+            )
+            TransportGlyph(
+                icon = Icons.Rounded.FastForward,
+                contentDescription = "Next track",
+                hitSize = 56.dp,
+                glyphSize = 36.dp,
+                enabled = state.hasNext,
+                onClick = onNext,
+            )
         }
     }
 }
 
 /**
- * The honest Apple-Music-style scrubber: a 3dp hairline capsule that thickens under a finger, a
- * `primary` fill, and no thumb. Tap anywhere to seek, drag to scrub — one gesture loop handles
- * both, since a tap is just a drag that never moved.
+ * The honest Apple-Music-style scrubber: a 4dp capsule that grows to 8dp under a finger, filled in
+ * the label colour, and no thumb — the finger is the thumb and the bar's growth is the feedback.
+ * Apple fills progress with the text colour rather than the tint, which stays for things you tap;
+ * the web's scrubber made the same move. Tap anywhere to seek, drag to scrub — one gesture loop
+ * handles both, since a tap is just a drag that never moved.
  */
 @Composable
 private fun MhScrubber(
     fraction: Float,
+    /** For [stateDescription] only — `onScrub`/`onScrubEnd` already work in [fraction]. */
+    positionMs: Long,
+    durationMs: Long,
     enabled: Boolean,
     onScrub: (Float) -> Unit,
     onScrubEnd: () -> Unit,
@@ -196,7 +225,7 @@ private fun MhScrubber(
     val colors = MhTheme.colors
     var isPressed by remember { mutableStateOf(false) }
     val trackHeight by animateDpAsState(
-        targetValue = if (isPressed) 7.dp else 3.dp,
+        targetValue = if (isPressed) 8.dp else 4.dp,
         animationSpec = tween(durationMillis = 150),
         label = "scrubber-height",
     )
@@ -211,7 +240,27 @@ private fun MhScrubber(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(16.dp)
+            // Visually a 4-8dp capsule, but the drag target itself must clear Material's 48dp
+            // touch minimum — the web's equivalent shipped at 16px and that was a Critical finding.
+            .heightIn(min = 48.dp)
+            // TalkBack gets no semantics at all without this — worse than the web's own gap (F09:
+            // its hand-rolled sliders announce a bare percentage). Read a time, not a fraction, to
+            // match the web's aria-valuetext fix; `setProgress` lets a two-finger swipe seek too.
+            .semantics(mergeDescendants = true) {
+                contentDescription = "Seek"
+                if (enabled) {
+                    progressBarRangeInfo = ProgressBarRangeInfo(current = fraction, range = 0f..1f)
+                    stateDescription = "${formatDuration(positionMs)} of ${formatDuration(durationMs)}"
+                    setProgress { target ->
+                        val clamped = target.coerceIn(0f, 1f)
+                        onScrub(clamped)
+                        onScrubEnd()
+                        true
+                    }
+                } else {
+                    disabled()
+                }
+            }
             .pointerInput(enabled) {
                 if (!enabled) return@pointerInput
                 awaitEachGesture {
@@ -235,65 +284,94 @@ private fun MhScrubber(
                 .fillMaxWidth()
                 .height(trackHeight)
                 .clip(CircleShape)
-                .background(colors.foreground.copy(alpha = 0.2f)),
+                // `bg-foreground/25` — white over the player's dimmed wash, the one surface this
+                // bar sits on.
+                .background(colors.foreground.copy(alpha = 0.25f)),
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(fraction)
-                    .fillMaxHeight()
-                    .clip(CircleShape)
-                    .background(if (enabled) colors.primary else colors.foreground.copy(alpha = 0.2f)),
-            )
+            if (enabled) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(fraction)
+                        .fillMaxHeight()
+                        .clip(CircleShape)
+                        .background(colors.foreground),
+                )
+            }
         }
     }
 }
 
-/** The quiet tabular speed label at the row's edge; muted at 1x, `primary` at anything else. */
+/**
+ * The speed capsule between the times — only up while a non-1× speed is on, and a tap on it opens
+ * the presets, so turning a slowed practice run back to normal is one tap from where it shows.
+ * `bg-primary/15 text-primary` on the web, which inside the player is white.
+ */
 @Composable
-private fun PlayerSpeedControl(rate: Float, onSetSpeed: (Float) -> Unit) {
+private fun PlayerSpeedCapsule(rate: Float, onSetSpeed: (Float) -> Unit, menuColors: MhColors?) {
     val colors = MhTheme.colors
     var expanded by remember { mutableStateOf(false) }
 
     Box {
         Text(
             text = "${formatRate(rate)}×",
-            style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = TABULAR_FIGURES),
-            fontWeight = FontWeight.Medium,
-            color = if (isNormalRate(rate)) colors.mutedForeground.copy(alpha = 0.5f) else colors.primary,
-            textAlign = TextAlign.End,
+            style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = TABULAR_FIGURES),
+            fontWeight = FontWeight.SemiBold,
+            color = colors.primary,
             modifier = Modifier
-                .width(SPEED_WIDTH)
                 .clip(CircleShape)
-                .clickable { expanded = true }
-                .padding(vertical = 6.dp),
+                .background(colors.primary.copy(alpha = 0.15f))
+                // A 22dp capsule; Compose widens a small touch target to the 48dp minimum on its
+                // own, so the hit area grows without the row between the times growing with it.
+                .clickable(onClickLabel = "Change playback speed", role = Role.Button) { expanded = true }
+                .semantics { contentDescription = "Playback speed, ${speedLabel(rate)}" }
+                .padding(horizontal = 8.dp, vertical = 3.dp),
         )
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            SPEED_OPTIONS.forEach { option ->
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            if (isNormalRate(option)) "Normal" else "${formatRate(option)}×",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = colors.foreground,
-                        )
-                    },
-                    trailingIcon = {
-                        if (formatRate(option) == formatRate(rate)) {
-                            Icon(
-                                Icons.Rounded.Check,
-                                contentDescription = null,
-                                tint = colors.mutedForeground,
-                                modifier = Modifier.size(14.dp),
-                            )
-                        }
-                    },
-                    onClick = {
-                        expanded = false
-                        onSetSpeed(option)
-                    },
-                )
-            }
+        PlaybackSpeedMenu(
+            expanded = expanded,
+            rate = rate,
+            onSetSpeed = onSetSpeed,
+            onDismiss = { expanded = false },
+            menuColors = menuColors ?: colors,
+        )
+    }
+}
+
+/** The presets as a menu of their own — the capsule's, anchored where it sits. */
+@Composable
+private fun PlaybackSpeedMenu(
+    expanded: Boolean,
+    rate: Float,
+    onSetSpeed: (Float) -> Unit,
+    onDismiss: () -> Unit,
+    menuColors: MhColors,
+) {
+    CompositionLocalProvider(LocalMhColors provides menuColors) {
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = onDismiss,
+            shape = MhMenuShape,
+            containerColor = menuColors.popover,
+        ) {
+            PlaybackSpeedItems(rate = rate, onSetSpeed = onSetSpeed, close = onDismiss)
         }
+    }
+}
+
+/**
+ * The eight presets as menu rows, "Normal" at 1× and a check on the current one — shared by the
+ * capsule's menu and the player's ⋮ › Playback speed page, so the two cannot drift.
+ */
+@Composable
+fun PlaybackSpeedItems(rate: Float, onSetSpeed: (Float) -> Unit, close: () -> Unit) {
+    SPEED_OPTIONS.forEach { option ->
+        MhMenuCheckItem(
+            label = speedLabel(option),
+            checked = formatRate(option) == formatRate(rate),
+            onClick = {
+                close()
+                onSetSpeed(option)
+            },
+        )
     }
 }
 
@@ -307,7 +385,11 @@ private fun PlayGlyph(
 ) {
     val colors = MhTheme.colors
     if (isBuffering && !isPlaying) {
-        Box(modifier = Modifier.size(hitSize), contentAlignment = Alignment.Center) {
+        // Named, as the mini player's is: a bare spinner reads as nothing to TalkBack.
+        Box(
+            modifier = Modifier.size(hitSize).semantics { contentDescription = "Loading" },
+            contentAlignment = Alignment.Center,
+        ) {
             CircularProgressIndicator(
                 modifier = Modifier.size(glyphSize * 0.7f),
                 strokeWidth = 2.5.dp,
@@ -372,10 +454,19 @@ private fun TransportGlyph(
 private val SPEED_OPTIONS = listOf(0.5f, 0.65f, 0.75f, 0.85f, 1f, 1.1f, 1.25f, 1.5f)
 
 private const val TABULAR_FIGURES = "tnum"
-private val TIME_WIDTH = 40.dp
-private val SPEED_WIDTH = 32.dp
+private val TIMES_PULL_UP = 10.dp
 
-private fun isNormalRate(rate: Float) = (rate - 1f) in -0.001f..0.001f
+/** Moves the content up by [by] and gives that much height back, so what follows moves up too. */
+private fun Modifier.pullUp(by: Dp): Modifier = layout { measurable, constraints ->
+    val placeable = measurable.measure(constraints)
+    val pull = by.roundToPx()
+    layout(placeable.width, (placeable.height - pull).coerceAtLeast(0)) { placeable.place(0, -pull) }
+}
+
+internal fun isNormalRate(rate: Float) = (rate - 1f) in -0.001f..0.001f
+
+/** "Normal" at 1×, the menu's word for it on both clients; "1.25×" otherwise. */
+internal fun speedLabel(rate: Float) = if (isNormalRate(rate)) "Normal" else "${formatRate(rate)}×"
 
 /** `1×`, `1.25×`, `0.65×` — no trailing zero on a whole rate, matching the web's label. */
 internal fun formatRate(rate: Float): String {

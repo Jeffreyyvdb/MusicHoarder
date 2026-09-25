@@ -2,8 +2,10 @@ package com.musichoarder.app.data
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.decodeFromStream
 import kotlinx.serialization.json.put
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Interceptor
@@ -13,6 +15,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.IOException
+import java.io.InputStream
 import java.net.URLEncoder
 
 /** Thrown when a call needs a pairing this phone does not have (yet). */
@@ -58,6 +61,7 @@ class AuthInterceptor(private val sessions: SessionStore) : Interceptor {
  * Talks to a MusicHoarder deployment through the frontend's same-origin `/api/mh` proxy — the exact
  * surface the web app uses, so nothing new has to be exposed for the phone.
  */
+@OptIn(ExperimentalSerializationApi::class) // decodeFromStream; see execute()
 class MusicHoarderApi(
     private val client: OkHttpClient,
     private val sessions: SessionStore,
@@ -89,7 +93,7 @@ class MusicHoarderApi(
             .apply { candidate?.let { header("Authorization", "Bearer ${it.token}") } }
             .get()
             .build()
-        execute(request) { json.decodeFromString<AuthMe>(it) }
+        execute(request) { json.decodeFromStream<AuthMe>(it) }
     }
 
     /**
@@ -109,7 +113,7 @@ class MusicHoarderApi(
                 .header("Origin", baseUrl)
                 .post(body)
                 .build()
-            execute(request) { json.decodeFromString<RequestLinkResponse>(it) }
+            execute(request) { json.decodeFromStream<RequestLinkResponse>(it) }
         }
 
     /**
@@ -123,7 +127,7 @@ class MusicHoarderApi(
                 .url("$baseUrl$API_PREFIX/api/auth/token")
                 .post(body)
                 .build()
-            execute(request) { json.decodeFromString<AccessTokenResponse>(it).accessToken }
+            execute(request) { json.decodeFromStream<AccessTokenResponse>(it).accessToken }
         }
 
     /**
@@ -136,7 +140,7 @@ class MusicHoarderApi(
                 .url("$baseUrl$API_PREFIX/api/auth/webauthn/authenticate/native/begin")
                 .post(EMPTY_JSON_BODY)
                 .build()
-            execute(request) { json.decodeFromString<PasskeyChallengeResponse>(it) }
+            execute(request) { json.decodeFromStream<PasskeyChallengeResponse>(it) }
         }
 
     /**
@@ -154,12 +158,12 @@ class MusicHoarderApi(
                 .url("$baseUrl$API_PREFIX/api/auth/webauthn/authenticate/native/complete")
                 .post(body)
                 .build()
-            execute(request) { json.decodeFromString<AccessTokenResponse>(it).accessToken }
+            execute(request) { json.decodeFromStream<AccessTokenResponse>(it).accessToken }
         }
 
     /** The whole library: your own rows plus anything shared with you, and who shared it. */
     suspend fun fetchSongs(): SongsResponse =
-        get(ApiRoutes.songs()) { json.decodeFromString<SongsResponse>(it) }
+        get(ApiRoutes.songs()) { json.decodeFromStream<SongsResponse>(it) }
 
     /**
      * The album cards. Fetched alongside the library dump rather than derived from it: grouping
@@ -171,7 +175,7 @@ class MusicHoarderApi(
      */
     suspend fun fetchAlbums(): List<AlbumSummaryDto>? =
         try {
-            get(ApiRoutes.albums()) { json.decodeFromString<AlbumsResponse>(it).albums }
+            get(ApiRoutes.albums()) { json.decodeFromStream<AlbumsResponse>(it).albums }
         } catch (e: ApiException) {
             if (e.status == 404) null else throw e
         }
@@ -189,7 +193,7 @@ class MusicHoarderApi(
     suspend fun fetchRadio(seedSongId: Int, exclude: List<Int>, limit: Int = 20): List<Int> =
         try {
             get(ApiRoutes.radio(seedSongId, exclude, limit)) {
-                json.decodeFromString<RadioResponse>(it).songIds
+                json.decodeFromStream<RadioResponse>(it).songIds
             }
         } catch (e: ApiException) {
             if (e.status == 404) emptyList() else throw e
@@ -200,12 +204,12 @@ class MusicHoarderApi(
      * text in particular is large, and most songs never have their lyrics opened.
      */
     suspend fun fetchLyrics(songId: Int): Lyrics =
-        get(ApiRoutes.lyrics(songId)) { json.decodeFromString<LyricsResponse>(it).toLyrics() }
+        get(ApiRoutes.lyrics(songId)) { json.decodeFromStream<LyricsResponse>(it).toLyrics() }
 
     /** Null when the song has no music video attached (the endpoint 404s, which is the common case). */
     suspend fun fetchVideoInfo(songId: Int): VideoInfo? =
         try {
-            get(ApiRoutes.video(songId)) { json.decodeFromString<VideoInfo>(it) }
+            get(ApiRoutes.video(songId)) { json.decodeFromStream<VideoInfo>(it) }
         } catch (e: ApiException) {
             if (e.status == 404) null else throw e
         }
@@ -230,7 +234,7 @@ class MusicHoarderApi(
             .url(url(ApiRoutes.like(songId)))
             .apply { if (liked) post(EMPTY_BODY) else delete() }
             .build()
-        execute(request) { json.decodeFromString<LikeResponse>(it).likedAtUtc }
+        execute(request) { json.decodeFromStream<LikeResponse>(it).likedAtUtc }
     }
 
     /**
@@ -246,7 +250,7 @@ class MusicHoarderApi(
                 .post(body)
                 .build()
             execute(request) { payload ->
-                json.decodeFromString<List<AlbumStatusResponse>>(payload).associate { row ->
+                json.decodeFromStream<List<AlbumStatusResponse>>(payload).associate { row ->
                     "${row.artist.lowercase()}::${row.album.lowercase()}" to
                         AlbumStatus(row.status, row.providers, row.verdict)
                 }
@@ -266,7 +270,7 @@ class MusicHoarderApi(
     /** The share's playable tracklist + display metadata. [ApiException] 404 = revoked/unknown. */
     suspend fun fetchShare(link: ShareLink): SharePayload = withContext(Dispatchers.IO) {
         val request = Request.Builder().url(shareUrl(link)).get().build()
-        execute(request) { json.decodeFromString<SharePayload>(it) }
+        execute(request) { json.decodeFromStream<SharePayload>(it) }
     }
 
     fun shareStreamUrl(link: ShareLink, songId: Int): String = shareUrl(link, "/songs/$songId/stream")
@@ -276,7 +280,30 @@ class MusicHoarderApi(
 
     suspend fun fetchShareLyrics(link: ShareLink, songId: Int): Lyrics = withContext(Dispatchers.IO) {
         val request = Request.Builder().url(shareUrl(link, "/songs/$songId/lyrics")).get().build()
-        execute(request) { json.decodeFromString<LyricsResponse>(it).toLyrics() }
+        execute(request) { json.decodeFromStream<LyricsResponse>(it).toLyrics() }
+    }
+
+    /**
+     * Counts this open on the link owner's Share links page — the native twin of the web share
+     * page's beacon. Best effort: a failure costs one uncounted visit and nothing else. The server
+     * drops the owner's own opens (the paired bearer rides along when the link is on this server).
+     */
+    suspend fun reportShareVisit(link: ShareLink) {
+        runCatching {
+            withContext(Dispatchers.IO) {
+                val body = "{}".toRequestBody(JSON_MEDIA_TYPE)
+                execute(Request.Builder().url(shareUrl(link, "/visit")).post(body).build()) { }
+            }
+        }
+    }
+
+    /** Counts a shared track starting to play, for the same page. Best effort. */
+    suspend fun reportSharePlay(link: ShareLink, songId: Int) {
+        runCatching {
+            withContext(Dispatchers.IO) {
+                execute(Request.Builder().url(shareUrl(link, "/songs/$songId/play")).post(EMPTY_BODY).build()) { }
+            }
+        }
     }
 
     private fun shareUrl(link: ShareLink, path: String = ""): String =
@@ -290,7 +317,7 @@ class MusicHoarderApi(
             .url("${link.origin}$API_PREFIX/api/invite/${URLEncoder.encode(link.token, "UTF-8")}")
             .get()
             .build()
-        execute(request) { json.decodeFromString<InvitePeek>(it) }
+        execute(request) { json.decodeFromStream<InvitePeek>(it) }
     }
 
     /**
@@ -303,10 +330,10 @@ class MusicHoarderApi(
             .url("${link.origin}$API_PREFIX/api/invite/accept-token")
             .post(body)
             .build()
-        execute(request) { json.decodeFromString<AccessTokenResponse>(it).accessToken }
+        execute(request) { json.decodeFromStream<AccessTokenResponse>(it).accessToken }
     }
 
-    private suspend fun <T> get(path: String, parse: (String) -> T): T = withContext(Dispatchers.IO) {
+    private suspend fun <T> get(path: String, parse: (InputStream) -> T): T = withContext(Dispatchers.IO) {
         execute(Request.Builder().url(url(path)).get().build()) { parse(it) }
     }
 
@@ -314,14 +341,18 @@ class MusicHoarderApi(
         execute(Request.Builder().url(url(path)).post(EMPTY_BODY).build()) { }
     }
 
-    private fun <T> execute(request: Request, parse: (String) -> T): T =
+    private fun <T> execute(request: Request, parse: (InputStream) -> T): T =
         client.newCall(request).execute().use { response ->
             // Only 401 means the token itself is dead. A 403 is an authorization answer about
             // THIS request (e.g. the server's friend/demo read-only middlewares) — treating it
             // as a revoked pairing used to silently unpair the phone over a single denied call.
             if (response.code == 401) throw UnauthorizedException()
             if (!response.isSuccessful) throw ApiException(response.code, "Request failed: ${response.code}")
-            parse(response.body.string())
+            // Parsed straight off the socket, never read into one String first. The library dump
+            // (`/songs`) passes 100 MB on a large library; as a String that is twice its size again,
+            // on top of the buffered bytes — more than the app's whole heap, so the app died on
+            // every start. Streamed, only the fields the DTOs keep are ever held.
+            parse(response.body.byteStream())
         }
 
     companion object {

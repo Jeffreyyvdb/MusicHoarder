@@ -13,7 +13,7 @@
 
 <SeoHead title={`${page.title} · MusicHoarder`} description={page.description} path={page.path} />
 
-<main class="bg-background text-foreground min-h-screen overflow-x-hidden pb-4">
+<main class="bg-background text-foreground min-h-dvh overflow-x-hidden pb-4">
   <LandingNav />
 
   <article class="mx-auto max-w-[760px] px-6 py-10 md:px-14 md:py-14">
@@ -70,7 +70,8 @@
       <a
         href={markdownPath}
         data-sveltekit-reload
-        class="hover:text-foreground underline underline-offset-2">read as markdown</a
+        class="hover:text-foreground inline-block underline underline-offset-2 pointer-coarse:py-3"
+        >read as markdown</a
       >
     </p>
   </article>

@@ -1,9 +1,20 @@
 <script lang="ts">
-  import { TrendingUp, TrendingDown, Camera, Minus, GitCompareArrows } from '@lucide/svelte';
+  import {
+    Camera,
+    ChevronRight,
+    ChevronsUpDown,
+    Loader2,
+    Minus,
+    TrendingDown,
+    TrendingUp,
+    TriangleAlert
+  } from '@lucide/svelte';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import { Button } from '$lib/components/ui/button';
   import { Skeleton } from '$lib/components/ui/skeleton';
+  import * as GroupedList from '$lib/components/ui/grouped-list';
   import Sparkline from '$lib/components/performance/Sparkline.svelte';
+  import { describeSeriesDelta } from '$lib/components/performance/delta';
   import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
   import {
     fetchSnapshots,
@@ -14,6 +25,7 @@
     type SnapshotDetail,
     type SnapshotCompare
   } from '$lib/api-client';
+  import { cn } from '$lib/utils';
 
   let snapshots = $state<SnapshotSummary[]>([]);
   let loading = $state(true);
@@ -22,6 +34,7 @@
 
   let detailId = $state<number | null>(null);
   let detail = $state<SnapshotDetail | null>(null);
+  let detailError = $state(false);
 
   let fromId = $state<number | null>(null);
   let toId = $state<number | null>(null);
@@ -58,15 +71,17 @@
   }
 
   async function openDetail(id: number) {
+    // Clear the previous row's diff first, or the newly opened row shows it until the fetch
+    // returns; and only the latest request may land, so a slow earlier one cannot overwrite it.
+    detail = null;
+    detailError = false;
     detailId = detailId === id ? null : id;
-    if (detailId == null) {
-      detail = null;
-      return;
-    }
+    if (detailId == null) return;
     try {
-      detail = await fetchSnapshot(id);
+      const result = await fetchSnapshot(id);
+      if (detailId === id) detail = result;
     } catch {
-      detail = null;
+      if (detailId === id) detailError = true;
     }
   }
 
@@ -108,116 +123,179 @@
     return Math.round(v).toString();
   }
 
+  // `higherIsBetter` is each chart's polarity: a rise in Match rate is good news, a rise in Failed
+  // is bad news, and the delta line says which in words as well as colour.
   const charts = $derived([
-    { title: 'Match rate', series: matchRateSeries, color: 'var(--color-primary)', format: pct, yMin: 0, yMax: 100 },
-    { title: 'Avg AI score', series: avgAiSeries, color: 'var(--chart-3)', format: score, yMin: 0, yMax: 100 },
-    { title: 'Needs review', series: needsReviewSeries, color: 'var(--chart-4)', format: count, yMin: 0 },
-    { title: 'Failed', series: failedSeries, color: 'var(--color-destructive)', format: count, yMin: 0 },
-    { title: 'Avg match confidence', series: confidenceSeries, color: 'var(--chart-2)', format: pct, yMin: 0, yMax: 100 }
+    { title: 'Match rate', series: matchRateSeries, color: 'var(--color-primary)', format: pct, yMin: 0, yMax: 100, higherIsBetter: true },
+    { title: 'Avg AI score', series: avgAiSeries, color: 'var(--chart-3)', format: score, yMin: 0, yMax: 100, higherIsBetter: true },
+    // Not --chart-4: that amber is 3.22:1 on the light page, under the 3:1-plus-margin a thin
+    // 0.8-unit line needs. --chart-5 is 5.07:1 light and unused by the other four series.
+    { title: 'Needs review', series: needsReviewSeries, color: 'var(--chart-5)', format: count, yMin: 0, higherIsBetter: false },
+    { title: 'Failed', series: failedSeries, color: 'var(--color-destructive)', format: count, yMin: 0, higherIsBetter: false },
+    { title: 'Avg match confidence', series: confidenceSeries, color: 'var(--chart-2)', format: pct, yMin: 0, yMax: 100, higherIsBetter: true }
   ]);
 
-  function statusClass(status: string): string {
-    switch (status) {
-      case 'Matched':
-        return 'text-emerald-500';
-      case 'NeedsReview':
-        return 'text-amber-500';
-      case 'Failed':
-        return 'text-red-500';
-      default:
-        return 'text-muted-foreground';
-    }
+  /** "EnrichmentRun" → "Enrichment run": the capture trigger as a sentence-case word. */
+  function triggerWord(s: SnapshotSummary): string {
+    if (s.triggerLabel) return s.triggerLabel;
+    const spaced = s.trigger.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
+    return spaced.charAt(0).toUpperCase() + spaced.slice(1);
   }
+
+  function snapshotLabel(id: number | null): string {
+    const s = snapshots.find((x) => x.id === id);
+    return s ? `${fmtShort(s.capturedAtUtc)} · ${s.version ?? 'dev'}` : 'Choose';
+  }
+
+  // A pop-up button in a list row, iOS-style: the row shows the choice, and a transparent native
+  // <select> laid over the whole row opens the system picker (the wheel on an iPhone). 16px, so
+  // focusing it never zooms the page.
+  const OVERLAY_SELECT =
+    'absolute inset-0 h-full w-full cursor-pointer appearance-none opacity-0 text-base';
 </script>
 
-<div class="flex min-h-0 flex-1 flex-col">
-  <PageToolbarV2
-    icon={TrendingUp}
-    title="Pipeline performance"
-    meta={loading
-      ? undefined
-      : `${snapshots.length.toLocaleString()} version${snapshots.length === 1 ? '' : 's'} captured`}
+{#snippet versionPicker(label: string, aria: string, value: number | null, onpick: (id: number) => void)}
+  <GroupedList.Row
+    {label}
+    class="hover:bg-accent has-[select:focus-visible]:ring-ring/50 has-[select:focus-visible]:ring-3 has-[select:focus-visible]:ring-inset"
   >
-    {#snippet actions()}
-      <Button
-        onclick={capture}
-        disabled={capturing}
-        variant="outline"
-        size="sm"
-        class="h-8 shrink-0 gap-1.5 px-2.5"
+    {#snippet trailing()}
+      <span class="text-body text-muted-foreground flex min-w-0 items-center gap-1 md:text-sm">
+        <span class="truncate tabular-nums">{snapshotLabel(value)}</span>
+        <ChevronsUpDown class="size-4 shrink-0" aria-hidden="true" />
+      </span>
+      <select
+        class={OVERLAY_SELECT}
+        aria-label={aria}
+        value={value ?? undefined}
+        onchange={(e) => onpick(Number(e.currentTarget.value))}
       >
-        <Camera class="size-4" />
-        <span class="text-nav-sm hidden sm:inline">{capturing ? 'Capturing…' : 'Capture now'}</span>
-      </Button>
+        {#each snapshots as s (s.id)}
+          <option value={s.id}
+            >{fmtShort(s.capturedAtUtc)} · {s.version ?? 'dev'} · {s.configHash.slice(0, 8)}</option
+          >
+        {/each}
+      </select>
     {/snippet}
-  </PageToolbarV2>
+  </GroupedList.Row>
+{/snippet}
 
+{#snippet songList(title: string, rows: SnapshotCompare['regressed'], total: number, worse: boolean, footer?: string)}
+  <GroupedList.Section headingLevel={2} {footer} class="min-w-0">
+    {#snippet header()}
+      <span class="inline-flex items-center gap-1.5">
+        {#if worse}
+          <TrendingDown class="text-destructive-text size-3.5" aria-hidden="true" />
+        {:else}
+          <TrendingUp class="text-primary size-3.5" aria-hidden="true" />
+        {/if}
+        {title} · <span class="tabular-nums">{total.toLocaleString()}</span>
+      </span>
+    {/snippet}
+    {#if rows.length === 0}
+      <p class="text-body text-muted-foreground px-4 py-5 text-center md:text-sm">None</p>
+    {:else}
+      {#each rows as r (r.songId)}
+        <GroupedList.Row
+          href={`/track/${r.songId}`}
+          label={`${r.artist ?? '—'} — ${r.title ?? r.fileName}`}
+          sublabel={r.reasons.join(' · ') || undefined}
+          chevron
+        />
+      {/each}
+    {/if}
+  </GroupedList.Section>
+{/snippet}
+
+<div class="bg-background-grouped flex min-h-0 flex-1 flex-col">
   <ScrollArea class="min-h-0 flex-1">
-    <div class="flex flex-col gap-5 px-4 py-4 sm:px-7 sm:py-5">
+    <PageToolbarV2
+      title="Performance"
+      meta={loading
+        ? undefined
+        : `${snapshots.length.toLocaleString()} version${snapshots.length === 1 ? '' : 's'} captured`}
+      grouped
+    >
+      {#snippet actions()}
+        <Button variant="gray" class="rounded-full" onclick={capture} disabled={capturing}>
+          {#if capturing}
+            <Loader2 class="animate-spin" aria-hidden="true" />
+          {:else}
+            <Camera aria-hidden="true" />
+          {/if}
+          <!-- The phone bar shows the glyph alone; the words stay its accessible name. -->
+          <span class="max-md:sr-only">{capturing ? 'Capturing…' : 'Capture now'}</span>
+        </Button>
+      {/snippet}
+    </PageToolbarV2>
+
+    <div class="mx-auto flex w-full max-w-6xl flex-col gap-7 pt-2 pb-8 md:gap-6 md:px-7 md:pt-6">
       {#if error}
-        <div class="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {error}
-        </div>
+        <GroupedList.Section>
+          <GroupedList.Row
+            icon={TriangleAlert}
+            iconClass="bg-destructive/12 text-destructive-text"
+            label="Couldn't load snapshots"
+            sublabel={error}
+          />
+        </GroupedList.Section>
       {/if}
 
       {#if loading}
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div class="mx-4 grid grid-cols-1 gap-3 sm:grid-cols-2 md:mx-0 xl:grid-cols-3">
           {#each Array(5) as _, i (i)}
-            <div class="rounded-lg border border-border bg-card p-4">
-              <div class="flex items-baseline justify-between">
-                <Skeleton class="h-4 w-24" />
-                <Skeleton class="h-5 w-10" />
-              </div>
-              <Skeleton class="mt-3 h-3 w-20" />
+            <div class="bg-card rounded-xl p-4">
+              <Skeleton class="h-4 w-24" />
+              <Skeleton class="mt-2 h-7 w-16" />
               <Skeleton class="mt-3 h-14 w-full" />
             </div>
           {/each}
         </div>
       {:else if snapshots.length === 0 && !error}
-        <div class="rounded-lg border border-dashed border-border px-6 py-12 text-center">
-          <p class="text-sm font-medium">No snapshots yet</p>
-          <p class="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+        <div class="mx-auto flex max-w-md flex-col items-center px-6 py-14 text-center">
+          <p class="text-headline md:text-sm md:font-medium">No snapshots yet</p>
+          <p class="text-callout text-muted-foreground mt-1 md:text-sm">
             Run an enrichment or AI grading pass — a performance snapshot is captured automatically when
             it finishes. You can also capture one now to set a baseline.
           </p>
-          <Button onclick={capture} disabled={capturing} size="sm" class="mt-4">
-            <Camera class="mr-2 size-4" />
+          <Button onclick={capture} disabled={capturing} size="pill" class="mt-5 md:h-9 md:text-sm">
+            <Camera aria-hidden="true" />
             Capture baseline
           </Button>
         </div>
       {:else if snapshots.length > 0}
-        <!-- Timeline charts -->
-        <section>
-          <h2 class="mb-3 text-sm font-semibold text-muted-foreground">
+        <!-- Timeline: one card per series, titled with its latest value and a verdict on the
+             change since the previous capture. -->
+        <section aria-labelledby="perf-timeline">
+          <h2 id="perf-timeline" class="text-footnote text-muted-foreground px-8 pb-1.5 md:px-4">
             Timeline · {snapshots.length} version{snapshots.length === 1 ? '' : 's'}
           </h2>
-          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <div class="mx-4 grid grid-cols-1 gap-3 sm:grid-cols-2 md:mx-0 xl:grid-cols-3">
             {#each charts as c (c.title)}
               {@const latest = c.series[c.series.length - 1]}
-              {@const prev = c.series.length >= 2 ? c.series[c.series.length - 2] : null}
-              {@const delta = latest != null && prev != null ? latest - prev : null}
-              <div class="rounded-lg border border-border bg-card p-4">
-                <div class="flex items-baseline justify-between">
-                  <span class="text-sm font-medium">{c.title}</span>
-                  <span class="text-lg font-semibold tabular-nums">
-                    {latest != null ? c.format(latest) : '—'}
-                  </span>
+              {@const d = describeSeriesDelta(c.series, { format: c.format, higherIsBetter: c.higherIsBetter })}
+              <div class="bg-card rounded-xl p-4">
+                <div class="text-subheadline text-muted-foreground font-medium md:text-sm">{c.title}</div>
+                <div class="text-title-2 mt-0.5 tabular-nums md:text-2xl md:font-semibold">
+                  {latest != null ? c.format(latest) : '—'}
                 </div>
-                {#if delta != null && Math.abs(delta) > 0.01}
-                  <div
-                    class="mb-1 flex items-center gap-1 text-xs {delta > 0
-                      ? 'text-emerald-500'
-                      : 'text-red-500'}"
-                  >
-                    {#if delta > 0}<TrendingUp class="size-3" />{:else}<TrendingDown class="size-3" />{/if}
-                    {c.format(Math.abs(delta))} vs previous
-                  </div>
-                {:else}
-                  <div class="mb-1 flex items-center gap-1 text-xs text-muted-foreground">
-                    <Minus class="size-3" /> no change
-                  </div>
-                {/if}
+                <div
+                  class={cn(
+                    'text-footnote mt-0.5 mb-2 flex items-center gap-1 md:text-xs',
+                    d.tone === 'worse' ? 'text-destructive-text' : 'text-muted-foreground'
+                  )}
+                >
+                  {#if d.direction === 'up'}
+                    <TrendingUp class={cn('size-3.5', d.tone === 'better' && 'text-primary')} aria-hidden="true" />
+                  {:else if d.direction === 'down'}
+                    <TrendingDown class={cn('size-3.5', d.tone === 'better' && 'text-primary')} aria-hidden="true" />
+                  {:else}
+                    <Minus class="size-3.5" aria-hidden="true" />
+                  {/if}
+                  <span>{d.text}</span>
+                </div>
                 <Sparkline
+                  name={c.title}
                   values={c.series}
                   {labels}
                   color={c.color}
@@ -232,158 +310,105 @@
 
         <!-- Compare two versions -->
         {#if snapshots.length >= 2}
-          <section>
-            <h2 class="mb-3 flex items-center gap-2 text-sm font-semibold text-muted-foreground">
-              <GitCompareArrows class="size-4" /> Compare versions
-            </h2>
-            <div class="flex flex-wrap items-center gap-2 text-sm">
-              <select
-                class="rounded-md border border-border bg-background px-2 py-1"
-                bind:value={fromId}
-                onchange={loadCompare}
-              >
-                {#each snapshots as s (s.id)}
-                  <option value={s.id}
-                    >{fmtShort(s.capturedAtUtc)} · {s.version ?? 'dev'} · {s.configHash.slice(0, 8)}</option
-                  >
-                {/each}
-              </select>
-              <span class="text-muted-foreground">→</span>
-              <select
-                class="rounded-md border border-border bg-background px-2 py-1"
-                bind:value={toId}
-                onchange={loadCompare}
-              >
-                {#each snapshots as s (s.id)}
-                  <option value={s.id}
-                    >{fmtShort(s.capturedAtUtc)} · {s.version ?? 'dev'} · {s.configHash.slice(0, 8)}</option
-                  >
-                {/each}
-              </select>
+          <GroupedList.Section headingLevel={2} header="Compare versions">
+            {@render versionPicker('From', 'Compare from version', fromId, (id) => {
+              fromId = id;
+              void loadCompare();
+            })}
+            {@render versionPicker('To', 'Compare to version', toId, (id) => {
+              toId = id;
+              void loadCompare();
+            })}
+          </GroupedList.Section>
+
+          {#if compare}
+            <div class="grid grid-cols-1 items-start gap-7 lg:grid-cols-2 lg:gap-6">
+              {@render songList('Regressed', compare.regressed, compare.regressedCount, true)}
+              {@render songList(
+                'Improved',
+                compare.improved,
+                compare.improvedCount,
+                false,
+                `Compared ${compare.comparedSongs.toLocaleString()} songs present in both versions.`
+              )}
             </div>
-
-            {#if compare}
-              <div class="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-2">
-                <!-- Regressed -->
-                <div class="rounded-lg border border-border bg-card">
-                  <div class="flex items-center gap-2 border-b border-border px-4 py-2">
-                    <TrendingDown class="size-4 text-red-500" />
-                    <span class="text-sm font-medium">Regressed</span>
-                    <span class="ml-auto text-sm tabular-nums text-muted-foreground"
-                      >{compare.regressedCount}</span
-                    >
-                  </div>
-                  {#if compare.regressed.length === 0}
-                    <p class="px-4 py-6 text-center text-sm text-muted-foreground">None 🎉</p>
-                  {:else}
-                    <ul class="divide-y divide-border">
-                      {#each compare.regressed as r (r.songId)}
-                        <li class="px-4 py-2 text-sm">
-                          <a href={`/track/${r.songId}`} class="font-medium hover:underline">
-                            {r.artist ?? '—'} — {r.title ?? r.fileName}
-                          </a>
-                          <div class="mt-0.5 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
-                            {#each r.reasons as reason, ri (ri)}<span>{reason}</span>{/each}
-                          </div>
-                        </li>
-                      {/each}
-                    </ul>
-                  {/if}
-                </div>
-
-                <!-- Improved -->
-                <div class="rounded-lg border border-border bg-card">
-                  <div class="flex items-center gap-2 border-b border-border px-4 py-2">
-                    <TrendingUp class="size-4 text-emerald-500" />
-                    <span class="text-sm font-medium">Improved</span>
-                    <span class="ml-auto text-sm tabular-nums text-muted-foreground"
-                      >{compare.improvedCount}</span
-                    >
-                  </div>
-                  {#if compare.improved.length === 0}
-                    <p class="px-4 py-6 text-center text-sm text-muted-foreground">None</p>
-                  {:else}
-                    <ul class="divide-y divide-border">
-                      {#each compare.improved as r (r.songId)}
-                        <li class="px-4 py-2 text-sm">
-                          <a href={`/track/${r.songId}`} class="font-medium hover:underline">
-                            {r.artist ?? '—'} — {r.title ?? r.fileName}
-                          </a>
-                          <div class="mt-0.5 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
-                            {#each r.reasons as reason, ri (ri)}<span>{reason}</span>{/each}
-                          </div>
-                        </li>
-                      {/each}
-                    </ul>
-                  {/if}
-                </div>
-              </div>
-              <p class="mt-2 text-xs text-muted-foreground">
-                Compared {compare.comparedSongs} songs present in both versions.
-              </p>
-            {/if}
-          </section>
+          {/if}
         {/if}
 
-        <!-- Version log -->
-        <section>
-          <h2 class="mb-3 text-sm font-semibold text-muted-foreground">Version log</h2>
-          <ul class="space-y-2">
-            {#each [...snapshots].reverse() as s (s.id)}
-              <li class="rounded-lg border border-border bg-card">
-                <button
-                  type="button"
-                  class="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left transition-colors hover:bg-muted/50 active:bg-muted"
-                  onclick={() => openDetail(s.id)}
+        <!-- Version log: newest first; a row opens its config diff. -->
+        <GroupedList.Section headingLevel={2} header="Version log">
+          {#each [...snapshots].reverse() as s (s.id)}
+            {@const isOpen = detailId === s.id}
+            <GroupedList.Row
+              onclick={() => openDetail(s.id)}
+              aria-expanded={isOpen}
+              label={fmtShort(s.capturedAtUtc)}
+              sublabel={`${triggerWord(s)} · ${s.version ?? 'dev'}`}
+            >
+              <span class="text-footnote mt-0.5 flex flex-wrap gap-x-3 tabular-nums md:text-xs">
+                <span class="text-foreground">{s.matched} matched</span>
+                <span class={s.needsReview > 0 ? 'text-warning-text' : 'text-muted-foreground'}
+                  >{s.needsReview} review</span
                 >
-                  <div class="min-w-0 flex-1">
-                    <div class="flex items-center gap-2">
-                      <span class="text-sm font-medium">{fmtShort(s.capturedAtUtc)}</span>
-                      <span
-                        class="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
-                        title="trigger">{s.trigger}</span
-                      >
-                      <span class="font-mono text-xs text-muted-foreground">{s.version ?? 'dev'}</span>
-                    </div>
-                    <div class="mt-0.5 flex flex-wrap gap-x-4 text-xs text-muted-foreground tabular-nums">
-                      <span class={statusClass('Matched')}>{s.matched} matched</span>
-                      <span class={statusClass('NeedsReview')}>{s.needsReview} review</span>
-                      <span class={statusClass('Failed')}>{s.failed} failed</span>
-                      {#if s.avgAiScore != null}<span>AI {Math.round(s.avgAiScore)}</span>{/if}
-                    </div>
-                  </div>
-                  <span class="font-mono text-[10px] text-muted-foreground">{s.configHash.slice(0, 8)}</span>
-                </button>
+                <span class={s.failed > 0 ? 'text-destructive-text' : 'text-muted-foreground'}
+                  >{s.failed} failed</span
+                >
+                {#if s.avgAiScore != null}<span class="text-muted-foreground">AI {Math.round(s.avgAiScore)}</span>{/if}
+              </span>
+              {#snippet trailing()}
+                <span class="flex items-center gap-1.5">
+                  <span class="text-footnote text-muted-foreground font-mono md:text-[11px]" title="Config hash"
+                    >{s.configHash.slice(0, 8)}</span
+                  >
+                  <ChevronRight
+                    aria-hidden="true"
+                    strokeWidth={2.5}
+                    class={cn(
+                      'text-muted-foreground-dim -mr-1 size-4 transition-transform duration-200 ease-[cubic-bezier(0.23,1,0.32,1)]',
+                      isOpen && 'rotate-90'
+                    )}
+                  />
+                </span>
+              {/snippet}
+            </GroupedList.Row>
 
-                {#if detailId === s.id && detail}
-                  <div class="border-t border-border px-4 py-3">
-                    {#if detail.configDiff.length === 0}
-                      <p class="text-xs text-muted-foreground">
-                        {detail.previousSnapshotId == null
-                          ? 'First snapshot — no previous version to diff.'
-                          : 'No pipeline config changes vs the previous snapshot.'}
-                      </p>
+            {#if isOpen}
+              <div
+                class="after:bg-separator relative px-4 pb-3 after:absolute after:right-0 after:bottom-0 after:left-4 after:h-(--hairline) last:after:hidden"
+              >
+                {#if !detail}
+                  <p class="text-footnote text-muted-foreground flex items-center gap-1.5 md:text-xs">
+                    {#if detailError}
+                      Couldn't load this version's config.
                     {:else}
-                      <p class="mb-1 text-xs font-medium text-muted-foreground">
-                        Config changes vs previous:
-                      </p>
-                      <ul class="space-y-0.5 font-mono text-xs">
-                        {#each detail.configDiff as d (d.key)}
-                          <li>
-                            <span class="text-muted-foreground">{d.key}:</span>
-                            <span class="text-red-400">{d.from ?? '∅'}</span>
-                            <span class="text-muted-foreground">→</span>
-                            <span class="text-emerald-400">{d.to ?? '∅'}</span>
-                          </li>
-                        {/each}
-                      </ul>
+                      <Loader2 class="size-3.5 animate-spin" aria-hidden="true" /> Loading…
                     {/if}
-                  </div>
+                  </p>
+                {:else if detail.configDiff.length === 0}
+                  <p class="text-footnote text-muted-foreground md:text-xs">
+                    {detail.previousSnapshotId == null
+                      ? 'First snapshot — no previous version to diff.'
+                      : 'No pipeline config changes vs the previous snapshot.'}
+                  </p>
+                {:else}
+                  <p class="text-footnote text-muted-foreground mb-1 font-medium md:text-xs">
+                    Config changes vs previous
+                  </p>
+                  <ul class="text-footnote space-y-1 font-mono break-all md:text-xs">
+                    {#each detail.configDiff as d (d.key)}
+                      <li>
+                        <span class="text-muted-foreground">{d.key}:</span>
+                        <span class="text-destructive-text line-through decoration-1">{d.from ?? '∅'}</span>
+                        <span class="text-muted-foreground" aria-label="changed to">→</span>
+                        <span class="text-foreground font-semibold">{d.to ?? '∅'}</span>
+                      </li>
+                    {/each}
+                  </ul>
                 {/if}
-              </li>
-            {/each}
-          </ul>
-        </section>
+              </div>
+            {/if}
+          {/each}
+        </GroupedList.Section>
       {/if}
     </div>
   </ScrollArea>

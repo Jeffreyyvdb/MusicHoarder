@@ -15,6 +15,9 @@ import androidx.media3.session.MediaSessionService
 import com.musichoarder.app.MainActivity
 import com.musichoarder.app.MusicHoarderApp
 
+/** Previous restarts the current track past this position (ms), else steps back. */
+private const val PREVIOUS_RESTART_AFTER_MS = 3_000L
+
 /**
  * Keeps playback alive outside the app: a foreground service with the system media notification,
  * lock-screen controls, and Bluetooth/headset keys — the OS-level equivalent of the web player's
@@ -44,6 +47,12 @@ class PlaybackService : MediaSessionService() {
             )
             // Pause when the headphones are yanked out, like every other music app.
             .setHandleAudioBecomingNoisy(true)
+            // Previous (the transport, the notification, a headset) restarts the track once it is
+            // more than 3s in, else steps back, and restarts the first item: `seekToPrevious` with
+            // this threshold is exactly the web player's `previousAction`
+            // (PREVIOUS_RESTART_AFTER_S in player-seek.ts). Pinned rather than left to Media3's
+            // default so the two clients cannot drift apart if that default ever moves.
+            .setMaxSeekToPreviousPositionMs(PREVIOUS_RESTART_AFTER_MS)
             .build()
 
         mediaSession = MediaSession.Builder(this, player)

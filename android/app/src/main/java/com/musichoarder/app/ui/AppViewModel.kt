@@ -22,6 +22,7 @@ import com.musichoarder.app.data.PairingUri
 import com.musichoarder.app.data.PasskeyCancelledException
 import com.musichoarder.app.data.PasskeySignIn
 import com.musichoarder.app.data.PasskeyUnavailableException
+import com.musichoarder.app.data.RowTap
 import com.musichoarder.app.data.ShareLink
 import com.musichoarder.app.data.SortKey
 import com.musichoarder.app.data.StoredAccount
@@ -34,6 +35,8 @@ import com.musichoarder.app.data.foldLibrary
 import com.musichoarder.app.data.likedNow
 import com.musichoarder.app.data.resolveAlbum
 import com.musichoarder.app.data.resolveNowPlayingLinks
+import com.musichoarder.app.data.rowTapFor
+import com.musichoarder.app.data.scopedTo
 import com.musichoarder.app.data.sortForChipChange
 import com.musichoarder.app.player.PlayerController
 import com.musichoarder.app.player.VideoController
@@ -147,6 +150,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 // "Discover" shelves move as you listen instead of waiting for the next full fetch.
                 graph.library.notePlayed(songId, System.currentTimeMillis())
                 viewModelScope.launch { graph.api.reportPlayed(songId) }
+            } else {
+                // A share's play is counted where it belongs: on the sharing server's Share links
+                // page, each track once per open of the link, as the web share page does.
+                val link = _share.value?.link
+                if (link != null && reportedSharePlays.add(songId)) {
+                    viewModelScope.launch { graph.api.reportSharePlay(link, songId) }
+                }
             }
         },
         radioTracks = { seedId, exclude ->
@@ -270,6 +280,25 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val CAPABILITY_TRACK_LISTENING = "TrackListening"
 
     /**
+     * Mirrors `/auth/me`'s `isAdmin`, for copy that differs between an admin (who can run the
+     * pipeline) and a member (who can only wait on what is shared with them) — never branch this
+     * kind of thing on [ServerSession]'s legacy `role` word. Defaults to true so a screen rendered
+     * before the first identity refresh keeps today's admin-oriented copy rather than flashing the
+     * member one.
+     */
+    private val _isAdmin = MutableStateFlow(true)
+    val isAdmin: StateFlow<Boolean> = _isAdmin.asStateFlow()
+
+    init {
+        // A member is offered fewer chips and sort keys than an admin (`visibleChipKeys`), and the
+        // view state outlives an account switch — so whatever the last account left pressed that
+        // this one cannot see is let go of here, rather than narrowing its list from off screen.
+        viewModelScope.launch {
+            _isAdmin.collect { admin -> _ui.update { it.scopedTo(admin) } }
+        }
+    }
+
+    /**
      * Re-read identity and capabilities. Safe to call often — it is one small request.
      *
      * A failure deliberately leaves the last-known values in place: a flaky network must not make
@@ -288,6 +317,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             if (graph.sessions.session.value?.token != issuedFor.token) return@launch
 
             _capabilities.value = me.capabilities.toSet()
+            _isAdmin.value = me.isAdmin
             val stored = graph.sessions.accounts.value.active
             if (stored != null && stored.role != me.role) {
                 graph.sessions.updateActive(me.role, me.id, me.email, me.displayName)
@@ -611,12 +641,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private var shareJob: Job? = null
 
+    /** Share tracks already reported as played since the viewer opened; see onTrackStarted. */
+    private val reportedSharePlays = mutableSetOf<Int>()
+
     fun openShare(link: ShareLink) {
         shareJob?.cancel()
+        reportedSharePlays.clear()
         _share.value = ShareUiState.Loading(link)
         shareJob = viewModelScope.launch {
             _share.value = try {
                 val payload = graph.api.fetchShare(link)
+                // Counted on the owner's Share links page once the link has proved live, like the
+                // web share page's beacon. Its own coroutine: the count must never hold up the page.
+                viewModelScope.launch { graph.api.reportShareVisit(link) }
                 val tracks = payload.tracks.map { dto ->
                     dto.toTrack(
                         album = payload.album,
@@ -648,6 +685,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         // A share track can collide with a library id; force the next lyrics/video fetch.
         lyricsSongId = null
         player.play(tracks, startIndex)
+    }
+
+    /** A tap on a share viewer row: [activateRow]'s rule, where only the share queue is loaded. */
+    fun activateShareRow(tracks: List<Track>, index: Int): RowTap {
+        val tap = rowTapFor(tracks[index].id, player.state.value.trackId, sameQueueKind = _isShareQueue.value)
+        if (tap == RowTap.OpenPlayer) player.resume() else playShare(tracks, index)
+        return tap
     }
 
     fun closeShare() {
@@ -773,6 +817,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         state.copy(chips = next, sortKey = sortKey, sortAscending = ascending)
     }
 
+    /**
+     * The Overview's "See all" over Favourite tracks: exactly this chip, the web's
+     * `/tracks?f=mh-liked` link. Not a toggle — with the chip already on, a toggle would switch it
+     * off and answer "see all favourites" with the whole library.
+     */
+    fun showOnlyChip(key: ChipKey) = _ui.update { state ->
+        val next = setOf(key)
+        val (sortKey, ascending) = sortForChipChange(state.chips, next, state.sortKey, state.sortAscending)
+        state.copy(chips = next, sortKey = sortKey, sortAscending = ascending)
+    }
+
     fun clearChips() = _ui.update { state ->
         val (sortKey, ascending) = sortForChipChange(state.chips, emptySet(), state.sortKey, state.sortAscending)
         state.copy(chips = emptySet(), sortKey = sortKey, sortAscending = ascending)
@@ -784,13 +839,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         else state.copy(sortKey = key, sortAscending = defaultAscending(key))
     }
 
+    /** The sort menu's Ascending / Descending items, which name a direction instead of flipping. */
+    fun setSortAscending(ascending: Boolean) = _ui.update { it.copy(sortAscending = ascending) }
+
     fun setAlbumSort(key: AlbumSortKey) = _ui.update { it.copy(albumSort = key) }
 
     fun toggleUnreleasedOnly() = _ui.update { it.copy(unreleasedOnly = !it.unreleasedOnly) }
 
     fun setArtistMode(mode: ArtistMode) = _ui.update { it.copy(artistMode = mode) }
-
-    fun setLetter(letter: String?) = _ui.update { it.copy(letter = letter) }
 
     /**
      * Tapping an artist narrows the Albums tab in place, the way the web's `?artist=` link does.
@@ -799,7 +855,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * from the player it would mask the very page the tap asked for.
      */
     fun openArtist(name: String) = _ui.update {
-        it.copy(artistFilter = name, tab = LibraryTab.Albums, letter = null, openAlbumKey = null)
+        it.copy(artistFilter = name, tab = LibraryTab.Albums, openAlbumKey = null)
     }
 
     fun clearArtistFilter() = _ui.update { it.copy(artistFilter = null) }
@@ -840,6 +896,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             lyricsSongId = null
         }
         player.play(tracks, startIndex)
+    }
+
+    /**
+     * A tap on a library row — the web's compact tap rule ([rowTapFor]). A row that is not loaded
+     * plays [tracks] from [index]; the loaded one only resumes, and the returned
+     * [RowTap.OpenPlayer] tells the caller to bring the player up. Play and Shuffle buttons call
+     * [play] instead: they mean "from the top" even when the first track happens to be loaded.
+     */
+    fun activateRow(tracks: List<Track>, index: Int): RowTap {
+        val tap = rowTapFor(tracks[index].id, player.state.value.trackId, sameQueueKind = !_isShareQueue.value)
+        if (tap == RowTap.OpenPlayer) player.resume() else play(tracks, index)
+        return tap
     }
 
     /** Null when there is nothing to show — callers fall back to a letter tile. */

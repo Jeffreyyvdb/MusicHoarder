@@ -9,9 +9,13 @@
  * so a closed-drawer idle app stays fully quiet on the wire.
  */
 
+import { toast } from 'svelte-sonner';
 import {
+  cancelJob,
   fetchOverview,
   openProgressStream,
+  pauseStep,
+  resumeStep,
   type ApiOverview,
   type ProgressSnapshot
 } from '$lib/api-client';
@@ -20,7 +24,7 @@ const STORAGE_KEY = 'mh:pipeline-open';
 const POLL_INTERVAL_MS = 5_000;
 const RATE_WINDOW_MS = 30_000;
 
-type StageKey = 'scan' | 'fingerprint' | 'enrich' | 'build';
+export type StageKey = 'scan' | 'fingerprint' | 'enrich' | 'build';
 
 const STAGE_KEYS: readonly StageKey[] = ['scan', 'fingerprint', 'enrich', 'build'] as const;
 
@@ -48,6 +52,16 @@ let isOpen = $state(false);
 let snapshot = $state<ProgressSnapshot | null>(null);
 let overview = $state<ApiOverview | null>(null);
 let samples = $state<RateSample[]>([]);
+
+// Job control. The stream only reports a pause on its next tick (≤1s, longer if it is between
+// reconnects), so a confirmed pause/resume is held here until a snapshot agrees — otherwise the
+// button would flip back for a beat and read as "didn't work". Cleared by the first agreeing
+// snapshot, or after OVERRIDE_TTL_MS so a dropped stream can't pin a stale state forever.
+const OVERRIDE_TTL_MS = 10_000;
+let pausedOverride = $state<Partial<Record<StageKey, { paused: boolean; at: number }>>>({});
+let busyStages = $state<Partial<Record<StageKey, boolean>>>({});
+let cancelling = $state(false);
+let cancelTimeout: ReturnType<typeof setTimeout> | null = null;
 
 let refCount = 0;
 // Number of consumers that want the live stream active without opening the
@@ -129,6 +143,119 @@ function isAnyRunningFor(snap: ProgressSnapshot | null): boolean {
   );
 }
 
+function isDownloadRunningFor(snap: ProgressSnapshot | null): boolean {
+  return isStatusRunning(snap?.download?.status);
+}
+
+// ── job control ─────────────────────────────────────────────────────────────
+
+const STAGE_NOUN: Record<StageKey, string> = {
+  scan: 'the scan',
+  fingerprint: 'fingerprinting',
+  enrich: 'matching',
+  build: 'the library build'
+};
+
+function isStagePaused(key: StageKey): boolean {
+  const o = pausedOverride[key];
+  if (o && Date.now() - o.at <= OVERRIDE_TTL_MS) return o.paused;
+  return snapshot?.[key]?.isPaused ?? false;
+}
+
+function isStageRunning(key: StageKey): boolean {
+  return isStatusRunning(snapshot?.[key]?.status);
+}
+
+function endCancelling(): void {
+  cancelling = false;
+  if (cancelTimeout) {
+    clearTimeout(cancelTimeout);
+    cancelTimeout = null;
+  }
+}
+
+function reconcileControl(snap: ProgressSnapshot): void {
+  const now = Date.now();
+  let changed = false;
+  const next = { ...pausedOverride };
+  for (const key of STAGE_KEYS) {
+    const o = next[key];
+    if (!o) continue;
+    if (snap[key]?.isPaused === o.paused || now - o.at > OVERRIDE_TTL_MS) {
+      delete next[key];
+      changed = true;
+    }
+  }
+  if (changed) pausedOverride = next;
+  if (cancelling && !isAnyRunningFor(snap) && !isDownloadRunningFor(snap)) endCancelling();
+}
+
+async function setStagePaused(key: StageKey, paused: boolean): Promise<void> {
+  if (busyStages[key]) return;
+  busyStages = { ...busyStages, [key]: true };
+  try {
+    await (paused ? pauseStep(key) : resumeStep(key));
+    pausedOverride = { ...pausedOverride, [key]: { paused, at: Date.now() } };
+  } catch (err) {
+    // The stage's own state is the success feedback; only a failure needs words. A demo or
+    // member session lands here with the API's own sentence ("…the demo account is read-only").
+    toast.error(`Couldn't ${paused ? 'pause' : 'resume'} ${STAGE_NOUN[key]}`, {
+      description: err instanceof Error ? err.message : undefined
+    });
+  } finally {
+    busyStages = { ...busyStages, [key]: false };
+  }
+}
+
+async function cancelRunning(): Promise<void> {
+  if (cancelling) return;
+  cancelling = true;
+  try {
+    await cancelJob();
+    // Stays "Stopping…" until a snapshot shows nothing running; capped in case the stream is down.
+    if (!isAnyRunningFor(snapshot) && !isDownloadRunningFor(snapshot)) endCancelling();
+    else cancelTimeout = setTimeout(endCancelling, 15_000);
+  } catch (err) {
+    endCancelling();
+    toast.error("Couldn't stop the running jobs", {
+      description: err instanceof Error ? err.message : undefined
+    });
+  }
+}
+
+/**
+ * Stopping or pausing a RUNNING build is the one control that can leave something behind: the
+ * builder copies into a `.tmp` file beside the destination and renames it when tagged, and a
+ * cancel mid-copy leaves that temp file in the album folder (where a media server may index it).
+ * Everything else only stops work that resumes cleanly, so it stays a plain button. The confirm
+ * copy lives here so the conveyor and the drawer can't drift apart.
+ */
+export type JobConfirm = 'stop' | 'pause-build';
+
+function needsConfirm(action: JobConfirm): boolean {
+  return action === 'stop'
+    ? isStageRunning('build')
+    : isStageRunning('build') && !isStagePaused('build');
+}
+
+export const JOB_CONFIRM_COPY: Record<
+  JobConfirm,
+  { title: string; description: string; action: string }
+> = {
+  stop: {
+    title: 'Stop every running job?',
+    description:
+      'Scanning, fingerprinting, matching, the library build and any downloads stop now. A track the build is copying at this moment can leave a partial temporary file in its destination folder. Nothing is paused, so the next automatic run starts them again — pause a step to keep it stopped.',
+    action: 'Stop all'
+  },
+  'pause-build': {
+    title: 'Pause the library build?',
+    description:
+      "The build stops now and won't start again until you resume it. A track it is copying at this moment can leave a partial temporary file in its destination folder.",
+    action: 'Pause build'
+  }
+};
+
 async function loadOverview(): Promise<void> {
   if (overviewInFlight) return;
   overviewInFlight = true;
@@ -147,6 +274,7 @@ function startSse(): void {
     (snap) => {
       snapshot = snap;
       pushSample(snap);
+      reconcileControl(snap);
     },
     () => {
       sseCleanup = null;
@@ -245,6 +373,15 @@ function keepLive(): () => void {
   };
 }
 
+/**
+ * Hand over an overview fetched elsewhere (the shell's one start-up request), so every reader of
+ * `overview` — the sidebar, the Manage hub, the account panel — shares one copy instead of each
+ * fetching its own. A copy the live poll has already stored is newer and wins.
+ */
+function seedOverview(value: ApiOverview): void {
+  if (!overview) overview = value;
+}
+
 export const pipelineOverlay = {
   get isOpen() {
     return isOpen;
@@ -281,10 +418,29 @@ export const pipelineOverlay = {
   get etaSeconds(): number | null {
     return etaSecondsValue();
   },
+  /** Paused as far as the UI should show it: a confirmed request wins until the stream agrees. */
+  isStagePaused,
+  isStageRunning,
+  /** A pause/resume request for this stage is in flight. */
+  isStageBusy(key: StageKey): boolean {
+    return busyStages[key] === true;
+  },
+  /** Stop has been requested and something is still winding down. */
+  get cancelling() {
+    return cancelling;
+  },
+  /** Something the cancel endpoint would stop is running (downloads included). */
+  get canStop() {
+    return isAnyRunningFor(snapshot) || isDownloadRunningFor(snapshot);
+  },
+  setStagePaused,
+  cancelRunning,
+  needsConfirm,
   setOpen,
   toggle,
   mount,
-  keepLive
+  keepLive,
+  seedOverview
 };
 
 export type PipelineOverlayStore = typeof pipelineOverlay;

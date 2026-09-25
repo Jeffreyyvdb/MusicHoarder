@@ -49,6 +49,15 @@ PUBLIC_UMAMI_RECORDER_SRC="https://your-umami-host/recorder.js"   # only if usin
 
 The tracker tag sets `data-performance="true"`, so Core Web Vitals are collected on Umami server **v3.1.0+** (silently ignored by older servers).
 
+Public share pages (`/share/{token}`) also send two named events, so a shared link reads by name in Umami's **Events** view instead of as a page view of an opaque token URL:
+
+| Event | When | Properties |
+| --- | --- | --- |
+| `share-open` | once per load of a share page | `scope` (`song` / `album`), `title`, `artist` |
+| `share-play` | the first time each track plays on that page | `scope`, `title`, `artist`, `album` (album links only) |
+
+Umami counts every visitor, the link's owner included; the in-app **Share links** page (Manage → Share links) keeps its own counts, which leave the owner, bots and quick reloads out. To keep your own browser out of Umami, set `localStorage.setItem('umami.disabled', '1')` in it.
+
 ## Local frontend-only run (optional)
 
 If you run the frontend without AppHost:
@@ -76,4 +85,4 @@ Spotify's redirect URI must point at the **API** (e.g. `http://localhost:5107/ap
 
 ## Migration note (Next.js → SvelteKit)
 
-This app was ported from Next.js 16 + React 19 to SvelteKit 2 + Svelte 5 (runes) + Bun. The (app) route group is rendered client-only (`ssr = false`) because the audio player and demo-mode logic read browser-only state. The landing route (`/`) keeps SSR. The port is complete: all (app) pages (overview SSE+triggers, file browser, review queue, settings, spotify, artist detail) are fully implemented alongside the shared shell, sidebar, header, mini-player, theme toggle, demo banner, analytics, API proxy, health endpoint, player store, and `api-client.ts`.
+This app was ported from Next.js 16 + React 19 to SvelteKit 2 + Svelte 5 (runes) + Bun. The (app) route group is rendered client-only (`ssr = false`) because the audio player and demo-mode logic read browser-only state. The landing route (`/`) keeps SSR. The port is complete: all (app) pages (overview SSE+triggers, file browser, review queue, settings, spotify, artist detail) are fully implemented alongside the shared shell, sidebar, header, mini-player, theme toggle, demo banner, analytics, API proxy, health endpoint, player store, and `api-client.ts`. The shell has since been redesigned around the installed iPhone app — a floating tab bar with per-tab stacks, a nav bar per page, Appearance in the account menu rather than a theme toggle — see "Frontend navigation and chrome" in the repository's `CLAUDE.md`.

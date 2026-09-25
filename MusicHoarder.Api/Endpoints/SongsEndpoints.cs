@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using MusicHoarder.Api.Artwork;
+using MusicHoarder.Api.Audio;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Contracts;
 using Microsoft.Extensions.Options;
@@ -987,13 +988,18 @@ public static class SongsEndpoints
         Results.NotFound(new { message = "Song not found." });
 
     internal static async Task<IResult> StreamSong(
-        int id, MusicHoarderDbContext db, ILibraryScopeResolver scopeResolver, CancellationToken ct)
+        int id,
+        string? format,
+        MusicHoarderDbContext db,
+        ILibraryScopeResolver scopeResolver,
+        IPcmDecoder decoder,
+        CancellationToken ct)
     {
         var found = await scopeResolver.ResolveSongAsync(db, id, ct);
         // Paths only for a song the caller owns — for a granted row they are the grantor's.
         return found is null
             ? SongNotFound()
-            : StreamSongFile(found.Value.Song, includePaths: found.Value.Slice.IsSelf);
+            : await StreamSongFileAsync(found.Value.Song, format, decoder, ct, includePaths: found.Value.Slice.IsSelf);
     }
 
     /// <summary>
@@ -1010,6 +1016,11 @@ public static class SongsEndpoints
     /// Range-enabled audio stream for a song row the caller has already loaded and authorized
     /// (also used by the anonymous share endpoints, which do their own token-based scoping).
     /// </summary>
+    /// <param name="format">
+    /// The <c>?format=</c> query value. Absent streams the file exactly as it is on disk; <c>wav</c>
+    /// streams it decoded as it goes (see <see cref="WavStreamResult"/>), which a client asks for only
+    /// when it cannot play the original.
+    /// </param>
     /// <param name="includePaths">
     /// Whether the "file missing" body may name the paths. Defaults to FALSE so every caller is
     /// safe by omission — only pass true for a song the requester actually owns.
@@ -1023,8 +1034,16 @@ public static class SongsEndpoints
     /// reflection test that pins that DTO cannot see this code path.
     /// </para>
     /// </param>
-    internal static IResult StreamSongFile(SongMetadata song, bool includePaths = false)
+    internal static async Task<IResult> StreamSongFileAsync(
+        SongMetadata song,
+        string? format,
+        IPcmDecoder decoder,
+        CancellationToken ct,
+        bool includePaths = false)
     {
+        if (!StreamFormats.TryParse(format, out var streamFormat))
+            return Results.BadRequest(new { message = "Unknown stream format." });
+
         var filePath = ResolveAudioFilePath(song);
 
         if (filePath is null)
@@ -1037,12 +1056,29 @@ public static class SongsEndpoints
                 })
                 : Results.NotFound(new { message = "Audio file not found on disk." });
 
+        if (streamFormat == StreamFormat.Wav)
+        {
+            // A body that stays generic: the share endpoints serve this to anonymous callers.
+            var frames = await decoder.CountFramesAsync(filePath, ct);
+            if (frames is not > 0)
+                return Results.Problem(
+                    detail: "The server could not read this track to convert it.",
+                    statusCode: StatusCodes.Status500InternalServerError);
+            if (!WavStreamResult.Fits(frames.Value))
+                return Results.Problem(
+                    detail: "This track is too long to convert for playback.",
+                    statusCode: StatusCodes.Status422UnprocessableEntity);
+            return new WavStreamResult(filePath, frames.Value, decoder);
+        }
+
         var mimeType = Path.GetExtension(filePath)?.ToLowerInvariant() switch
         {
             ".mp3" => "audio/mpeg",
             ".flac" => "audio/flac",
             ".ogg" => "audio/ogg",
-            ".opus" => "audio/opus",
+            // An .opus file is Ogg Opus, whose media type is audio/ogg (RFC 7845); audio/opus names
+            // the RTP payload, which a browser choosing a decoder from this header may not accept.
+            ".opus" => "audio/ogg",
             ".m4a" => "audio/mp4",
             ".aac" => "audio/aac",
             ".wav" => "audio/wav",
@@ -1158,21 +1194,10 @@ public static class SongsEndpoints
             : Results.Bytes(cover.Bytes!, contentType: cover.ContentType);
     }
 
-    internal static string[] DescribeReasons(DuplicateMatchReason reasons)
+    internal static async Task<IResult> ListDuplicates(MusicHoarderDbContext db)
     {
-        var names = new List<string>(3);
-        if (reasons.HasFlag(DuplicateMatchReason.ExactFingerprint)) names.Add("exact-fingerprint");
-        if (reasons.HasFlag(DuplicateMatchReason.FingerprintSimilarity)) names.Add("fingerprint-similarity");
-        if (reasons.HasFlag(DuplicateMatchReason.AcoustIdTrack)) names.Add("acoustid");
-        if (reasons.HasFlag(DuplicateMatchReason.Isrc)) names.Add("isrc");
-        if (reasons.HasFlag(DuplicateMatchReason.Metadata)) names.Add("metadata");
-        return [.. names];
-    }
-
-    private static async Task<IResult> ListDuplicates(MusicHoarderDbContext db)
-    {
-        // The per-user query filter scopes links to the caller; groups are derived here by
-        // union-find over Active links (there is no group entity).
+        // The per-user query filter scopes links to the caller. Groups are derived at read time by
+        // DuplicateGroupProjection (union-find over Active links — there is no group entity).
         var links = await db.SongDuplicateLinks
             .AsNoTracking()
             .Where(l => l.Status == DuplicateLinkStatus.Active)
@@ -1188,102 +1213,10 @@ public static class SongsEndpoints
             .Where(s => songIds.Contains(s.Id) && s.DeletedAtUtc == null)
             .ToDictionaryAsync(s => s.Id);
 
-        // Links referencing a soft-deleted song are stale until the next detection run; skip them.
-        links = links.Where(l => songs.ContainsKey(l.SongIdLow) && songs.ContainsKey(l.SongIdHigh)).ToList();
-
-        // Union-find over all active links: suspected pairs join the cluster too, so a group shows
-        // its confirmed core plus any lower-confidence hangers-on in one card.
-        var parent = new Dictionary<int, int>();
-        int Find(int x)
-        {
-            if (!parent.TryGetValue(x, out var p)) { parent[x] = x; return x; }
-            if (p == x) return x;
-            var root = Find(p);
-            parent[x] = root;
-            return root;
-        }
-        foreach (var link in links)
-        {
-            var (ra, rb) = (Find(link.SongIdLow), Find(link.SongIdHigh));
-            if (ra != rb) parent[Math.Max(ra, rb)] = Math.Min(ra, rb);
-        }
-
-        var linksByCluster = links.ToLookup(l => Find(l.SongIdLow));
-
-        var groups = new List<object>();
-        var totalDuplicates = 0;
-
-        foreach (var cluster in parent.Keys.ToList().GroupBy(Find).OrderBy(g => g.Key))
-        {
-            var members = cluster.Select(id => songs[id]).ToList();
-            if (members.Count < 2)
-                continue;
-
-            var clusterLinks = linksByCluster[cluster.Key].ToList();
-            var confirmedIds = clusterLinks
-                .Where(l => l.Confidence == DuplicateConfidence.Confirmed)
-                .SelectMany(l => new[] { l.SongIdLow, l.SongIdHigh })
-                .ToHashSet();
-
-            var ranked = IDuplicateDetectionService.RankKeeperFirst(members);
-            var keeper = ranked[0];
-            totalDuplicates += members.Count(m => m.IsDuplicate);
-
-            var memberDtos = ranked.Select(m =>
-            {
-                var memberLinks = clusterLinks
-                    .Where(l => l.SongIdLow == m.Id || l.SongIdHigh == m.Id)
-                    .ToList();
-                var reasons = memberLinks.Aggregate(DuplicateMatchReason.None, (acc, l) => acc | l.Reasons);
-                var similarity = memberLinks.Max(l => l.Similarity);
-                return new
-                {
-                    m.Id,
-                    m.SourcePath,
-                    m.FileName,
-                    m.Extension,
-                    m.FileSizeBytes,
-                    m.Artist,
-                    m.AlbumArtist,
-                    m.Album,
-                    m.Title,
-                    m.Year,
-                    m.TrackNumber,
-                    m.DurationSeconds,
-                    m.Bitrate,
-                    m.Fingerprint,
-                    m.IsDuplicate,
-                    m.DuplicateOfId,
-                    m.EnrichmentStatus,
-                    m.DestinationPath,
-                    IsBuilt = m.LibraryBuildStatus == LibraryBuildStatus.Done && m.DestinationPath != null,
-                    IsKeeper = m.Id == keeper.Id,
-                    IsPinned = m.DuplicateKeeperPinnedAtUtc != null,
-                    Confidence = confirmedIds.Contains(m.Id) ? "confirmed" : "suspected",
-                    Reasons = DescribeReasons(reasons),
-                    Similarity = similarity,
-                    QualityScore = IDuplicateDetectionService.QualityScore(m),
-                };
-            }).ToList();
-
-            groups.Add(new
-            {
-                GroupId = cluster.Key,
-                Confidence = confirmedIds.Count > 0 ? "confirmed" : "suspected",
-                Keeper = memberDtos[0],
-                Members = memberDtos,
-            });
-        }
-
-        return Results.Ok(new
-        {
-            TotalDuplicates = totalDuplicates,
-            Groups = groups.Count,
-            DuplicateGroups = groups
-        });
+        return Results.Ok(DuplicateGroupProjection.Build(links, songs));
     }
 
-    private static async Task<IResult> ManualReviewTrack(int id, ManualReviewRequest request, MusicHoarderDbContext db)
+    internal static async Task<IResult> ManualReviewTrack(int id, ManualReviewRequest request, MusicHoarderDbContext db)
     {
         var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id);
         if (song is null)
@@ -1305,6 +1238,11 @@ public static class SongsEndpoints
 
         if (decision == "approve")
         {
+            // Snapshot the tags before the reviewer's values overwrite them, so ResetEnrichment with
+            // restoreOriginal (the Inbox's Undo) can put them back. A no-op when an earlier match
+            // already captured the file's originals.
+            song.CaptureOriginalMetadata();
+
             if (request.Artist is not null) song.Artist = request.Artist;
             if (request.Album is not null) song.Album = request.Album;
             if (request.Title is not null) song.Title = request.Title;

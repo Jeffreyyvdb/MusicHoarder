@@ -1,4 +1,5 @@
 import { createPasskey, getPasskeyAssertion } from "$lib/webauthn-client"
+import { formatOf } from "$lib/audio-formats"
 import type { PlayerSong } from "$lib/stores/player.svelte"
 import type { LyricsProvenance, LyricsSyncStatus } from "$lib/types"
 
@@ -425,6 +426,25 @@ export class ApiError extends Error {
     this.code = code
     this.status = status
   }
+}
+
+const PERMISSION_CODES = new Set([
+  "demo_read_only",
+  "member_write_denied",
+  "friend_read_only",
+  "capability_required",
+  "admin_required",
+  "owner_required",
+])
+
+/**
+ * True when the request failed because this account may not do it at all — a 403 or one of the
+ * API's permission codes. Retrying cannot succeed, so a screen should explain instead of offering
+ * a Retry. 401 (signed out) is deliberately not included: signing in again does fix that one.
+ */
+export function isPermissionError(err: unknown): boolean {
+  if (!(err instanceof ApiError)) return false
+  return err.status === 403 || (err.code != null && PERMISSION_CODES.has(err.code))
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -1475,6 +1495,12 @@ export async function triggerBuild(): Promise<EnrichmentTriggerResult> {
   return triggerEnrichmentJob("/api/enrichment/build")
 }
 
+/**
+ * Stops EVERY running step (scan, fingerprint, enrich, build, download, purge) — the endpoint has no
+ * per-step form — and drains the enrichment queue. Nothing is paused afterwards: auto-scan and new
+ * downloads can start the steps again. A build stopped mid-copy can leave its temporary file in the
+ * destination folder.
+ */
 export async function cancelJob(): Promise<{ message: string }> {
   return requestJson<{ message: string }>("/api/enrichment/cancel", { method: "POST" })
 }
@@ -1662,11 +1688,19 @@ export async function fetchStagedSourceStatus(): Promise<StagedSourceReleaseSnap
   return toStagedSourceReleaseSnapshot(body)
 }
 
-export async function pauseStep(step: string): Promise<{ message: string }> {
+export type PipelineStep = "scan" | "fingerprint" | "enrich" | "build" | "download"
+
+/**
+ * Pause one step: sets its paused flag (auto-triggers skip it) and cancels its in-flight job. Scan,
+ * fingerprint and build jobs wind down and report Paused; enrichment workers instead hold their
+ * queue and wait, so a paused Enrich step keeps reporting Running with `isPaused` set.
+ */
+export async function pauseStep(step: PipelineStep): Promise<{ message: string }> {
   return requestJson<{ message: string }>(`/api/enrichment/pause?step=${step}`, { method: "POST" })
 }
 
-export async function resumeStep(step: string): Promise<{ message: string }> {
+/** Clear a step's paused flag. It does not start a job — the next auto-trigger does. */
+export async function resumeStep(step: PipelineStep): Promise<{ message: string }> {
   return requestJson<{ message: string }>(`/api/enrichment/resume?step=${step}`, { method: "POST" })
 }
 
@@ -1731,12 +1765,14 @@ export interface ResetEnrichmentResponse {
   message: string
 }
 
+/** Reset a song's enrichment and re-queue it. `force` also lifts a manual-approval lock, which the API otherwise refuses (422) to reset. */
 export async function resetSongEnrichment(
   songId: number,
-  restoreOriginalMetadata = true
+  restoreOriginalMetadata = true,
+  force = false
 ): Promise<ResetEnrichmentResponse> {
   return requestJson<ResetEnrichmentResponse>(
-    `/songs/${songId}/reset-enrichment?restoreOriginalMetadata=${restoreOriginalMetadata}`,
+    `/songs/${songId}/reset-enrichment?restoreOriginalMetadata=${restoreOriginalMetadata}&force=${force}`,
     { method: "POST" }
   )
 }
@@ -1956,6 +1992,12 @@ export interface SongVideoInfo {
   lastError?: string | null
   /** Ready row whose mp4 vanished from disk — the stream would 404; offer a refetch instead. */
   fileMissing?: boolean
+  /**
+   * The black bars baked into the frame, as the share of it each bar of a pair covers (top/bottom,
+   * sides); null until the server has measured the file. The backdrop crops them (`cropMatte`).
+   */
+  letterbox?: number | null
+  pillarbox?: number | null
 }
 
 /**
@@ -2187,6 +2229,7 @@ export function toPlayerSong(song: ApiSong, fallbackArtist: string): PlayerSong 
     streamUrl: getSongStreamUrl(song.id),
     coverUrl: coverUrlForSong(song),
     album: song.album ?? null,
+    format: formatOf(song.extension),
   }
 }
 
@@ -2227,6 +2270,57 @@ export async function listSongShares(): Promise<SongShareView[]> {
 export async function revokeSongShare(id: number): Promise<void> {
   const response = await fetch(`${API_PREFIX}/api/shares/${id}`, { method: "DELETE", cache: "no-store" })
   if (!response.ok) throw new Error(`Could not revoke share (${response.status}).`)
+}
+
+/** A share link — active or revoked — with how often it was opened and played, all time. */
+export interface ShareStatsRow {
+  id: number
+  token: string
+  scope: "Song" | "Album"
+  songId: number
+  createdAtUtc: string
+  revokedAtUtc?: string | null
+  title: string
+  artist?: string | null
+  album?: string | null
+  /** Opens of the share page (repeats by one visitor within 30 minutes count once). */
+  views: number
+  /** Distinct visitors, each counted once per day. */
+  visitors: number
+  plays: number
+  lastViewedAtUtc?: string | null
+}
+
+export interface ShareDailyPoint {
+  /** The caller's local calendar day, `YYYY-MM-DD`. */
+  date: string
+  views: number
+  visitors: number
+  plays: number
+}
+
+export interface ShareStatsDetail {
+  share: ShareStatsRow
+  /** One point per day from the link's first day (or `days` ago) through today, zeros included. */
+  daily: ShareDailyPoint[]
+  /** Opens by where they came from, most first. A null source is "direct or unknown". */
+  sources: { source?: string | null; views: number }[]
+  /** Plays per track, most first. Only tracks that were played. */
+  tracks: { songId: number; title: string; plays: number }[]
+}
+
+/** Every share link you made, newest first, with its counts. */
+export async function fetchShareStatsList(): Promise<ShareStatsRow[]> {
+  return requestJson<ShareStatsRow[]>("/api/shares/stats")
+}
+
+/** One link's counts, per-day series (in this browser's time zone), sources and track plays. */
+export async function fetchShareStats(id: number, days = 30): Promise<ShareStatsDetail> {
+  const params = new URLSearchParams({
+    days: String(days),
+    tzOffsetMinutes: String(new Date().getTimezoneOffset()),
+  })
+  return requestJson<ShareStatsDetail>(`/api/shares/${id}/stats?${params}`)
 }
 
 /** The public URL a friend opens — same origin, so it works for every deployment. */

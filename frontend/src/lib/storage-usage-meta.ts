@@ -4,7 +4,13 @@
  * Unknown keys fall back to the "other" entry: a bucket the server adds later renders instead of
  * breaking an older client.
  */
-import type { StorageCategoryKey, StorageOriginKey } from '$lib/api-client';
+import type {
+  ApiOverview,
+  StorageCategoryKey,
+  StorageOriginKey,
+  StorageUsageSnapshot
+} from '$lib/api-client';
+import { formatBytesShort } from '$lib/formatters';
 
 export type StorageCategoryMeta = { label: string; description: string; color: string };
 export type StorageOriginMeta = { label: string; color: string };
@@ -55,4 +61,47 @@ export function originMeta(key: string): StorageOriginMeta {
 
 export function rootLabel(key: string): string {
   return ROOT_LABELS[key] ?? key;
+}
+
+export type StorageSegment = { key: string; pct: number; color: string };
+
+/**
+ * The storage figure and its segmented bar, as every surface shows them — the sidebar footer, the
+ * Manage hub's Storage row and the account panel — so the three can't drift in wording or maths.
+ * The label reads "545 GB of 1.6 TB" (the iPhone Storage phrasing), or the used figure alone when
+ * the volume's capacity is unknown; "Measuring…" while the first snapshot is being computed; null
+ * when there is nothing to show at all.
+ */
+export function storageSummary(
+  snapshot: StorageUsageSnapshot | null,
+  computing: boolean
+): { label: string; segments: StorageSegment[] } | null {
+  if (!snapshot) return computing ? { label: 'Measuring…', segments: [] } : null;
+  const used = formatBytesShort(snapshot.managedBytes);
+  const label =
+    snapshot.capacityBytes > 0 ? `${used} of ${formatBytesShort(snapshot.capacityBytes)}` : used;
+  const total = snapshot.capacityBytes > 0 ? snapshot.capacityBytes : snapshot.managedBytes;
+  const segments =
+    total <= 0
+      ? []
+      : snapshot.categories
+          .filter((c) => c.bytes > 0)
+          .map((c) => ({ key: c.key, pct: (c.bytes / total) * 100, color: categoryMeta(c.key).color }));
+  return { label, segments };
+}
+
+/** The folders the pipeline watches (source, destination), from an overview. */
+export function watchedFolders(
+  overview: ApiOverview | null | undefined
+): { label: 'Source' | 'Destination'; path: string }[] {
+  const folders: { label: 'Source' | 'Destination'; path: string }[] = [];
+  if (overview?.sourcePath) folders.push({ label: 'Source', path: overview.sourcePath });
+  if (overview?.destinationPath)
+    folders.push({ label: 'Destination', path: overview.destinationPath });
+  return folders;
+}
+
+/** "Watching 2 folders" — null when there are none to speak of. */
+export function watchingLabel(count: number): string | null {
+  return count > 0 ? `Watching ${count} ${count === 1 ? 'folder' : 'folders'}` : null;
 }

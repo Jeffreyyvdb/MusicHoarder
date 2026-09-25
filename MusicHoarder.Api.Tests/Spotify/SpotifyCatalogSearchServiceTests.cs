@@ -25,6 +25,7 @@ public class SpotifyCatalogSearchServiceTests
                     "name": "Song Name",
                     "duration_ms": 200000,
                     "track_number": 4,
+                    "explicit": true,
                     "artists": [{"name": "Artist One"}, {"name": "Artist Two"}],
                     "album": {
                       "name": "Album A",
@@ -50,6 +51,7 @@ public class SpotifyCatalogSearchServiceTests
         Assert.Equal(4, t.TrackNumber);
         Assert.Equal(200000, t.DurationMs);
         Assert.Equal("USRC17607839", t.Isrc);
+        Assert.True(t.Explicit);
         Assert.Equal(2, handler.SendCount);
     }
 

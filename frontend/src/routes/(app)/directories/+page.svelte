@@ -1,5 +1,6 @@
 <script lang="ts">
   import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
+  import FilterChip from '$lib/components/v2/FilterChip.svelte';
   import {
     fetchDirectoryMatchTree,
     setDirectoryExpectedLow,
@@ -9,18 +10,45 @@
   } from '$lib/api-client';
   import DirectoryTreeRow from '$lib/components/directories/DirectoryTreeRow.svelte';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
+  import { Button } from '$lib/components/ui/button';
+  import { SearchField } from '$lib/components/ui/search-field';
+  import { EmptyState } from '$lib/components/ui/empty-state';
+  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
   import { cn } from '$lib/utils';
-  import {
-    Loader2,
-    AlertTriangle,
-    FolderTree,
-    Search,
-    ChevronRight,
-    ArrowUpDown,
-    Check
-  } from '@lucide/svelte';
+  import { Loader2, AlertTriangle, ChevronRight, ArrowUpDown, FolderSearch, FolderOpen } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
   import { SvelteSet } from 'svelte/reactivity';
+
+  // Match by folder. One scroller at every width: the nav bar (title, the match figure as its
+  // subtitle, search, sort), then the status bar with a legend that names every colour, then the
+  // folder tree. The filter chips stay reachable while it scrolls: on a phone in a strip pinned
+  // under the nav bar, on a desktop in the bar's own chip band (one material, one hairline), with
+  // the column header pinned under it like a list view's.
+
+  const isMobile = new IsMobile();
+  const compact = $derived(isMobile.current);
+
+  // Whether the phone's chip strip is pinned under the nav bar (see the markup): its sentinel has
+  // scrolled out of the top of the page's scroller.
+  let pageScroller = $state<HTMLElement | null>(null);
+  let stripSentinel = $state<HTMLElement | null>(null);
+  let stripStuck = $state(false);
+  $effect(() => {
+    const el = stripSentinel;
+    const root = pageScroller;
+    if (!el || !root) return;
+    const io = new IntersectionObserver(([entry]) => {
+      stripStuck =
+        !entry.isIntersecting &&
+        entry.rootBounds != null &&
+        entry.boundingClientRect.top < entry.rootBounds.top;
+    }, { root });
+    io.observe(el);
+    return () => {
+      io.disconnect();
+      stripStuck = false;
+    };
+  });
 
   let tree = $state<DirectoryMatchNode | null>(null);
   let isLoading = $state(true);
@@ -40,6 +68,9 @@
   const enrichingPaths = new SvelteSet<string>();
   let refreshToken = $state(0);
   let liveCleanup: (() => void) | null = null;
+  // Mirrors liveCleanup for the template: the "Live" badge shows only while the page really is
+  // following an enrich run, rather than claiming to be live all the time.
+  let liveActive = $state(false);
   let refreshTimer: ReturnType<typeof setTimeout> | null = null;
   let sawRunning = false;
 
@@ -76,6 +107,7 @@
       liveCleanup();
       liveCleanup = null;
     }
+    liveActive = false;
   }
 
   async function finishLive() {
@@ -88,6 +120,7 @@
   function startLive() {
     if (liveCleanup) return;
     sawRunning = false;
+    liveActive = true;
     liveCleanup = openProgressStream(
       (snap: ProgressSnapshot) => {
         if (snap.enrich?.status === 'Running') {
@@ -169,21 +202,17 @@
   const queued = $derived(tree?.pending ?? 0);
   const matchedPct = $derived(tree && tree.total > 0 ? Math.round(tree.matchedPct) : 0);
 
-  // Apple-Settings-style storage bar: in-library and matched share the accent family,
-  // attention states get their semantic hue, queued stays neutral track gray.
+  // Apple-Settings-style storage bar: in-library and matched share the accent family, the two
+  // attention states get their status tokens, queued stays neutral. The legend under it names
+  // every colour with its count (colour is never the only carrier), and the two attention
+  // entries are the filter nudges.
   const heroSegs = $derived([
-    { key: 'written', n: written, cls: 'bg-primary', label: 'in library' },
-    { key: 'matched', n: matchedNotWritten, cls: 'bg-primary/50', label: 'matched' },
-    { key: 'review', n: review, cls: 'bg-amber-500', label: 'needs review' },
-    { key: 'failed', n: failed, cls: 'bg-red-500', label: 'no match' },
-    { key: 'queued', n: queued, cls: 'bg-muted-foreground/25', label: 'queued' }
+    { key: 'written', n: written, cls: 'bg-primary', label: 'In library', filter: null },
+    { key: 'matched', n: matchedNotWritten, cls: 'bg-primary/50', label: 'Matched', filter: null },
+    { key: 'review', n: review, cls: 'bg-warning', label: 'Needs review', filter: 'review' as const },
+    { key: 'failed', n: failed, cls: 'bg-destructive', label: 'No match', filter: 'failed' as const },
+    { key: 'queued', n: queued, cls: 'bg-muted-foreground-dim', label: 'Queued', filter: null }
   ]);
-  const barTitle = $derived(
-    heroSegs
-      .filter((s) => s.n > 0)
-      .map((s) => `${s.n.toLocaleString()} ${s.label}`)
-      .join(' · ')
-  );
 
   const children = $derived(tree?.children ?? []);
 
@@ -246,182 +275,212 @@
     { id: 'size' as const, label: 'Size' }
   ];
   const sortLabel = $derived(SORTS.find((s) => s.id === sort)?.label ?? 'Sort');
+
+  // The subtitle says what the list is showing: the library figure normally, "N of M folders"
+  // once a search or filter narrows it (the search field scrolls away on a phone, so this line
+  // is where the narrowing stays visible).
+  const narrowed = $derived(query.trim() !== '' || filter !== 'all');
+  const headerMeta = $derived(
+    isLoading || !tree
+      ? undefined
+      : narrowed
+        ? `${visibleChildren.length.toLocaleString()} of ${children.length.toLocaleString()} folders · ${matchedPct}% enriched`
+        : `${matchedPct}% enriched · ${enriched.toLocaleString()} of ${total.toLocaleString()} files`
+  );
 </script>
 
-<!-- On mobile the whole thing scrolls (header + hero scroll away, filters stay
-     pinned); on desktop it's a flex column with only the folder list scrolling. -->
-<div class="flex min-h-0 flex-1 flex-col overflow-y-auto pb-[var(--mh-content-pad)] sm:overflow-hidden sm:pb-0">
-  <!-- The headline percentage was a 70px hero of its own above a 95px title
-       band; as the toolbar's meta it says exactly as much. The segmented
-       storage bar stays below — that one is a chart, not a heading. -->
-  <PageToolbarV2
-    icon={FolderTree}
-    title="Match by folder"
-    meta={isLoading || !tree
-      ? undefined
-      : `${matchedPct}% enriched · ${enriched.toLocaleString()} of ${total.toLocaleString()} files`}
+<!-- The chip set, in whichever band holds it (the phone's pinned strip, the desktop bar's band;
+     both scroll sideways). -->
+{#snippet filterChips()}
+  <div role="group" aria-label="Show folders" class="flex shrink-0 items-center gap-2">
+    {#each FILTERS as p (p.id)}
+      <FilterChip pressed={filter === p.id} onclick={() => (filter = p.id)} count={p.n}>
+        {p.label}
+      </FilterChip>
+    {/each}
+  </div>
+{/snippet}
+
+<!-- One scroller at every width, the nav bar as its first child. -->
+<div class="flex min-h-0 flex-1 flex-col">
+  <div
+    bind:this={pageScroller}
+    class="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-(--mh-content-pad)"
   >
-    {#snippet actions()}
-      <span class="text-muted-foreground text-nav-xs inline-flex shrink-0 items-center gap-1.5">
-        <span class="bg-primary mh-v2-pulse size-1.5 rounded-full"></span>
-        Live
-      </span>
-    {/snippet}
-  </PageToolbarV2>
-
-  {#if !isLoading && tree}
-    <!-- Slim segmented storage bar; the headline number lives in the toolbar. -->
-    <div class="shrink-0 px-4 pt-3 pb-3 sm:px-7">
-      <div class="bg-muted flex h-1.5 w-full gap-px overflow-hidden rounded-full" title={barTitle}>
-        {#each heroSegs as s (s.key)}
-          {#if s.n > 0}
-            <span class={cn('h-full', s.cls)} style="width: {(s.n / Math.max(total, 1)) * 100}%"></span>
-          {/if}
-        {/each}
-      </div>
-
-      <!-- Attention states only — quiet inline nudges instead of a tinted banner -->
-      {#if review > 0 || failed > 0}
-        <div class="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[12.5px]">
-          {#if review > 0}
-            <button
-              type="button"
-              onclick={() => (filter = 'review')}
-              class="text-muted-foreground hover:text-foreground group inline-flex items-center gap-1.5 transition-colors"
-            >
-              <span class="size-1.5 shrink-0 rounded-full bg-amber-500"></span>
-              <span
-                ><span class="text-foreground font-medium tabular-nums">{review.toLocaleString()}</span>
-                {review === 1 ? 'file needs' : 'files need'} your review</span
-              >
-              <ChevronRight
-                class="size-3 opacity-50 transition-transform group-hover:translate-x-px motion-reduce:transition-none"
-              />
-            </button>
-          {/if}
-          {#if failed > 0}
-            <button
-              type="button"
-              onclick={() => (filter = 'failed')}
-              class="text-muted-foreground hover:text-foreground group inline-flex items-center gap-1.5 transition-colors"
-            >
-              <span class="size-1.5 shrink-0 rounded-full bg-red-500"></span>
-              <span
-                ><span class="text-foreground font-medium tabular-nums">{failed.toLocaleString()}</span> matched nothing</span
-              >
-              <ChevronRight
-                class="size-3 opacity-50 transition-transform group-hover:translate-x-px motion-reduce:transition-none"
-              />
-            </button>
-          {/if}
-        </div>
-      {/if}
-    </div>
-
-    <!-- One control cluster: segmented filter + search + sort menu.
-         Pinned on mobile while the header/hero scroll away. -->
-    <div
-      class="border-border/60 bg-background sticky top-0 z-10 flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b px-4 py-2 sm:static sm:z-auto sm:px-6 sm:py-2.5"
+    <PageToolbarV2
+      title="By folder"
+      meta={headerMeta}
+      metaFrom="lg"
+      filters={!compact && !isLoading && tree ? filterChips : undefined}
     >
-      <div class="no-scrollbar bg-muted/70 flex max-w-full items-center gap-0.5 overflow-x-auto rounded-full p-0.5">
-        {#each FILTERS as p (p.id)}
-          <button
-            type="button"
-            onclick={() => (filter = p.id)}
-            class={cn(
-              'inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-[12.5px] whitespace-nowrap transition-colors',
-              filter === p.id
-                ? 'bg-card text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
-            )}
-            aria-pressed={filter === p.id}
-          >
-            {p.label}
-            <span class="text-muted-foreground text-[11.5px] tabular-nums">{p.n.toLocaleString()}</span>
-          </button>
-        {/each}
-      </div>
-      <div class="flex items-center gap-1">
-        <div
-          class="bg-muted/60 focus-within:bg-muted flex h-7 items-center gap-1.5 rounded-full px-2.5 transition-colors"
-        >
-          <Search class="text-muted-foreground size-3.5 shrink-0" />
-          <input
-            placeholder="Filter folders"
-            bind:value={query}
-            class="placeholder:text-muted-foreground w-28 bg-transparent text-xs outline-none transition-[width] duration-200 focus:w-44 motion-reduce:transition-none sm:w-32"
-          />
-        </div>
+      {#snippet actions()}
+        {#if liveActive}
+          <span class="text-muted-foreground text-footnote md:text-nav-xs inline-flex shrink-0 items-center gap-1.5">
+            <span class="bg-primary mh-v2-pulse size-1.5 rounded-full" aria-hidden="true"></span>
+            Live
+          </span>
+        {/if}
         <DropdownMenu.Root>
           <DropdownMenu.Trigger>
             {#snippet child({ props })}
-              <button
+              <Button
                 {...props}
-                type="button"
-                class="text-muted-foreground hover:bg-muted/60 hover:text-foreground inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-xs transition-colors"
+                variant="gray"
+                class="rounded-full"
                 title="Sort folders"
+                aria-label={`Sort folders: ${sortLabel}`}
               >
-                <ArrowUpDown class="size-3.5" />
+                <ArrowUpDown aria-hidden="true" />
                 <span class="hidden md:inline">{sortLabel}</span>
-              </button>
+              </Button>
             {/snippet}
           </DropdownMenu.Trigger>
-          <DropdownMenu.Content align="end" class="min-w-44">
-            {#each SORTS as s (s.id)}
-              <DropdownMenu.Item onSelect={() => (sort = s.id)} class="justify-between">
-                {s.label}
-                {#if sort === s.id}
-                  <Check class="text-muted-foreground size-4" />
-                {/if}
-              </DropdownMenu.Item>
-            {/each}
+          <DropdownMenu.Content align="end" class="min-w-52">
+            <DropdownMenu.Label>Sort by</DropdownMenu.Label>
+            <DropdownMenu.RadioGroup bind:value={sort}>
+              {#each SORTS as s (s.id)}
+                <DropdownMenu.RadioItem value={s.id}>{s.label}</DropdownMenu.RadioItem>
+              {/each}
+            </DropdownMenu.RadioGroup>
           </DropdownMenu.Content>
         </DropdownMenu.Root>
-      </div>
-    </div>
-  {/if}
+      {/snippet}
+      {#snippet search()}
+        <SearchField bind:value={query} label="Filter folders" />
+      {/snippet}
+    </PageToolbarV2>
 
-  <!-- Table — natural height on mobile (outer scrolls), inner scroller on desktop -->
-  <div class="px-3 py-2 sm:min-h-0 sm:flex-1 sm:overflow-y-auto sm:px-4">
-    {#if isLoading}
-      <div class="text-muted-foreground flex min-h-[40vh] items-center justify-center gap-2 text-sm sm:h-full sm:min-h-0">
-        <Loader2 class="size-4 animate-spin" />
-        Loading directory tree…
+    {#if !isLoading && tree}
+      <!-- Slim segmented status bar; the headline number lives in the subtitle. -->
+      <div class="px-4 pt-2 pb-3 md:px-7 md:pt-4">
+        <div class="bg-muted flex h-1.5 w-full gap-px overflow-hidden rounded-full" aria-hidden="true">
+          {#each heroSegs as s (s.key)}
+            {#if s.n > 0}
+              <span class={cn('h-full', s.cls)} style="width: {(s.n / Math.max(total, 1)) * 100}%"></span>
+            {/if}
+          {/each}
+        </div>
+
+        <!-- The legend: every colour with its word and count. The two attention states set the
+             filter below (the old "N files need your review" nudges). -->
+        <ul class="text-footnote md:text-nav-xs mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-2">
+          {#each heroSegs as s (s.key)}
+            {#if s.n > 0}
+              <li>
+                {#if s.filter}
+                  {@const target = s.filter}
+                  <!-- Named by its visible words ("Needs review 10"), so Voice Control's "tap
+                       Needs review" finds it; the sr-only tail says what the tap does. The
+                       pseudo-element takes the 18px line to a 44pt target. -->
+                  <button
+                    type="button"
+                    onclick={() => (filter = target)}
+                    class="text-foreground focus-visible:ring-ring/50 relative inline-flex items-center gap-1.5 rounded-sm font-medium outline-none hover:underline focus-visible:ring-3 pointer-coarse:after:absolute pointer-coarse:after:-inset-x-1.5 pointer-coarse:after:-inset-y-[13px]"
+                  >
+                    <span class={cn('size-2 shrink-0 rounded-full', s.cls)} aria-hidden="true"></span>
+                    {s.label}
+                    <span class="tabular-nums">{s.n.toLocaleString()}</span>
+                    <span class="sr-only">
+                      {s.key === 'review' ? ' — show folders with reviews' : ' — show folders with failures'}
+                    </span>
+                    <ChevronRight class="text-muted-foreground size-3.5" aria-hidden="true" />
+                  </button>
+                {:else}
+                  <span class="text-muted-foreground inline-flex items-center gap-1.5">
+                    <span class={cn('size-2 shrink-0 rounded-full', s.cls)} aria-hidden="true"></span>
+                    {s.label}
+                    <span class="text-foreground tabular-nums">{s.n.toLocaleString()}</span>
+                  </span>
+                {/if}
+              </li>
+            {/if}
+          {/each}
+        </ul>
       </div>
-    {:else if error}
-      <div class="text-muted-foreground flex min-h-[40vh] flex-col items-center justify-center gap-2 text-sm sm:h-full sm:min-h-0">
-        <AlertTriangle class="size-5 text-amber-500" />
-        {error}
-      </div>
-    {:else if tree && children.length > 0}
-      <div class="text-muted-foreground mt-1 mb-1.5 flex items-center gap-2 px-2 text-[11px] font-medium">
-        <span class="w-3.5 shrink-0"></span>
-        <span class="flex-1">Folder</span>
-        <span class="hidden w-28 shrink-0 text-center sm:block">Status</span>
-        <span class="hidden w-16 shrink-0 text-right sm:block">Count</span>
-        <span class="w-10 shrink-0 text-right">Match</span>
-        <span class="w-[104px] shrink-0"></span>
-      </div>
-      {#if visibleChildren.length > 0}
-        {#each visibleChildren as child (child.path)}
-          <DirectoryTreeRow
-            node={child}
-            depth={0}
-            {enrichingPaths}
-            {refreshToken}
-            onEnriched={handleEnriched}
-            onToggleExpected={handleToggleExpected}
-          />
-        {/each}
-      {:else}
-        <div class="text-muted-foreground flex h-32 items-center justify-center text-sm">
-          No folders in this filter.
+
+      {#if compact}
+        <!-- Phone: the chips in a strip pinned under the nav bar (--mh-navbar-h, which the bar
+             publishes on this scroller) while the tree scrolls beneath it. The bar has no fill
+             of its own here — only the scroll edge, which fades out over its lower part — so the
+             strip carries an opaque band up under that fade, or the folder scrolling past would
+             show through between the bar's title and the chips. Only while it is pinned: at
+             rest the band would sit over the legend's last line and clip it. -->
+        <!-- Where the strip would be if it did not stick, raised by the bar's height: once this
+             leaves the top of the scroller, the strip is pinned. -->
+        <div
+          bind:this={stripSentinel}
+          aria-hidden="true"
+          class="pointer-events-none relative -mb-px h-px"
+          style="top: calc(-1 * var(--mh-navbar-h, 0px))"
+        ></div>
+        <div
+          data-stuck={stripStuck || undefined}
+          class="bg-background border-separator before:bg-background sticky top-(--mh-navbar-h,0px) z-10 border-b before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:hidden before:h-4 data-stuck:before:block"
+        >
+          <div data-scroll-x="" class="no-scrollbar flex items-center overflow-x-auto px-4 py-1.5">
+            {@render filterChips()}
+          </div>
+        </div>
+      {:else if children.length > 0}
+        <!-- Desktop: the chips ride in the bar's band; the column header pins under the bar like
+             a list view's, with the hairline that separates it from the rows. -->
+        <div
+          class="bg-background border-separator text-muted-foreground sticky top-(--mh-navbar-h,0px) z-10 flex items-center gap-2 border-b px-6 pt-1 pb-1.5 text-[11px] font-medium"
+          aria-hidden="true"
+        >
+          <span class="w-3.5 shrink-0"></span>
+          <span class="flex-1">Folder</span>
+          <span class="w-28 shrink-0 text-center">Status</span>
+          <span class="w-16 shrink-0 text-right">Count</span>
+          <span class="w-10 shrink-0 text-right">Match</span>
+          <span class="w-[104px] shrink-0"></span>
         </div>
       {/if}
-    {:else}
-      <div class="text-muted-foreground flex min-h-[40vh] items-center justify-center text-sm sm:h-full sm:min-h-0">
-        No songs indexed yet.
-      </div>
     {/if}
+
+    <div class="px-2 py-2 md:px-4">
+      {#if isLoading}
+        <div class="text-muted-foreground text-body flex min-h-[40vh] items-center justify-center gap-2 md:text-sm">
+          <Loader2 class="size-4 animate-spin" aria-hidden="true" />
+          Loading directory tree…
+        </div>
+      {:else if error}
+        <div class="text-muted-foreground text-body flex min-h-[40vh] flex-col items-center justify-center gap-2 px-6 text-center md:text-sm">
+          <AlertTriangle class="text-warning-text size-5" aria-hidden="true" />
+          {error}
+        </div>
+      {:else if tree && children.length > 0}
+        {#if visibleChildren.length > 0}
+          {#each visibleChildren as child (child.path)}
+            <DirectoryTreeRow
+              node={child}
+              depth={0}
+              {enrichingPaths}
+              {refreshToken}
+              onEnriched={handleEnriched}
+              onToggleExpected={handleToggleExpected}
+            />
+          {/each}
+        {:else}
+          <!-- A dead end always offers the way back out: clearing whichever narrowed it. -->
+          <EmptyState
+            icon={FolderSearch}
+            title={query.trim() ? 'No matching folders' : 'No folders in this filter'}
+            hint={query.trim()
+              ? `Nothing here matches “${query.trim()}”.`
+              : 'Pick another filter to see the rest.'}
+            action={query.trim()
+              ? { label: 'Clear search', onclick: () => (query = '') }
+              : { label: 'Show all', onclick: () => (filter = 'all') }}
+          />
+        {/if}
+      {:else}
+        <EmptyState
+          icon={FolderOpen}
+          title="No tracks indexed yet"
+          hint="Folders appear here once a scan has read the source library."
+        />
+      {/if}
+    </div>
   </div>
 </div>

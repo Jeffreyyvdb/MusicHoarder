@@ -2,21 +2,48 @@ import { clsx, type ClassValue } from 'clsx';
 import { extendTailwindMerge } from 'tailwind-merge';
 
 /**
- * The chrome type scale (`--text-nav*` in app.css) has to be declared here too.
- * tailwind-merge only knows Tailwind's stock scale, so it read `text-nav-sm` as a
- * *color* utility and dropped it whenever the same `cn()` call also carried a real
- * color — which is every FilterChip (`text-nav-sm … text-muted-foreground`). The
- * chips lost their size class entirely and rendered at the 16px root size.
+ * The custom type scales (`--text-nav*` and the iOS text styles in app.css) have to be
+ * declared here too. tailwind-merge only knows Tailwind's stock scale, so it read
+ * `text-nav-sm` as a *color* utility and dropped it whenever the same `cn()` call also
+ * carried a real color — which is every FilterChip (`text-nav-sm … text-muted-foreground`).
+ * The chips lost their size class entirely and rendered at the 16px root size.
  * Registering the names under `font-size` puts them in the right conflict group:
  * a size and a color now coexist, and two sizes still collapse to the last one.
+ *
+ * Exported because tailwind-variants runs its own merge inside `tv()` with the stock
+ * config: a variant table that pairs a text style with a colour (`text-headline` +
+ * `text-primary`) must pass this as `{ twMergeConfig }` or lose one of the two.
  */
-const twMerge = extendTailwindMerge({
+export const twMergeConfig = {
   extend: {
     classGroups: {
-      'font-size': [{ text: ['nav', 'nav-sm', 'nav-xs', 'nav-count', 'nav-badge'] }]
+      'font-size': [
+        {
+          text: [
+            'nav',
+            'nav-sm',
+            'nav-xs',
+            'nav-count',
+            'nav-badge',
+            'large-title',
+            'title-1',
+            'title-2',
+            'title-3',
+            'headline',
+            'body',
+            'callout',
+            'subheadline',
+            'footnote',
+            'caption-1',
+            'caption-2'
+          ]
+        }
+      ]
     }
   }
-});
+};
+
+const twMerge = extendTailwindMerge(twMergeConfig);
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));

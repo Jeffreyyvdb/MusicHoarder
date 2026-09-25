@@ -23,7 +23,7 @@
     /** Whether the pipeline is currently running (drives the live pulse). */
     running?: boolean;
     /**
-     * Present for tab sets that are not routes — the strip renders <button>s and
+     * Present for tab sets that are not routes — the strip renders a tablist of <button>s and
      * hands the id back instead of navigating.
      */
     onselect?: (id: string) => void;
@@ -32,6 +32,12 @@
   };
 
   const { tabs, active, label, running = false, onselect, class: className }: Props = $props();
+
+  // Two modes, two semantics. Route tabs (the desktop top bar) are navigation: a <nav> of links,
+  // the current one marked aria-current="page". Second-level tabs (a Settings pane, a Spotify
+  // view) are not pages, so they are a tablist of buttons with aria-selected — announcing them as
+  // "current page" told VoiceOver users they had navigated when they had only switched a view.
+  const isTablist = $derived(!!onselect);
 
   // The strip lives in fixed-width chrome (the top bar, a page toolbar), so it
   // overflows well before a phone runs out of room — eight Manage tabs don't fit
@@ -97,48 +103,87 @@
           ? '[mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)]'
           : undefined
   );
+
+  // Tablist keyboard contract (automatic activation, like the segmented control): arrows move
+  // the selection and focus with wrap-around, Home/End jump to the ends. Only the selected tab is
+  // in the Tab order.
+  let buttons: HTMLButtonElement[] = $state([]);
+  function onkeydown(event: KeyboardEvent) {
+    if (!onselect || tabs.length === 0) return;
+    const current = Math.max(
+      0,
+      tabs.findIndex((t) => t.id === active)
+    );
+    const steps: Record<string, number> = { ArrowRight: 1, ArrowLeft: -1 };
+    let next = -1;
+    if (event.key in steps) next = (current + steps[event.key] + tabs.length) % tabs.length;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = tabs.length - 1;
+    if (next < 0) return;
+    event.preventDefault();
+    buttons[next]?.focus();
+    if (tabs[next].id !== active) onselect(tabs[next].id);
+  }
 </script>
 
 {#snippet body(tab: Tab, isActive: boolean)}
   {#if tab.live && running}
-    <span class="bg-primary mh-v2-pulse size-1.5 shrink-0 rounded-full"></span>
+    <span class="bg-primary mh-v2-pulse size-1.5 shrink-0 rounded-full" aria-hidden="true"></span>
+    <span class="sr-only">Pipeline running</span>
   {/if}
   <span>{tab.label}</span>
   {#if tab.count != null}
+    <!-- Muted on the track; on the raised pill the count keeps the label's colour, since the
+         muted grey on the dark #636366 thumb would fall to about 2.3:1. -->
     <span
       class={cn(
-        'text-nav-count rounded-full px-1.5 py-px tabular-nums',
-        isActive ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'
+        'text-nav-count rounded-full px-1.5 py-px font-normal tabular-nums',
+        isActive ? 'bg-foreground/10' : 'bg-muted text-muted-foreground'
       )}>{typeof tab.count === 'number' ? tab.count.toLocaleString() : tab.count}</span
     >
   {/if}
 {/snippet}
 
-<nav
+<svelte:element
+  this={isTablist ? 'div' : 'nav'}
   bind:this={scroller}
   class={cn('no-scrollbar flex items-center overflow-x-auto scroll-px-4', maskClass, className)}
-  onscroll={(e) => measureEdges(e.currentTarget)}
-  aria-label={label}
+  onscroll={(e: Event) => measureEdges(e.currentTarget as HTMLElement)}
+  aria-label={isTablist ? undefined : label}
+  data-scroll-x=""
 >
-  <!-- Apple-style segmented control (same idiom as the song-panel tabs): a soft
-       capsule track with the active segment as a raised pill. The bar stays
-       count-less and dimension-stable (constraint) — switching tabs only moves
-       the pill, never resizes the bar. Sized to 32px so it sits inside the
-       48px top bar next to the h-8 Search/Add buttons. -->
-  <div class="bg-foreground/5 flex shrink-0 items-center gap-1 rounded-full p-0.5">
-    {#each tabs as tab (tab.id)}
+  <!-- Apple-style segmented track: a soft capsule with the active segment as a raised pill (the
+       same tokens as the SegmentedControl primitive, which takes over wherever a set has five
+       segments or fewer). Unlike that control it scrolls, so it can carry Settings' seven
+       sections. The bar stays dimension-stable — switching tabs only moves the pill, never
+       resizes the bar. 32px visual so it sits in the 48px desktop bar beside the h-8 buttons; on
+       touch each pill's hit area grows to 44pt with an `after:` pseudo, not a taller track. -->
+  <div
+    class="bg-muted flex shrink-0 items-center gap-0.5 rounded-full p-0.5"
+    role={isTablist ? 'tablist' : undefined}
+    aria-label={isTablist ? label : undefined}
+    onkeydown={isTablist ? onkeydown : undefined}
+  >
+    {#each tabs as tab, i (tab.id)}
       {@const isActive = tab.id === active}
       {@const pill = cn(
-        'flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium whitespace-nowrap transition-colors sm:px-3.5 sm:text-nav',
-        'focus-visible:ring-ring/60 outline-none focus-visible:ring-2',
-        isActive ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+        'relative flex min-h-7 shrink-0 items-center gap-1.5 rounded-full px-3 whitespace-nowrap transition-colors',
+        'text-footnote font-medium sm:text-nav',
+        'after:absolute after:inset-x-0 after:inset-y-0 pointer-coarse:after:-inset-y-2',
+        'focus-visible:ring-ring outline-none focus-visible:ring-2',
+        isActive
+          ? 'bg-segmented-thumb text-foreground shadow-[0_1px_2px_rgb(0_0_0/0.12),0_0_0_0.5px_rgb(0_0_0/0.04)]'
+          : 'text-muted-foreground hover:text-foreground'
       )}
       {#if onselect}
         <button
+          bind:this={buttons[i]}
           type="button"
+          role="tab"
           onclick={() => onselect(tab.id)}
           data-active={isActive || undefined}
-          aria-current={isActive ? 'page' : undefined}
+          aria-selected={isActive}
+          tabindex={isActive || (!active && i === 0) ? 0 : -1}
           class={pill}
         >
           {@render body(tab, isActive)}
@@ -155,4 +200,4 @@
       {/if}
     {/each}
   </div>
-</nav>
+</svelte:element>

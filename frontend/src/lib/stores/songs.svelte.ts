@@ -1,7 +1,7 @@
 /**
  * Shared songs store — owns the full `ApiSong[]` dataset plus the live
  * SSE-driven refresh, lifted out of LibraryV2 so any route can resolve a song
- * (e.g. the global song-detail sidebar opened from the MiniPlayer off-Library).
+ * (e.g. the global Now Playing overlay opened from the MiniPlayer off-Library).
  *
  * `startLive`/`stopLive` are ref-counted: LibraryV2 and the detail host can both
  * keep the progress stream alive, and it only tears down once the last consumer
@@ -10,6 +10,7 @@
  */
 
 import {
+  buildArtistGroups,
   currentGrantors,
   fetchAlbums,
   fetchSongs,
@@ -22,6 +23,8 @@ import {
   type Grantor,
   type ProgressSnapshot
 } from '$lib/api-client';
+import { isBuiltSong } from '$lib/album-sections';
+import { isTrackListSong } from '$lib/track-list-view.svelte';
 
 let songs = $state<ApiSong[]>([]);
 /**
@@ -33,6 +36,14 @@ let albumDtos = $state<AlbumSummaryDto[]>([]);
 let detailAlbumDtos = $state<AlbumSummaryDto[]>([]);
 let detailAlbumsRequested = false;
 /**
+ * Where the detail cards stand. 'loaded' sticks through a background refresh (and a failed one:
+ * the cards already held are still right enough), so the panel's "not in your library view" can
+ * trust it; 'error' is only a first load that failed, which the panel offers to retry.
+ */
+export type DetailAlbumsState = 'idle' | 'loading' | 'loaded' | 'error';
+let detailAlbumsState = $state<DetailAlbumsState>('idle');
+let detailAlbumsGen = 0;
+/**
  * Who shared the rows in {@link songs}. Lives HERE, as a rune, rather than in `api-client`:
  * that module is a plain `.ts` file, so its module-level copy cannot be reactive, and a
  * `$derived` reading it would compute once before the first fetch resolves and then stay clean
@@ -42,8 +53,22 @@ let grantors = $state<Grantor[]>([]);
 let isLoading = $state(false);
 let error = $state<string | null>(null);
 let hasLoaded = false;
+/** When the last successful load landed (epoch ms) — what {@link revalidate} measures against. */
+let loadedAt = 0;
+/** Loads in flight, silent ones included, so a page opening mid-load does not start another. */
+let loadsInFlight = 0;
+
+/**
+ * How long a loaded library is trusted when a page opens. Opening the Overview, Tracks or an album
+ * used to download the whole library again and re-render every row — on a phone, most of what
+ * moving between those pages cost, and a stall just as you started to scroll. The live stream
+ * still refreshes it as soon as the pipeline builds something; this only decides whether a page
+ * visit asks again.
+ */
+const REVALIDATE_AFTER_MS = 30_000;
 
 async function loadSongs(opts?: { silent?: boolean }): Promise<void> {
+  loadsInFlight += 1;
   try {
     if (!opts?.silent) isLoading = true;
     // Both in one round trip. They are two views of the same library, so fetching them together
@@ -55,19 +80,38 @@ async function loadSongs(opts?: { silent?: boolean }): Promise<void> {
     // Read AFTER the await: fetchSongs populates the api-client's copy as it resolves.
     grantors = currentGrantors();
     hasLoaded = true;
+    loadedAt = Date.now();
     error = null;
   } catch (err) {
     error = err instanceof Error ? err.message : 'Failed to load library';
   } finally {
+    loadsInFlight -= 1;
     if (!opts?.silent) isLoading = false;
   }
 }
 
+/**
+ * A library page opened: load the library when there is none yet, refresh it in the background
+ * when the copy held is older than {@link REVALIDATE_AFTER_MS}, and otherwise use it as it is.
+ */
+function revalidate(): void {
+  if (loadsInFlight > 0) return;
+  if (!hasLoaded) void loadSongs();
+  else if (Date.now() - loadedAt >= REVALIDATE_AFTER_MS) void loadSongs({ silent: true });
+}
+
 async function loadDetailAlbums(): Promise<void> {
+  const gen = ++detailAlbumsGen;
+  if (detailAlbumsState !== 'loaded') detailAlbumsState = 'loading';
   try {
-    detailAlbumDtos = await fetchAlbums({ builtOnly: false, merge: false });
+    const loaded = await fetchAlbums({ builtOnly: false, merge: false });
+    if (gen !== detailAlbumsGen) return; // a newer request (or a sign-out) superseded this one
+    detailAlbumDtos = loaded;
+    detailAlbumsState = 'loaded';
   } catch {
-    // The panel degrades to no album context; the library grid is unaffected.
+    if (gen !== detailAlbumsGen) return;
+    // The library grid is unaffected either way; the panel says so and offers a retry.
+    if (detailAlbumsState !== 'loaded') detailAlbumsState = 'error';
   }
 }
 
@@ -83,6 +127,13 @@ let liveCleanup: (() => void) | null = null;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let lastBuilt = -1;
 let sawActive = false;
+/**
+ * How long the stream stays open once the last page lets go of it. Moving between library pages
+ * releases it and takes it straight back; closing it in between made every such move reopen it,
+ * and a reopened stream's first snapshot refetches the whole library a few seconds later.
+ */
+const LIVE_LINGER_MS = 10_000;
+let lingerTimer: ReturnType<typeof setTimeout> | null = null;
 
 function scheduleSongRefresh(): void {
   if (refreshTimer) return;
@@ -120,12 +171,23 @@ function openStream(): void {
 
 function startLive(): void {
   liveRefCount += 1;
+  if (lingerTimer) {
+    clearTimeout(lingerTimer);
+    lingerTimer = null;
+  }
   if (liveRefCount === 1) openStream();
 }
 
 function stopLive(): void {
   liveRefCount = Math.max(0, liveRefCount - 1);
-  if (liveRefCount > 0) return;
+  if (liveRefCount > 0 || lingerTimer) return;
+  lingerTimer = setTimeout(() => {
+    lingerTimer = null;
+    if (liveRefCount === 0) closeLive();
+  }, LIVE_LINGER_MS);
+}
+
+function closeLive(): void {
   if (refreshTimer) {
     clearTimeout(refreshTimer);
     refreshTimer = null;
@@ -195,21 +257,21 @@ function reset(): void {
   albumDtos = [];
   detailAlbumDtos = [];
   detailAlbumsRequested = false;
+  detailAlbumsState = 'idle';
+  detailAlbumsGen += 1;
   grantors = [];
   isLoading = false;
   error = null;
   hasLoaded = false;
+  loadedAt = 0;
   liveRefCount = 0;
   lastBuilt = -1;
   sawActive = false;
-  if (refreshTimer) {
-    clearTimeout(refreshTimer);
-    refreshTimer = null;
+  if (lingerTimer) {
+    clearTimeout(lingerTimer);
+    lingerTimer = null;
   }
-  if (liveCleanup) {
-    liveCleanup();
-    liveCleanup = null;
-  }
+  closeLive();
 }
 
 /**
@@ -220,6 +282,50 @@ const songsById = $derived(new Map(songs.map((song) => [song.id, song])));
 
 const albums = $derived(hydrateAlbums(albumDtos, songsById));
 const detailAlbums = $derived(hydrateAlbums(detailAlbumDtos, songsById));
+
+// The library's shared cuts, read by the Overview, the Library tabs and the command palette alike.
+// Filtering or grouping the whole library reads every row through its `$state` proxy, which is the
+// bulk of what a page costs to open once a library runs to thousands of songs — so it is done once
+// here, not once per page visit. They are only reused while something watches them, though: Svelte
+// recomputes a derived that nothing is subscribed to on every read, and a page's effects are torn
+// down as you leave it. `retainViews` is that watcher, held by the app shell for as long as it lives.
+/** Songs built into the library — what the album and artist grids are made of. */
+const builtSongs = $derived(songs.filter(isBuiltSong));
+/** What the Tracks list covers (see `isTrackListSong`). */
+const trackListSongs = $derived(songs.filter(isTrackListSong));
+/** The Artists grid's default: built songs grouped by lead artist. */
+const leadArtistGroups = $derived(buildArtistGroups(builtSongs, { primaryOnly: true }));
+
+let viewHolds = 0;
+let releaseViews: (() => void) | null = null;
+
+function retainViews(): () => void {
+  if (viewHolds++ === 0) {
+    releaseViews = $effect.root(() => {
+      $effect(() => {
+        void builtSongs;
+        void trackListSongs;
+        void leadArtistGroups;
+      });
+    });
+  }
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    if (--viewHolds === 0) {
+      releaseViews?.();
+      releaseViews = null;
+    }
+  };
+}
+
+// Whether the rows on screen come from more than one library: two grantors, or a grant beside the
+// account's own music (an admin someone shared with). Only then does a per-row "shared" mark tell
+// a row apart; with one source the list subtitle's "Shared by X" already says it for every row.
+const mixedSources = $derived(
+  grantors.length > 1 || (grantors.length > 0 && songs.some((s) => !s.sharedByUserId))
+);
 
 export const songsStore = {
   get songs() {
@@ -236,6 +342,23 @@ export const songsStore = {
   get albums() {
     return albums;
   },
+  /** Built songs only — see the shared cuts above. */
+  get builtSongs() {
+    return builtSongs;
+  },
+  /** The Tracks list's base, which the Overview's Library rows count too. */
+  get trackListSongs() {
+    return trackListSongs;
+  },
+  /** Built songs by lead artist: the Artists grid's default grouping and the Overview's count. */
+  get leadArtistGroups() {
+    return leadArtistGroups;
+  },
+  /**
+   * Keep the shared cuts computed while the caller lives, so a page visit reuses them instead of
+   * re-reading every row. Returns the release; the app shell holds one for the whole session.
+   */
+  retainViews,
   /**
    * Cards for the song-detail panel — every song including unbuilt ones, one card per destination
    * folder. Empty until {@link ensureDetailAlbums} has been called.
@@ -253,8 +376,21 @@ export const songsStore = {
     detailAlbumsRequested = true;
     void loadDetailAlbums();
   },
+  /** {@link DetailAlbumsState}: whether an unresolved song means "missing" or "not loaded yet". */
+  get detailAlbumsState() {
+    return detailAlbumsState;
+  },
+  /** Fetch the detail cards again now — the panel's Retry after a failed first load. */
+  reloadDetailAlbums(): Promise<void> {
+    detailAlbumsRequested = true;
+    return loadDetailAlbums();
+  },
   get grantors() {
     return grantors;
+  },
+  /** More than one library is in the list — see `mixedSources` above. */
+  get hasMixedSources() {
+    return mixedSources;
   },
   /** The grantor of one song, or null when this account owns it. */
   grantorOf(song: Pick<ApiSong, 'sharedByUserId'>): Grantor | null {
@@ -268,6 +404,7 @@ export const songsStore = {
     return error;
   },
   loadSongs,
+  revalidate,
   refreshAlbums,
   ensureLoaded,
   startLive,

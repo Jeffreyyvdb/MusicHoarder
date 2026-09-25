@@ -1,23 +1,26 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
+  import { page } from '$app/state';
   import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
+  import FilterChip from '$lib/components/v2/FilterChip.svelte';
   import { Button } from '$lib/components/ui/button';
-  import { Badge } from '$lib/components/ui/badge';
+  import { Input } from '$lib/components/ui/input';
   import { Switch } from '$lib/components/ui/switch';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
+  import { SearchField } from '$lib/components/ui/search-field';
+  import { Skeleton } from '$lib/components/ui/skeleton';
+  import * as AlertDialog from '$lib/components/ui/alert-dialog';
+  import * as BottomSheet from '$lib/components/ui/bottom-sheet';
+  import * as GroupedList from '$lib/components/ui/grouped-list';
   import {
     Compass,
-    Search,
     Link2,
     Loader2,
-    ArrowLeft,
     ListMusic,
     AlertCircle,
     Plus,
-    X,
-    CheckCircle2,
+    CircleCheck,
     Music,
-    Download,
-    Sparkles
+    Gift
   } from '@lucide/svelte';
   import {
     fetchDiscoverGenres,
@@ -34,11 +37,18 @@
     type DiscoverPlaylistDetail,
     type DiscoverResolveResult
   } from '$lib/api-client';
+  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
+  import { tabMemory } from '$lib/stores/tab-memory.svelte';
   import { albumTint } from '$lib/album-tint';
   import { computeInitials } from '$lib/formatters';
+  import { toast } from 'svelte-sonner';
   import DiscoverPlaylistCard from '$lib/components/discover/DiscoverPlaylistCard.svelte';
+  import { heroTitle } from '$lib/components/discover/hero-title';
   import PlaylistGridSkeleton from '$lib/components/spotify/PlaylistGridSkeleton.svelte';
   import TrackListSkeleton from '$lib/components/spotify/TrackListSkeleton.svelte';
+
+  const isMobile = new IsMobile();
+  const compact = $derived(isMobile.current);
 
   // ── Browse state ────────────────────────────────────────────────────────────
   let genres = $state<DiscoverGenre[]>([]);
@@ -52,12 +62,35 @@
   let debouncedSearch = $state('');
 
   // ── Detail state ──────────────────────────────────────────────────────────
-  let selectedId = $state<string | null>(null);
+  // The open playlist is a page of its own: /discover?playlist=deezer:<id>, a push from the grid,
+  // so Back returns to the grid (with its genre, search and scroll intact — this component stays
+  // mounted) and a playlist can be linked. A bare id is accepted too.
+  const DEEZER = 'deezer:';
+  const playlistParam = $derived.by(() => {
+    const raw = page.url.searchParams.get('playlist');
+    if (!raw) return null;
+    return raw.startsWith(DEEZER) ? raw.slice(DEEZER.length) || null : raw;
+  });
+  function playlistHref(id: string): string {
+    return `/discover?playlist=${encodeURIComponent(DEEZER + id)}`;
+  }
   let detail = $state<DiscoverPlaylistDetail | null>(null);
   let loadingDetail = $state(false);
   let detailError = $state<string | null>(null);
 
-  // ── Add-by-link state ─────────────────────────────────────────────────────
+  // An open playlist names its page, so the Back label of anything pushed from it and the
+  // browser-tab title (which the route announcer reads) say the playlist rather than "Discover".
+  // Only once the detail is the one the URL names: a previous playlist lingers while the next
+  // loads. titleOf is read first so the effect runs again once the navigation is recorded — until
+  // then the entry does not exist and setTitle has nothing to patch.
+  $effect(() => {
+    const title =
+      playlistParam && detail?.playlist.id === playlistParam ? detail.playlist.title : null;
+    if (title && tabMemory.titleOf(page.url) !== title) tabMemory.setTitle(page.url, title);
+  });
+
+  // ── Add-by-link state (a sheet on every width) ─────────────────────────────
+  let linkOpen = $state(false);
   let linkUrl = $state('');
   let resolving = $state(false);
   let resolveResult = $state<DiscoverResolveResult | null>(null);
@@ -65,7 +98,6 @@
   let subscribingLink = $state(false);
 
   // ── Shared feedback ───────────────────────────────────────────────────────
-  let banner = $state<{ type: 'success' | 'error'; message: string } | null>(null);
   let busyKeys = $state(new Set<string>());
   // Deploy-time switch: whether subscribing also auto-downloads. null until settings load.
   let downloadsEnabled = $state<boolean | null>(null);
@@ -164,19 +196,25 @@
     }
   }
 
-  function openPlaylist(p: DiscoverPlaylistSummary) {
-    selectedId = p.id;
-    // Seed the header instantly from the grid summary; loadDetail replaces it with tracks.
-    detail = { playlist: p, tracks: [] };
-    detailError = null;
-    void loadDetail(p.id);
-  }
-
-  function closeDetail() {
-    selectedId = null;
-    detail = null;
-    detailError = null;
-  }
+  // The URL opens (and closes) the detail. Opening from the grid seeds the header from the grid's
+  // summary so it shows at once; loadDetail then fills in the tracks.
+  $effect(() => {
+    const id = playlistParam;
+    untrack(() => {
+      if (!id) {
+        detailReq++; // drop any response still in flight
+        detail = null;
+        detailError = null;
+        loadingDetail = false;
+        return;
+      }
+      if (detail?.playlist.id === id) return;
+      const seed = playlists.find((p) => p.id === id);
+      detail = seed ? { playlist: seed, tracks: [] } : null;
+      detailError = null;
+      void loadDetail(id);
+    });
+  });
 
   // ── Subscribe actions (grid + detail) ──────────────────────────────────────
   function subscribedMessage(title: string): string {
@@ -187,22 +225,21 @@
 
   async function subscribe(p: DiscoverPlaylistSummary) {
     setBusy(p.id, true);
-    banner = null;
     try {
       const res = await addWishlistSource('DeezerPlaylist', {
         deezerPlaylistId: p.id,
         autoSync: true
       });
       syncSubState(p.id, { subscribed: true, sourceId: res.sourceId, autoSync: true });
-      banner = { type: 'success', message: subscribedMessage(p.title) };
+      toast.success(subscribedMessage(p.title));
       // The wishlist source snapshot runs in the background; refresh once so track
       // in-library / in-wishlist badges catch up.
       setTimeout(() => {
-        if (selectedId === p.id) void loadDetail(p.id, true);
+        if (playlistParam === p.id) void loadDetail(p.id, true);
         else void loadPlaylists(true);
       }, 4000);
     } catch (err) {
-      banner = { type: 'error', message: err instanceof Error ? err.message : 'Failed to subscribe' };
+      toast.error(err instanceof Error ? err.message : 'Failed to subscribe');
     } finally {
       setBusy(p.id, false);
     }
@@ -211,33 +248,35 @@
   async function unsubscribe(p: DiscoverPlaylistSummary) {
     if (p.sourceId == null) return;
     setBusy(p.id, true);
-    banner = null;
     try {
       await removeWishlistSource(p.sourceId);
       syncSubState(p.id, { subscribed: false, sourceId: null, autoSync: null });
+      toast.success(`Unsubscribed from “${p.title}”`);
     } catch (err) {
-      banner = {
-        type: 'error',
-        message: err instanceof Error ? err.message : 'Failed to unsubscribe'
-      };
+      toast.error(err instanceof Error ? err.message : 'Failed to unsubscribe');
     } finally {
       setBusy(p.id, false);
     }
   }
 
-  async function toggleAutoSync(p: DiscoverPlaylistSummary) {
+  // Unsubscribing drops the source's sync history (adding it again starts over), so it asks first.
+  let confirmUnsubscribe = $state(false);
+
+  // The switch is bound through a getter/setter: it shows the request's intent while it runs and
+  // the source's real state after, so a failed request puts it back instead of leaving the thumb
+  // flipped over a setting that did not change.
+  let autoSyncPending = $state<boolean | null>(null);
+  async function toggleAutoSync(p: DiscoverPlaylistSummary, on: boolean) {
     if (p.sourceId == null) return;
     setBusy(p.id, true);
-    banner = null;
+    autoSyncPending = on;
     try {
-      const res = await setWishlistSourceAutoSync(p.sourceId, !(p.autoSync ?? false));
+      const res = await setWishlistSourceAutoSync(p.sourceId, on);
       syncSubState(p.id, { autoSync: res.autoSync });
     } catch (err) {
-      banner = {
-        type: 'error',
-        message: err instanceof Error ? err.message : 'Failed to update auto-sync'
-      };
+      toast.error(err instanceof Error ? err.message : 'Failed to update auto-sync');
     } finally {
+      autoSyncPending = null;
       setBusy(p.id, false);
     }
   }
@@ -245,7 +284,7 @@
   // ── Add by link ────────────────────────────────────────────────────────────
   async function onResolve() {
     const url = linkUrl.trim();
-    if (!url) return;
+    if (!url || resolving) return;
     resolving = true;
     resolveError = null;
     resolveResult = null;
@@ -269,7 +308,6 @@
     const r = resolveResult;
     if (!r) return;
     subscribingLink = true;
-    banner = null;
     try {
       const res =
         r.provider === 'deezer'
@@ -281,9 +319,9 @@
       resolveResult = { ...r, subscribed: true };
       // Reflect on the grid/detail if this playlist is also visible there.
       syncSubState(r.playlistId, { subscribed: true, sourceId: res.sourceId, autoSync: true });
-      banner = { type: 'success', message: subscribedMessage(r.title) };
+      toast.success(subscribedMessage(r.title));
     } catch (err) {
-      banner = { type: 'error', message: err instanceof Error ? err.message : 'Failed to subscribe' };
+      toast.error(err instanceof Error ? err.message : 'Failed to subscribe');
     } finally {
       subscribingLink = false;
     }
@@ -310,409 +348,477 @@
     debouncedSearch = '';
   }
 
-  // Detail-view hero tint (matches the Spotify playlist detail idiom).
+  const selectedGenreName = $derived(
+    selectedGenreId == null ? 'Top' : (genres.find((g) => g.id === selectedGenreId)?.name ?? '')
+  );
+  const gridMeta = $derived.by(() => {
+    if (loadingPlaylists || playlistsError) return undefined;
+    const n = `${playlists.length} playlist${playlists.length === 1 ? '' : 's'}`;
+    if (debouncedSearch) return `${n} matching “${debouncedSearch}”`;
+    return selectedGenreName ? `${selectedGenreName} · ${n}` : n;
+  });
+
+  // The cover's tint fills an empty cover (no artwork) — identity lives in the art.
   const tint = $derived(
     detail ? albumTint(detail.playlist.creatorName ?? 'Deezer', detail.playlist.title) : null
   );
-  const heroBackground = $derived(
-    tint
-      ? `linear-gradient(180deg, ${tint.from} 0%, color-mix(in oklch, ${tint.from} 60%, transparent) 60%, transparent 100%),` +
-          ` linear-gradient(135deg, color-mix(in oklch, ${tint.to} 40%, transparent), transparent)`
-      : ''
-  );
   const detailBusy = $derived(detail ? busyKeys.has(detail.playlist.id) : false);
+
+  // The grid unmounts while a playlist is open; put it back where it was on return.
+  let gridScroller = $state<HTMLElement | null>(null);
+  let gridScrollTop = 0;
+  $effect(() => {
+    const el = gridScroller;
+    if (el && gridScrollTop > 0) requestAnimationFrame(() => (el.scrollTop = gridScrollTop));
+  });
+  function rememberGridScroll() {
+    if (gridScroller) gridScrollTop = gridScroller.scrollTop;
+  }
+
+  // On a phone the bar's inline title waits until the hero's title has scrolled under it (see
+  // heroTitle); md+ keeps the desktop toolbar's title, beside a hero that is not centred.
+  let heroVisible = $state(true);
 </script>
 
-{#if selectedId && detail}
-  {@const p = detail.playlist}
-  <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
-    <ScrollArea class="min-h-0 flex-1">
-      <button
-        type="button"
-        onclick={closeDetail}
-        class="absolute top-3 left-3 z-10 inline-flex items-center gap-1 rounded-full bg-black/30 px-2.5 py-1 text-xs text-white/85 backdrop-blur transition-colors hover:bg-black/40 hover:text-white sm:left-6"
-      >
-        <ArrowLeft class="size-3.5" />
-        Back
-      </button>
+<!-- ── Detail: a pushed page ─────────────────────────────────────────────────────────── -->
+{#if playlistParam}
+  <div class="flex min-h-0 flex-1 flex-col">
+    <div
+      class="hero-scroller min-h-0 flex-1 overflow-y-auto overscroll-contain pb-(--mh-content-pad)"
+      data-hero-visible={compact && detail && heroVisible ? '' : undefined}
+    >
+      <PageToolbarV2
+        title={detail?.playlist.title ?? 'Playlist'}
+        largeTitle={false}
+        back={{ label: 'Discover', href: '/discover' }}
+      />
 
-      <!-- Hero -->
-      <div class="relative px-6 pt-6 pb-5 text-white sm:px-9" style="background: {heroBackground};">
-        <div class="relative z-10 flex items-center gap-4 sm:items-end sm:gap-6">
+      {#if detail}
+        {@const p = detail.playlist}
+        <!-- Hero: the cover centred on a phone (Apple Music's playlist page), beside the title on
+             desktop. -->
+        <div
+          class="flex flex-col items-center px-4 pt-3 pb-6 text-center md:flex-row md:items-end md:gap-7 md:px-7 md:pt-7 md:text-left"
+        >
           <div
-            class="relative grid size-20 shrink-0 place-items-center overflow-hidden shadow-[0_24px_48px_rgba(0,0,0,0.35)] sm:size-28 lg:size-32"
-            style="border-radius: 6px; background: linear-gradient(135deg, {tint?.from} 0%, {tint?.to} 100%);"
+            class="relative grid size-44 shrink-0 place-items-center overflow-hidden rounded-md shadow-[0_12px_32px_rgb(0_0_0/0.22)] md:size-40"
+            style="background: linear-gradient(135deg, {tint?.from} 0%, {tint?.to} 100%);"
           >
-            <div class="mh-cover-grain pointer-events-none absolute inset-0"></div>
             {#if p.coverUrl}
               <img
                 src={p.coverUrl}
                 alt=""
-                loading="lazy"
                 crossorigin="anonymous"
+                draggable="false"
                 class="absolute inset-0 size-full object-cover"
               />
             {:else}
-              <div
-                class="relative z-[2] text-2xl font-bold tracking-[-0.04em] text-white/95 [text-shadow:_0_1px_2px_rgba(0,0,0,0.2)] sm:text-3xl lg:text-4xl"
-              >
+              <span class="text-4xl font-bold tracking-[-0.04em] text-white">
                 {computeInitials(p.title)}
-              </div>
+              </span>
             {/if}
           </div>
-
-          <div class="min-w-0 flex-1 pb-2">
-            <div class="text-[11px] font-semibold tracking-wider opacity-85 uppercase">Playlist</div>
-            <h1
-              class="mt-2 text-[clamp(24px,5vw,44px)] leading-[0.95] font-extrabold tracking-[-0.03em] [text-wrap:balance]"
+          <div class="mt-4 min-w-0 md:mt-0 md:pb-1">
+            <h2
+              use:heroTitle={(v) => (heroVisible = v)}
+              class="text-title-2 text-balance break-words md:text-[26px] md:leading-8"
             >
               {p.title}
-            </h1>
+            </h2>
+            <p class="text-subheadline text-muted-foreground mt-1 md:text-sm">
+              Deezer{p.creatorName ? ` · ${p.creatorName}` : ''} · {p.trackCount.toLocaleString()} song{p.trackCount ===
+              1
+                ? ''
+                : 's'}
+            </p>
             {#if p.description}
-              <p class="mt-2 max-w-2xl text-sm leading-snug text-white/80 [text-wrap:pretty]">
+              <p
+                class="text-footnote text-muted-foreground mx-auto mt-2 max-w-md text-pretty md:mx-0 md:max-w-2xl md:text-[13px]"
+              >
                 {p.description}
               </p>
             {/if}
-            <div class="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-2 text-[13px] opacity-90">
-              {#if p.creatorName}
-                <span class="inline-flex items-center gap-2 font-semibold">
-                  <span
-                    class="ring-2 ring-white/50 inline-block size-4 rounded-full"
-                    style="background: {tint?.to};"
-                  ></span>
-                  <span>{p.creatorName}</span>
-                </span>
-                <span class="opacity-50">·</span>
+            {#if !p.subscribed}
+              <!-- The page's one prominent action. -->
+              <Button
+                size="pill"
+                class="mt-5 min-w-44 md:h-9 md:min-w-0 md:px-4 md:text-sm"
+                disabled={detailBusy}
+                onclick={() => subscribe(p)}
+              >
+                {#if detailBusy}<Loader2 class="animate-spin" />{:else}<Plus />{/if}
+                Subscribe
+              </Button>
+              {#if downloadsEnabled}
+                <p class="text-footnote text-muted-foreground mt-2 md:text-xs">
+                  New tracks added to a subscribed playlist are downloaded into your library
+                  automatically.
+                </p>
               {/if}
-              <span>{p.trackCount.toLocaleString()} song{p.trackCount === 1 ? '' : 's'}</span>
-            </div>
+            {/if}
           </div>
         </div>
-      </div>
 
-      <!-- Action bar -->
-      <div
-        class="border-border flex flex-wrap items-center gap-3 border-b bg-gradient-to-b from-black/5 to-transparent px-6 py-5 sm:px-9 dark:from-white/5"
-      >
         {#if p.subscribed}
-          <Button variant="outline" disabled={detailBusy} onclick={() => unsubscribe(p)}>
-            {#if detailBusy}
-              <Loader2 class="size-4 animate-spin" />
-            {:else}
-              <X class="size-4" />
-            {/if}
-            Unsubscribe
-          </Button>
-          <label class="text-muted-foreground flex cursor-pointer items-center gap-1.5 text-xs">
-            <Switch
-              size="sm"
-              checked={p.autoSync ?? false}
-              disabled={detailBusy}
-              onCheckedChange={() => toggleAutoSync(p)}
-              aria-label="Auto-sync new tracks"
-            />
-            Auto-sync new tracks
-          </label>
-        {:else}
-          <Button disabled={detailBusy} onclick={() => subscribe(p)}>
-            {#if detailBusy}
-              <Loader2 class="size-4 animate-spin" />
-            {:else}
-              <Plus class="size-4" />
-            {/if}
-            Subscribe
-          </Button>
+          <div class="pb-6 md:max-w-xl md:px-7">
+            <GroupedList.Section
+              header="Subscription"
+              contentClass="bg-muted"
+              footer={downloadsEnabled
+                ? 'New tracks added to this playlist are downloaded into your library automatically.'
+                : 'New tracks added to this playlist are added to your wishlist.'}
+            >
+              <GroupedList.Row label="Auto-sync new tracks">
+                {#snippet trailing()}
+                  <Switch
+                    bind:checked={
+                      () => autoSyncPending ?? p.autoSync ?? false,
+                      (on) => void toggleAutoSync(p, on)
+                    }
+                    disabled={detailBusy}
+                    aria-label="Auto-sync new tracks"
+                  />
+                {/snippet}
+              </GroupedList.Row>
+              <GroupedList.Row
+                label="Unsubscribe"
+                destructive
+                disabled={detailBusy}
+                onclick={() => (confirmUnsubscribe = true)}
+              />
+            </GroupedList.Section>
+          </div>
         {/if}
 
-        <div class="text-muted-foreground ml-auto flex items-center gap-3 text-xs">
-          <span class="bg-primary/15 text-primary rounded px-2.5 py-1 font-mono">DISCOVER</span>
-        </div>
-      </div>
-
-      {#if downloadsEnabled}
-        <div
-          class="border-border bg-muted/40 text-muted-foreground flex items-start gap-2 border-b px-6 py-3 text-xs sm:px-9"
-        >
-          <Download class="mt-0.5 size-3.5 shrink-0" />
-          <span>
-            New tracks added to a subscribed playlist are downloaded into your library automatically.
-          </span>
-        </div>
-      {/if}
-
-      {#if banner}
-        <div
-          class="mx-6 mt-3 rounded-md border px-3 py-2 text-sm sm:mx-9 {banner.type === 'success'
-            ? 'border-primary/30 bg-primary/10 text-primary'
-            : 'border-destructive/30 bg-destructive/10 text-destructive'}"
-        >
-          {banner.message}
-        </div>
-      {/if}
-
-      <!-- Tracks -->
-      {#if detailError}
-        <div class="flex flex-col items-center justify-center py-12 text-center">
-          <AlertCircle class="text-destructive mb-3 size-10" />
-          <p class="text-muted-foreground">{detailError}</p>
-          <Button variant="outline" size="sm" class="mt-4" onclick={() => loadDetail(p.id)}>
+        <!-- Tracks -->
+        {#if detailError}
+          <div class="flex flex-col items-center justify-center px-6 py-12 text-center">
+            <AlertCircle class="text-destructive-text mb-3 size-10" aria-hidden="true" />
+            <p class="text-body text-muted-foreground md:text-sm">{detailError}</p>
+            <Button
+              variant="outline"
+              class="mt-4 h-11 rounded-full px-5 md:h-8 md:rounded-lg md:px-3"
+              onclick={() => loadDetail(p.id)}
+            >
+              Retry
+            </Button>
+          </div>
+        {:else if loadingDetail && detail.tracks.length === 0}
+          <TrackListSkeleton />
+        {:else if detail.tracks.length === 0}
+          <div class="flex flex-col items-center justify-center py-12 text-center">
+            <ListMusic class="text-muted-foreground mb-3 size-10" aria-hidden="true" />
+            <p class="text-body text-muted-foreground md:text-sm">No tracks found</p>
+          </div>
+        {:else}
+          <ul class="md:px-3" aria-label="Songs">
+            {#each detail.tracks as track (track.deezerTrackId)}
+              <li class="md:hover:bg-accent flex items-center gap-3 pl-4 md:rounded-md">
+                <div class="bg-muted size-11 shrink-0 overflow-hidden rounded-sm md:size-10">
+                  {#if track.coverUrl}
+                    <img
+                      src={track.coverUrl}
+                      alt=""
+                      loading="lazy"
+                      class="size-full object-cover"
+                      crossorigin="anonymous"
+                    />
+                  {:else}
+                    <div class="flex size-full items-center justify-center">
+                      <Music class="text-muted-foreground size-4" aria-hidden="true" />
+                    </div>
+                  {/if}
+                </div>
+                <!-- The hairline starts at the text, like a UITableView inset separator. -->
+                <div
+                  class="after:bg-separator relative flex min-h-14 min-w-0 flex-1 items-center gap-3 self-stretch py-2 pr-4 after:absolute after:inset-x-0 after:bottom-0 after:h-(--hairline) md:after:hidden"
+                >
+                  <div class="min-w-0 flex-1">
+                    <div class="text-body truncate md:text-sm">{track.title}</div>
+                    <div class="text-subheadline text-muted-foreground truncate md:text-xs">
+                      {track.artist}{track.album ? ` · ${track.album}` : ''}
+                    </div>
+                  </div>
+                  <!-- One trailing status glyph at every width, with its word for VoiceOver (and
+                       beside it on desktop). On a phone it is the row's last item, after the
+                       duration, as on the Spotify playlist page; its slot keeps its width when
+                       empty so the durations still line up. -->
+                  <span
+                    class="flex shrink-0 items-center gap-1.5 max-md:order-last max-md:w-5 max-md:justify-center md:text-xs md:empty:hidden {track.inLibrary
+                      ? 'text-primary'
+                      : 'text-muted-foreground'}"
+                  >
+                    {#if track.inLibrary}
+                      <CircleCheck class="size-5 md:size-4" aria-hidden="true" />
+                      <span class="sr-only md:not-sr-only">In library</span>
+                    {:else if track.inWishlist}
+                      <Gift class="size-5 md:size-4" aria-hidden="true" />
+                      <span class="sr-only md:not-sr-only">Wishlisted</span>
+                    {/if}
+                  </span>
+                  <span
+                    class="text-footnote text-muted-foreground w-10 shrink-0 text-right tabular-nums md:w-12 md:text-xs"
+                  >
+                    {fmtDuration(track.durationMs)}
+                  </span>
+                </div>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      {:else if detailError}
+        <div class="flex flex-col items-center justify-center px-6 py-16 text-center">
+          <AlertCircle class="text-destructive-text mb-3 size-10" aria-hidden="true" />
+          <p class="text-body text-muted-foreground md:text-sm">{detailError}</p>
+          <Button
+            variant="outline"
+            class="mt-4 h-11 rounded-full px-5 md:h-8 md:rounded-lg md:px-3"
+            onclick={() => playlistParam && loadDetail(playlistParam)}
+          >
             Retry
           </Button>
         </div>
-      {:else if loadingDetail}
-        <TrackListSkeleton />
       {:else}
-        <div class="flex flex-col gap-1 p-2 md:px-4">
-          {#each detail.tracks as track (track.deezerTrackId)}
-            <div class="hover:bg-secondary/40 flex items-center gap-3 rounded-md px-2 py-2 transition-colors">
-              <div class="bg-secondary size-10 shrink-0 overflow-hidden rounded">
-                {#if track.coverUrl}
-                  <img src={track.coverUrl} alt="" class="size-full object-cover" crossorigin="anonymous" />
-                {:else}
-                  <div class="flex size-full items-center justify-center">
-                    <Music class="text-muted-foreground size-4" />
-                  </div>
-                {/if}
-              </div>
-              <div class="min-w-0 flex-1">
-                <div class="truncate text-sm font-medium">{track.title}</div>
-                <div class="text-muted-foreground truncate text-xs">
-                  {track.artist}{track.album ? ` · ${track.album}` : ''}
-                </div>
-              </div>
-              {#if track.inLibrary}
-                <Badge class="border-primary/40 bg-primary/15 text-primary hidden shrink-0 gap-1 sm:inline-flex">
-                  <CheckCircle2 class="size-3" />
-                  In library
-                </Badge>
-              {:else if track.inWishlist}
-                <Badge variant="outline" class="hidden shrink-0 gap-1 sm:inline-flex">
-                  <Sparkles class="size-3" />
-                  Wishlisted
-                </Badge>
-              {/if}
-              <span class="text-muted-foreground hidden w-12 shrink-0 text-right text-xs sm:inline">
-                {fmtDuration(track.durationMs)}
-              </span>
-            </div>
-          {/each}
-          {#if detail.tracks.length === 0}
-            <div class="flex flex-col items-center justify-center py-12 text-center">
-              <ListMusic class="text-muted-foreground mb-3 size-10" />
-              <p class="text-muted-foreground">No tracks found</p>
-            </div>
-          {/if}
+        <!-- A deep link: nothing to seed the header from until the playlist arrives. -->
+        <div
+          role="status"
+          class="flex flex-col items-center px-4 pt-3 pb-6 md:flex-row md:items-end md:gap-7 md:px-7 md:pt-7"
+        >
+          <span class="sr-only">Loading playlist…</span>
+          <Skeleton class="size-44 rounded-md md:size-40" />
+          <div class="mt-4 flex flex-col items-center gap-2 md:items-start">
+            <Skeleton class="h-6 w-48" />
+            <Skeleton class="h-4 w-32" />
+          </div>
         </div>
+        <TrackListSkeleton />
       {/if}
-    </ScrollArea>
+    </div>
   </div>
 {:else}
-  <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
-    <!-- Discover's blurb explained the paste-link box; the box's own placeholder
-         does that in situ, so the bar carries the control instead of the prose.
-         Genre chips stay a row of their own — there are too many to share. -->
-    <PageToolbarV2 icon={Compass} title="Discover" metaFrom="lg">
-      {#snippet filters()}
-        <div class="relative w-[10rem] shrink-0 sm:w-[clamp(160px,22vw,260px)]">
-          <Search class="text-muted-foreground absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
-          <input
-            type="search"
-            placeholder="Search playlists…"
-            bind:value={searchQuery}
-            class="border-border bg-card focus-visible:ring-ring text-nav-sm h-8 w-full rounded-full border pr-2.5 pl-8 outline-none focus-visible:ring-2"
-          />
-        </div>
-      {/snippet}
-      {#snippet actions()}
-        <div class="relative hidden w-[13rem] shrink-0 sm:block lg:w-[18rem]">
-          <Link2 class="text-muted-foreground absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
-          <input
-            type="url"
-            placeholder="Paste a playlist link…"
-            bind:value={linkUrl}
-            onkeydown={(e) => {
-              if (e.key === 'Enter') onResolve();
-            }}
-            class="border-border bg-card focus-visible:ring-ring text-nav-sm h-8 w-full rounded-full border pr-2.5 pl-8 outline-none focus-visible:ring-2"
-          />
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          class="h-8 gap-1.5 px-2.5"
-          onclick={onResolve}
-          disabled={resolving || !linkUrl.trim()}
-        >
-          {#if resolving}
-            <Loader2 class="size-4 animate-spin" />
+  <!-- ── Browse ─────────────────────────────────────────────────────────────────────── -->
+  <div class="flex min-h-0 flex-1 flex-col">
+    <div
+      bind:this={gridScroller}
+      class="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-(--mh-content-pad)"
+    >
+      <PageToolbarV2 title="Discover" meta={gridMeta} metaFrom="lg">
+        {#snippet search()}
+          <SearchField bind:value={searchQuery} label="Search playlists" />
+        {/snippet}
+        {#snippet actions()}
+          {#if compact}
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Add a playlist from a link"
+              onclick={() => (linkOpen = true)}
+            >
+              <Link2 />
+            </Button>
           {:else}
-            <Link2 class="size-4" />
+            <Button
+              variant="outline"
+              size="sm"
+              class="h-8 gap-1.5 px-2.5"
+              onclick={() => (linkOpen = true)}
+            >
+              <Link2 class="size-4" />
+              <span class="text-nav-sm">Add link…</span>
+            </Button>
           {/if}
-          <span class="text-nav-sm hidden sm:inline">Add link</span>
-        </Button>
-      {/snippet}
-    </PageToolbarV2>
-
-    <!-- Transient link-resolution feedback, only present while it has something
-         to say — never reserved space. -->
-    {#if resolveError || resolveResult}
-      <div class="border-border flex shrink-0 flex-col gap-2 border-b px-4 py-2 sm:px-7">
-    {#if resolveError}
-      <div
-        class="border-destructive/30 bg-destructive/10 text-destructive flex items-start gap-2 rounded-md border px-3 py-2 text-sm"
-      >
-        <AlertCircle class="mt-0.5 size-4 shrink-0" />
-        <div class="flex-1">
-          {#if resolveError.kind === 'editorial'}
-            <p class="font-medium">This is a Spotify editorial playlist.</p>
-            <p class="mt-0.5">{resolveError.message}</p>
-            <p class="mt-1 text-xs opacity-90">
-              Tip: search for it below — the same editorial playlists are available via Deezer,
-              which does allow subscribing.
-            </p>
-          {:else}
-            {resolveError.message}
-          {/if}
-        </div>
-        <button
-          type="button"
-          onclick={() => (resolveError = null)}
-          class="shrink-0 text-xs underline opacity-80 hover:opacity-100"
-        >
-          Dismiss
-        </button>
-      </div>
-    {/if}
-
-    {#if resolveResult}
-      {@const r = resolveResult}
-      <div class="border-border bg-card flex items-center gap-3 rounded-lg border p-3">
-        <div class="bg-secondary size-12 shrink-0 overflow-hidden rounded">
-          {#if r.coverUrl}
-            <img src={r.coverUrl} alt="" class="size-full object-cover" crossorigin="anonymous" />
-          {:else}
-            <div class="flex size-full items-center justify-center">
-              <ListMusic class="text-muted-foreground size-5" />
-            </div>
-          {/if}
-        </div>
-        <div class="min-w-0 flex-1">
-          <div class="flex items-center gap-2">
-            <span class="truncate text-sm font-medium">{r.title}</span>
-            <Badge variant="outline" class="shrink-0 text-[10px]">
-              {r.provider === 'deezer' ? 'Deezer' : 'Spotify'}
-            </Badge>
-          </div>
-          <div class="text-muted-foreground text-xs">
-            {r.trackCount.toLocaleString()} track{r.trackCount === 1 ? '' : 's'}{downloadsEnabled
-              ? ' · new tracks auto-download'
-              : ''}
-          </div>
-        </div>
-        {#if r.subscribed}
-          <Badge class="border-primary/40 bg-primary/15 text-primary shrink-0 gap-1">
-            <CheckCircle2 class="size-3" />
-            Subscribed
-          </Badge>
-        {:else}
-          <Button size="sm" class="shrink-0" disabled={subscribingLink} onclick={onSubscribeLink}>
-            {#if subscribingLink}
-              <Loader2 class="size-4 animate-spin" />
-            {:else}
-              <Plus class="size-4" />
-            {/if}
-            Subscribe
-          </Button>
-        {/if}
-        <button
-          type="button"
-          aria-label="Dismiss"
-          onclick={clearLink}
-          class="text-muted-foreground hover:text-foreground shrink-0"
-        >
-          <X class="size-4" />
-        </button>
-      </div>
-    {/if}
-    </div>
-    {/if}
-
-    <!-- Genre chips -->
-    <div class="border-border border-b px-4 py-3 md:px-6">
-      <div class="flex gap-2 overflow-x-auto pb-1">
-        <button
-          type="button"
-          onclick={() => selectGenre(null)}
-          class="shrink-0 rounded-full px-3 py-1 text-xs transition-colors {selectedGenreId === null &&
-          !debouncedSearch
-            ? 'bg-primary text-primary-foreground'
-            : 'bg-secondary text-muted-foreground hover:bg-secondary/70'}"
-        >
-          Top
-        </button>
-        {#each genres as genre (genre.id)}
-          <button
-            type="button"
-            onclick={() => selectGenre(genre.id)}
-            class="shrink-0 rounded-full px-3 py-1 text-xs whitespace-nowrap transition-colors {selectedGenreId ===
-              genre.id && !debouncedSearch
-              ? 'bg-primary text-primary-foreground'
-              : 'bg-secondary text-muted-foreground hover:bg-secondary/70'}"
+        {/snippet}
+        {#snippet filterRow()}
+          <FilterChip
+            pressed={selectedGenreId === null && !debouncedSearch}
+            onclick={() => selectGenre(null)}>Top</FilterChip
           >
-            {genre.name}
-          </button>
-        {/each}
-      </div>
-    </div>
+          {#each genres as genre (genre.id)}
+            <FilterChip
+              pressed={selectedGenreId === genre.id && !debouncedSearch}
+              onclick={() => selectGenre(genre.id)}>{genre.name}</FilterChip
+            >
+          {/each}
+        {/snippet}
+      </PageToolbarV2>
 
-    {#if banner}
-      <div
-        class="mx-4 mt-3 rounded-md border px-3 py-2 text-sm md:mx-6 {banner.type === 'success'
-          ? 'border-primary/30 bg-primary/10 text-primary'
-          : 'border-destructive/30 bg-destructive/10 text-destructive'}"
-      >
-        {banner.message}
-      </div>
-    {/if}
-
-    <!-- Grid -->
-    {#if playlistsError}
-      <div class="flex flex-col items-center justify-center py-12 text-center">
-        <AlertCircle class="text-destructive mb-3 size-10" />
-        <p class="text-muted-foreground">{playlistsError}</p>
-        <Button variant="outline" size="sm" class="mt-4" onclick={() => loadPlaylists()}>Retry</Button>
-      </div>
-    {:else if loadingPlaylists}
-      <PlaylistGridSkeleton />
-    {:else}
-      <ScrollArea class="min-h-0 flex-1">
-        <div class="grid grid-cols-2 gap-4 p-4 sm:grid-cols-3 md:grid-cols-4 md:p-6 lg:grid-cols-5">
+      {#if playlistsError}
+        <div class="flex flex-col items-center justify-center px-6 py-12 text-center">
+          <AlertCircle class="text-destructive-text mb-3 size-10" aria-hidden="true" />
+          <p class="text-body text-muted-foreground md:text-sm">{playlistsError}</p>
+          <Button
+            variant="outline"
+            class="mt-4 h-11 rounded-full px-5 md:h-8 md:rounded-lg md:px-3"
+            onclick={() => loadPlaylists()}>Retry</Button
+          >
+        </div>
+      {:else if loadingPlaylists}
+        <PlaylistGridSkeleton />
+      {:else if playlists.length === 0}
+        <div class="flex flex-col items-center justify-center py-12 text-center">
+          <Compass class="text-muted-foreground mb-3 size-10" aria-hidden="true" />
+          <p class="text-body text-muted-foreground md:text-sm">
+            {debouncedSearch ? 'No playlists match your search' : 'No playlists found'}
+          </p>
+        </div>
+      {:else}
+        <div
+          class="grid grid-cols-2 gap-x-4 gap-y-5 px-4 pt-2 pb-4 sm:grid-cols-3 md:grid-cols-4 md:px-7 md:pt-4 lg:grid-cols-5"
+        >
           {#each playlists as playlist (playlist.id)}
             <DiscoverPlaylistCard
               {playlist}
-              onClick={() => openPlaylist(playlist)}
+              href={playlistHref(playlist.id)}
+              onOpen={rememberGridScroll}
               onQuickSubscribe={() => subscribe(playlist)}
               isBusy={busyKeys.has(playlist.id)}
             />
           {/each}
         </div>
-        {#if playlists.length === 0}
-          <div class="flex flex-col items-center justify-center py-12 text-center">
-            <Compass class="text-muted-foreground mb-3 size-10" />
-            <p class="text-muted-foreground">
-              {debouncedSearch ? 'No playlists match your search' : 'No playlists found'}
-            </p>
-          </div>
-        {/if}
-      </ScrollArea>
-    {/if}
+      {/if}
+    </div>
   </div>
 {/if}
 
+<!-- Add a playlist from a link: the phone's path to it (it used to be a toolbar field that only
+     fitted from 640px), and the desktop's too. Fields stay at the top of the sheet: the iOS
+     keyboard is not dodged. -->
+<BottomSheet.Root
+  bind:open={linkOpen}
+  title="Add playlist"
+  description="Paste a Spotify or Deezer playlist link to subscribe to it."
+  onOpenChange={(open) => {
+    if (!open) clearLink();
+  }}
+>
+  {#snippet leading()}
+    <BottomSheet.Action onclick={() => (linkOpen = false)}
+      >{resolveResult?.subscribed ? 'Done' : 'Cancel'}</BottomSheet.Action
+    >
+  {/snippet}
+  {#snippet trailing()}
+    {#if resolveResult && !resolveResult.subscribed}
+      <BottomSheet.Action prominent disabled={subscribingLink} onclick={onSubscribeLink}>
+        {#if subscribingLink}<Loader2 class="size-4 animate-spin" />{/if}
+        Subscribe
+      </BottomSheet.Action>
+    {:else if !resolveResult}
+      <BottomSheet.Action prominent disabled={resolving || !linkUrl.trim()} onclick={onResolve}>
+        {#if resolving}<Loader2 class="size-4 animate-spin" />{/if}
+        Find
+      </BottomSheet.Action>
+    {/if}
+  {/snippet}
+
+  <div class="flex flex-col gap-6 px-4 pt-1">
+    <Input
+      type="url"
+      bind:value={linkUrl}
+      aria-label="Playlist link"
+      placeholder="https://open.spotify.com/playlist/…"
+      inputmode="url"
+      enterkeyhint="go"
+      autocapitalize="off"
+      autocorrect="off"
+      spellcheck={false}
+      oninput={() => {
+        resolveResult = null;
+        resolveError = null;
+      }}
+      onkeydown={(e) => {
+        if (e.key === 'Enter') void onResolve();
+      }}
+    />
+
+    {#if resolveError}
+      <div
+        role="alert"
+        class="bg-destructive/10 text-destructive-text text-subheadline flex items-start gap-2 rounded-xl px-4 py-3 md:text-sm"
+      >
+        <AlertCircle class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+        <div class="min-w-0 flex-1">
+          {#if resolveError.kind === 'editorial'}
+            <p class="font-medium">This is a Spotify editorial playlist.</p>
+            <p class="mt-0.5">{resolveError.message}</p>
+            <p class="mt-1">
+              Tip: search for it in Discover — the same editorial playlists are available via
+              Deezer, which does allow subscribing.
+            </p>
+          {:else}
+            {resolveError.message}
+          {/if}
+        </div>
+      </div>
+    {/if}
+  </div>
+
+  {#if resolveResult}
+    {@const r = resolveResult}
+    <GroupedList.Section
+      class="mt-6"
+      footer={downloadsEnabled ? 'New tracks added to it download automatically.' : undefined}
+    >
+      <div class="flex items-center gap-3 px-4 py-3">
+        <div class="bg-muted size-14 shrink-0 overflow-hidden rounded-sm">
+          {#if r.coverUrl}
+            <img src={r.coverUrl} alt="" class="size-full object-cover" crossorigin="anonymous" />
+          {:else}
+            <div class="flex size-full items-center justify-center">
+              <ListMusic class="text-muted-foreground size-5" aria-hidden="true" />
+            </div>
+          {/if}
+        </div>
+        <div class="min-w-0 flex-1">
+          <div class="text-headline truncate md:text-sm">{r.title}</div>
+          <div class="text-subheadline text-muted-foreground md:text-xs">
+            {r.provider === 'deezer' ? 'Deezer' : 'Spotify'} · {r.trackCount.toLocaleString()} track{r.trackCount ===
+            1
+              ? ''
+              : 's'}
+          </div>
+        </div>
+        {#if r.subscribed}
+          <span class="text-primary text-subheadline flex shrink-0 items-center gap-1.5 md:text-xs">
+            <CircleCheck class="size-5 md:size-4" aria-hidden="true" /> Subscribed
+          </span>
+        {/if}
+      </div>
+    </GroupedList.Section>
+  {/if}
+</BottomSheet.Root>
+
+<AlertDialog.Root bind:open={confirmUnsubscribe}>
+  <AlertDialog.Content>
+    <AlertDialog.Header>
+      <AlertDialog.Title
+        >Unsubscribe from “{detail?.playlist.title ?? 'this playlist'}”?</AlertDialog.Title
+      >
+      <AlertDialog.Description>
+        New tracks stop syncing into your wishlist and its sync history is dropped — subscribing
+        again starts over. Tracks it already added stay on the wishlist and in your library.
+      </AlertDialog.Description>
+    </AlertDialog.Header>
+    <AlertDialog.Footer>
+      <AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
+      <AlertDialog.Action
+        variant="destructive"
+        onclick={() => {
+          confirmUnsubscribe = false;
+          if (detail) void unsubscribe(detail.playlist);
+        }}
+      >
+        Unsubscribe
+      </AlertDialog.Action>
+    </AlertDialog.Footer>
+  </AlertDialog.Content>
+</AlertDialog.Root>
+
 <style>
-  .mh-cover-grain {
-    background:
-      radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.25), transparent 50%),
-      radial-gradient(circle at 70% 80%, rgba(0, 0, 0, 0.2), transparent 50%);
+  /* The bar's inline title fades in once the hero title has gone under it (Apple Music). */
+  .hero-scroller :global([data-mh-navbar] h1) {
+    transition: opacity 150ms cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  .hero-scroller[data-hero-visible] :global([data-mh-navbar] h1) {
+    opacity: 0;
   }
 </style>

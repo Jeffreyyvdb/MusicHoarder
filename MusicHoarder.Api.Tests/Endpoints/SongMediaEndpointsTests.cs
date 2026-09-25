@@ -2,11 +2,13 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 using MusicHoarder.Api.Artwork;
+using MusicHoarder.Api.Audio;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Endpoints;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Tests.Auth;
 using MusicHoarder.Api.Tests.Sharing;
+using MusicHoarder.Api.Tests.Audio;
 
 namespace MusicHoarder.Api.Tests.Endpoints;
 
@@ -86,7 +88,7 @@ public class SongMediaEndpointsTests : IDisposable
         await using var db = NewContext();
         // no songs added
 
-        var result = await SongsEndpoints.StreamSong(999, db, TestLibraryScope.For(TestUsers.OwnerId), CancellationToken.None);
+        var result = await SongsEndpoints.StreamSong(999, null, db, TestLibraryScope.For(TestUsers.OwnerId), new FakePcmDecoder(), CancellationToken.None);
 
         Assert.IsAssignableFrom<IStatusCodeHttpResult>(result);
         Assert.Equal(404, ((IStatusCodeHttpResult)result).StatusCode);
@@ -101,7 +103,7 @@ public class SongMediaEndpointsTests : IDisposable
         db.Songs.Add(song);
         await db.SaveChangesAsync();
 
-        var result = await SongsEndpoints.StreamSong(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), CancellationToken.None);
+        var result = await SongsEndpoints.StreamSong(song.Id, null, db, TestLibraryScope.For(TestUsers.OwnerId), new FakePcmDecoder(), CancellationToken.None);
 
         Assert.IsAssignableFrom<IStatusCodeHttpResult>(result);
         Assert.Equal(404, ((IStatusCodeHttpResult)result).StatusCode);
@@ -117,7 +119,7 @@ public class SongMediaEndpointsTests : IDisposable
         db.Songs.Add(song);
         await db.SaveChangesAsync();
 
-        var result = await SongsEndpoints.StreamSong(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), CancellationToken.None);
+        var result = await SongsEndpoints.StreamSong(song.Id, null, db, TestLibraryScope.For(TestUsers.OwnerId), new FakePcmDecoder(), CancellationToken.None);
 
         var streamResult = Assert.IsType<FileStreamHttpResult>(result);
         Assert.Equal("audio/mpeg", streamResult.ContentType);
@@ -139,7 +141,7 @@ public class SongMediaEndpointsTests : IDisposable
         db.Songs.Add(song);
         await db.SaveChangesAsync();
 
-        var result = await SongsEndpoints.StreamSong(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), CancellationToken.None);
+        var result = await SongsEndpoints.StreamSong(song.Id, null, db, TestLibraryScope.For(TestUsers.OwnerId), new FakePcmDecoder(), CancellationToken.None);
 
         var streamResult = Assert.IsType<FileStreamHttpResult>(result);
         Assert.Equal("audio/flac", streamResult.ContentType);
@@ -163,7 +165,7 @@ public class SongMediaEndpointsTests : IDisposable
         db.Songs.Add(song);
         await db.SaveChangesAsync();
 
-        var result = await SongsEndpoints.StreamSong(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), CancellationToken.None);
+        var result = await SongsEndpoints.StreamSong(song.Id, null, db, TestLibraryScope.For(TestUsers.OwnerId), new FakePcmDecoder(), CancellationToken.None);
 
         var streamResult = Assert.IsType<FileStreamHttpResult>(result);
         Assert.Equal(destPath, ((FileStream)streamResult.FileStream).Name);
@@ -180,7 +182,7 @@ public class SongMediaEndpointsTests : IDisposable
         db.Songs.Add(song);
         await db.SaveChangesAsync();
 
-        var result = await SongsEndpoints.StreamSong(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), CancellationToken.None);
+        var result = await SongsEndpoints.StreamSong(song.Id, null, db, TestLibraryScope.For(TestUsers.OwnerId), new FakePcmDecoder(), CancellationToken.None);
 
         Assert.IsAssignableFrom<IStatusCodeHttpResult>(result);
         Assert.Equal(404, ((IStatusCodeHttpResult)result).StatusCode);
@@ -196,12 +198,83 @@ public class SongMediaEndpointsTests : IDisposable
         db.Songs.Add(song);
         await db.SaveChangesAsync();
 
-        var result = await SongsEndpoints.StreamSong(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), CancellationToken.None);
+        var result = await SongsEndpoints.StreamSong(song.Id, null, db, TestLibraryScope.For(TestUsers.OwnerId), new FakePcmDecoder(), CancellationToken.None);
 
         var streamResult = Assert.IsType<FileStreamHttpResult>(result);
         Assert.Equal("application/octet-stream", streamResult.ContentType);
 
         await streamResult.FileStream.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task StreamSong_OpusFile_IsServedAsItIsWithTheOggMediaType()
+    {
+        // No ?format: the original bytes, never a conversion.
+        var sourcePath = TempFile("song.opus");
+        var decoder = new FakePcmDecoder();
+
+        await using var db = NewContext();
+        var song = NewSong(sourcePath, "song.opus");
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        var result = await SongsEndpoints.StreamSong(song.Id, null, db, TestLibraryScope.For(TestUsers.OwnerId), decoder, CancellationToken.None);
+
+        var streamResult = Assert.IsType<FileStreamHttpResult>(result);
+        Assert.Equal("audio/ogg", streamResult.ContentType);
+        Assert.Equal(sourcePath, ((FileStream)streamResult.FileStream).Name);
+        Assert.Empty(decoder.Opened);
+
+        await streamResult.FileStream.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task StreamSong_FormatWav_StreamsTheFileDecodedToItsFullLength()
+    {
+        var sourcePath = TempFile("song.opus");
+
+        await using var db = NewContext();
+        var song = NewSong(sourcePath, "song.opus");
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        var result = await SongsEndpoints.StreamSong(song.Id, "wav", db, TestLibraryScope.For(TestUsers.OwnerId), new FakePcmDecoder(frames: 480_000), CancellationToken.None);
+
+        var wav = Assert.IsType<WavStreamResult>(result);
+        Assert.Equal(44 + 480_000 * 4, wav.Length);
+    }
+
+    [Fact]
+    public async Task StreamSong_UnknownFormat_Returns400()
+    {
+        var sourcePath = TempFile("song.opus");
+
+        await using var db = NewContext();
+        var song = NewSong(sourcePath, "song.opus");
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        var result = await SongsEndpoints.StreamSong(song.Id, "flac", db, TestLibraryScope.For(TestUsers.OwnerId), new FakePcmDecoder(), CancellationToken.None);
+
+        Assert.Equal(400, ((IStatusCodeHttpResult)result).StatusCode);
+    }
+
+    [Fact]
+    public async Task StreamSong_FormatWav_UnreadableLength_Returns500WithoutNamingThePath()
+    {
+        // The same helper serves anonymous share links.
+        var sourcePath = TempFile("song.opus");
+
+        await using var db = NewContext();
+        var song = NewSong(sourcePath, "song.opus");
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        var result = await SongsEndpoints.StreamSong(song.Id, "wav", db, TestLibraryScope.For(TestUsers.OwnerId), new FakePcmDecoder(frames: null), CancellationToken.None);
+
+        var problem = Assert.IsType<ProblemHttpResult>(result);
+        Assert.Equal(500, problem.StatusCode);
+        Assert.DoesNotContain(_tmpDir.FullName, problem.ProblemDetails.Detail);
     }
 
     // ══════════════════════════════════════════════════════════════════════════

@@ -1,14 +1,18 @@
 <script lang="ts">
   import { AlertTriangle, Loader2 } from '@lucide/svelte';
-  import * as Dialog from '$lib/components/ui/dialog';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
+  import * as BottomSheet from '$lib/components/ui/bottom-sheet';
   import TimelineList from '$lib/components/v2/TimelineList.svelte';
   import {
     fetchAlbumTimeline,
     type AlbumTimelineApiEvent,
     type AlbumTimelineResponse
   } from '$lib/api-client';
-  import { providerColor, providerLabel, type TimelineEvent, type TimelineTint } from '$lib/review-helpers';
+  import {
+    providerColor,
+    providerLabel,
+    type TimelineEvent,
+    type TimelineTint
+  } from '$lib/review-helpers';
 
   type Props = {
     open?: boolean;
@@ -66,42 +70,44 @@
   const events = $derived<TimelineEvent[]>((timeline?.events ?? []).map(toTimelineEvent));
 </script>
 
-<Dialog.Root bind:open>
-  <Dialog.Content class="sm:max-w-2xl">
-    <Dialog.Header>
-      <Dialog.Title>Album timeline</Dialog.Title>
-      <Dialog.Description>
-        Where “{album}” by {artist} got its data — discovery, providers, and library writes.
-      </Dialog.Description>
-    </Dialog.Header>
+<!-- A sheet on a phone (content height, up to nearly full), a dialog on desktop. The sheet body
+     scrolls, so the timeline needs no scroller of its own. -->
+<BottomSheet.Root
+  bind:open
+  title="Album timeline"
+  description="Where “{album}” by {artist} got its data — discovery, providers and library writes."
+  bodyClass="px-4 md:px-6"
+  class="md:max-w-2xl"
+>
+  {#snippet trailing()}
+    <BottomSheet.Action prominent onclick={() => (open = false)}>Done</BottomSheet.Action>
+  {/snippet}
 
-    <div class="flex max-h-[70vh] min-h-0 flex-col">
-      {#if loading}
-        <div class="text-muted-foreground flex items-center justify-center gap-2 py-10 text-[12.5px]">
-          <Loader2 class="size-4 animate-spin" />
-          Loading timeline…
-        </div>
-      {:else if loadError}
-        <div
-          class="border-border bg-card text-muted-foreground flex items-center justify-center gap-2 rounded-lg border border-dashed px-3.5 py-8 text-[12.5px]"
-        >
-          <AlertTriangle class="size-4 text-amber-500" />
-          {loadError}
-        </div>
-      {:else if events.length === 0}
-        <div
-          class="border-border bg-card text-muted-foreground rounded-lg border border-dashed px-3.5 py-8 text-center text-[12px]"
-        >
-          No events recorded for this album yet.
-        </div>
-      {:else}
-        <ScrollArea class="min-h-0 flex-1">
-          <TimelineList {events} showDate />
-        </ScrollArea>
-        <p class="text-muted-foreground/70 mt-2 shrink-0 text-[11px]">
-          Per-track enrichment is rolled up per provider — open a track’s own timeline for the full detail.
-        </p>
-      {/if}
+  {#if loading}
+    <div
+      class="text-muted-foreground text-subheadline flex items-center justify-center gap-2 py-10 md:text-sm"
+    >
+      <Loader2 class="size-4 animate-spin" />
+      Loading timeline…
     </div>
-  </Dialog.Content>
-</Dialog.Root>
+  {:else if loadError}
+    <div
+      class="bg-card text-muted-foreground text-subheadline flex items-center justify-center gap-2 rounded-xl px-4 py-8 md:text-sm"
+    >
+      <AlertTriangle class="text-warning-text size-4" aria-hidden="true" />
+      {loadError}
+    </div>
+  {:else if events.length === 0}
+    <div
+      class="bg-card text-muted-foreground text-subheadline rounded-xl px-4 py-8 text-center md:text-sm"
+    >
+      No events recorded for this album yet.
+    </div>
+  {:else}
+    <TimelineList {events} showDate />
+    <p class="text-footnote text-muted-foreground mt-2 px-1">
+      Per-track enrichment is rolled up per provider — open a track’s own timeline for the full
+      detail.
+    </p>
+  {/if}
+</BottomSheet.Root>

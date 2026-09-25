@@ -1,8 +1,13 @@
 <script lang="ts">
   import QRCode from 'qrcode';
+  import { toast } from 'svelte-sonner';
   import { Button } from '$lib/components/ui/button';
+  import * as GroupedList from '$lib/components/ui/grouped-list';
+  import FieldRow from '$lib/components/settings/FieldRow.svelte';
+  import StatusLine from '$lib/components/settings/StatusLine.svelte';
+  import { COPY_FAILED_MESSAGE, copyText } from '$lib/components/settings/copy-text';
   import { createDeviceToken } from '$lib/api-client';
-  import { AlertCircle, Check, Copy, Loader2, Smartphone } from '@lucide/svelte';
+  import { Check, ChevronDown, Copy, Loader2, Smartphone, TriangleAlert } from '@lucide/svelte';
 
   /**
    * Pairs the native (Android) client with this deployment. The QR encodes the origin the phone
@@ -63,105 +68,101 @@
 
   async function copyToken() {
     if (!token) return;
-    await navigator.clipboard.writeText(token);
+    if (!(await copyText(token))) {
+      toast.error(COPY_FAILED_MESSAGE);
+      return;
+    }
     copied = true;
     setTimeout(() => (copied = false), 2000);
   }
 </script>
 
-<section class="border-border bg-card rounded-lg border">
-  <header class="border-border border-b px-5 py-3.5">
-    <h2 class="flex items-center gap-2 text-sm font-semibold">
-      <Smartphone class="size-4" /> Mobile app
-    </h2>
-    <p class="text-muted-foreground text-xs">
-      Pair the MusicHoarder Android app with this server. Scanning the code signs the phone in on
-      its own session — signing this browser out leaves it paired, "Sign out everywhere" revokes it.
-    </p>
-  </header>
-
-  <div class="space-y-4 p-5">
+{#snippet footer()}
+  <div class="flex flex-col gap-2">
     {#if error}
-      <div
-        class="border-destructive/50 bg-destructive/10 text-destructive flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
-      >
-        <AlertCircle class="mt-0.5 size-4 shrink-0" />
-        <span>{error}</span>
-      </div>
+      <StatusLine tone="error">{error}</StatusLine>
     {/if}
-
-    {#if !qrSvg}
-      <Button onclick={pair} disabled={isMinting}>
-        {#if isMinting}
-          <Loader2 class="mr-2 size-4 animate-spin" />
-        {:else}
-          <Smartphone class="mr-2 size-4" />
-        {/if}
-        Show pairing code
-      </Button>
-    {:else}
-      <div class="flex flex-col items-start gap-4 sm:flex-row">
-        <!-- White plate regardless of theme: scanners need the quiet zone light. -->
-        <div class="shrink-0 rounded-lg bg-white p-3 shadow-sm">
-          <div class="size-44 [&>svg]:size-full">
-            <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-            {@html qrSvg}
-          </div>
-        </div>
-
-        <div class="min-w-0 flex-1 space-y-3">
-          <div
-            class="border-border bg-secondary/40 text-foreground/80 rounded-lg border px-4 py-3 text-xs leading-relaxed"
-          >
-            This code grants full access to your library — treat it like a password, and hide it
-            once the phone is paired.
-            {#if expiresAtUtc}
-              The device session expires {new Date(expiresAtUtc).toLocaleDateString()}.
-            {/if}
-          </div>
-
-          <div class="flex flex-wrap items-center gap-2">
-            <Button variant="outline" size="sm" onclick={hide}>Hide code</Button>
-            <Button variant="ghost" size="sm" onclick={() => (showFallback = !showFallback)}>
-              {showFallback ? 'Hide manual entry' : "Can't scan?"}
-            </Button>
-          </div>
-
-          {#if showFallback}
-            <div class="space-y-2">
-              <div>
-                <div class="text-muted-foreground text-[11px]">Server URL</div>
-                <div class="border-border bg-secondary/30 truncate rounded-md border px-3 py-2 font-mono text-xs">
-                  {baseUrl}
-                </div>
-              </div>
-              <div>
-                <div class="text-muted-foreground text-[11px]">Access token</div>
-                <div class="flex items-center gap-2">
-                  <div
-                    class="border-border bg-secondary/30 min-w-0 flex-1 truncate rounded-md border px-3 py-2 font-mono text-xs"
-                  >
-                    {token}
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    class="size-8 shrink-0"
-                    onclick={copyToken}
-                    aria-label="Copy access token"
-                  >
-                    {#if copied}
-                      <Check class="size-4" />
-                    {:else}
-                      <Copy class="size-4" />
-                    {/if}
-                  </Button>
-                </div>
-              </div>
-            </div>
-          {/if}
-        </div>
-      </div>
-    {/if}
+    <p>
+      Pair the MusicHoarder Android app with this server. Scanning the code signs the phone in on
+      its own session — signing this browser out leaves it paired; Sign out everywhere revokes it.
+    </p>
   </div>
-</section>
+{/snippet}
+
+<GroupedList.Section headingLevel={2} header="Mobile app" {footer}>
+  {#if !qrSvg}
+    <GroupedList.Row icon={Smartphone} onclick={pair} disabled={isMinting}>
+      <span class="text-body text-primary md:text-sm">Show pairing code</span>
+      {#snippet trailing()}
+        {#if isMinting}
+          <Loader2 class="text-muted-foreground size-4 animate-spin" aria-hidden="true" />
+        {/if}
+      {/snippet}
+    </GroupedList.Row>
+  {:else}
+    <div
+      data-slot="grouped-list-row"
+      class="after:bg-separator relative flex flex-col items-center gap-3 px-4 py-4 after:absolute after:right-0 after:bottom-0 after:left-4 after:h-(--hairline)"
+    >
+      <!-- White plate regardless of theme: scanners need the quiet zone light. -->
+      <div class="rounded-xl bg-white p-3 shadow-sm">
+        <div class="size-48 [&>svg]:size-full" role="img" aria-label="Pairing QR code">
+          <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+          {@html qrSvg}
+        </div>
+      </div>
+      <p class="text-subheadline text-muted-foreground flex max-w-md items-start gap-2 md:text-xs">
+        <TriangleAlert class="text-warning-text mt-0.5 size-4 shrink-0" aria-hidden="true" />
+        <span>
+          This code grants full access to your library — treat it like a password, and hide it once
+          the phone is paired.
+          {#if expiresAtUtc}
+            The device session expires {new Date(expiresAtUtc).toLocaleDateString()}.
+          {/if}
+        </span>
+      </p>
+    </div>
+    <GroupedList.Row
+      onclick={() => (showFallback = !showFallback)}
+      aria-expanded={showFallback}
+      label="Can’t scan?"
+      sublabel="Enter the server and token by hand"
+    >
+      {#snippet trailing()}
+        <ChevronDown
+          class="text-muted-foreground-dim size-4 transition-transform duration-200 {showFallback
+            ? 'rotate-180'
+            : ''}"
+          strokeWidth={2.5}
+          aria-hidden="true"
+        />
+      {/snippet}
+    </GroupedList.Row>
+    {#if showFallback}
+      <FieldRow label="Server URL">
+        <p class="text-body font-mono break-all select-all md:text-xs">{baseUrl}</p>
+      </FieldRow>
+      <FieldRow label="Access token">
+        <div class="flex items-center gap-1">
+          <p class="text-body min-w-0 flex-1 truncate font-mono select-all md:text-xs">{token}</p>
+          <Button
+            variant="ghost"
+            size="icon"
+            class="shrink-0 pointer-coarse:size-11"
+            onclick={copyToken}
+            aria-label={copied ? 'Copied' : 'Copy access token'}
+          >
+            {#if copied}
+              <Check class="text-primary size-4" />
+            {:else}
+              <Copy class="size-4" />
+            {/if}
+          </Button>
+        </div>
+      </FieldRow>
+    {/if}
+    <GroupedList.Row onclick={hide}>
+      <span class="text-body text-primary md:text-sm">Hide code</span>
+    </GroupedList.Row>
+  {/if}
+</GroupedList.Section>

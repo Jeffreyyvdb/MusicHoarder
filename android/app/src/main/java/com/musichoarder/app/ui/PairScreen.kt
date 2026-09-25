@@ -217,7 +217,7 @@ fun PairScreen(
                     icon = Icons.Rounded.ErrorOutline,
                     tint = colors.destructive,
                     text = error,
-                    textColor = colors.destructive,
+                    textColor = colors.destructiveText,
                 )
             }
 
@@ -285,7 +285,7 @@ private fun ServerRow(host: String, onChange: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
-            .background(colors.input.copy(alpha = 0.6f))
+            .background(colors.input)
             .border(1.dp, colors.border, RoundedCornerShape(8.dp))
             .clickable(onClick = onChange)
             .padding(horizontal = 14.dp, vertical = 11.dp),
@@ -370,8 +370,8 @@ private fun PairField(
             focusedLabelColor = colors.mutedForeground,
             unfocusedLabelColor = colors.mutedForeground,
             cursorColor = colors.primary,
-            focusedContainerColor = colors.input.copy(alpha = 0.6f),
-            unfocusedContainerColor = colors.input.copy(alpha = 0.6f),
+            focusedContainerColor = colors.input,
+            unfocusedContainerColor = colors.input,
         ),
         modifier = Modifier.fillMaxWidth(),
     )

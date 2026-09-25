@@ -15,24 +15,50 @@
     buildDestinationPath,
     type EditableFieldKey
   } from '$lib/review-helpers';
-  import { verdictTone, toneText, toneBorder, verdictGlyph, classifyBucket } from '$lib/quality-ui';
+  import {
+    verdictTone,
+    toneText,
+    toneGlyph,
+    toneBorder,
+    verdictGlyph,
+    classifyBucket,
+    issueLabel
+  } from '$lib/quality-ui';
+  import { goto } from '$app/navigation';
   import Cover from '$lib/components/file-browser/Cover.svelte';
+  import { Button } from '$lib/components/ui/button';
+  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
+  import { SegmentedControl } from '$lib/components/ui/segmented-control';
   import CandidateGrid from '$lib/components/review/CandidateGrid.svelte';
   import BeforeAfterView from '$lib/components/review/BeforeAfterView.svelte';
   import OriginMatrixView from '$lib/components/review/OriginMatrixView.svelte';
+  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
+  import type { NavBack } from '$lib/nav';
   import { cleanDisplayName } from '$lib/formatters';
+  import { coverUrlForSongId } from '$lib/components/v2/inbox/song-cover';
   import { cn } from '$lib/utils';
-  import { ChevronLeft, Sparkles, Loader2, Copy, ExternalLink } from '@lucide/svelte';
+  import { Sparkles, Loader2, Copy, ExternalLink } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
   import { SvelteSet } from 'svelte/reactivity';
 
+  // One graded song: the algorithm's verdict against the AI's, the grader's reasoning, and the
+  // provenance dossier. Two presentations:
+  //  - `pane` (the desktop split view): a card column with its own scroll and an action bar.
+  //  - `page` (the phone and tablet drill-down, pushed as /quality?detail=<id>): it renders the
+  //    page's nav bar itself — so the bar is the first child of the page scroller — with Re-grade
+  //    as the one prominent action and Copy dossier / Open in review in More; the content flows
+  //    in the page's single scroller.
   type Props = {
     row: QualitySongRow | null;
-    onBack?: () => void;
     onRegraded?: () => void;
+    layout?: 'pane' | 'page';
+    /** `page`: where the nav bar's Back goes (the list). */
+    back?: NavBack | null;
+    /** `page`: the subtitle under the inline title, e.g. "3 of 57". */
+    position?: string;
   };
 
-  const { row, onBack, onRegraded }: Props = $props();
+  const { row, onRegraded, layout = 'pane', back, position }: Props = $props();
 
   let details = $state<Record<number, EnrichmentDetail>>({});
   let grades = $state<Record<number, SongQualityGradeView>>({});
@@ -124,19 +150,29 @@
     const d = new Date(iso);
     return Number.isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
   }
+  // The eyebrow is a status label in sentence case and the system font (it used to be a mono
+  // uppercase console tag); its tone is the bucket's status colour.
   const eyebrow = $derived(
     bucket === 'flagged'
-      ? 'FLAGGED FOR REVIEW'
+      ? 'Flagged for review'
       : bucket === 'silent'
-        ? 'SILENT FAILURE'
+        ? 'Silent failure'
         : bucket === 'verified'
-          ? `VERIFIED${grade?.gradedAtUtc ? ' · ' + fmtDate(grade.gradedAtUtc) : ''}`
+          ? `Verified${grade?.gradedAtUtc ? ' · ' + fmtDate(grade.gradedAtUtc) : ''}`
           : verdict
-            ? 'GRADED'
-            : 'NO LLM GRADE YET'
+            ? 'Graded'
+            : 'No AI grade yet'
+  );
+  const eyebrowTone = $derived(
+    bucket === 'silent'
+      ? 'text-destructive-text'
+      : bucket === 'flagged'
+        ? 'text-warning-text'
+        : 'text-muted-foreground'
   );
 
   const reviewHref = $derived(row ? `/track/${row.songId}` : '#');
+  const writeLabel = $derived(bucket === 'flagged' ? 'Will write to' : 'Current write');
 
   async function onRegrade() {
     if (!row) return;
@@ -157,180 +193,234 @@
     if (!row) return;
     try {
       await copyQualitySongDossier(row.songId);
-      toast.success('Copied to clipboard — paste into Claude Code');
+      toast.success('Copied dossier to clipboard — paste into an AI assistant for a second opinion');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Copy failed');
     }
   }
 
   const noop = (_k: EditableFieldKey, _v: string) => {};
+  const views = [
+    { value: 'before' as const, label: 'Before → After' },
+    { value: 'matrix' as const, label: 'Origin matrix' }
+  ];
 </script>
 
-<div class="bg-card border-border flex h-full min-h-0 flex-col overflow-hidden rounded-lg border">
-  {#if onBack}
-    <button
-      type="button"
-      onclick={onBack}
-      class="text-muted-foreground hover:text-foreground border-border flex shrink-0 items-center gap-1 border-b px-4 py-3 text-xs lg:hidden"
+{#snippet head(coverSize: number)}
+  <div class="flex items-center gap-3.5">
+    <Cover
+      {artist}
+      title={cleanDisplayName(title)}
+      coverUrl={row ? coverUrlForSongId(row.songId) : null}
+      size={coverSize}
+      corner={6}
+      caption={false}
+    />
+    <div class="min-w-0 flex-1">
+      <div class={cn('text-footnote font-semibold md:text-[12px]', eyebrowTone)}>{eyebrow}</div>
+      <div class="text-title-3 mt-0.5 line-clamp-2 md:truncate md:text-[17px] md:font-semibold">
+        {cleanDisplayName(title)}
+      </div>
+      <div class="text-subheadline text-muted-foreground truncate md:text-[12px]">
+        {artist || 'Unknown artist'}{#if album}<span aria-hidden="true" class="mx-1">·</span><span class="sr-only">, </span><em>{album}</em>{/if}
+      </div>
+    </div>
+  </div>
+{/snippet}
+
+{#snippet verdictBlock()}
+  {#if verdict}
+    <div
+      class={cn(
+        'grid grid-cols-1 items-center gap-3 rounded-xl p-4 sm:grid-cols-[1fr_auto_1fr]',
+        bucket === 'silent' ? 'bg-destructive/8 ring-destructive/30 ring-1 ring-inset' : 'bg-card'
+      )}
     >
-      <ChevronLeft class="size-4" /> Back to list
-    </button>
+      <div>
+        <div class="text-footnote text-muted-foreground font-medium md:text-[11px]">Algorithm</div>
+        <div class={cn('text-headline mt-1 md:text-[15px]', toneText(algoTone))}>
+          <span class={toneGlyph(algoTone)} aria-hidden="true">{algoGlyph}</span>
+          {algoLabel}
+        </div>
+        <div class="text-subheadline text-muted-foreground mt-1 md:text-[12px]">{algoSub}</div>
+      </div>
+      <div class="grid place-items-center self-stretch sm:pt-3">
+        {#if marker === 'disagree'}
+          <span class="text-destructive-text text-footnote font-semibold md:text-[11px]">≠ Disagree</span>
+        {:else if marker === 'agree'}
+          <span class="text-muted-foreground text-footnote font-semibold md:text-[11px]">= Agree</span>
+        {:else}
+          <span class="text-muted-foreground text-lg" aria-hidden="true">→</span>
+        {/if}
+      </div>
+      <div>
+        <div class="text-footnote text-muted-foreground font-medium md:text-[11px]">AI grader</div>
+        <div class={cn('text-headline mt-1 flex items-baseline gap-2 md:text-[15px]', toneText(aiTone))}>
+          <span>
+            <span class={toneGlyph(aiTone)} aria-hidden="true">{verdictGlyph(verdict)}</span>
+            {verdict}
+          </span>
+          {#if score != null}<span class="text-muted-foreground text-subheadline font-normal tabular-nums md:text-[12px]"
+              >{score}/100</span
+            >{/if}
+        </div>
+        {#if summary}<div class="text-subheadline text-muted-foreground mt-1 md:text-[12px]">{summary}</div>{/if}
+      </div>
+    </div>
   {/if}
+{/snippet}
+
+{#snippet reasoning()}
+  {#if verdict && (summary || issues.length > 0)}
+    <div class={cn('bg-card rounded-xl border-l-[3px] p-4', toneBorder(aiTone))}>
+      <div class="flex flex-wrap items-center gap-2">
+        <Sparkles class={cn('size-3.5', toneGlyph(aiTone))} aria-hidden="true" />
+        <span class="text-subheadline font-semibold md:text-[12px]">Why the AI graded it this way</span>
+        <span class="text-footnote text-muted-foreground ml-auto md:text-[11px]">
+          {#if grade?.model}<span class="font-mono">{grade.model}</span>{/if}{#if grade?.durationMs}
+            · <span class="tabular-nums">{grade.durationMs} ms</span>{/if}{#if grade?.promptVersion}
+            · prompt v{grade.promptVersion}{/if}
+        </span>
+      </div>
+      {#if summary}<p class="text-callout text-muted-foreground mt-2 md:text-[12.5px]">{summary}</p>{/if}
+      {#if issues.length > 0}
+        <ul class="mt-2.5 flex flex-col gap-1.5">
+          {#each issues as issue (issue.code)}
+            <!-- The detail used to be a hover tooltip; a finger never hovers, so it is text. -->
+            <li class="text-subheadline md:text-[12px]">
+              <span
+                class="bg-muted text-foreground rounded-full px-2 py-0.5 text-[12px] md:text-[11px]"
+                title={issue.code}
+                >{issueLabel(issue.code)}{#if issue.severity}<span class="text-muted-foreground">{` · ${issue.severity}`}</span>{/if}</span
+              >
+              {#if issue.detail}<span class="text-muted-foreground ml-1">{issue.detail}</span>{/if}
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </div>
+  {/if}
+{/snippet}
+
+{#snippet dossier()}
+  {#if loading && !detail}
+    <div class="text-muted-foreground text-subheadline flex items-center gap-2 py-8 md:text-[12.5px]">
+      <Loader2 class="size-4 animate-spin" aria-hidden="true" /> Loading provenance dossier…
+    </div>
+  {:else if detail}
+    <div class="space-y-3">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <h3 class="text-footnote text-muted-foreground font-semibold md:text-[12px]">Provenance dossier</h3>
+        <SegmentedControl items={views} bind:value={view} label="Dossier view" class="w-full sm:w-auto" />
+      </div>
+
+      <!-- The review components are wide tables; they scroll sideways inside the page rather than
+           widening it. -->
+      <div data-scroll-x="" class="min-w-0 space-y-3 overflow-x-auto">
+        {#if candidates.length > 0}
+          <CandidateGrid {candidates} pickedKey={null} onpick={() => {}} readonly />
+        {/if}
+
+        {#if view === 'before'}
+          <BeforeAfterView
+            rows={beforeRows}
+            values={finalValues}
+            readonly={true}
+            {fromFolder}
+            fileName={detail.fileName}
+            fromMeta={ext}
+            {destinationPath}
+            destFormat={ext}
+            onset={noop}
+            oncopy={noop}
+          />
+        {:else}
+          <OriginMatrixView {matrix} />
+        {/if}
+      </div>
+    </div>
+  {/if}
+{/snippet}
+
+{#if layout === 'page'}
+  <PageToolbarV2
+    title={row ? cleanDisplayName(title) || 'Track' : 'Track'}
+    meta={position}
+    largeTitle={false}
+    {back}
+    grouped
+  >
+    {#snippet actions()}
+      {#if row}
+        <Button onclick={onRegrade} disabled={regradeBusy} class="rounded-full">
+          {#if regradeBusy}<Loader2 class="animate-spin" aria-hidden="true" />{:else}<Sparkles aria-hidden="true" />{/if}
+          <span class="max-md:sr-only">Re-grade</span>
+        </Button>
+      {/if}
+    {/snippet}
+    {#snippet more()}
+      {#if row}
+        <DropdownMenu.Item onSelect={onCopy}>
+          <Copy />
+          Copy dossier
+        </DropdownMenu.Item>
+        <DropdownMenu.Item onSelect={() => void goto(reviewHref)}>
+          <ExternalLink />
+          Open in review
+        </DropdownMenu.Item>
+      {/if}
+    {/snippet}
+  </PageToolbarV2>
 
   {#if !row}
-    <div class="text-muted-foreground grid flex-1 place-items-center p-6 text-[13px]">Pick a track from the list.</div>
+    <p class="text-body text-muted-foreground px-8 py-14 text-center">Loading track…</p>
   {:else}
-    <!-- Detail head -->
-    <div class="border-border flex shrink-0 items-center gap-3.5 border-b px-4 py-3.5 sm:px-[18px]">
-      <Cover {artist} title={cleanDisplayName(title)} size={52} corner={4} caption={false} />
-      <div class="min-w-0 flex-1">
-        <div class="text-muted-foreground font-mono text-[9.5px] font-bold tracking-[0.12em] uppercase">{eyebrow}</div>
-        <div class="mt-0.5 truncate text-[17px] font-semibold tracking-tight">{cleanDisplayName(title)}</div>
-        <div class="text-muted-foreground truncate text-[12px]">
-          {artist || 'Unknown artist'}{#if album}<span class="text-muted-foreground/60"> · </span><em>{album}</em>{/if}
+    <div class="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 pt-3 pb-8 md:px-7">
+      {@render head(64)}
+      {@render verdictBlock()}
+      {@render reasoning()}
+      {@render dossier()}
+      <div>
+        <div class="text-footnote text-muted-foreground px-4 pb-1.5 md:px-0">{writeLabel}</div>
+        <div class="bg-card text-footnote text-muted-foreground rounded-xl px-4 py-3 font-mono break-all">
+          {destinationPath || '—'}
         </div>
       </div>
-    </div>
-
-    <div class="min-h-0 flex-1 space-y-3.5 overflow-y-auto px-4 py-3.5 sm:px-[18px]">
-      <!-- Verdict conflict -->
-      {#if verdict}
-        <div
-          class={cn(
-            'grid grid-cols-1 items-center gap-2 rounded-md border p-3.5 sm:grid-cols-[1fr_auto_1fr] sm:gap-3',
-            bucket === 'silent'
-              ? 'border-red-500/40 bg-gradient-to-b from-red-500/[0.08] to-transparent'
-              : 'border-border bg-background'
-          )}
-        >
-          <div>
-            <div class="text-muted-foreground font-mono text-[9.5px] font-semibold tracking-[0.1em]">ALGORITHM SAID</div>
-            <div class={cn('mt-1 text-[15px] font-semibold', toneText(algoTone))}>{algoGlyph} {algoLabel}</div>
-            <div class="text-muted-foreground mt-1 text-[12px] leading-snug">{algoSub}</div>
-          </div>
-          <div class="grid place-items-center self-stretch pt-1 sm:pt-3">
-            {#if marker === 'disagree'}
-              <span class="font-mono text-[11px] font-semibold tracking-wide text-red-600 dark:text-red-400">≠ disagree</span>
-            {:else if marker === 'agree'}
-              <span class="font-mono text-[11px] font-semibold tracking-wide text-emerald-600 dark:text-emerald-400">= agree</span>
-            {:else}
-              <span class="text-muted-foreground text-lg">→</span>
-            {/if}
-          </div>
-          <div>
-            <div class="text-muted-foreground font-mono text-[9.5px] font-semibold tracking-[0.1em]">AI SAID</div>
-            <div class={cn('mt-1 flex items-baseline gap-2 text-[15px] font-semibold', toneText(aiTone))}>
-              <span>{verdictGlyph(verdict)} {verdict}</span>
-              {#if score != null}<span class="text-muted-foreground font-mono text-[12px]">{score}/100</span>{/if}
-            </div>
-            {#if summary}<div class="text-muted-foreground mt-1 text-[12px] leading-snug">{summary}</div>{/if}
-          </div>
-        </div>
-      {/if}
-
-      <!-- LLM reasoning -->
-      {#if verdict && (summary || issues.length > 0)}
-        <div class={cn('bg-background rounded-md border border-l-[3px] p-3.5', toneBorder(aiTone))}>
-          <div class="flex flex-wrap items-center gap-2">
-            <Sparkles class={cn('size-3', toneText(aiTone))} />
-            <span class="text-[12px] font-semibold">Why the AI graded it this way</span>
-            <span class="text-muted-foreground ml-auto font-mono text-[10px]">
-              {#if grade?.model}{grade.model}{/if}{#if grade?.durationMs} · {grade.durationMs}ms{/if}{#if grade?.promptVersion} · prompt v{grade.promptVersion}{/if}
-            </span>
-          </div>
-          {#if summary}<div class="text-muted-foreground mt-2 text-[12.5px] leading-relaxed">{summary}</div>{/if}
-          {#if issues.length > 0}
-            <div class="mt-2.5 flex flex-wrap gap-1.5">
-              {#each issues as issue (issue.code)}
-                <span
-                  class="bg-muted/60 inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[10px]"
-                  title={issue.detail ?? undefined}
-                >
-                  {issue.code}{#if issue.severity}<span class="text-muted-foreground/70">· {issue.severity}</span>{/if}
-                </span>
-              {/each}
-            </div>
-          {/if}
-        </div>
-      {/if}
-
-      <!-- Provenance dossier -->
-      {#if loading && !detail}
-        <div class="text-muted-foreground flex items-center gap-2 py-8 text-[12.5px]">
-          <Loader2 class="size-4 animate-spin" /> Loading provenance dossier…
-        </div>
-      {:else if detail}
-        <div class="space-y-3">
-          <div class="border-border flex items-center justify-between border-b pb-2">
-            <span class="text-muted-foreground font-mono text-[9.5px] font-bold tracking-[0.12em]">PROVENANCE DOSSIER</span>
-            <div class="bg-surface-sunken flex items-center gap-1 rounded-lg p-0.5">
-              {#each [{ id: 'before' as const, label: 'Before → After' }, { id: 'matrix' as const, label: 'Origin matrix' }] as v (v.id)}
-                <button
-                  type="button"
-                  onclick={() => (view = v.id)}
-                  class={cn(
-                    'rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors active:translate-y-px',
-                    view === v.id ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent'
-                  )}>{v.label}</button
-                >
-              {/each}
-            </div>
-          </div>
-
-          {#if candidates.length > 0}
-            <CandidateGrid {candidates} pickedKey={null} onpick={() => {}} readonly />
-          {/if}
-
-          {#if view === 'before'}
-            <BeforeAfterView
-              rows={beforeRows}
-              values={finalValues}
-              readonly={true}
-              {fromFolder}
-              fileName={detail.fileName}
-              fromMeta={ext}
-              {destinationPath}
-              destFormat={ext}
-              onset={noop}
-              oncopy={noop}
-            />
-          {:else}
-            <OriginMatrixView {matrix} />
-          {/if}
-        </div>
-      {/if}
-    </div>
-
-    <!-- Action bar -->
-    <div class="border-border bg-card flex shrink-0 flex-wrap items-center gap-3 border-t px-4 py-3 sm:px-[18px]">
-      <div class="min-w-0 flex-1">
-        <div class="text-muted-foreground font-mono text-[9.5px] font-semibold tracking-[0.1em]">
-          {bucket === 'flagged' ? 'WILL WRITE TO' : 'CURRENT WRITE'}
-        </div>
-        <div class="text-muted-foreground truncate font-mono text-[11px]" title={destinationPath}>{destinationPath || '—'}</div>
-      </div>
-      <button
-        type="button"
-        onclick={onCopy}
-        class="border-border hover:bg-accent inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12px] transition-colors active:translate-y-px"
-      >
-        <Copy class="size-3.5" /> Copy dossier
-      </button>
-      <a
-        href={reviewHref}
-        class="border-border hover:bg-accent inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12px] transition-colors active:translate-y-px"
-      >
-        <ExternalLink class="size-3.5" /> Open in review
-      </a>
-      <button
-        type="button"
-        disabled={regradeBusy}
-        onclick={onRegrade}
-        class="bg-primary text-primary-foreground inline-flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium transition-opacity hover:opacity-90 active:not-disabled:translate-y-px disabled:opacity-50"
-      >
-        {#if regradeBusy}<Loader2 class="size-3.5 animate-spin" />{:else}<Sparkles class="size-3.5" />{/if}
-        Re-grade
-      </button>
     </div>
   {/if}
-</div>
+{:else}
+  <div class="bg-card flex h-full min-h-0 flex-col overflow-hidden rounded-xl">
+    {#if !row}
+      <div class="text-muted-foreground grid flex-1 place-items-center p-6 text-[13px]">Pick a track from the list.</div>
+    {:else}
+      <!-- Detail head -->
+      <div class="border-separator shrink-0 border-b px-[18px] py-3.5">
+        {@render head(52)}
+      </div>
+
+      <div class="bg-background-grouped min-h-0 flex-1 space-y-3.5 overflow-y-auto px-[18px] py-3.5">
+        {@render verdictBlock()}
+        {@render reasoning()}
+        {@render dossier()}
+      </div>
+
+      <!-- Action bar — the app's own Button, 28px to look at with a 44px hit area on touch. -->
+      <div class="border-separator bg-card flex shrink-0 flex-wrap items-center gap-3 border-t px-[18px] py-3">
+        <div class="min-w-0 flex-1">
+          <div class="text-muted-foreground text-[11px] font-medium">{writeLabel}</div>
+          <div class="text-muted-foreground truncate font-mono text-[11px]" title={destinationPath}>{destinationPath || '—'}</div>
+        </div>
+        <Button variant="gray" size="sm" class="relative shrink-0 pointer-coarse:after:absolute pointer-coarse:after:-inset-x-1.5 pointer-coarse:after:-inset-y-2" onclick={onCopy}>
+          <Copy aria-hidden="true" /> Copy dossier
+        </Button>
+        <Button variant="gray" size="sm" class="relative shrink-0 pointer-coarse:after:absolute pointer-coarse:after:-inset-x-1.5 pointer-coarse:after:-inset-y-2" href={reviewHref}>
+          <ExternalLink aria-hidden="true" /> Open in review
+        </Button>
+        <Button size="sm" class="relative shrink-0 pointer-coarse:after:absolute pointer-coarse:after:-inset-x-1.5 pointer-coarse:after:-inset-y-2" disabled={regradeBusy} onclick={onRegrade}>
+          {#if regradeBusy}<Loader2 class="animate-spin" aria-hidden="true" />{:else}<Sparkles aria-hidden="true" />{/if}
+          Re-grade
+        </Button>
+      </div>
+    {/if}
+  </div>
+{/if}

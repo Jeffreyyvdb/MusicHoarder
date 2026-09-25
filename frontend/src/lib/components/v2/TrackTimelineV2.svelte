@@ -1,21 +1,27 @@
 <script lang="ts">
   import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
   import {
-    ArrowLeft,
     ChevronRight,
-    ExternalLink,
+    CircleCheck,
+    Copy,
+    Disc3,
+    Ellipsis,
+    Inbox,
     RefreshCw,
     Loader2,
     AlertTriangle,
-    Sparkles,
-    FolderOpen,
-    History,
     Search
   } from '@lucide/svelte';
+  import { toast } from 'svelte-sonner';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
+  import { Button } from '$lib/components/ui/button';
+  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
+  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
+  import { tabMemory } from '$lib/stores/tab-memory.svelte';
   import { Skeleton } from '$lib/components/ui/skeleton';
+  import * as GroupedList from '$lib/components/ui/grouped-list';
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import TimelineList from '$lib/components/v2/TimelineList.svelte';
   import {
@@ -35,14 +41,20 @@
     buildTimeline,
     contributedProviders,
     elapsedMs,
-    formatElapsed,
     providerColor,
     decisionLabel,
     type TimelineEvent,
     type TimelineTint
   } from '$lib/review-helpers';
-  import { formatDuration, formatFileSize, formatBitrate } from '$lib/formatters';
+  import {
+    formatDuration,
+    formatFileSize,
+    formatBitrate,
+    formatTotalDuration
+  } from '$lib/formatters';
   import { isAdmin } from '$lib/auth/capabilities';
+  import { isBuiltSong } from '$lib/album-sections';
+  import { cn } from '$lib/utils';
 
   type Props = { songId: number };
   const { songId }: Props = $props();
@@ -94,8 +106,36 @@
   const heroAlbum = $derived.by(() => (song?.album ?? detail?.current?.album ?? '').trim());
   const heroYear = $derived(song?.year ?? detail?.current?.year ?? null);
 
-  const statusLabel = $derived(song ? mapEnrichmentStatus(song.enrichmentStatus) : 'pending');
-  const decision = $derived(decisionLabel(detail));
+  // Sentence case, in words rather than the pipeline's status codes.
+  const DECISION_WORDS: Record<string, string> = {
+    PENDING: 'Awaiting review',
+    ACCEPTED: 'Accepted by you',
+    MATCHED: 'Matched',
+    FAILED: 'No match',
+    QUEUED: 'Queued'
+  };
+  const decision = $derived.by(() => {
+    const code = decisionLabel(detail);
+    if (DECISION_WORDS[code]) return DECISION_WORDS[code];
+    // No enrichment detail: fall back to the song's own status.
+    if (code === '—' && song) {
+      const status = mapEnrichmentStatus(song.enrichmentStatus);
+      return status === 'needsreview'
+        ? DECISION_WORDS.PENDING
+        : status === 'failed'
+          ? DECISION_WORDS.FAILED
+          : status === 'complete'
+            ? DECISION_WORDS.MATCHED
+            : DECISION_WORDS.QUEUED;
+    }
+    return code.charAt(0) + code.slice(1).toLowerCase();
+  });
+  const confidence = $derived.by(() => {
+    const value = song?.matchConfidence ?? detail?.matchConfidence ?? null;
+    const by = song?.matchedBy ?? detail?.matchedBy ?? null;
+    if (value == null) return by ?? 'No winning match';
+    return by ? `${value.toFixed(2)} · ${by}` : value.toFixed(2);
+  });
 
   const contributed = $derived(contributedProviders(detail));
   const providerAttemptCount = $derived(detail?.providerAttempts.length ?? 0);
@@ -104,7 +144,14 @@
     detail?.providerAttempts.filter((a) => a.candidate != null).length ?? 0
   );
 
-  const wallClock = $derived(song ? formatElapsed(elapsedMs(song, detail)) : '—');
+  // First stored timestamp to the last: how long the pipeline has spent on this song.
+  function readableElapsed(ms: number | null): string {
+    if (ms == null) return '—';
+    if (ms < 1000) return `${ms} ms`;
+    if (ms < 60_000) return `${(ms / 1000).toFixed(1)} sec`;
+    return formatTotalDuration(ms / 1000);
+  }
+  const wallClock = $derived(song ? readableElapsed(elapsedMs(song, detail)) : '—');
 
   const sourcePath = $derived(song?.sourcePath ?? '');
   const destinationPath = $derived(song?.destinationPath ?? null);
@@ -115,9 +162,7 @@
   }
 
   // ── timeline (reuses buildTimeline; appends the AI grade as a real event) ────
-  const baseTimeline = $derived<TimelineEvent[]>(
-    song ? buildTimeline(song, detail) : []
-  );
+  const baseTimeline = $derived<TimelineEvent[]>(song ? buildTimeline(song, detail) : []);
 
   // The quality grade is recorded with a real timestamp, so we can slot it into
   // the chronology. Per-event latency is NOT captured by the backend, so we never
@@ -126,11 +171,7 @@
     const events = [...baseTimeline];
     if (grade?.graded && grade.gradedAtUtc) {
       const tint: TimelineTint =
-        grade.verdict === 'Wrong'
-          ? 'err'
-          : grade.verdict === 'Questionable'
-            ? 'warn'
-            : 'ok';
+        grade.verdict === 'Wrong' ? 'err' : grade.verdict === 'Questionable' ? 'warn' : 'ok';
       events.push({
         key: 'ai-grade',
         time: grade.gradedAtUtc,
@@ -146,41 +187,53 @@
       });
     }
     // Re-sort so the grade lands in chronological order with everything else.
-    return [...events].sort(
-      (a, b) => new Date(a.time).getTime() - new Date(b.time).getTime()
-    );
+    return [...events].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
   });
 
   // ── navigation ───────────────────────────────────────────────────────────────
+  const isOwner = $derived(isAdmin(page.data.user));
+
+  // Where "Open in library" goes. A built track opens on its album page. Only an admin's unbuilt
+  // track goes to the Inbox, where its review lives — a member cannot open the Inbox (the route
+  // guard bounces it to Overview), and a shared row carries no destination path at all: it is
+  // built, just not showing where.
+  const opensInbox = $derived(
+    song !== null && isOwner && !isBuiltSong(song) && !song.destinationPath
+  );
   const libraryHref = $derived.by(() => {
     if (!song) return '/library';
-    if (song.destinationPath) {
-      return `/library?album=${encodeURIComponent(albumKeyForSong(song))}&track=${song.id}`;
-    }
-    // Not yet built — the review surface is where its provenance lives.
-    return `/inbox?song=${song.id}`;
+    // The queue named, as every link into the Inbox is (a tab-less ?song= means Tag review too,
+    // but tab-memory would then hold two spellings of one page).
+    if (opensInbox) return `/inbox?tab=review&song=${song.id}`;
+    return `/library?album=${encodeURIComponent(albumKeyForSong(song))}&track=${song.id}`;
   });
+  const libraryLabel = $derived(opensInbox ? 'Open in Inbox' : 'Open in library');
 
-  function goBack() {
-    if (typeof history !== 'undefined' && history.length > 1) history.back();
-    else void goto('/library');
-  }
+  // Back is the nav bar's: on a phone the tab stack's previous page (else Tracks); on desktop the
+  // same target, passed explicitly because a desktop bar only shows Back when a page asks for it.
+  const isMobile = new IsMobile();
+  const compact = $derived(isMobile.current);
+  const desktopBack = $derived(
+    compact ? undefined : tabMemory.backTarget(page.url, page.data.user)
+  );
 
+  // Re-enrich is an admin endpoint; it used to be offered to everyone and fail silently.
   async function handleReenrich() {
     if (!song || reenriching) return;
     reenriching = true;
     try {
       await enrichSong(song.id, true);
       await loadAll(song.id);
+    } catch (err) {
+      toast.error('Could not re-enrich this track', {
+        description: err instanceof Error ? err.message : undefined
+      });
     } finally {
       reenriching = false;
     }
   }
 
   // ── soulseek quality upgrade (owner-only) ────────────────────────────────────
-  const isOwner = $derived(
-    isAdmin(page.data.user)
-  );
   let soulseekConfigured = $state(false);
   let requestingUpgrade = $state(false);
   let upgradeRequestError = $state<string | null>(null);
@@ -245,290 +298,310 @@
     }
   }
 
-  // Per-track sync state badge (Push deployments only; null otherwise).
+  // Per-track sync state badge (Push deployments only; null otherwise). Token fills; success is a
+  // tint check glyph beside foreground text, never tint text.
   const syncBadge = $derived.by(() => {
     const ts = detail?.trackSync;
     if (!ts) return null;
     switch (ts.status) {
       case 'Synced':
-        return { label: 'Synced', cls: 'border-[#1DB954]/40 bg-[#1DB954]/10 text-[#1DB954]' };
+        return { label: 'Synced', cls: 'bg-primary/12 text-foreground', ok: true };
       case 'Uploading':
-        return { label: 'Uploading', cls: 'border-border bg-card text-foreground' };
+        return { label: 'Uploading', cls: 'bg-secondary text-foreground', ok: false };
       case 'SkippedRemoteBetter':
-        return { label: 'Remote has better', cls: 'border-border bg-muted text-muted-foreground' };
+        return { label: 'Remote has better', cls: 'bg-muted text-muted-foreground', ok: false };
       case 'Failed':
-        return {
-          label: 'Sync failed',
-          cls: 'border-destructive/40 bg-destructive/10 text-destructive'
-        };
+        return { label: 'Sync failed', cls: 'bg-destructive/10 text-destructive-text', ok: false };
       default:
-        return { label: 'Sync pending', cls: 'border-border bg-card text-foreground' };
+        return { label: 'Sync pending', cls: 'bg-secondary text-foreground', ok: false };
     }
+  });
+  // The failure reason used to be a hover tooltip; it is a resting line under the badges now.
+  const syncError = $derived(
+    detail?.trackSync?.status === 'Failed' ? (detail.trackSync.lastError ?? null) : null
+  );
+
+  async function copy(label: string, value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      toast.success(`${label} copied`);
+    } catch {
+      toast.error('Could not copy to the clipboard');
+    }
+  }
+
+  // The name the Back label and the browser-tab title use for this page.
+  $effect(() => {
+    if (heroTitle) tabMemory.setTitle(page.url, heroTitle);
   });
 </script>
 
-<!-- The eyebrow, the 2xl "Provenance" and its two-line description all said the
-     same thing the active row and the track name below already say. -->
-<PageToolbarV2 icon={History} title="Provenance" meta={song ? `${song.artist ?? ''} — ${song.title ?? song.fileName}` : undefined}>
-  {#snippet actions()}
-    <button type="button" onclick={goBack} class="border-border bg-card hover:bg-muted text-foreground text-nav-sm inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 font-medium transition-colors">
-      <ArrowLeft class="size-3.5" />
-      <span class="hidden sm:inline">Back</span>
-    </button>
-    <button
-      type="button"
-      onclick={handleReenrich}
-      disabled={reenriching || !song}
-      class="border-border bg-card hover:bg-muted text-foreground text-nav-sm inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-    >
-      {#if reenriching}
-        <Loader2 class="size-3.5 animate-spin" />
-      {:else}
-        <RefreshCw class="size-3.5" />
-      {/if}
-      <span class="hidden sm:inline">Re-enrich</span>
-    </button>
-    {#if isOwner && soulseekConfigured}
-      <button
-        type="button"
-        onclick={handleFindBetterQuality}
-        disabled={requestingUpgrade || !song || detail?.upgrade?.active === true}
-        class="border-border bg-card hover:bg-muted text-foreground text-nav-sm inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {#if requestingUpgrade || detail?.upgrade?.active}
-          <Loader2 class="size-3.5 animate-spin" />
-        {:else}
-          <Search class="size-3.5" />
-        {/if}
-        <span class="hidden lg:inline">{upgradeActiveLabel ?? 'Find better quality'}</span>
-      </button>
-    {/if}
-    <a href={libraryHref} class="border-border bg-card hover:bg-muted text-foreground text-nav-sm inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 font-medium transition-colors">
-      <ExternalLink class="size-3.5" />
-      <span class="hidden lg:inline">Open in library</span>
-    </a>
-  {/snippet}
-</PageToolbarV2>
-
-<!-- Upgrade outcome, only when there is one to report. -->
-{#if isOwner && soulseekConfigured && (upgradeRequestError || upgradeTerminalNote)}
-  <div class="border-border text-muted-foreground text-nav-xs shrink-0 border-b px-4 py-1.5 sm:px-7">
-    {upgradeRequestError ?? upgradeTerminalNote}
-  </div>
-{/if}
-
+<!-- The page is one scroller with the nav bar as its first child, so the large title scrolls away
+     and the bar collapses. Back is the bar's (it replaced a trailing "← Back" pill). It is an info
+     page on the grouped background — Match, File, Identifiers as inset sections, the way Now
+     Playing's Info reads — rather than bordered cards, stat tiles and a paragraph of values. -->
 <ScrollArea class="min-h-0 flex-1">
-  <div class="mx-auto flex max-w-4xl flex-col gap-5 px-4 py-4 sm:px-7 sm:py-5">
+  <PageToolbarV2
+    title="Timeline"
+    meta={song ? `${song.artist ?? ''} — ${song.title ?? song.fileName}` : undefined}
+    back={desktopBack}
+    grouped
+  >
+    {#snippet actions()}
+      {#if isOwner}
+        <!-- The one prominent action. -->
+        {#if compact}
+          <Button
+            size="icon"
+            onclick={handleReenrich}
+            disabled={reenriching || !song}
+            aria-label="Re-enrich"
+          >
+            {#if reenriching}<Loader2 class="animate-spin" />{:else}<RefreshCw />{/if}
+          </Button>
+        {:else}
+          <Button
+            size="sm"
+            class="h-8 rounded-full px-3"
+            onclick={handleReenrich}
+            disabled={reenriching || !song}
+          >
+            {#if reenriching}<Loader2 class="animate-spin" />{:else}<RefreshCw />{/if}
+            Re-enrich
+          </Button>
+        {/if}
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger>
+            {#snippet child({ props })}
+              <Button {...props} variant="ghost" size="icon" aria-label="More">
+                <Ellipsis />
+              </Button>
+            {/snippet}
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Content align="end" class="w-64 pointer-coarse:w-72">
+            {#if soulseekConfigured}
+              <DropdownMenu.Item
+                onSelect={handleFindBetterQuality}
+                disabled={requestingUpgrade || !song || detail?.upgrade?.active === true}
+              >
+                {#if requestingUpgrade || detail?.upgrade?.active}
+                  <Loader2 class="animate-spin" />
+                {:else}
+                  <Search />
+                {/if}
+                {upgradeActiveLabel ?? 'Find better quality'}
+              </DropdownMenu.Item>
+            {/if}
+            <DropdownMenu.Item onSelect={() => void goto(libraryHref)}>
+              {#if opensInbox}<Inbox />{:else}<Disc3 />{/if}
+              {libraryLabel}
+            </DropdownMenu.Item>
+          </DropdownMenu.Content>
+        </DropdownMenu.Root>
+      {:else}
+        <!-- Without admin actions a one-item menu would be a detour: the link is the button. An
+             album glyph, not an "external link" one: it goes to the track's album, in the app. -->
+        <Button variant="ghost" size="icon" href={libraryHref} aria-label={libraryLabel}>
+          <Disc3 />
+        </Button>
+      {/if}
+    {/snippet}
+  </PageToolbarV2>
+
+  <div class="mx-auto flex max-w-3xl flex-col gap-8 pt-2 pb-8 md:px-7 md:pt-5">
+    <!-- The quality upgrade: its progress while one runs (the ⋯ item that shows it is out of
+         sight at rest), then its outcome, only when there is one to report. -->
+    {#if isOwner && soulseekConfigured && upgradeActiveLabel && !upgradeRequestError}
+      <p
+        class="text-footnote text-muted-foreground md:text-nav-xs inline-flex items-center gap-1.5 px-4 md:px-0"
+        role="status"
+      >
+        <Loader2 class="size-3.5 shrink-0 animate-spin" aria-hidden="true" />
+        Better quality: {upgradeActiveLabel}
+      </p>
+    {:else if isOwner && soulseekConfigured && (upgradeRequestError || upgradeTerminalNote)}
+      <p class="text-footnote text-muted-foreground md:text-nav-xs px-4 md:px-0">
+        {upgradeRequestError ?? upgradeTerminalNote}
+      </p>
+    {/if}
+
     {#if !loaded}
-      <!-- Hero skeleton -->
-      <div class="border-border bg-card flex items-center gap-5 rounded-lg border p-5">
-        <Skeleton class="size-24 rounded-lg" />
-        <div class="flex-1 space-y-2">
-          <Skeleton class="h-3 w-16" />
-          <Skeleton class="h-7 w-64" />
-          <Skeleton class="h-4 w-80" />
+      <div class="flex flex-col items-center gap-3 px-4 md:flex-row md:items-end md:gap-6 md:px-0">
+        <Skeleton class="size-40 rounded-[10px] md:size-32" />
+        <div class="flex w-full flex-col items-center gap-2 md:items-start">
+          <Skeleton class="h-7 w-56" />
+          <Skeleton class="h-4 w-40" />
         </div>
       </div>
-      <Skeleton class="h-24 w-full" />
-      <Skeleton class="h-40 w-full" />
+      <Skeleton class="mx-4 h-40 rounded-xl md:mx-0" />
+      <Skeleton class="mx-4 h-28 rounded-xl md:mx-0" />
     {:else if loadError || !song}
-      <div class="border-border bg-card flex flex-col items-center gap-3 rounded-lg border p-10 text-center">
-        <span class="bg-muted text-muted-foreground grid size-12 place-items-center rounded-full">
-          <AlertTriangle class="size-6" />
-        </span>
-        <div class="text-[15px] font-semibold">Track not found</div>
-        <p class="text-muted-foreground max-w-sm text-[12.5px]">
+      <div class="flex flex-col items-center gap-3 px-6 py-10 text-center">
+        <AlertTriangle class="text-muted-foreground size-7" aria-hidden="true" />
+        <h2 class="text-headline">Track not found</h2>
+        <p class="text-muted-foreground text-subheadline max-w-sm">
           {loadError ?? 'We could not load this track.'}
         </p>
         <a
           href="/library"
-          class="text-primary mt-1 inline-flex items-center gap-0.5 text-[12.5px] font-medium hover:underline"
+          class="text-primary text-subheadline relative inline-flex min-h-11 items-center gap-0.5 font-medium hover:underline"
         >
-          Back to library <ChevronRight class="size-3.5" />
+          Back to library <ChevronRight class="size-3.5" aria-hidden="true" />
         </a>
       </div>
     {:else}
-      <!-- Hero -->
+      <!-- The album page's hero: the art, the title, one subtitle line. Centred on a phone,
+           side by side on a desktop. -->
       <section
-        class="border-border bg-card flex flex-col items-start gap-4 rounded-lg border p-4 sm:flex-row sm:items-center sm:gap-5 sm:p-5"
+        class="flex flex-col items-center gap-4 px-4 text-center md:flex-row md:items-end md:gap-6 md:px-0 md:text-left"
       >
         <Cover
           artist={heroArtist || 'Unknown'}
           title={heroAlbum || heroTitle}
           coverUrl={coverUrlForSong(song)}
-          size={96}
+          size={160}
           corner={10}
           caption={false}
+          dprCap={3}
+          class="shadow-[0_8px_24px_rgb(0_0_0/0.18)] md:size-32!"
         />
-        <div class="min-w-0 flex-1">
-          <div class="text-muted-foreground font-mono text-[10px] tracking-[0.1em] uppercase">Track</div>
-          <h2 class="mt-0.5 truncate text-2xl font-semibold tracking-tight">{heroTitle}</h2>
-          <div class="text-muted-foreground mt-0.5 truncate text-[13px]">
+        <div class="min-w-0 md:pb-1">
+          <h2 class="text-title-2 text-balance break-words">{heroTitle}</h2>
+          <p class="text-muted-foreground text-subheadline mt-1">
             {[heroArtist, heroAlbum, heroYear != null ? String(heroYear) : null]
               .filter(Boolean)
               .join(' · ') || '—'}
-          </div>
-          <div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11.5px] sm:gap-x-5">
-            <span class="text-muted-foreground">
-              Duration <b class="text-foreground font-mono">{formatDuration(song.durationSeconds)}</b>
-            </span>
-            <span class="text-muted-foreground">
-              Format <b class="text-foreground font-mono">{bitrateChip()}</b>
-            </span>
-            <span class="text-muted-foreground">
-              Size <b class="text-foreground font-mono">{formatFileSize(song.fileSizeBytes)}</b>
-            </span>
-            {#if song.fingerprint}
-              <span class="text-muted-foreground">
-                Fingerprint <b class="text-foreground font-mono">{song.fingerprint.slice(0, 16)}…</b>
-              </span>
-            {/if}
-            {#if song.musicBrainzId}
-              <span class="text-muted-foreground">
-                MBID <b class="text-foreground font-mono">{song.musicBrainzId.slice(0, 8)}…</b>
-              </span>
-            {/if}
-            {#if grade?.graded && grade.score != null}
-              <span class="text-muted-foreground inline-flex items-center gap-1">
-                <Sparkles class="size-3" />
-                AI grade <b class="font-mono" style="color: oklch(0.74 0.15 150)">{grade.score}/100</b>
-              </span>
-            {/if}
-            {#if syncBadge}
+          </p>
+        </div>
+      </section>
+
+      <GroupedList.Section headingLevel={3} header="Match">
+        <GroupedList.Row label="Decision" value={decision} />
+        <GroupedList.Row label="Confidence" value={confidence} />
+        <GroupedList.Row
+          label="Providers"
+          value={`${providerAttemptCount} (${contributingCount} contributed)`}
+        />
+        {#if grade?.graded && grade.score != null}
+          <GroupedList.Row
+            label="AI grade"
+            value={`${grade.score}/100${grade.verdict ? ` · ${grade.verdict}` : ''}`}
+          />
+        {/if}
+        <GroupedList.Row label="Processing time" value={wallClock} />
+        {#if syncBadge}
+          <GroupedList.Row label="Sync" sublabel={syncError ?? undefined}>
+            {#snippet trailing()}
               <span
-                class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium {syncBadge.cls}"
-                title={detail?.trackSync?.status === 'Failed'
-                  ? (detail?.trackSync?.lastError ?? undefined)
-                  : undefined}
+                class={cn(
+                  'text-body inline-flex items-center gap-1.5 md:text-sm',
+                  syncBadge.label === 'Sync failed' ? 'text-destructive-text' : 'text-muted-foreground'
+                )}
               >
+                {#if syncBadge.ok}<CircleCheck class="text-primary size-4" aria-hidden="true" />{/if}
                 {syncBadge.label}
               </span>
-            {/if}
-          </div>
-        </div>
-      </section>
-
-      <!-- KPI strip -->
-      <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div class="border-border bg-card rounded-lg border p-3.5">
-          <div class="text-muted-foreground text-[10px] font-semibold tracking-wide uppercase">Decision</div>
-          <div class="text-primary mt-0.5 font-mono text-base font-semibold">{decision}</div>
-          <div class="text-muted-foreground mt-0.5 text-[11px]">{statusLabel}</div>
-        </div>
-        <div class="border-border bg-card rounded-lg border p-3.5">
-          <div class="text-muted-foreground text-[10px] font-semibold tracking-wide uppercase">Providers</div>
-          <div class="mt-0.5 font-mono text-base font-semibold tabular-nums">{providerAttemptCount}</div>
-          <div class="text-muted-foreground mt-0.5 text-[11px]">{contributingCount} contributed data</div>
-        </div>
-        <div class="border-border bg-card rounded-lg border p-3.5">
-          <div class="text-muted-foreground text-[10px] font-semibold tracking-wide uppercase">Match conf.</div>
-          <div class="mt-0.5 font-mono text-base font-semibold tabular-nums">
-            {song.matchConfidence != null
-              ? song.matchConfidence.toFixed(2)
-              : detail?.matchConfidence != null
-                ? detail.matchConfidence.toFixed(2)
-                : '—'}
-          </div>
-          <div class="text-muted-foreground mt-0.5 truncate text-[11px]">
-            {song.matchedBy ?? detail?.matchedBy ?? 'no winner'}
-          </div>
-        </div>
-        <div class="border-border bg-card rounded-lg border p-3.5">
-          <div class="text-muted-foreground text-[10px] font-semibold tracking-wide uppercase">Wall clock</div>
-          <div class="mt-0.5 font-mono text-base font-semibold tabular-nums">{wallClock}</div>
-          <div class="text-muted-foreground mt-0.5 text-[11px]">scan → now</div>
-        </div>
-      </div>
-
-      <!-- Source → Destination paths -->
-      <section>
-        <div class="mb-2.5 flex items-baseline gap-2">
-          <span class="text-[13px] font-semibold">Where it came from, where it lives now</span>
-        </div>
-        <div class="grid grid-cols-1 items-stretch gap-3 sm:grid-cols-[1fr_auto_1fr]">
-          <div class="border-border bg-muted/30 rounded-lg border p-3.5">
-            <div class="text-muted-foreground text-[10px] font-semibold tracking-wide uppercase">
-              Source · raw
-            </div>
-            <div class="mt-1.5 font-mono text-[11.5px] break-all">{sourcePath || '—'}</div>
-          </div>
-          <div class="text-muted-foreground hidden items-center justify-center sm:flex">
-            <ChevronRight class="size-5" />
-          </div>
-          {#if destinationPath}
-            <div
-              class="rounded-lg border p-3.5"
-              style="background: oklch(0.62 0.13 145 / 0.08); border-color: oklch(0.62 0.13 145 / 0.3)"
-            >
-              <div class="text-muted-foreground text-[10px] font-semibold tracking-wide uppercase">
-                Destination · clean
-              </div>
-              <div class="text-primary mt-1.5 font-mono text-[11.5px] break-all">{destinationPath}</div>
-            </div>
-          {:else}
-            <div class="border-border bg-card rounded-lg border border-dashed p-3.5">
-              <div class="text-muted-foreground flex items-center gap-1.5 text-[10px] font-semibold tracking-wide uppercase">
-                <FolderOpen class="size-3.5" /> Destination
-              </div>
-              <div class="text-muted-foreground mt-1.5 text-[11.5px]">
-                Not written to the library yet — it lands here once it clears review and the build runs.
-              </div>
-            </div>
-          {/if}
-        </div>
-      </section>
-
-      <!-- Contributing providers -->
-      <section>
-        <div class="mb-2.5 flex items-baseline gap-2">
-          <span class="text-[13px] font-semibold">Providers that contributed</span>
-          <span class="text-muted-foreground text-[11.5px]">
-            {#if contributed.length === 0}
-              No provider returned usable data for this track.
-            {:else}
-              {contributed.length} of {providerAttemptCount} provider{providerAttemptCount === 1 ? '' : 's'} returned data this track used.
-            {/if}
-          </span>
-        </div>
-        {#if contributed.length > 0}
-          <div class="flex flex-wrap gap-2">
-            {#each contributed as c (c.label)}
-              <span
-                class="border-border bg-card inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px]"
-              >
-                <span class="size-2 rounded-full" style="background: {c.color}"></span>
-                {c.label}
-              </span>
-            {/each}
-          </div>
-        {:else}
-          <div class="border-border bg-card text-muted-foreground rounded-lg border border-dashed px-3.5 py-3 text-[12px]">
-            Nothing matched. Re-enrich, or open the track in review to override the fields manually.
-          </div>
+            {/snippet}
+          </GroupedList.Row>
         {/if}
-      </section>
+      </GroupedList.Section>
 
-      <!-- Full timeline -->
-      <section>
-        <div class="mb-3 flex items-baseline gap-2">
-          <span class="text-[13px] font-semibold">Full timeline</span>
-          <span class="text-muted-foreground text-[11.5px]">
-            {timeline.length} event{timeline.length === 1 ? '' : 's'} · {wallClock} end-to-end
-          </span>
-        </div>
+      <GroupedList.Section headingLevel={3} header="File">
+        <GroupedList.Row label="Duration" value={formatDuration(song.durationSeconds)} />
+        <GroupedList.Row label="Format" value={bitrateChip()} />
+        <GroupedList.Row label="Size" value={formatFileSize(song.fileSizeBytes)} />
+      </GroupedList.Section>
 
-        {#if timeline.length === 0}
-          <div class="border-border bg-card text-muted-foreground rounded-lg border border-dashed px-3.5 py-6 text-center text-[12px]">
-            No pipeline events recorded for this track yet.
-          </div>
+      {#if song.fingerprint || song.musicBrainzId}
+        <GroupedList.Section
+          headingLevel={3}
+          header="Identifiers"
+          footer="Tap an identifier to copy it."
+        >
+          {#if song.fingerprint}
+            <!-- The chromaprint is long: the row shows its head and copies the whole thing. -->
+            {@render copyRow('Fingerprint', `${song.fingerprint.slice(0, 22)}…`, song.fingerprint)}
+          {/if}
+          {#if song.musicBrainzId}
+            {@render copyRow('MusicBrainz recording', song.musicBrainzId, song.musicBrainzId)}
+          {/if}
+        </GroupedList.Section>
+      {/if}
+
+      <!-- Source → Destination paths. Admin only: a shared track publishes neither path, so for
+           anyone else this could only claim, wrongly, that the track was never built. -->
+      {#if isOwner}
+        <GroupedList.Section
+          headingLevel={3}
+          header="Location"
+          footer={destinationPath
+            ? undefined
+            : 'Not written to the library yet — it lands there once it clears review and the build runs.'}
+        >
+          {#if sourcePath}
+            {@render copyRow('Source path', sourcePath, sourcePath)}
+          {/if}
+          {#if destinationPath}
+            {@render copyRow('Library path', destinationPath, destinationPath)}
+          {:else}
+            <GroupedList.Row label="Library path" value="Not built yet" />
+          {/if}
+        </GroupedList.Section>
+      {/if}
+
+      <GroupedList.Section
+        headingLevel={3}
+        header="Providers that contributed"
+        footer={contributed.length === 0
+          ? 'Nothing matched. Re-enrich, or open the track in review to set the fields yourself.'
+          : `${contributed.length} of ${providerAttemptCount} ${providerAttemptCount === 1 ? 'provider' : 'providers'} returned data this track used.`}
+      >
+        {#if contributed.length === 0}
+          <GroupedList.Row label="None" disabled />
         {:else}
-          <TimelineList events={timeline} />
-          <p class="text-muted-foreground/70 mt-2 text-[11px]">
-            Timestamps are real. Per-event processing latency isn't captured by the pipeline yet —
-            <span class="bg-muted text-muted-foreground rounded px-1 py-px font-mono text-[9px] tracking-wide uppercase">soon</span>.
+          {#each contributed as c (c.label)}
+            <GroupedList.Row label={c.label}>
+              {#snippet leading()}
+                <span class="size-2.5 rounded-full" style="background: {c.color}" aria-hidden="true"
+                ></span>
+              {/snippet}
+            </GroupedList.Row>
+          {/each}
+        {/if}
+      </GroupedList.Section>
+
+      <section aria-labelledby="timeline-heading" class="flex flex-col">
+        <h3
+          id="timeline-heading"
+          class="text-footnote text-muted-foreground px-8 pb-1.5 md:px-4"
+        >
+          Timeline
+        </h3>
+        {#if timeline.length === 0}
+          <p class="bg-card text-muted-foreground text-subheadline mx-4 rounded-xl px-4 py-6 text-center md:mx-0">
+            No pipeline events recorded for this track yet.
+          </p>
+        {:else}
+          <div class="mx-4 md:mx-0">
+            <TimelineList events={timeline} />
+          </div>
+          <p class="text-footnote text-muted-foreground px-8 pt-1.5 md:px-4">
+            {timeline.length}
+            {timeline.length === 1 ? 'event' : 'events'} · {wallClock} end to end. Timestamps are
+            real; how long each step took is not recorded yet.
           </p>
         {/if}
       </section>
     {/if}
   </div>
 </ScrollArea>
+
+{#snippet copyRow(label: string, shown: string, full: string)}
+  <!-- Stacked, so a long id or path reads whole; the row is the copy button. -->
+  <GroupedList.Row onclick={() => copy(label, full)} label={label} aria-label={`Copy ${label}`}>
+    <span class="text-subheadline text-muted-foreground font-mono break-all md:text-xs">{shown}</span>
+    {#snippet trailing()}
+      <Copy class="text-muted-foreground size-4" aria-hidden="true" />
+    {/snippet}
+  </GroupedList.Row>
+{/snippet}

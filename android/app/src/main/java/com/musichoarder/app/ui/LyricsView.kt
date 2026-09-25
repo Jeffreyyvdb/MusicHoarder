@@ -1,6 +1,5 @@
 package com.musichoarder.app.ui
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
@@ -19,23 +18,18 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.GraphicEq
-import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material.icons.rounded.OpenInFull
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -49,22 +43,27 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.musichoarder.app.data.Lyrics
 import com.musichoarder.app.data.LyricsProvenance
-import com.musichoarder.app.player.PlayerUiState
 import com.musichoarder.app.ui.theme.MhTheme
 
 /** What the player screen knows about the current song's lyrics. */
@@ -79,26 +78,28 @@ sealed interface LyricsUiState {
 }
 
 /**
- * The lyric line, in the web's "theater" size: `text-2xl leading-snug font-bold tracking-[-0.01em]`.
+ * The lyric line, in the web's "theater" size: `text-title-1 font-bold` (28/34), left-aligned the
+ * way Apple Music sets it — a ragged right edge reads as verse, a centred column as a poster.
  */
 private val LyricLineStyle = TextStyle(
     fontFamily = FontFamily.Default,
-    fontSize = 24.sp,
-    lineHeight = 33.sp,
+    fontSize = 28.sp,
+    lineHeight = 34.sp,
     fontWeight = FontWeight.Bold,
-    letterSpacing = (-0.24).sp,
+    letterSpacing = (-0.3).sp,
 )
 
 /**
- * The synced lyrics viewer.
+ * The synced lyrics viewer — the player's Lyrics mode, the web's `LyricsPanel variant="theater"`.
+ * It lives inside Now Playing's media appearance, so it is written for white over the dimmed cover.
  *
- * Auto-scroll keeps the active line centred, but it must not fight the reader: touching the list
- * disengages following and a floating "Sync" pill re-engages it — the same contract the web panel
- * (and every other music player) uses. Disengaging keys off the touch itself rather than the scroll
- * position, because a scroll listener cannot tell our own animated scroll from a finger.
+ * Auto-scroll keeps the active line in the upper third, but it must not fight the reader: touching
+ * the list disengages following and a floating "Sync" pill re-engages it — the same contract the
+ * web panel (and every other music player) uses. Disengaging keys off the touch itself rather than
+ * the scroll position, because a scroll listener cannot tell our own animated scroll from a finger.
  *
  * Pass a null [onSeek] for a read-only preview: the list stops taking gestures and the pill goes
- * away, so a parent (the lyrics card) can own the tap. That is the web's `pointer-events-none`.
+ * away, so a parent can own the tap. That is the web's `pointer-events-none`.
  */
 @Composable
 fun LyricsView(
@@ -137,18 +138,20 @@ fun LyricsView(
                     SyncedLyrics(lyrics, positionMs, onSeek, Modifier.weight(1f))
                 }
 
+                // Untimed lyrics have nothing to follow, so they read at full contrast — dimming a
+                // whole document would only make it look unsynced *and* hard to read.
                 !lyrics.plainText.isNullOrBlank() -> Column(
                     modifier = modifier
                         .fillMaxSize()
+                        .fadingEdges()
                         .verticalScroll(rememberScrollState(), enabled = onSeek != null)
-                        .padding(horizontal = 8.dp, vertical = 24.dp),
+                        .padding(vertical = 24.dp),
                 ) {
                     AiLyricsBadge(lyrics.provenance)
                     Text(
                         lyrics.plainText,
                         style = LyricLineStyle,
-                        color = colors.foreground.copy(alpha = 0.8f),
-                        textAlign = TextAlign.Center,
+                        color = colors.foreground,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -169,9 +172,9 @@ fun LyricsView(
  * The AI disclosure, mirroring the web's `AiLyricsBadge`: a quiet pill above the lyrics saying who
  * actually wrote the words being read.
  *
- * Two labels, deliberately not one. "AI Enhanced" means a machine only moved the timestamps under the
- * song's real lyric; "AI Generated" means a machine chose the words themselves and may have them
- * wrong. Human lyrics render nothing at all — a badge on every song would teach people to ignore it.
+ * Two labels, deliberately not one. "AI enhanced" means a machine only moved the timestamps under the
+ * song's real lyric; "AI generated" means a machine chose the words themselves and may have them
+ * wrong. Sentence case and the same words as the web's `AI_LYRICS_COPY`. Human lyrics render nothing at all — a badge on every song would teach people to ignore it.
  */
 @Composable
 private fun AiLyricsBadge(provenance: LyricsProvenance, modifier: Modifier = Modifier) {
@@ -179,49 +182,47 @@ private fun AiLyricsBadge(provenance: LyricsProvenance, modifier: Modifier = Mod
 
     val colors = MhTheme.colors
     val label = when (provenance) {
-        LyricsProvenance.AiEnhanced -> "AI Enhanced"
-        LyricsProvenance.AiGenerated -> "AI Generated"
+        LyricsProvenance.AiEnhanced -> "AI enhanced"
+        LyricsProvenance.AiGenerated -> "AI generated"
         LyricsProvenance.Human -> return
     }
     val description = when (provenance) {
         LyricsProvenance.AiEnhanced ->
-            "The song's own lyrics. Only the timing was adjusted by AI to match this recording."
+            "These are the song's own lyrics. Only the timing was adjusted by AI, to line the words " +
+                "up with this recording."
         LyricsProvenance.AiGenerated ->
-            "An AI transcribed these lyrics from the audio, so the words may be wrong."
+            "An AI transcribed these lyrics from the audio. No published lyrics were available for " +
+                "this track, so the words may be wrong."
         LyricsProvenance.Human -> return
     }
 
     Row(
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 8.dp)
-            .semantics { contentDescription = "$label. $description" },
+            .padding(vertical = 8.dp)
+            .semantics(mergeDescendants = true) { contentDescription = "$label. $description" },
     ) {
-        Spacer(Modifier.weight(1f))
         Row(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
-                .clip(RoundedCornerShape(999.dp))
-                .background(colors.foreground.copy(alpha = 0.08f))
+                .clip(CircleShape)
+                .background(colors.secondary)
                 .padding(horizontal = 10.dp, vertical = 4.dp),
         ) {
             Icon(
                 Icons.Rounded.AutoAwesome,
                 contentDescription = null,
-                tint = colors.foreground.copy(alpha = 0.55f),
+                tint = colors.mutedForeground,
                 modifier = Modifier.size(12.dp),
             )
             Text(
                 label,
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Medium,
-                color = colors.foreground.copy(alpha = 0.7f),
+                style = MaterialTheme.typography.labelMedium,
+                color = colors.mutedForeground,
             )
         }
-        Spacer(Modifier.weight(1f))
     }
 }
 
@@ -233,6 +234,7 @@ private fun SyncedLyrics(
     modifier: Modifier,
 ) {
     val colors = MhTheme.colors
+    val inactive = colors.foreground.copy(alpha = LYRIC_INACTIVE_ALPHA)
     val listState = rememberLazyListState()
     var followActive by remember(lyrics) { mutableStateOf(true) }
     val interactive = onSeek != null
@@ -246,9 +248,11 @@ private fun SyncedLyrics(
         active
     }
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
-        // Centring the active line means offsetting by half the viewport; the list gets matching
-        // padding so the first and last lines can reach the middle too.
-        val halfViewport = maxHeight / 2
+        // The active line rides in the upper third, where the eye already is under the compact
+        // header, with the lines still to come filling the rest. Scrolling an item to the top of
+        // the list puts it just below the top padding, so that padding IS the anchor; the bottom
+        // padding lets the last line climb up to it too.
+        val anchor = maxHeight * 0.3f
 
         LaunchedEffect(activeIndex, followActive) {
             if (!followActive || activeIndex < 0) return@LaunchedEffect
@@ -258,11 +262,10 @@ private fun SyncedLyrics(
         LazyColumn(
             state = listState,
             userScrollEnabled = interactive,
-            contentPadding = PaddingValues(top = halfViewport, bottom = halfViewport),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            contentPadding = PaddingValues(top = anchor, bottom = maxHeight - anchor),
             modifier = Modifier
                 .fillMaxSize()
+                .fadingEdges()
                 // Watch the raw touch stream: any finger down on the list means the reader has taken
                 // over. Initial pass so it fires before the scroll gesture consumes the event.
                 .pointerInput(interactive) {
@@ -276,25 +279,27 @@ private fun SyncedLyrics(
             itemsIndexed(lyrics.lines) { index, line ->
                 // Past and future dim to the same weight on the web — only "now" is bright. Before the
                 // first timestamp (activeIndex = -1) every line is still to come, so the whole document
-                // dims; at full weight it would read as lyrics that are not synced at all.
-                val target =
-                    if (index == activeIndex) colors.foreground else colors.foreground.copy(alpha = 0.3f)
+                // dims; at full weight it would read as lyrics that are not synced at all. The dim is
+                // the media appearance's 55% white: over the dimmed cover that is still 4.2:1.
+                val target = if (index == activeIndex) colors.foreground else inactive
                 val color by animateColorAsState(target, tween(300), label = "lyric-line")
                 Text(
                     text = line.text.ifBlank { "♪" },
                     style = LyricLineStyle,
                     color = color,
-                    textAlign = TextAlign.Center,
                     modifier = Modifier
                         .fillMaxWidth()
                         .then(
                             // Tapping a line is a "play from here" gesture, so it re-engages follow.
-                            if (onSeek == null) Modifier else Modifier.clickable {
+                            if (onSeek == null) Modifier else Modifier.clickable(
+                                onClickLabel = "Play from this line",
+                                role = Role.Button,
+                            ) {
                                 onSeek(line.timeMs)
                                 followActive = true
                             }
                         )
-                        .padding(horizontal = 20.dp, vertical = 6.dp),
+                        .padding(vertical = 6.dp),
                 )
             }
         }
@@ -310,16 +315,18 @@ private fun SyncedLyrics(
     }
 }
 
-/** `bg-foreground text-background rounded-full` — the web's inverted re-engage pill. */
+/** `bg-foreground text-background rounded-full h-11` — the web's inverted re-engage pill. */
 @Composable
 private fun SyncPill(onClick: () -> Unit) {
     val colors = MhTheme.colors
     Row(
         modifier = Modifier
+            .shadow(8.dp, CircleShape)
             .clip(CircleShape)
             .background(colors.foreground)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .clickable(onClickLabel = "Follow the song again", role = Role.Button, onClick = onClick)
+            .heightIn(min = 44.dp)
+            .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
@@ -338,164 +345,37 @@ private fun SyncPill(onClick: () -> Unit) {
     }
 }
 
-/**
- * The mobile lyrics preview: a live karaoke window that expands to [LyricsFullscreen].
- *
- * The viewer inside keeps following the song but takes no gestures, so the whole card is one tap
- * target — the web does the same with `pointer-events-none` on the panel.
- */
-@Composable
-fun LyricsCard(
-    state: LyricsUiState,
-    positionMs: Long,
-    onExpand: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val colors = MhTheme.colors
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(colors.foreground.copy(alpha = 0.05f))
-            .clickable(onClick = onExpand),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                "LYRICS",
-                style = MaterialTheme.typography.bodySmall,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 1.2.sp,
-                color = colors.mutedForeground,
-                modifier = Modifier.weight(1f),
-            )
-            Icon(
-                Icons.Rounded.OpenInFull,
-                contentDescription = "Show fullscreen lyrics",
-                tint = colors.mutedForeground,
-                modifier = Modifier.size(16.dp),
-            )
-        }
-        Box(modifier = Modifier.fillMaxWidth().height(288.dp).padding(horizontal = 12.dp, vertical = 12.dp)) {
-            LyricsView(state = state, positionMs = positionMs, onSeek = null)
-            // Bottom fade, hinting there is more to see fullscreen.
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .background(
-                        Brush.verticalGradient(
-                            0f to Color.Transparent,
-                            1f to colors.background.copy(alpha = 0.25f),
-                        )
-                    )
-            )
-        }
-    }
-}
-
-/**
- * The fullscreen lyrics overlay: just the words over the track's ambient artwork, with a mini
- * header and a scrubber + play bottom bar. Mount it conditionally — it owns its own back handling
- * so that Back closes the overlay rather than the player behind it.
- */
-@Composable
-fun LyricsFullscreen(
-    state: LyricsUiState,
-    playerState: PlayerUiState,
-    coverUrl: String?,
-    ambientUrl: String?,
-    onPlayPause: () -> Unit,
-    onSeek: (Long) -> Unit,
-    onSetSpeed: (Float) -> Unit,
-    onClose: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val colors = MhTheme.colors
-    BackHandler(onBack = onClose)
-
-    Box(modifier = modifier.fillMaxSize().background(colors.background)) {
-        AmbientBackdrop(
-            url = ambientUrl,
-            artist = playerState.artist,
-            title = playerState.album.ifBlank { playerState.title },
-            scrimAlpha = 0.85f,
-            modifier = Modifier.fillMaxSize(),
-        )
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding()
-                .padding(horizontal = 20.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Artwork(
-                    url = coverUrl,
-                    artist = playerState.artist,
-                    title = playerState.album.ifBlank { playerState.title },
-                    modifier = Modifier.size(44.dp),
-                    shape = RoundedCornerShape(8.dp),
-                )
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        playerState.title,
-                        style = legible(MaterialTheme.typography.bodyLarge, onSurface = true),
-                        fontWeight = FontWeight.SemiBold,
-                        color = colors.foreground,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        playerState.artist,
-                        style = legible(MaterialTheme.typography.bodySmall, onSurface = true),
-                        color = colors.mutedForeground,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                MhCircleIconButton(
-                    icon = Icons.Rounded.KeyboardArrowDown,
-                    contentDescription = "Close fullscreen lyrics",
-                    onClick = onClose,
-                    groundAlpha = 0.1f,
-                    iconSize = 20.dp,
-                )
-            }
-
-            LyricsView(
-                state = state,
-                positionMs = playerState.positionMs,
-                onSeek = onSeek,
-                modifier = Modifier.weight(1f),
-            )
-
-            PlayerTransport(
-                state = playerState,
-                onPlayPause = onPlayPause,
-                onNext = {},
-                onPrevious = {},
-                onSeek = onSeek,
-                onSetSpeed = onSetSpeed,
-                minimal = true,
-                onSurface = true,
-                modifier = Modifier.padding(top = 8.dp, bottom = 20.dp),
-            )
-        }
-    }
-}
-
 @Composable
 private fun LyricsMessage(modifier: Modifier, content: @Composable () -> Unit) {
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) { content() }
 }
+
+/**
+ * The web's `inactive` lyric tone, `text-foreground/55` — one of the player's sanctioned vibrancy
+ * tokens (see `MediaColors.kt`), only ever drawn over its dimmed cover.
+ */
+private const val LYRIC_INACTIVE_ALPHA = 0.55f
+
+/**
+ * Fades lines out under the chrome at both edges instead of cutting them off at a hard line, as
+ * Apple Music's lyrics (and the web's `mask-image`) do. Offscreen compositing so the gradient masks
+ * the text itself rather than painting black over the wash behind it.
+ */
+private fun Modifier.fadingEdges(top: Dp = 24.dp, bottom: Dp = 40.dp): Modifier =
+    graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+        .drawWithContent {
+            drawContent()
+            val height = size.height
+            if (height <= 0f) return@drawWithContent
+            val topStop = (top.toPx() / height).coerceIn(0f, 0.5f)
+            val bottomStop = 1f - (bottom.toPx() / height).coerceIn(0f, 0.5f)
+            drawRect(
+                brush = Brush.verticalGradient(
+                    0f to Color.Transparent,
+                    topStop to Color.Black,
+                    bottomStop to Color.Black,
+                    1f to Color.Transparent,
+                ),
+                blendMode = BlendMode.DstIn,
+            )
+        }

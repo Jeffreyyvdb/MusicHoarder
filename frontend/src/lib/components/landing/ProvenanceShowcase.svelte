@@ -42,18 +42,23 @@
     return base.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
   })();
 
+  // Status colour on the app's tokens: warning/destructive fills for the dots, the
+  // contrast-checked *-text tokens for the stage labels (amber-600 / red-600 on their own tints
+  // measured under 4.5:1 in light mode). The "info" blue has no token and stays a hex, darkened
+  // for light mode: #4a6abc on its own 15% tint over the white card was 4.39:1 for 11px text,
+  // #3d5aa8 is 5.55:1 (dark mode's #9ab0e0 is 6.41:1).
   const DOT: Record<TimelineTint, string> = {
     ok: 'bg-primary text-primary-foreground',
     info: 'bg-[#6a89cc] text-white',
-    warn: 'bg-amber-500 text-white',
-    err: 'bg-red-500 text-white',
-    neutral: 'bg-muted-foreground text-white'
+    warn: 'bg-warning text-black',
+    err: 'bg-destructive text-destructive-foreground',
+    neutral: 'bg-muted-foreground text-background'
   };
   const STAGE: Record<TimelineTint, string> = {
     ok: 'bg-primary/15 text-primary',
-    info: 'bg-[#6a89cc]/15 text-[#4a6abc] dark:text-[#9ab0e0]',
-    warn: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
-    err: 'bg-red-500/15 text-red-600 dark:text-red-400',
+    info: 'bg-[#6a89cc]/15 text-[#3d5aa8] dark:text-[#9ab0e0]',
+    warn: 'bg-warning/15 text-warning-text',
+    err: 'bg-destructive/12 text-destructive-text',
     neutral: 'bg-muted text-muted-foreground'
   };
 
@@ -76,7 +81,7 @@
     Every track remembers how it got here.
   </h2>
   <p class="text-muted-foreground max-w-[640px] text-[14.5px] leading-[1.6] text-pretty">
-    Click any track and see the whole story — where the raw file came from, every provider that
+    Open any track and see the whole story — where the raw file came from, every provider that
     touched it, what the AI graded it, and exactly where it lives now.
     <strong class="text-foreground">Nothing is a black box.</strong>
   </p>
@@ -86,7 +91,7 @@
     <div class="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:gap-5">
       <Cover artist="Radiohead" title="In Rainbows" coverUrl={null} size={96} corner={10} caption={false} />
       <div class="min-w-0 flex-1">
-        <div class="text-muted-foreground font-mono text-[10px] tracking-[0.1em] uppercase">Track</div>
+        <div class="text-muted-foreground font-mono text-[11px] tracking-[0.1em] uppercase">Track</div>
         <h3 class="mt-0.5 truncate text-2xl font-semibold tracking-tight">Nude</h3>
         <div class="text-muted-foreground mt-0.5 truncate text-[13px]">
           Radiohead · In Rainbows · 2007
@@ -113,7 +118,7 @@
     <!-- Source → Destination paths -->
     <div class="mt-6 grid grid-cols-1 items-stretch gap-3 sm:grid-cols-[1fr_auto_1fr]">
       <div class="border-border bg-surface-sunken rounded-lg border p-3.5">
-        <div class="text-muted-foreground text-[10px] font-semibold tracking-wide uppercase">
+        <div class="text-muted-foreground text-[11px] font-semibold tracking-wide uppercase">
           Source · raw
         </div>
         <div class="text-muted-foreground mt-1.5 font-mono text-[11.5px] break-all">
@@ -123,11 +128,8 @@
       <div class="text-muted-foreground hidden items-center justify-center sm:flex">
         <ChevronRight class="size-5" />
       </div>
-      <div
-        class="rounded-lg border p-3.5"
-        style="background: oklch(0.62 0.13 145 / 0.08); border-color: oklch(0.62 0.13 145 / 0.3)"
-      >
-        <div class="text-muted-foreground text-[10px] font-semibold tracking-wide uppercase">
+      <div class="bg-primary/[0.08] border-primary/30 rounded-lg border p-3.5">
+        <div class="text-muted-foreground text-[11px] font-semibold tracking-wide uppercase">
           Destination · clean
         </div>
         <div class="text-primary mt-1.5 font-mono text-[11.5px] break-all">
@@ -187,28 +189,28 @@
                 <span class="text-muted-foreground font-mono text-[11px]">{clock(ev.time)}</span>
                 <span
                   class={cn(
-                    'rounded px-1.5 py-0.5 text-[9.5px] font-bold tracking-[0.06em] uppercase',
+                    'rounded px-1.5 py-0.5 text-[11px] font-bold tracking-[0.06em] uppercase',
                     STAGE[ev.tint]
                   )}>{ev.stage}</span
                 >
                 {#if ev.provider}
                   <span class="border-border inline-flex items-center gap-1.5 rounded-md border px-1.5 py-0.5">
                     <span class="size-1.5 rounded-full" style="background: {ev.provider.color}"></span>
-                    <span class="text-[10.5px]">{ev.provider.label}</span>
+                    <span class="text-[11px]">{ev.provider.label}</span>
                     {#if ev.provider.pct != null}
-                      <span class="text-muted-foreground border-border ml-0.5 border-l pl-1.5 font-mono text-[10.5px]"
+                      <span class="text-muted-foreground border-border ml-0.5 border-l pl-1.5 font-mono text-[11px]"
                         >{ev.provider.pct}</span
                       >
                     {/if}
                   </span>
                 {/if}
               </div>
-              <div class="text-foreground/90 mt-1 text-[13px] break-words">{ev.description}</div>
+              <div class="text-foreground mt-1 text-[13px] break-words">{ev.description}</div>
               {#if ev.searchQuery}
                 <div class="text-muted-foreground mt-1 flex flex-wrap items-center gap-1.5 text-[11.5px]">
                   <Search class="size-3 shrink-0" strokeWidth={2} />
                   <span>searched</span>
-                  <span class="text-foreground/90 font-mono">“{ev.searchQuery}”</span>
+                  <span class="text-foreground font-mono">“{ev.searchQuery}”</span>
                 </div>
               {/if}
             </div>
