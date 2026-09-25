@@ -7,8 +7,11 @@ import type { PlayerSong } from './player.svelte';
  *
  *  • it declares the `playback` audio session on a play intent (and not before one), so WebKit
  *    cannot let the category lapse between two tracks;
- *  • while the page is hidden, the hand-off from `ended` to the next track is synchronous — no
- *    pre-flight round trip to the server sits between the old song ending and the new one playing;
+ *  • a song never ends as far as WebKit is concerned: the element loops, and the jump back to its
+ *    start is the hand-off — a real `ended` makes WebKit deactivate the audio session, which an app
+ *    in the background cannot get back, so the next song would wait for the app to be opened;
+ *  • while the page is hidden, that hand-off is synchronous — no pre-flight round trip to the
+ *    server sits between the old song ending and the new one playing;
  *  • a stream or a station that fails is retried, and a track that will not play is skipped,
  *    within the seconds a silent hidden page has before iOS suspends it — and a retry the page
  *    slept through gives up rather than starting music whenever the app is next opened.
@@ -38,6 +41,8 @@ class FakeAudio extends EventTarget {
   currentTime = 0;
   duration = NaN;
   paused = true;
+  loop = false;
+  seeking = false;
   readyState = 0;
   play = vi.fn(async () => {
     this.paused = false;
@@ -63,6 +68,12 @@ class FakeAudio extends EventTarget {
     this.currentTime = position;
     this.dispatchEvent(new Event('playing'));
     this.dispatchEvent(new Event('timeupdate'));
+  }
+
+  /** The song reaching its end with `loop` set: the element seeks itself back to the start. */
+  loopToStart() {
+    this.currentTime = 0;
+    this.dispatchEvent(new Event('seeking'));
   }
 
   constructor() {
@@ -150,20 +161,112 @@ describe('track hand-off', () => {
     expect(playerStore.currentSong?.id).toBe(1);
   });
 
-  it('starts the next track inside the `ended` event while the app is in the background', async () => {
+  it('starts the next track the moment the song comes round, while the app is in the background', async () => {
     const { playerStore, audio } = await loadPlayer();
     await playerStore.playSong(song(1), [song(1), song(2)]);
+    audio.playFrom(200);
     fetchMock.mockClear();
     audio.play.mockClear();
 
     doc.hidden = true;
-    audio.dispatchEvent(new Event('ended'));
+    audio.loopToStart();
 
     // Synchronously — no await between the old song ending and the new one starting.
     expect(audio.src).toBe('/api/mh/songs/2/stream');
     expect(audio.play).toHaveBeenCalledTimes(1);
     expect(playerStore.currentSong?.id).toBe(2);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('the end of a song', () => {
+  it('is never an `ended` to the browser: the element loops', async () => {
+    // A song that plays to its end has WebKit deactivate the audio session, and an app in the
+    // background may not activate it again — the next song would wait for the app to be opened.
+    const { audio } = await loadPlayer();
+    expect(audio.loop).toBe(true);
+  });
+
+  it('holds the restarted song silent while a visible pick is checked with the server', async () => {
+    const { playerStore, audio } = await loadPlayer();
+    await playerStore.playSong(song(1), [song(1), song(2)]);
+    audio.playFrom(200);
+
+    audio.loopToStart();
+    expect(audio.pause).toHaveBeenCalledTimes(1);
+    expect(audio.src).toBe('/api/mh/songs/1/stream');
+
+    await vi.waitFor(() => expect(audio.src).toBe('/api/mh/songs/2/stream'));
+    expect(playerStore.currentSong?.id).toBe(2);
+  });
+
+  it('moves on once, whichever event reports it first', async () => {
+    const { playerStore, audio } = await loadPlayer();
+    await playerStore.playSong(song(1), [song(1), song(2), song(3)]);
+    audio.playFrom(200);
+    doc.hidden = true;
+
+    audio.loopToStart();
+    audio.dispatchEvent(new Event('timeupdate'));
+    expect(playerStore.currentSong?.id).toBe(2);
+  });
+
+  it('is caught by the position alone where the loop comes round without a seek', async () => {
+    const { playerStore, audio } = await loadPlayer();
+    await playerStore.playSong(song(1), [song(1), song(2)]);
+    audio.playFrom(200);
+    doc.hidden = true;
+
+    audio.currentTime = 0.1;
+    audio.dispatchEvent(new Event('timeupdate'));
+    expect(playerStore.currentSong?.id).toBe(2);
+  });
+
+  it('is not a seek back to the start, like Previous restarting the song', async () => {
+    const { playerStore, audio } = await loadPlayer();
+    await playerStore.playSong(song(1), [song(1), song(2)]);
+    audio.playFrom(120);
+    doc.hidden = true;
+
+    playerStore.seek(0);
+    audio.dispatchEvent(new Event('seeking'));
+    audio.playFrom(0.2);
+
+    expect(playerStore.currentSong?.id).toBe(1);
+    expect(audio.pause).not.toHaveBeenCalled();
+  });
+
+  it('is not a decoded stream taking over near the start', async () => {
+    const { playerStore, audio } = await loadPlayer();
+    await playerStore.playSong(song(1, 'flac'), [song(1, 'flac'), song(2, 'flac')]);
+    audio.playFrom(0.8);
+    doc.hidden = true;
+
+    audio.fail(3);
+    audio.playFrom(0.2);
+
+    expect(audio.src).toBe('/api/mh/songs/1/stream?format=wav');
+    expect(playerStore.currentSong?.id).toBe(1);
+  });
+
+  it('leaves a song with nothing after it loaded, paused at its start', async () => {
+    const api = await import('$lib/api-client');
+    vi.mocked(api.fetchRadio).mockRejectedValueOnce(
+      Object.assign(new Error('Not found'), { status: 404 })
+    );
+    const { playerStore, audio } = await loadPlayer();
+    await playerStore.playSong(song(1), [song(1)]);
+    await settle();
+    audio.playFrom(200);
+    audio.play.mockClear();
+
+    audio.loopToStart();
+    await settle();
+
+    expect(audio.pause).toHaveBeenCalledTimes(1);
+    expect(audio.play).not.toHaveBeenCalled();
+    expect(audio.src).toBe('/api/mh/songs/1/stream');
+    expect(playerStore.currentSong?.id).toBe(1);
   });
 });
 
@@ -415,7 +518,7 @@ describe('recovering a stream', () => {
 
   it('does not take a new track still loading for a stall', async () => {
     const { audio } = await playingInBackground();
-    audio.dispatchEvent(new Event('ended'));
+    audio.loopToStart();
     audio.load.mockClear();
 
     audio.dispatchEvent(new Event('waiting'));
@@ -448,8 +551,9 @@ describe('the station', () => {
     // The end of the queue: the station is still unreachable, then answers.
     fetchRadio.mockRejectedValueOnce(new TypeError('Load failed'));
     fetchRadio.mockResolvedValueOnce([7]);
+    audio.playFrom(200);
     doc.hidden = true;
-    audio.dispatchEvent(new Event('ended'));
+    audio.loopToStart();
     await vi.advanceTimersByTimeAsync(0);
     expect(fetchRadio).toHaveBeenCalledTimes(2);
     expect(playerStore.currentSong?.id).toBe(1);

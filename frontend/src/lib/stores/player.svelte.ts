@@ -111,12 +111,15 @@ let suspectedFormat: {
 } | null = null;
 let unplayable: UnplayableFormats | null = null;
 /**
- * The second the loaded stream last played at, off `timeupdate`: where a reload resumes. The
- * reactive `currentTime` cannot serve, because it is written by the rAF loop, which does not run
- * while the page is hidden.
+ * The second the loaded stream last played at, off `timeupdate`: where a reload resumes, and what
+ * tells the loop coming round from a seek (see `cameRoundToStart`). The reactive `currentTime`
+ * cannot serve, because it is written by the rAF loop, which does not run while the page is hidden.
  */
 let lastPlayedPosition = 0;
-/** Whether the loaded source has produced audio — what makes a later `waiting` a stall. */
+/**
+ * Whether the loaded source has produced audio — what makes a later `waiting` a stall, and a jump
+ * back to its start the loop coming round.
+ */
 let sourceHasPlayed = false;
 /**
  * Retries spent on the loaded track — reloads of its stream, or, once it has ended, asks of the
@@ -267,6 +270,43 @@ function claimPlaybackAudioSession() {
   } catch {
     // Refused by this engine — `auto` still plays, just without the pin.
   }
+}
+
+// ── A song never ends ──────────────────────────────────────────────────────
+// The pin does not survive the end of a song. When an audio element plays to its end and nothing
+// else is playing, WebKit deactivates the audio session (`sessionWillEndPlayback` in
+// MediaSessionManagerCocoa.mm, since iOS 17), whatever type the page declared. A foreground app
+// gets it back with the next `play()`; an app in the background does not, because iOS will not
+// activate a session for an app that is not already playing. So the next song waits, silent,
+// until the app is opened again, while the lock screen shows it paused (WebKit bugs 261858 and
+// 267606). A pause or a seek deactivates nothing in the background, hence the loop: a song
+// reaching its end is, to WebKit, a seek back to its start, and that jump is where this store
+// moves on, pausing first so the restarted song is not heard while the next one loads.
+
+/**
+ * How close to its start a jump has to land to be the loop coming round. The loop lands on 0; a
+ * source still being positioned, or a seek of ours, never counts (see `cameRoundToStart`).
+ */
+const LOOP_START_WINDOW_S = 0.5;
+
+/**
+ * Whether the loop just brought the song back to its start: a jump from further in to its first
+ * moments, on a source that has played. `seek` moves `lastPlayedPosition` along with it, so a seek
+ * to the start, like Previous restarting the song, is never taken for the end.
+ */
+function cameRoundToStart(el: HTMLAudioElement): boolean {
+  return (
+    sourceHasPlayed &&
+    el.currentTime < LOOP_START_WINDOW_S &&
+    lastPlayedPosition >= LOOP_START_WINDOW_S
+  );
+}
+
+/** The song played to its end: what an `ended` event would have meant. */
+function songFinished(el: HTMLAudioElement) {
+  lastPlayedPosition = 0; // where the element is now, so the jump is not seen twice
+  el.pause(); // a paused element that has not ended keeps the audio session
+  playNext(); // with nothing to follow, the song stays loaded, paused at its start
 }
 
 // ── Recovering a stream ────────────────────────────────────────────────────
@@ -443,6 +483,8 @@ function fallBackToConverted(): boolean {
       : null;
   const position = currentTime;
   sourceIsConverted = true;
+  sourceHasPlayed = false;
+  lastPlayedPosition = position;
   el.src = convertedStreamUrl(song.streamUrl);
   el.load();
   if (position > 0) el.currentTime = position;
@@ -474,6 +516,7 @@ function ensureAudioEl(): HTMLAudioElement | null {
 
   const el = new Audio();
   el.preload = 'metadata';
+  el.loop = true; // a song's end is the jump back to its start (see `songFinished`)
   el.volume = volumeState;
   // `defaultPlaybackRate` is what a new `src` resets `playbackRate` to, so
   // keeping both in sync makes the chosen speed survive track changes.
@@ -493,11 +536,8 @@ function ensureAudioEl(): HTMLAudioElement | null {
     updatePositionState();
     confirmSuspectedFormat();
   });
-  el.addEventListener('ended', () => {
-    stopRaf();
-    isPlaying = false;
-    if (Number.isFinite(el.duration)) currentTime = el.duration; // land the bar at 100%
-    playNext(); // no-op when the current song is the last in the queue
+  el.addEventListener('seeking', () => {
+    if (cameRoundToStart(el)) songFinished(el);
   });
   el.addEventListener('error', () => {
     stopRaf();
@@ -510,6 +550,12 @@ function ensureAudioEl(): HTMLAudioElement | null {
   el.addEventListener('timeupdate', () => {
     // Before metadata the element reports the position it is resetting from, not a real one.
     if (el.readyState < HAVE_METADATA) return;
+    // `seeking` has normally seen the loop come round already; this catches an engine that loops
+    // without one, or a position read before the loop's seek was announced.
+    if (cameRoundToStart(el)) {
+      songFinished(el);
+      return;
+    }
     lastPlayedPosition = el.currentTime;
     if (trackRetries > 0 && lastPlayedPosition > retriedFrom + RETRY_BUDGET_RESET_S) {
       trackRetries = 0;
@@ -586,10 +632,10 @@ async function loadAndPlay(song: PlayerSong) {
 
   // The pre-flight turns a missing file into a clear toast while the old song keeps playing, but
   // it is an await between the decision to play and `play()`. In the background that gap is the
-  // one place a hand-off can die: after `ended` nothing is audible, and a slow round trip to the
-  // server lets iOS stop treating the app as a player before the next song starts. So while the
-  // page is hidden (Home Screen, another app, the lock screen) the swap is synchronous, and a
-  // missing file is reported by the element's own `error` event instead.
+  // one place a hand-off can die: once a song finishes nothing is audible, and a slow round trip
+  // to the server lets iOS stop treating the app as a player before the next song starts. So the
+  // swap is synchronous while the page is hidden (Home Screen, another app, the lock screen), and
+  // a missing file is reported by the element's own `error` event instead.
   if (!document.hidden) {
     try {
       const res = await fetch(song.streamUrl, { headers: { Range: 'bytes=0-0' } });
