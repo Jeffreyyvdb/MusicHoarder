@@ -12,6 +12,7 @@ import {
   type ApiSong
 } from '$lib/api-client';
 import { isBuiltSong } from '$lib/album-sections';
+import { filterBySearch, indexForSearch, searchTerms } from '$lib/search/match';
 import { isAnyUnreleasedSong } from '$lib/release-status';
 
 export type SortKey =
@@ -269,16 +270,17 @@ export function createTrackListView(opts: {
   const searchQuery = $derived(opts.searchQuery());
   const chips = $derived(opts.chips?.() ?? []);
 
+  // Folded once per dataset rather than per keystroke — see `$lib/search/match` for what a query
+  // means (every term, any field, punctuation and order ignored).
+  const searchIndex = $derived(
+    indexForSearch(songs, (s) => [titleOf(s), artistOf(s), s.album ?? ''])
+  );
+
   /** Search applied, chips not yet — the base every per-chip count is measured against. */
   const searched = $derived.by(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return songs;
-    return songs.filter(
-      (s) =>
-        titleOf(s).toLowerCase().includes(q) ||
-        artistOf(s).toLowerCase().includes(q) ||
-        (s.album ?? '').toLowerCase().includes(q)
-    );
+    const terms = searchTerms(searchQuery);
+    if (terms.length === 0) return songs;
+    return filterBySearch(searchIndex, terms);
   });
 
   const filtered = $derived(applyChips(searched, chips));

@@ -157,10 +157,10 @@ fun foldLibrary(
             if (kept.isEmpty()) null else album.copy(tracks = kept, trackCount = kept.size)
         }
     }
-    val query = ui.query.trim()
-    val matchingAlbums = if (query.isEmpty()) scopedAlbums else scopedAlbums.filter {
-        it.name.contains(query, ignoreCase = true) || it.artist.contains(query, ignoreCase = true)
-    }
+    // Album and artist search go through the same matcher as the tracks list and the web
+    // (`SearchMatch.kt`): every term, in any field, over folded text.
+    val query = ui.query
+    val matchingAlbums = filterBySearch(scopedAlbums, query) { listOf(it.name, it.artist) }
 
     // ---- Artists ------------------------------------------------------------------------------
     // Note the artist grid is scoped by the release filter but NOT by the artist drilldown, matching
@@ -170,9 +170,7 @@ fun foldLibrary(
         ui.artistMode == ArtistMode.Primary -> state.artistsPrimary
         else -> state.artistsAll
     }
-    val matchingArtists =
-        if (query.isEmpty()) artistGroups
-        else artistGroups.filter { it.label.contains(query, ignoreCase = true) }
+    val matchingArtists = filterBySearch(artistGroups, query) { listOf(it.label) }
     // The letters the trailing index can jump to. The index jumps rather than filters, as the web's
     // phone list does (its desktop letter row is the one that filters), so every match is listed.
     val presentLetters = matchingArtists.mapTo(LinkedHashSet()) { it.initial }

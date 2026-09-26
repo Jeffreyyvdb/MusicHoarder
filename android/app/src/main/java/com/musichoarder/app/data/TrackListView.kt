@@ -177,13 +177,9 @@ fun sortForChipChange(
     return if (wanted) SortKey.Spotify to false else SortKey.Added to false
 }
 
-/** Search over title, lead artist and album — the same three fields the web matches on. */
-fun searchTracks(tracks: List<Track>, query: String): List<Track> {
-    val q = query.trim()
-    if (q.isEmpty()) return tracks
-    return tracks.filter {
-        it.title.contains(q, ignoreCase = true) ||
-            it.albumArtist.contains(q, ignoreCase = true) ||
-            it.album.contains(q, ignoreCase = true)
-    }
-}
+/**
+ * Search over title, lead artist and album — the same three fields the web matches on, through the
+ * same matcher (`SearchMatch.kt`): every term, in any field, punctuation and order ignored.
+ */
+fun searchTracks(tracks: List<Track>, query: String): List<Track> =
+    filterBySearch(tracks, query) { listOf(it.title, it.albumArtist, it.album) }
