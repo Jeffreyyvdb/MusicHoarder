@@ -137,7 +137,10 @@ function parseSong(entry: unknown): PlayerSong | null {
     artist: entry.artist,
     streamUrl: entry.streamUrl,
     coverUrl: entry.coverUrl as string | null | undefined,
-    album: entry.album as string | null | undefined
+    album: entry.album as string | null | undefined,
+    // A reload before the library's rows arrived keeps a picked-up session's stand-ins as such,
+    // so they still become their rows.
+    ...(entry.standIn === true ? { standIn: true } : {})
   };
 }
 

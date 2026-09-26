@@ -303,24 +303,27 @@
         </DropdownMenu.Sub>
       {/if}
 
-      <DropdownMenu.Sub>
-        <DropdownMenu.SubTrigger>
-          <Gauge />
-          Playback speed
-        </DropdownMenu.SubTrigger>
-        <DropdownMenu.SubContent class="min-w-44">
-          <DropdownMenu.RadioGroup
-            value={String(playerStore.playbackRate)}
-            onValueChange={(v) => playerStore.setPlaybackRate(Number(v))}
-          >
-            {#each speedOptions as rate (rate)}
-              <DropdownMenu.RadioItem value={String(rate)} class="tabular-nums">
-                {rate === 1 ? 'Normal' : `${rate}×`}
-              </DropdownMenu.RadioItem>
-            {/each}
-          </DropdownMenu.RadioGroup>
-        </DropdownMenu.SubContent>
-      </DropdownMenu.Sub>
+      <!-- This device's speed, which is not what anyone hears while another device plays. -->
+      {#if playerStore.speedAdjustable}
+        <DropdownMenu.Sub>
+          <DropdownMenu.SubTrigger>
+            <Gauge />
+            Playback speed
+          </DropdownMenu.SubTrigger>
+          <DropdownMenu.SubContent class="min-w-44">
+            <DropdownMenu.RadioGroup
+              value={String(playerStore.playbackRate)}
+              onValueChange={(v) => playerStore.setPlaybackRate(Number(v))}
+            >
+              {#each speedOptions as rate (rate)}
+                <DropdownMenu.RadioItem value={String(rate)} class="tabular-nums">
+                  {rate === 1 ? 'Normal' : `${rate}×`}
+                </DropdownMenu.RadioItem>
+              {/each}
+            </DropdownMenu.RadioGroup>
+          </DropdownMenu.SubContent>
+        </DropdownMenu.Sub>
+      {/if}
 
       {#if isCurrent}
         <DropdownMenu.Item onSelect={onHidePlayer}>

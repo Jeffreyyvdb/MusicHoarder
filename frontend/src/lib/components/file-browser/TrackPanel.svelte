@@ -1,5 +1,13 @@
 <script lang="ts">
-  import { Airplay, ChevronDown, Heart, Info, MessageSquareQuote, MonitorPlay } from '@lucide/svelte';
+  import {
+    Airplay,
+    ChevronDown,
+    Heart,
+    Info,
+    MessageSquareQuote,
+    MonitorPlay,
+    MonitorSpeaker
+  } from '@lucide/svelte';
   import { untrack, type Component } from 'svelte';
   import { MediaQuery } from 'svelte/reactivity';
   import { page } from '$app/state';
@@ -17,6 +25,8 @@
   import LyricsCompareSheet from '$lib/components/file-browser/now-playing/LyricsCompareSheet.svelte';
   import ActionSheet from '$lib/components/file-browser/now-playing/ActionSheet.svelte';
   import VolumeControl from '$lib/components/file-browser/now-playing/VolumeControl.svelte';
+  import DevicePicker from '$lib/components/playback-sync/DevicePicker.svelte';
+  import { DEVICE_ICONS } from '$lib/components/playback-sync/device-icons';
   import {
     videoProblem,
     videoSyncLabel,
@@ -35,6 +45,7 @@
   import { createLyricsDoc } from '$lib/lyrics/lyrics-doc.svelte';
   import { lrclibWebUrl } from '$lib/lrclib-url';
   import { playerStore } from '$lib/stores/player.svelte';
+  import { playbackSync } from '$lib/stores/playback-sync.svelte';
   import { songsStore } from '$lib/stores/songs.svelte';
   import { featuresStore } from '$lib/stores/features.svelte';
   import type { DetailMode } from '$lib/stores/song-detail.svelte';
@@ -240,6 +251,15 @@
   // ── Song facts ──────────────────────────────────────────────────────────────
   const isCurrentlyLoaded = $derived(playerStore.currentSong?.id === song.id);
   const isCurrentlyPlaying = $derived(isCurrentlyLoaded && playerStore.isPlaying);
+  // The account's session, when it plays on another device (or is only remembered): the transport
+  // steers it there, a line under the toggle row says where, and this device's volume — which is
+  // not what anyone is hearing — steps out of the way. The Devices button shows whenever the
+  // feature is on (signed in, not the demo), with or without another device open — the rule on
+  // both clients; alone, its picker says where other devices come from. (The mini player is the
+  // quiet one: nothing about devices there while the music is here and no other device is open.)
+  const elsewhere = $derived(isCurrentlyLoaded && playbackSync.showsSession);
+  const deviceLine = $derived(isCurrentlyLoaded ? playbackSync.line : null);
+  const showDevices = $derived(playbackSync.enabled);
   // The art rests at full size for a browsed song (nothing is paused — it just isn't playing).
   const artPlaying = $derived(!isCurrentlyLoaded || playerStore.isPlaying);
 
@@ -462,7 +482,9 @@
   </button>
 {/snippet}
 
-<!-- Lyrics · AirPlay (only where Safari reports a receiver) · Video (when watchable) · Info. -->
+<!-- Lyrics · AirPlay (only where Safari reports a receiver) · Devices (signed in, not the demo) ·
+     Video (when watchable) · Info. While the music plays on another device, the line under the row
+     says where, and opens the same picker. -->
 {#snippet bottomRow()}
   <div class="flex items-center justify-evenly">
     {@render modeButton('lyrics', 'Lyrics', MessageSquareQuote)}
@@ -477,11 +499,57 @@
         <Airplay class="size-[22px]" />
       </button>
     {/if}
+    {#if showDevices}
+      <DevicePicker nested>
+        {#snippet trigger(props)}
+          <button
+            {...props}
+            type="button"
+            class={cn(
+              'focus-visible:ring-ring flex size-11 items-center justify-center rounded-full outline-none transition-colors focus-visible:ring-2',
+              elsewhere ? 'text-primary' : 'text-muted-foreground pointer-fine:hover:text-foreground'
+            )}
+            aria-label={deviceLine ? `Devices. ${deviceLine}` : 'Devices'}
+            title="Devices"
+          >
+            <!-- Lit like a selected mode while the music is on another device. -->
+            <span
+              class={cn(
+                'flex h-8 w-11 items-center justify-center rounded-full transition-colors duration-200',
+                elsewhere && 'bg-[var(--np-fill)]'
+              )}
+            >
+              <MonitorSpeaker class="size-[22px]" />
+            </span>
+          </button>
+        {/snippet}
+      </DevicePicker>
+    {/if}
     {#if video.playable}
       {@render modeButton('video', 'Video', MonitorPlay)}
     {/if}
     {@render modeButton('info', 'Info', Info)}
   </div>
+  {#if deviceLine}
+    {@const DeviceIcon = DEVICE_ICONS[playbackSync.activeKind]}
+    <DevicePicker nested>
+      {#snippet trigger(props)}
+        <!-- 32pt tall (above the 28pt floor) so the footer does not grow by a full 44. -->
+        <button
+          {...props}
+          type="button"
+          class={cn(
+            'text-footnote focus-visible:ring-ring mx-auto flex h-8 max-w-full items-center gap-1.5 rounded-full px-3 outline-none focus-visible:ring-2',
+            playbackSync.isRemote ? 'text-primary' : 'text-muted-foreground'
+          )}
+          aria-label={`${deviceLine}. Choose a device`}
+        >
+          <DeviceIcon class="size-4 shrink-0" />
+          <span class="truncate">{deviceLine}</span>
+        </button>
+      {/snippet}
+    </DevicePicker>
+  {/if}
 {/snippet}
 
 <!-- At lg the meta line above the scrubber already reads "FLAC 1411 · 3:06 · …", so the format
@@ -636,9 +704,11 @@
           {/if}
           <div class="mt-5">{@render transport()}</div>
           <div class="mt-2">{@render bottomRow()}</div>
-          <div class="mt-4 hidden pointer-fine:block">
-            <VolumeControl />
-          </div>
+          {#if !elsewhere}
+            <div class="mt-4 hidden pointer-fine:block">
+              <VolumeControl />
+            </div>
+          {/if}
         </div>
       </aside>
       <main class="flex min-h-0 flex-col pt-2">
@@ -717,9 +787,11 @@
         <div class="mt-1">{@render bottomRow()}</div>
         <!-- md–lg with a mouse (a narrow desktop window, an iPad with a trackpad): Now Playing hides
              the mini player that holds the volume, so it needs its own here too. -->
-        <div class="mt-3 hidden md:pointer-fine:block">
-          <VolumeControl />
-        </div>
+        {#if !elsewhere}
+          <div class="mt-3 hidden md:pointer-fine:block">
+            <VolumeControl />
+          </div>
+        {/if}
       </footer>
     </div>
   {/if}
