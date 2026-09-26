@@ -51,8 +51,12 @@ public class OpenAiCompatibleChatClient(
         // the answer to `content`. If the token budget is exhausted by reasoning, `content` is empty
         // but the reasoning channel may still carry the JSON object the grader asked for — the parser
         // tolerates prose/fences, so fall back to it before giving up.
+        var fromReasoning = false;
         if (string.IsNullOrWhiteSpace(content))
+        {
             content = choice?.Message?.Reasoning ?? choice?.Message?.ReasoningContent;
+            fromReasoning = true;
+        }
 
         if (string.IsNullOrWhiteSpace(content))
         {
@@ -66,7 +70,8 @@ public class OpenAiCompatibleChatClient(
                 $"Chat completion returned an empty message (finish_reason={finishReason}, completion_tokens={completionTokens?.ToString() ?? "?"}).");
         }
 
-        return new ChatCompletionResult(content, parsed?.Usage?.PromptTokens, parsed?.Usage?.CompletionTokens);
+        return new ChatCompletionResult(
+            content, parsed?.Usage?.PromptTokens, parsed?.Usage?.CompletionTokens, choice?.FinishReason, fromReasoning);
     }
 
     /// <summary>

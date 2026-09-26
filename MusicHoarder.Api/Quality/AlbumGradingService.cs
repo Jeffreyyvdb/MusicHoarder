@@ -69,14 +69,8 @@ public sealed class AlbumGradingService(
         var sw = Stopwatch.StartNew();
         try
         {
-            var result = await chatClient.CompleteAsync(
-                new ChatCompletionRequest(
-                    AlbumGradingPrompt.BuildMessages(dossier),
-                    opts.Temperature,
-                    opts.MaxOutputTokens),
-                ct);
-            rawContent = result.Content;
-            parsed = QualityGradingPrompt.Parse(rawContent);
+            (parsed, rawContent) = await GradingCompletion.RequestGradeAsync(
+                chatClient, AlbumGradingPrompt.BuildMessages(dossier), opts, logger, ct);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {

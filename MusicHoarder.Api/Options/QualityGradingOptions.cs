@@ -56,7 +56,8 @@ public class QualityGradingOptions
     /// <summary>
     /// Cap on the chat-completion output. Reasoning models spend this same budget on their
     /// chain-of-thought, so it must comfortably exceed <see cref="ReasoningMaxTokens"/> or the JSON
-    /// answer gets truncated (the grader then fails with "No JSON object found in model reply").
+    /// answer gets truncated. A reply this limit cut off without a grade is asked for once more with
+    /// twice the budget, up to 16384 (see <c>GradingCompletion</c>).
     /// </summary>
     [Range(64, 16384)]
     public int MaxOutputTokens { get; set; } = 4096;
