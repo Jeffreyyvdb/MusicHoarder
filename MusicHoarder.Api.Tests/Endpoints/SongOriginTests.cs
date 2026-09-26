@@ -59,6 +59,29 @@ public class SongOriginTests
     }
 
     [Fact]
+    public void Resolve_NamesTheYouTubePlaylistRatherThanTheVideoLink()
+    {
+        // A playlist video carries its watch URL too, but the playlist is why it was downloaded.
+        var link = new WishlistLink(WishlistSourceType.YouTubePlaylist, "Cool music", "https://www.youtube.com/watch?v=abc", null);
+
+        var origin = SongOriginResolver.Resolve($"{DownloadDir}/x.opus", link, DownloadDir, SyncedDir);
+
+        Assert.Equal(SongOriginSource.YouTubePlaylist, origin.Source);
+        Assert.Equal("Cool music", origin.Detail);
+    }
+
+    [Fact]
+    public void Best_RanksAYouTubePlaylistAboveALinkPastedByHand()
+    {
+        var best = SongOriginResolver.Best([
+            new WishlistLink(null, null, "https://www.youtube.com/watch?v=abc", null),
+            new WishlistLink(WishlistSourceType.YouTubePlaylist, "Cool music", "https://www.youtube.com/watch?v=abc", null),
+        ]);
+
+        Assert.Equal(WishlistSourceType.YouTubePlaylist, best.SourceType);
+    }
+
+    [Fact]
     public void Best_PrefersLikedSongsOverAPlaylistForTheSaveDate()
     {
         var liked = new DateTime(2023, 1, 1, 0, 0, 0, DateTimeKind.Utc);

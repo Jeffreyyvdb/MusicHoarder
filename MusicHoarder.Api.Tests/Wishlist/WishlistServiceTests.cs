@@ -2,9 +2,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Deezer;
+using MusicHoarder.Api.Import;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Spotify;
 using MusicHoarder.Api.Tests.Deezer;
+using MusicHoarder.Api.Tests.Import;
 using MusicHoarder.Api.Wishlist;
 
 namespace MusicHoarder.Api.Tests.Wishlist;
@@ -395,6 +397,225 @@ public class WishlistServiceTests
             service.CreateOrUpdateSourceAsync(Owner, WishlistSourceType.DeezerPlaylist, null, false, default));
     }
 
+    // ── YouTube playlists ────────────────────────────────────────────────────────
+
+    private const string YouTubeListId = "PLexampleCoolMusic";
+
+    [Fact]
+    public async Task SyncSource_YouTubePlaylist_QueuesEachVideoWithItsAudioAndMusicVideo()
+    {
+        await using var db = CreateDbContext();
+        var source = await AddYouTubeSourceAsync(db);
+        var reader = new FakeYouTubePlaylistReader();
+        reader.Playlists[YouTubeListId] = FakeYouTubePlaylistReader.Playlist(YouTubeListId, "Cool music",
+            new YouTubePlaylistEntry("ZJzr2Dsputk", "Kendrick Lamar - Alright (Official Music Video)", 415_000));
+        var videos = new FakeYouTubeMetadataResolver();
+        videos.Videos["https://www.youtube.com/watch?v=ZJzr2Dsputk"] = new YouTubeProbeResult(
+            "Alright (Official Music Video)", "Kendrick Lamar", "To Pimp a Butterfly", 412_000,
+            "https://i.ytimg.com/vi/ZJzr2Dsputk/maxresdefault.jpg");
+        var service = CreateService(db, new FakeSpotifyApi(), youTubePlaylists: reader, youTubeVideos: videos);
+
+        var result = await service.SyncSourceAsync(Owner, source, default);
+
+        Assert.Equal(1, result.Added);
+        var item = await db.WishlistItems.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal(source.Id, item.WishlistSourceId);
+        Assert.Equal("ZJzr2Dsputk", item.YouTubeVideoId);
+        // The exact video, not a search: yt-dlp downloads this URL.
+        Assert.Equal("https://www.youtube.com/watch?v=ZJzr2Dsputk", item.SourceUrl);
+        Assert.Null(item.SpotifyTrackId);
+        // The clip is why it is on the list, whatever the server's music-video default.
+        Assert.True(item.DownloadMusicVideo);
+        // Upload noise is stripped from the title the downloader stamps.
+        Assert.Equal("Alright", item.Title);
+        Assert.Equal("Kendrick Lamar", item.Artist);
+        Assert.Equal("To Pimp a Butterfly", item.Album);
+        Assert.Equal(412_000, item.DurationMs);
+        Assert.Equal("https://i.ytimg.com/vi/ZJzr2Dsputk/maxresdefault.jpg", item.AlbumArt);
+        Assert.Null(item.SpotifyAddedAtUtc);
+        Assert.Equal(WishlistItemStatus.Pending, item.Status);
+    }
+
+    [Fact]
+    public async Task SyncSource_YouTubePlaylist_ProbesOnlyNewVideosAndSkipsOnesAlreadyWishlisted()
+    {
+        await using var db = CreateDbContext();
+        var now = DateTime.UtcNow;
+        db.WishlistItems.AddRange(
+            // Queued by an earlier sync of this playlist.
+            new WishlistItem
+            {
+                OwnerUserId = Owner, YouTubeVideoId = "aaaaaaaaaaa", SourceUrl = "https://www.youtube.com/watch?v=aaaaaaaaaaa",
+                Title = "A", Artist = "X", Status = WishlistItemStatus.Downloaded, CreatedAtUtc = now, UpdatedAtUtc = now,
+            },
+            // Pasted by hand before the video-id column existed: the id is only in the URL.
+            new WishlistItem
+            {
+                OwnerUserId = Owner, SourceUrl = "https://www.youtube.com/watch?v=bbbbbbbbbbb",
+                Title = "B", Artist = "X", Status = WishlistItemStatus.Downloaded, CreatedAtUtc = now, UpdatedAtUtc = now,
+            });
+        var source = await AddYouTubeSourceAsync(db);
+        var reader = new FakeYouTubePlaylistReader();
+        reader.Playlists[YouTubeListId] = FakeYouTubePlaylistReader.Playlist(YouTubeListId, "Cool music",
+            new YouTubePlaylistEntry("aaaaaaaaaaa", "X - A", 200_000),
+            new YouTubePlaylistEntry("bbbbbbbbbbb", "X - B", 200_000),
+            new YouTubePlaylistEntry("ccccccccccc", "X - C", 200_000),
+            new YouTubePlaylistEntry("ccccccccccc", "X - C", 200_000)); // listed twice
+        var videos = new FakeYouTubeMetadataResolver();
+        var service = CreateService(db, new FakeSpotifyApi(), youTubePlaylists: reader, youTubeVideos: videos);
+
+        var result = await service.SyncSourceAsync(Owner, source, default);
+
+        Assert.Equal(1, result.Added);
+        Assert.Equal(3, result.AlreadyPresent);
+        Assert.Equal(["https://www.youtube.com/watch?v=ccccccccccc"], videos.Probes);
+        Assert.Equal(3, await db.WishlistItems.IgnoreQueryFilters().CountAsync());
+    }
+
+    [Fact]
+    public async Task SyncSource_YouTubePlaylist_SkipsAVideoAnotherSyncStoredMeanwhile()
+    {
+        // A first snapshot is slow (one probe per video), so the periodic sweep can reach the same
+        // playlist while it runs. Whatever the other run stores in the meantime is neither probed
+        // again nor added twice.
+        var dbName = Guid.NewGuid().ToString("N");
+        await using var db = CreateDbContext(dbName);
+        var source = await AddYouTubeSourceAsync(db);
+        var reader = new FakeYouTubePlaylistReader();
+        reader.Playlists[YouTubeListId] = FakeYouTubePlaylistReader.Playlist(YouTubeListId, "Cool music",
+            new YouTubePlaylistEntry("aaaaaaaaaaa", "X - A", 200_000),
+            new YouTubePlaylistEntry("bbbbbbbbbbb", "X - B", 200_000));
+        var videos = new FakeYouTubeMetadataResolver
+        {
+            // While this run probes A, the other run stores B.
+            OnProbe = async url =>
+            {
+                if (!url.EndsWith("aaaaaaaaaaa", StringComparison.Ordinal)) return;
+                await using var other = CreateDbContext(dbName);
+                other.WishlistItems.Add(new WishlistItem
+                {
+                    OwnerUserId = Owner, WishlistSourceId = source.Id, YouTubeVideoId = "bbbbbbbbbbb",
+                    SourceUrl = "https://www.youtube.com/watch?v=bbbbbbbbbbb", Title = "B", Artist = "X",
+                    Status = WishlistItemStatus.Pending, CreatedAtUtc = DateTime.UtcNow, UpdatedAtUtc = DateTime.UtcNow,
+                });
+                await other.SaveChangesAsync();
+            },
+        };
+        var service = CreateService(db, new FakeSpotifyApi(), youTubePlaylists: reader, youTubeVideos: videos);
+
+        var result = await service.SyncSourceAsync(Owner, source, default);
+
+        Assert.Equal(1, result.Added);
+        Assert.Equal(1, result.AlreadyPresent);
+        Assert.Equal(["https://www.youtube.com/watch?v=aaaaaaaaaaa"], videos.Probes);
+        Assert.Equal(1, await db.WishlistItems.IgnoreQueryFilters().CountAsync(w => w.YouTubeVideoId == "bbbbbbbbbbb"));
+    }
+
+    [Fact]
+    public async Task SyncSource_YouTubePlaylist_FallsBackToTheListedTitleWhenTheProbeFails()
+    {
+        await using var db = CreateDbContext();
+        var source = await AddYouTubeSourceAsync(db);
+        var reader = new FakeYouTubePlaylistReader();
+        reader.Playlists[YouTubeListId] = FakeYouTubePlaylistReader.Playlist(YouTubeListId, "Cool music",
+            new YouTubePlaylistEntry("ZJzr2Dsputk", "Kendrick Lamar - Alright [Official Video]", 415_000));
+        // No probe answer: the resolver reports the video as unreadable.
+        var service = CreateService(db, new FakeSpotifyApi(), youTubePlaylists: reader, youTubeVideos: new FakeYouTubeMetadataResolver());
+
+        await service.SyncSourceAsync(Owner, source, default);
+
+        var item = await db.WishlistItems.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal("Kendrick Lamar", item.Artist);
+        Assert.Equal("Alright", item.Title);
+        Assert.Null(item.Album);
+        Assert.Equal(415_000, item.DurationMs);
+        Assert.Equal("https://i.ytimg.com/vi/ZJzr2Dsputk/hqdefault.jpg", item.AlbumArt);
+    }
+
+    [Fact]
+    public async Task SyncSource_YouTubePlaylist_ThatCannotBeReadAddsNothingAndSaysWhy()
+    {
+        await using var db = CreateDbContext();
+        var source = await AddYouTubeSourceAsync(db);
+        var reader = new FakeYouTubePlaylistReader { FailWith = "That playlist does not exist, or it is private." };
+        var service = CreateService(db, new FakeSpotifyApi(), youTubePlaylists: reader);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.SyncSourceAsync(Owner, source, default));
+
+        Assert.Contains("private", ex.Message);
+        Assert.Empty(await db.WishlistItems.IgnoreQueryFilters().ToListAsync());
+        Assert.Null(source.LastSyncedAtUtc);
+    }
+
+    [Fact]
+    public async Task SyncSource_YouTubePlaylist_TakesTheNameYouTubeGivesIt()
+    {
+        await using var db = CreateDbContext();
+        var source = await AddYouTubeSourceAsync(db, name: YouTubeListId); // created while YouTube was unreadable
+        var reader = new FakeYouTubePlaylistReader();
+        reader.Playlists[YouTubeListId] = FakeYouTubePlaylistReader.Playlist(YouTubeListId, "Cool music");
+        var service = CreateService(db, new FakeSpotifyApi(), youTubePlaylists: reader);
+
+        await service.SyncSourceAsync(Owner, source, default);
+
+        Assert.Equal("Cool music", source.Name);
+        Assert.Equal($"https://i.ytimg.com/pl/{YouTubeListId}.jpg", source.ImageUrl);
+        Assert.NotNull(source.LastSyncedAtUtc);
+    }
+
+    [Fact]
+    public async Task CreateOrUpdateSource_YouTubePlaylist_StoresTheListIdAndReadsOnlyThePreview()
+    {
+        await using var db = CreateDbContext();
+        var reader = new FakeYouTubePlaylistReader();
+        reader.Playlists[YouTubeListId] = FakeYouTubePlaylistReader.Playlist(YouTubeListId, "Cool music",
+            new YouTubePlaylistEntry("aaaaaaaaaaa", "X - A", 200_000),
+            new YouTubePlaylistEntry("bbbbbbbbbbb", "X - B", 200_000));
+        var service = CreateService(db, new FakeSpotifyApi(), youTubePlaylists: reader);
+
+        var source = await service.CreateOrUpdateSourceAsync(Owner, WishlistSourceType.YouTubePlaylist, YouTubeListId, autoSync: true, default);
+
+        Assert.Equal(YouTubeListId, source.YouTubePlaylistId);
+        Assert.Null(source.SpotifyPlaylistId);
+        Assert.Null(source.DeezerPlaylistId);
+        Assert.Equal("Cool music", source.Name);
+        Assert.False(source.NeedsSpotify);
+        // Naming the source reads one page, not the whole playlist.
+        Assert.Equal([(YouTubeListId, (int?)1)], reader.Reads);
+        Assert.Empty(await db.WishlistItems.IgnoreQueryFilters().ToListAsync());
+
+        // Adding the same playlist again updates that row instead of creating a second one.
+        await service.CreateOrUpdateSourceAsync(Owner, WishlistSourceType.YouTubePlaylist, YouTubeListId, autoSync: false, default);
+        var only = await db.WishlistSources.IgnoreQueryFilters().SingleAsync();
+        Assert.False(only.AutoSync);
+    }
+
+    [Fact]
+    public async Task CreateOrUpdateSource_YouTubePlaylist_RequiresAListId()
+    {
+        await using var db = CreateDbContext();
+        var service = CreateService(db, new FakeSpotifyApi());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateOrUpdateSourceAsync(Owner, WishlistSourceType.YouTubePlaylist, " ", false, default));
+    }
+
+    private static async Task<WishlistSource> AddYouTubeSourceAsync(MusicHoarderDbContext db, string name = "Cool music")
+    {
+        var source = new WishlistSource
+        {
+            OwnerUserId = Owner,
+            SourceType = WishlistSourceType.YouTubePlaylist,
+            YouTubePlaylistId = YouTubeListId,
+            Name = name,
+            AutoSync = true,
+            CreatedAtUtc = DateTime.UtcNow,
+        };
+        db.WishlistSources.Add(source);
+        await db.SaveChangesAsync();
+        return source;
+    }
+
     private static DeezerCatalogTrack DeezerDetail(string id, string? isrc) =>
         new(id, "Title", "Artist", "Album", 2024, 1, 200_000, isrc);
 
@@ -402,17 +623,20 @@ public class WishlistServiceTests
         MusicHoarderDbContext db,
         ISpotifyApiService api,
         IDeezerCatalogService? deezer = null,
-        ISpotifyIsrcResolver? resolver = null) =>
+        ISpotifyIsrcResolver? resolver = null,
+        IYouTubePlaylistReader? youTubePlaylists = null,
+        IYouTubeMetadataResolver? youTubeVideos = null) =>
         new(db, api, deezer ?? new FakeDeezerCatalogService(), resolver ?? new FakeSpotifyIsrcResolver(),
+            youTubePlaylists ?? new FakeYouTubePlaylistReader(), youTubeVideos ?? new FakeYouTubeMetadataResolver(),
             NullLogger<WishlistService>.Instance);
 
     private static SpotifyTrackItem Track(string id, string title, string? isrc = null) =>
         new(id, title, "Artist", "Album", null, 200_000, DateTime.UtcNow, isrc);
 
-    private static MusicHoarderDbContext CreateDbContext()
+    private static MusicHoarderDbContext CreateDbContext(string? name = null)
     {
         var options = new DbContextOptionsBuilder<MusicHoarderDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
+            .UseInMemoryDatabase(name ?? Guid.NewGuid().ToString("N"))
             .Options;
         return new MusicHoarderDbContext(options);
     }

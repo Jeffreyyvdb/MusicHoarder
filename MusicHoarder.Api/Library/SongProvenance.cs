@@ -16,6 +16,7 @@ public enum ProvenanceReason
     SpotifyLiked,
     SpotifyPlaylist,
     DeezerPlaylist,
+    YouTubePlaylist,
 
     /// <summary>A one-off "add from URL".</summary>
     Link,
@@ -169,6 +170,7 @@ public static class SongProvenanceService
                 SongOriginSource.SpotifyLiked => ProvenanceReason.SpotifyLiked,
                 SongOriginSource.SpotifyPlaylist => ProvenanceReason.SpotifyPlaylist,
                 SongOriginSource.DeezerPlaylist => ProvenanceReason.DeezerPlaylist,
+                SongOriginSource.YouTubePlaylist => ProvenanceReason.YouTubePlaylist,
                 SongOriginSource.DirectUrl => ProvenanceReason.Link,
                 SongOriginSource.AlbumCompletion => ProvenanceReason.AlbumFill,
                 _ => ProvenanceReason.Downloaded,
@@ -191,6 +193,9 @@ public static class SongProvenanceService
         ProvenanceReason.DeezerPlaylist => (
             detail is null ? "From a Deezer playlist" : $"From Deezer playlist {Quote(detail)}",
             "On a Deezer playlist you sync to the wishlist, so the wishlist downloaded it."),
+        ProvenanceReason.YouTubePlaylist => (
+            detail is null ? "From a YouTube playlist" : $"From YouTube playlist {Quote(detail)}",
+            "On a YouTube playlist you sync to the wishlist, so the wishlist downloaded it from that video."),
         ProvenanceReason.Link => (
             detail is null ? "Added from a link" : $"Added from {detail}",
             "Downloaded from a link you added by hand."),
@@ -230,7 +235,8 @@ public static class SongProvenanceService
             _ => (arrived, "Arrived"),
         };
 
-        var detail = reason is ProvenanceReason.SpotifyPlaylist or ProvenanceReason.DeezerPlaylist or ProvenanceReason.Link
+        var detail = reason is ProvenanceReason.SpotifyPlaylist or ProvenanceReason.DeezerPlaylist
+                or ProvenanceReason.YouTubePlaylist or ProvenanceReason.Link
             ? origin.Detail
             : null;
         return new Classified(song, reason, detail, at, atLabel);

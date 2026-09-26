@@ -116,7 +116,8 @@ public class StorageUsageCalculatorTests
         var liked = new WishlistSource { OwnerUserId = WellKnownUsers.OwnerId, SourceType = WishlistSourceType.LikedSongs, Name = "Liked Songs" };
         var playlist = new WishlistSource { OwnerUserId = WellKnownUsers.OwnerId, SourceType = WishlistSourceType.Playlist, Name = "Mix" };
         var deezer = new WishlistSource { OwnerUserId = WellKnownUsers.OwnerId, SourceType = WishlistSourceType.DeezerPlaylist, Name = "Deezer" };
-        db.WishlistSources.AddRange(liked, playlist, deezer);
+        var youTube = new WishlistSource { OwnerUserId = WellKnownUsers.OwnerId, SourceType = WishlistSourceType.YouTubePlaylist, Name = "Cool music" };
+        db.WishlistSources.AddRange(liked, playlist, deezer, youTube);
 
         var fromLiked = Built("/downloads/1.opus", "/dest/1/1.opus");
         var fromPlaylist = Built("/downloads/2.opus", "/dest/2/2.opus");
@@ -126,19 +127,23 @@ public class StorageUsageCalculatorTests
         var otherDownload = Built("/downloads/6.flac", "/dest/6/6.flac");
         var synced = Built("/downloads/synced/7.flac", "/dest/7/7.flac");
         var local = Built("/source/8.flac", "/dest/8/8.flac");
-        db.Songs.AddRange(fromLiked, fromPlaylist, fromDeezer, fromUrl, fromCompletion, otherDownload, synced, local);
+        var fromYouTube = Built("/downloads/9.opus", "/dest/9/9.opus");
+        db.Songs.AddRange(fromLiked, fromPlaylist, fromDeezer, fromUrl, fromCompletion, otherDownload, synced, local, fromYouTube);
         db.WishlistItems.AddRange(
             Item(liked, fromLiked),
             Item(playlist, fromPlaylist),
             Item(deezer, fromDeezer),
             Item(null, fromUrl, sourceUrl: "https://youtube.com/watch?v=x"),
-            Item(null, fromCompletion, origin: WishlistItemOrigin.AlbumCompletion));
+            Item(null, fromCompletion, origin: WishlistItemOrigin.AlbumCompletion),
+            // A playlist video also carries its URL; the source, not the link, is why it is here.
+            Item(youTube, fromYouTube, sourceUrl: "https://www.youtube.com/watch?v=y"));
         await db.SaveChangesAsync();
 
         // Distinct lengths per destination file, so a misattribution shows up as the wrong number.
         var fs = Fs(
             ("/dest/1/1.opus", "1"), ("/dest/2/2.opus", "22"), ("/dest/3/3.opus", "333"), ("/dest/4/4.opus", "4444"),
-            ("/dest/5/5.opus", "55555"), ("/dest/6/6.flac", "666666"), ("/dest/7/7.flac", "7777777"), ("/dest/8/8.flac", "88888888"));
+            ("/dest/5/5.opus", "55555"), ("/dest/6/6.flac", "666666"), ("/dest/7/7.flac", "7777777"), ("/dest/8/8.flac", "88888888"),
+            ("/dest/9/9.opus", "999999999"));
 
         var snapshot = await Create(db, fs).ComputeAsync();
 
@@ -150,6 +155,7 @@ public class StorageUsageCalculatorTests
         Assert.Equal((6, 1), Bucket(snapshot.Origins, OriginKeys.OtherDownload));
         Assert.Equal((7, 1), Bucket(snapshot.Origins, OriginKeys.Synced));
         Assert.Equal((8, 1), Bucket(snapshot.Origins, OriginKeys.Local));
+        Assert.Equal((9, 1), Bucket(snapshot.Origins, OriginKeys.YouTubePlaylist));
         Assert.Equal(snapshot.Origins.Sum(o => o.Bytes), Bucket(snapshot.Categories, CategoryKeys.Library).Bytes);
     }
 

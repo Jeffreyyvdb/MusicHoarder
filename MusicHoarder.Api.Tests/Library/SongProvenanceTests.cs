@@ -22,6 +22,7 @@ public class SongProvenanceTests
     [InlineData(SongOriginKind.Downloaded, SongOriginSource.SpotifyLiked, ProvenanceReason.SpotifyLiked)]
     [InlineData(SongOriginKind.Downloaded, SongOriginSource.SpotifyPlaylist, ProvenanceReason.SpotifyPlaylist)]
     [InlineData(SongOriginKind.Downloaded, SongOriginSource.DeezerPlaylist, ProvenanceReason.DeezerPlaylist)]
+    [InlineData(SongOriginKind.Downloaded, SongOriginSource.YouTubePlaylist, ProvenanceReason.YouTubePlaylist)]
     [InlineData(SongOriginKind.Downloaded, SongOriginSource.DirectUrl, ProvenanceReason.Link)]
     [InlineData(SongOriginKind.Downloaded, SongOriginSource.AlbumCompletion, ProvenanceReason.AlbumFill)]
     [InlineData(SongOriginKind.Downloaded, SongOriginSource.None, ProvenanceReason.Downloaded)]

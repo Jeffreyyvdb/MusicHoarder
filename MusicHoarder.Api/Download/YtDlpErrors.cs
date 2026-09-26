@@ -40,6 +40,12 @@ public static class YtDlpErrors
             return "yt-dlp needs a JavaScript runtime (deno) to read YouTube, and none was found on the server.";
         if (Has("Private video"))
             return "That video is private.";
+        // Playlist listings. A Mix (list=RD…) is built by YouTube for each viewer and has no page of its
+        // own; a private playlist reads exactly like a missing one.
+        if (Has("playlist type is unviewable"))
+            return "That link is a YouTube Mix, which YouTube makes for you and keeps changing. Save the songs to a playlist of your own and use its link.";
+        if (Has("playlist does not exist"))
+            return "That playlist does not exist, or it is private. Make it public or unlisted — or, for a private playlist, set MusicEnricher:YtDlpCookiesPath to cookies from the account that owns it.";
         if (Has("age") && Has("restrict"))
             return "That video is age-restricted and needs authenticated cookies.";
         if (Has("Video unavailable") || Has("This video is not available"))

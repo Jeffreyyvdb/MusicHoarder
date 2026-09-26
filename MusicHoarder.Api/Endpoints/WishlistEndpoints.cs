@@ -100,9 +100,12 @@ public static class WishlistEndpoints
                     .Select(s => new WishlistSourceDto(
                         s.Id,
                         s.SourceType.ToString(),
-                        s.SourceType == WishlistSourceType.DeezerPlaylist ? "deezer" : "spotify",
+                        s.SourceType == WishlistSourceType.DeezerPlaylist ? "deezer"
+                            : s.SourceType == WishlistSourceType.YouTubePlaylist ? "youtube"
+                            : "spotify",
                         s.SpotifyPlaylistId,
                         s.DeezerPlaylistId,
+                        s.YouTubePlaylistId,
                         s.Name,
                         s.ImageUrl,
                         s.AutoSync,
@@ -125,12 +128,18 @@ public static class WishlistEndpoints
                 CancellationToken ct) =>
             {
                 // Accept both the Spotify shape ({ type, playlistId }) and the Deezer discover shape
-                // ({ sourceType, deezerPlaylistId }); the front-ends differ by provider.
+                // ({ sourceType, deezerPlaylistId }); the front-ends differ by provider. A YouTube
+                // playlist carries { sourceType, youTubePlaylistId }.
                 var typeStr = body.SourceType ?? body.Type;
-                if (!Enum.TryParse(typeStr, ignoreCase: true, out WishlistSourceType type))
-                    return Results.BadRequest(new { message = "type must be 'LikedSongs', 'Playlist' or 'DeezerPlaylist'." });
+                if (!Enum.TryParse(typeStr, ignoreCase: true, out WishlistSourceType type) || !Enum.IsDefined(type))
+                    return Results.BadRequest(new { message = "type must be 'LikedSongs', 'Playlist', 'DeezerPlaylist' or 'YouTubePlaylist'." });
 
-                var playlistId = type == WishlistSourceType.DeezerPlaylist ? body.DeezerPlaylistId : body.PlaylistId;
+                var playlistId = type switch
+                {
+                    WishlistSourceType.DeezerPlaylist => body.DeezerPlaylistId,
+                    WishlistSourceType.YouTubePlaylist => body.YouTubePlaylistId,
+                    _ => body.PlaylistId,
+                };
 
                 try
                 {
@@ -194,7 +203,7 @@ public static class WishlistEndpoints
                 }
             })
             .WithName("AddWishlistSource")
-            .WithSummary("Add Liked Songs, a Spotify playlist, or a Deezer discover playlist as a wishlist source; tracks snapshot in the background.");
+            .WithSummary("Add Liked Songs, a Spotify playlist, a Deezer discover playlist or a YouTube playlist as a wishlist source; tracks snapshot in the background.");
 
         group.MapPatch("/sources/{id:int}", async (
                 int id,
@@ -358,6 +367,7 @@ public sealed record WishlistSourceDto(
     string Provider,
     string? SpotifyPlaylistId,
     string? DeezerPlaylistId,
+    string? YouTubePlaylistId,
     string Name,
     string? ImageUrl,
     bool AutoSync,
@@ -370,6 +380,7 @@ public sealed record AddWishlistSourceRequest(
     string? SourceType,
     string? PlaylistId,
     string? DeezerPlaylistId,
-    bool? AutoSync);
+    bool? AutoSync,
+    string? YouTubePlaylistId = null);
 
 public sealed record PatchWishlistSourceRequest(bool? AutoSync);

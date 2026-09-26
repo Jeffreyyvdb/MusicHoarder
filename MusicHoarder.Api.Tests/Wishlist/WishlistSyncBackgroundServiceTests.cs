@@ -130,11 +130,69 @@ public class WishlistSyncBackgroundServiceTests
         Assert.Equal(1, await db.WishlistItems.IgnoreQueryFilters().CountAsync());
     }
 
+    [Fact]
+    public async Task SyncOnce_SpotifyDisconnected_StillSyncsYouTubeAutoSyncSource()
+    {
+        // A YouTube playlist is read from its public page, so it keeps syncing without Spotify.
+        var jobManager = new JobManager();
+        var youTube = new MusicHoarder.Api.Tests.Import.FakeYouTubePlaylistReader();
+        youTube.Playlists["PLcool"] = MusicHoarder.Api.Tests.Import.FakeYouTubePlaylistReader.Playlist("PLcool", "Cool music",
+            new MusicHoarder.Api.Import.YouTubePlaylistEntry("aaaaaaaaaaa", "Artist - Song", 200_000));
+
+        var (svc, db) = BuildService(jobManager, enableDownloads: true, autoDownload: true,
+            liked: [], spotifyConnected: false, youTube: youTube,
+            seedExtra: ctx => ctx.WishlistSources.Add(new WishlistSource
+            {
+                OwnerUserId = Owner,
+                SourceType = WishlistSourceType.YouTubePlaylist,
+                YouTubePlaylistId = "PLcool",
+                Name = "Cool music",
+                AutoSync = true,
+                CreatedAtUtc = DateTime.UtcNow,
+            }));
+
+        var added = await svc.SyncOnceAsync(full: true, CancellationToken.None);
+
+        Assert.Equal(1, added);
+        var item = await db.WishlistItems.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal("aaaaaaaaaaa", item.YouTubeVideoId);
+        // New videos wake the downloader, as new likes do.
+        Assert.Equal("Running", jobManager.GetStepSnapshot(JobType.Download).Status);
+    }
+
+    [Fact]
+    public async Task SyncOnce_FastPoll_LeavesYouTubePlaylistsToTheFullSweep()
+    {
+        // The fast poll exists for Spotify likes; a playlist read costs YouTube requests, so it waits.
+        var jobManager = new JobManager();
+        var youTube = new MusicHoarder.Api.Tests.Import.FakeYouTubePlaylistReader();
+        youTube.Playlists["PLcool"] = MusicHoarder.Api.Tests.Import.FakeYouTubePlaylistReader.Playlist("PLcool", "Cool music",
+            new MusicHoarder.Api.Import.YouTubePlaylistEntry("aaaaaaaaaaa", "Artist - Song", 200_000));
+
+        var (svc, _) = BuildService(jobManager, enableDownloads: false, autoDownload: false,
+            liked: [], youTube: youTube,
+            seedExtra: ctx => ctx.WishlistSources.Add(new WishlistSource
+            {
+                OwnerUserId = Owner,
+                SourceType = WishlistSourceType.YouTubePlaylist,
+                YouTubePlaylistId = "PLcool",
+                Name = "Cool music",
+                AutoSync = true,
+                CreatedAtUtc = DateTime.UtcNow,
+            }));
+
+        var added = await svc.SyncOnceAsync(full: false, CancellationToken.None);
+
+        Assert.Equal(0, added);
+        Assert.Empty(youTube.Reads);
+    }
+
     private static (WishlistSyncBackgroundService Svc, MusicHoarderDbContext Db) BuildService(
         JobManager jobManager, bool enableDownloads, bool autoDownload, List<SpotifyTrackItem> liked,
         ICurrentUserAccessor? scopeUser = null, bool spotifyConnected = true,
         MusicHoarder.Api.Tests.Deezer.FakeDeezerCatalogService? deezer = null,
-        Action<MusicHoarderDbContext>? seedExtra = null)
+        Action<MusicHoarderDbContext>? seedExtra = null,
+        MusicHoarder.Api.Tests.Import.FakeYouTubePlaylistReader? youTube = null)
     {
         var dbOptions = new DbContextOptionsBuilder<MusicHoarderDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
@@ -172,6 +230,9 @@ public class WishlistSyncBackgroundServiceTests
         services.AddSingleton<MusicHoarder.Api.Deezer.IDeezerCatalogService>(
             deezer ?? new MusicHoarder.Api.Tests.Deezer.FakeDeezerCatalogService());
         services.AddSingleton<ISpotifyIsrcResolver, MusicHoarder.Api.Tests.Deezer.FakeSpotifyIsrcResolver>();
+        services.AddSingleton<MusicHoarder.Api.Import.IYouTubePlaylistReader>(
+            youTube ?? new MusicHoarder.Api.Tests.Import.FakeYouTubePlaylistReader());
+        services.AddSingleton<MusicHoarder.Api.Import.IYouTubeMetadataResolver, MusicHoarder.Api.Tests.Import.FakeYouTubeMetadataResolver>();
         services.AddScoped<IWishlistService, WishlistService>();
         var provider = services.BuildServiceProvider();
 

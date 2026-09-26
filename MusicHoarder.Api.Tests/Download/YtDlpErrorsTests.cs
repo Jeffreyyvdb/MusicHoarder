@@ -16,6 +16,9 @@ public class YtDlpErrorsTests
     [InlineData("ERROR: unable to download: HTTP Error 429: Too Many Requests", "rate-limiting")]
     [InlineData("ERROR: [youtube] TC2Af_-kK6M: Requested format is not available. Use --list-formats for a list of available formats", "Nothing is wrong with the track")]
     [InlineData("WARNING: Only images are available for download. use --list-formats to see them", "Nothing is wrong with the track")]
+    // Playlist listings, as yt-dlp 2026.06 words them.
+    [InlineData("ERROR: [youtube:tab] PLexampleCoolMusic: YouTube said: The playlist does not exist.", "private")]
+    [InlineData("ERROR: [youtube:tab] RDdQw4w9WgXcQ: YouTube said: This playlist type is unviewable.", "YouTube Mix")]
     public void Classify_MapsKnownStderrToActionableHint(string stderr, string expectedFragment)
     {
         var hint = YtDlpErrors.Classify(stderr);
