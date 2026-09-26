@@ -13,60 +13,7 @@ public static class PlaylistsEndpoints
     {
         var group = app.MapGroup("/api/playlists").WithTags("Playlists").RequireAdmin();
 
-        group.MapGet("/", async (
-                ISpotifyApiService spotifyApi,
-                MusicHoarderDbContext db,
-                ILoggerFactory loggerFactory,
-                CancellationToken ct) =>
-            {
-                // Subscriptions = the ExportedPlaylist rows (opt-in). Always available even if Spotify is
-                // unreachable, so the owner can still unsubscribe.
-                var rows = await db.ExportedPlaylists.AsNoTracking().ToListAsync(ct);
-                var subs = rows.ToDictionary(r => CollectionKey(r.Kind, r.SpotifyPlaylistId), StringComparer.Ordinal);
-
-                var collections = new List<PlaylistCollectionDto>();
-                var connected = true;
-                string? spotifyError = null;
-
-                try
-                {
-                    // Liked Songs total is cheap (single-item page just for the count).
-                    var liked = await spotifyApi.GetLikedSongsAsync(0, 1, ct);
-                    subs.TryGetValue(CollectionKey(ExportedPlaylistKind.LikedSongs, null), out var likedRow);
-                    collections.Add(ToDto(ExportedPlaylistKind.LikedSongs, null, "Liked Songs", null, null, liked.Total, likedRow));
-
-                    // Dedupe by Spotify id: paging overlap (or an id-less playlist) would otherwise emit
-                    // two collections sharing a key and crash the keyed list on the client. Skip blank
-                    // ids outright — they can't be subscribed to.
-                    var seen = new HashSet<string>(StringComparer.Ordinal);
-                    var playlists = await spotifyApi.GetPlaylistsAsync(ct);
-                    foreach (var p in playlists.Items.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase))
-                    {
-                        if (string.IsNullOrWhiteSpace(p.SpotifyId))
-                            continue;
-                        var key = CollectionKey(ExportedPlaylistKind.Playlist, p.SpotifyId);
-                        if (!seen.Add(key))
-                            continue;
-                        subs.TryGetValue(key, out var row);
-                        collections.Add(ToDto(ExportedPlaylistKind.Playlist, p.SpotifyId, p.Name, p.ImageUrl, p.OwnerName, p.TrackCount, row));
-                    }
-                }
-                catch (SpotifyNotConnectedException)
-                {
-                    connected = false;
-                    collections = SubscribedOnly(rows);
-                }
-                catch (Exception ex)
-                {
-                    // Rate limit / transient Spotify failure: still show what's subscribed.
-                    spotifyError = "Couldn't load your full Spotify library right now. Showing synced playlists only.";
-                    loggerFactory.CreateLogger("Playlists")
-                        .LogWarning(ex, "Failed to list Spotify collections; degrading to subscribed-only");
-                    collections = SubscribedOnly(rows);
-                }
-
-                return Results.Ok(new PlaylistCollectionsResponse(connected, spotifyError, collections));
-            })
+        group.MapGet("/", GetCollections)
             .WithName("GetPlaylistCollections")
             .WithSummary("Lists the owner's Spotify collections (Liked Songs + playlists) with subscription state and M3U coverage.");
 
@@ -167,6 +114,74 @@ public static class PlaylistsEndpoints
             .WithSummary("Re-export the on-disk M3U files for every subscribed Spotify collection.");
 
         return app;
+    }
+
+    public static async Task<IResult> GetCollections(
+        ISpotifyApiService spotifyApi,
+        MusicHoarderDbContext db,
+        ILoggerFactory loggerFactory,
+        CancellationToken ct)
+    {
+        // Subscriptions = the ExportedPlaylist rows (opt-in). Always available even if Spotify is
+        // unreachable, so the owner can still unsubscribe.
+        var rows = await db.ExportedPlaylists.AsNoTracking().ToListAsync(ct);
+        var subs = rows.ToDictionary(r => CollectionKey(r.Kind, r.SpotifyPlaylistId), StringComparer.Ordinal);
+
+        var collections = new List<PlaylistCollectionDto>();
+        var connected = true;
+        string? spotifyError = null;
+
+        try
+        {
+            // Liked Songs total is cheap (single-item page just for the count).
+            var liked = await spotifyApi.GetLikedSongsAsync(0, 1, ct);
+            subs.TryGetValue(CollectionKey(ExportedPlaylistKind.LikedSongs, null), out var likedRow);
+            collections.Add(ToDto(ExportedPlaylistKind.LikedSongs, null, "Liked Songs", null, null, liked.Total, likedRow));
+
+            // Dedupe by Spotify id: paging overlap (or an id-less playlist) would otherwise emit
+            // two collections sharing a key and crash the keyed list on the client. Skip blank
+            // ids outright — they can't be subscribed to.
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var playlistDtos = new List<PlaylistCollectionDto>();
+            var playlists = await spotifyApi.GetPlaylistsAsync(ct);
+            foreach (var p in playlists.Items)
+            {
+                if (string.IsNullOrWhiteSpace(p.SpotifyId))
+                    continue;
+                var key = CollectionKey(ExportedPlaylistKind.Playlist, p.SpotifyId);
+                if (!seen.Add(key))
+                    continue;
+                subs.TryGetValue(key, out var row);
+                playlistDtos.Add(ToDto(ExportedPlaylistKind.Playlist, p.SpotifyId, p.Name, p.ImageUrl, p.OwnerName, p.TrackCount, row));
+            }
+
+            // A synced playlist /me/playlists no longer lists (unfollowed, or the list came back
+            // short) keeps syncing until Spotify says it is gone, so it must stay on the page
+            // where its switch can turn it off.
+            foreach (var row in rows)
+            {
+                if (row.Kind == ExportedPlaylistKind.Playlist
+                    && seen.Add(CollectionKey(row.Kind, row.SpotifyPlaylistId)))
+                    playlistDtos.Add(ToDto(row.Kind, row.SpotifyPlaylistId, row.Name, null, null, row.SpotifyTrackTotal, row));
+            }
+
+            collections.AddRange(playlistDtos.OrderBy(d => d.Name, StringComparer.OrdinalIgnoreCase));
+        }
+        catch (SpotifyNotConnectedException)
+        {
+            connected = false;
+            collections = SubscribedOnly(rows);
+        }
+        catch (Exception ex)
+        {
+            // Rate limit / transient Spotify failure: still show what's subscribed.
+            spotifyError = "Couldn't load your full Spotify library right now. Showing synced playlists only.";
+            loggerFactory.CreateLogger("Playlists")
+                .LogWarning(ex, "Failed to list Spotify collections; degrading to subscribed-only");
+            collections = SubscribedOnly(rows);
+        }
+
+        return Results.Ok(new PlaylistCollectionsResponse(connected, spotifyError, collections));
     }
 
     private static string CollectionKey(ExportedPlaylistKind kind, string? spotifyPlaylistId)

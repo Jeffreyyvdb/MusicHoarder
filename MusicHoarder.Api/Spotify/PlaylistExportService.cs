@@ -118,21 +118,39 @@ public sealed class PlaylistExportService(
             string name;
             if (sub.Kind == ExportedPlaylistKind.Playlist)
             {
-                if (liveById is null || !liveById.TryGetValue(sub.SpotifyPlaylistId ?? string.Empty, out var live))
+                if (liveById is not null && liveById.TryGetValue(sub.SpotifyPlaylistId ?? string.Empty, out var live))
                 {
-                    // Subscribed playlist was deleted or unfollowed on Spotify → drop file + subscription.
-                    await UnsubscribeAsync(sub.Id, ct);
-                    logger.LogInformation("Removed subscription for playlist gone from Spotify: {Name}", sub.Name);
-                    continue;
+                    name = live.Name;
                 }
-                name = live.Name;
+                else
+                {
+                    // Missing from /me/playlists. That list alone is not proof the playlist is gone
+                    // (another Spotify account connected, a short answer), and dropping deletes the
+                    // subscription and its file, so ask Spotify about this playlist directly.
+                    var confirmed = await ConfirmPlaylistAsync(sub, ct);
+                    if (confirmed is null)
+                        continue;
+                    name = confirmed.Name;
+                }
             }
             else
             {
                 name = "Liked Songs";
             }
 
-            var tracks = await FetchTracksAsync(sub.Kind, sub.SpotifyPlaylistId, ct);
+            IReadOnlyList<SpotifyTrackItem> tracks;
+            try
+            {
+                tracks = await FetchTracksAsync(sub.Kind, sub.SpotifyPlaylistId, ct);
+            }
+            catch (HttpRequestException ex)
+            {
+                // One collection Spotify won't serve must not stop the rest from refreshing. Its
+                // current file stays as it is until a later run can read it.
+                logger.LogWarning(ex, "Could not read tracks for {Name}; keeping its current file", name);
+                continue;
+            }
+
             var collection = new ExportCollection(sub.Kind, sub.SpotifyPlaylistId, name, tracks);
             var (total, matched, summary) = await ExportCollectionAsync(collection, playlistsDir, usedFileNames, ct);
             totalTracks += total;
@@ -216,6 +234,42 @@ public sealed class PlaylistExportService(
     }
 
     private sealed record Subscription(int Id, ExportedPlaylistKind Kind, string? SpotifyPlaylistId, string Name);
+
+    /// <summary>
+    /// Looks up a subscribed playlist that <c>/me/playlists</c> did not list. Returns it when Spotify
+    /// still serves it, so it keeps syncing. Drops the subscription (row and file) only on Spotify's
+    /// definite "not found" (a 404), and returns null. Any other failure keeps the subscription and
+    /// its current file, skips it for this run, and also returns null.
+    /// </summary>
+    private async Task<SpotifyPlaylistItem?> ConfirmPlaylistAsync(Subscription sub, CancellationToken ct)
+    {
+        SpotifyPlaylistLookupResult lookup;
+        try
+        {
+            lookup = await spotifyApi.GetPlaylistAsync(sub.SpotifyPlaylistId ?? string.Empty, ct);
+        }
+        catch (HttpRequestException ex)
+        {
+            logger.LogWarning(ex,
+                "Could not confirm subscribed playlist {Name} ({PlaylistId}); keeping it and skipping this run",
+                sub.Name, sub.SpotifyPlaylistId);
+            return null;
+        }
+
+        if (lookup.Found && lookup.Playlist is not null)
+        {
+            logger.LogInformation(
+                "Subscribed playlist {Name} ({PlaylistId}) is not in /me/playlists but still exists; keeping it",
+                sub.Name, sub.SpotifyPlaylistId);
+            return lookup.Playlist;
+        }
+
+        await UnsubscribeAsync(sub.Id, ct);
+        logger.LogWarning(
+            "Removed subscription for playlist Spotify reports as not found: {Name} ({PlaylistId})",
+            sub.Name, sub.SpotifyPlaylistId);
+        return null;
+    }
 
     private async Task<List<Subscription>> LoadSubscriptionsAsync(CancellationToken ct)
     {

@@ -87,12 +87,109 @@ public class PlaylistExportServiceTests
         });
         await db.SaveChangesAsync();
 
-        // Spotify now returns no playlists and no liked songs.
-        var service = CreateService(db, new StubApi(new SpotifyLikedSongsResponse(0, 0, 50, [])), temp.Root);
+        // Spotify now returns no playlists and no liked songs, and a direct lookup answers 404.
+        var api = new StubApi(new SpotifyLikedSongsResponse(0, 0, 50, []));
+        var service = CreateService(db, api, temp.Root);
         await service.RunExportAsync();
 
+        Assert.Equal(1, api.LookupCalls);
         Assert.False(File.Exists(orphanFile));
         Assert.False(await db.ExportedPlaylists.IgnoreQueryFilters().AnyAsync(e => e.SpotifyPlaylistId == "gone"));
+    }
+
+    [Fact]
+    public async Task RunExport_KeepsSubscription_WhenPlaylistIsUnlistedButStillExists()
+    {
+        // /me/playlists no longer lists the playlist (another Spotify account, a short answer), but a
+        // direct lookup still finds it: that is not proof it is gone, so it keeps syncing.
+        using var temp = new TempDir();
+        await using var db = CreateDb();
+        SeedBuilt(db, 1, "sp:a", "A", "Aaa", Path.Combine(temp.Root, "A", "Album", "01 - Aaa.flac"));
+        Subscribe(db, ExportedPlaylistKind.Playlist, "pl1", "My Mix");
+        await db.SaveChangesAsync();
+
+        var api = new StubApi(
+            new SpotifyLikedSongsResponse(0, 0, 50, []),
+            playlists: new SpotifyPlaylistsResponse([]),
+            playlistTracks: new SpotifyPlaylistTracksResponse(1, 0, 50, new[] { Track("sp:a", "A", "Aaa") }),
+            lookup: id => new SpotifyPlaylistLookupResult(
+                true, new SpotifyPlaylistItem(id, "My Mix (renamed)", null, null, 1, "me"), false, null));
+
+        var service = CreateService(db, api, temp.Root);
+        var result = await service.RunExportAsync();
+
+        Assert.Equal(1, api.LookupCalls);
+        Assert.Equal(1, result.PlaylistsWritten);
+        Assert.True(File.Exists(Path.Combine(temp.Root, "Playlists", "My Mix (renamed).m3u8")));
+        var row = await db.ExportedPlaylists.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal("pl1", row.SpotifyPlaylistId);
+        Assert.Equal(1, row.MatchedTrackCount);
+    }
+
+    [Fact]
+    public async Task RunExport_KeepsSubscriptionAndFile_WhenLookupFails()
+    {
+        // The playlist is unlisted and the direct lookup errors (not a 404): nothing is known, so the
+        // subscription and its current file are left exactly as they are.
+        using var temp = new TempDir();
+        await using var db = CreateDb();
+        var playlistsDir = Path.Combine(temp.Root, "Playlists");
+        Directory.CreateDirectory(playlistsDir);
+        var file = Path.Combine(playlistsDir, "My Mix.m3u8");
+        await File.WriteAllTextAsync(file, "#EXTM3U\n");
+        db.ExportedPlaylists.Add(new ExportedPlaylist
+        {
+            OwnerUserId = WellKnownUsers.OwnerId,
+            Kind = ExportedPlaylistKind.Playlist,
+            SpotifyPlaylistId = "pl1",
+            Name = "My Mix",
+            FilePath = file,
+            UpdatedAtUtc = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        var api = new StubApi(
+            new SpotifyLikedSongsResponse(0, 0, 50, []),
+            playlists: new SpotifyPlaylistsResponse([]),
+            lookup: _ => throw new HttpRequestException("bad gateway", null, System.Net.HttpStatusCode.BadGateway));
+
+        var service = CreateService(db, api, temp.Root);
+        var result = await service.RunExportAsync();
+
+        Assert.True(result.Ran);
+        Assert.Equal(0, result.PlaylistsWritten);
+        Assert.True(File.Exists(file));
+        Assert.True(await db.ExportedPlaylists.IgnoreQueryFilters().AnyAsync(e => e.SpotifyPlaylistId == "pl1"));
+    }
+
+    [Fact]
+    public async Task RunExport_ExportsTheRest_WhenOnePlaylistsTracksCannotBeRead()
+    {
+        using var temp = new TempDir();
+        await using var db = CreateDb();
+        SeedBuilt(db, 1, "sp:a", "A", "Aaa", Path.Combine(temp.Root, "A", "Album", "01 - Aaa.flac"));
+        // Subscriptions export Liked Songs first, then playlists by name: "Broken" before "Works".
+        Subscribe(db, ExportedPlaylistKind.Playlist, "broken", "Broken");
+        Subscribe(db, ExportedPlaylistKind.Playlist, "works", "Works");
+        await db.SaveChangesAsync();
+
+        var api = new StubApi(
+            new SpotifyLikedSongsResponse(0, 0, 50, []),
+            playlists: new SpotifyPlaylistsResponse(new[]
+            {
+                new SpotifyPlaylistItem("broken", "Broken", null, null, 1, "me"),
+                new SpotifyPlaylistItem("works", "Works", null, null, 1, "me"),
+            }),
+            tracksFor: id => id == "broken"
+                ? throw new HttpRequestException("forbidden", null, System.Net.HttpStatusCode.Forbidden)
+                : new SpotifyPlaylistTracksResponse(1, 0, 50, new[] { Track("sp:a", "A", "Aaa") }));
+
+        var service = CreateService(db, api, temp.Root);
+        var result = await service.RunExportAsync();
+
+        Assert.Equal(1, result.PlaylistsWritten);
+        Assert.True(File.Exists(Path.Combine(temp.Root, "Playlists", "Works.m3u8")));
+        Assert.Equal(2, await db.ExportedPlaylists.IgnoreQueryFilters().CountAsync());
     }
 
     [Fact]
@@ -332,8 +429,12 @@ public class PlaylistExportServiceTests
     private sealed class StubApi(
         SpotifyLikedSongsResponse liked,
         SpotifyPlaylistsResponse? playlists = null,
-        SpotifyPlaylistTracksResponse? playlistTracks = null) : ISpotifyApiService
+        SpotifyPlaylistTracksResponse? playlistTracks = null,
+        Func<string, SpotifyPlaylistLookupResult>? lookup = null,
+        Func<string, SpotifyPlaylistTracksResponse>? tracksFor = null) : ISpotifyApiService
     {
+        public int LookupCalls { get; private set; }
+
         public Task<SpotifyLikedSongsResponse> GetLikedSongsAsync(int offset = 0, int limit = 50, CancellationToken ct = default)
         {
             var items = liked.Items.Skip(offset).Take(limit).ToList();
@@ -345,13 +446,20 @@ public class PlaylistExportServiceTests
 
         public Task<SpotifyPlaylistTracksResponse> GetPlaylistTracksAsync(string playlistId, int offset = 0, int limit = 50, CancellationToken ct = default)
         {
-            var src = playlistTracks ?? new SpotifyPlaylistTracksResponse(0, 0, 50, Array.Empty<SpotifyTrackItem>());
+            var src = tracksFor?.Invoke(playlistId)
+                ?? playlistTracks
+                ?? new SpotifyPlaylistTracksResponse(0, 0, 50, Array.Empty<SpotifyTrackItem>());
             var items = src.Items.Skip(offset).Take(limit).ToList();
             return Task.FromResult(new SpotifyPlaylistTracksResponse(src.Total, offset, limit, items));
         }
 
-        public Task<SpotifyPlaylistLookupResult> GetPlaylistAsync(string playlistId, CancellationToken ct = default) =>
-            Task.FromResult(new SpotifyPlaylistLookupResult(false, null, true, "not found"));
+        // Default: Spotify answers 404, i.e. the playlist really is gone.
+        public Task<SpotifyPlaylistLookupResult> GetPlaylistAsync(string playlistId, CancellationToken ct = default)
+        {
+            LookupCalls++;
+            return Task.FromResult(lookup?.Invoke(playlistId)
+                ?? new SpotifyPlaylistLookupResult(false, null, true, "not found"));
+        }
     }
 
     private sealed class TestScopeFactory(MusicHoarderDbContext db) : IServiceScopeFactory
