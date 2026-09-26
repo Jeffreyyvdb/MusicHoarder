@@ -59,6 +59,10 @@ public sealed class YouTubePlaylistReader(
     public async Task<YouTubePlaylistOutcome> ReadAsync(string playlistId, int? maxEntries, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(playlistId)) return YouTubePlaylistOutcome.Failed(null, null);
+        var sanitizedPlaylistId = playlistId
+            .Replace("\r", string.Empty)
+            .Replace("\n", string.Empty)
+            .Replace("\t", " ");
         var opts = options.Value;
         var url = PlaylistUrl(playlistId.Trim());
 
@@ -80,7 +84,7 @@ public sealed class YouTubePlaylistReader(
                 psi, maxEntries is null ? FullReadTimeout : PreviewTimeout, ct);
             if (timedOut)
             {
-                logger.LogWarning("yt-dlp timed out listing YouTube playlist {PlaylistId}", LogSanitizer.ForLog(playlistId));
+                logger.LogWarning("yt-dlp timed out listing YouTube playlist {PlaylistId}", sanitizedPlaylistId);
                 return YouTubePlaylistOutcome.Failed("Timed out reading the playlist.", null);
             }
 
@@ -92,7 +96,7 @@ public sealed class YouTubePlaylistReader(
 
             logger.LogInformation(
                 "yt-dlp could not list YouTube playlist {PlaylistId} (exit {Code}): {Error}",
-                LogSanitizer.ForLog(playlistId), exitCode, LogSanitizer.ForLog(YtDlpErrors.Tail(stderr)));
+                sanitizedPlaylistId, exitCode, LogSanitizer.ForLog(YtDlpErrors.Tail(stderr)));
             return YouTubePlaylistOutcome.Failed(YtDlpErrors.Classify(stderr), YtDlpErrors.Tail(stderr));
         }
         catch (Win32Exception ex)
