@@ -37,6 +37,9 @@ public class QualityGradingBackgroundService(
     // auto-sweep re-enqueues them every sweep.
     private readonly FailureBackoffTracker _failureBackoff = new();
 
+    // Last song id of the previous sweep's page of possibly-blank grades; 0 starts from the top.
+    private int _blankGradeCursor;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var opts = options.CurrentValue;
@@ -69,24 +72,41 @@ public class QualityGradingBackgroundService(
             onSweepFailed: ex => logger.LogWarning(ex, "Quality auto-grade sweep failed"),
             ct);
 
-    /// <summary>Finds gradeable songs whose latest grade is missing or stale and enqueues them. Returns the count enqueued.</summary>
+    /// <summary>Finds gradeable songs whose latest grade is missing, stale or blank and enqueues them. Returns the count enqueued.</summary>
     internal async Task<int> EnqueueUngradedAsync(QualityGradingOptions opts, CancellationToken ct)
     {
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
 
-        var candidates = await db.Songs
+        var gradeable = db.Songs
             .IgnoreQueryFilters()
             .AsNoTracking()
             // Exclude demo rows: the read-only demo library is never auto-graded.
             .ExcludingDemoTenant()
             .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic && !s.IsDuplicate)
-            .Where(s => GradeableStatuses.Contains(s.EnrichmentStatus))
+            .Where(s => GradeableStatuses.Contains(s.EnrichmentStatus));
+
+        var candidates = await gradeable
             .OrderByDescending(s => s.EnrichedAtUtc)
             .Take(opts.BatchSize)
             .Select(s => new { s.Id, s.EnrichedAtUtc })
             .ToListAsync(ct);
 
+        // Blank grades (see BlankGrade) mostly sit on songs enriched long ago, outside the newest
+        // window above, so they are found by their latest grade instead: a page per sweep, walked
+        // in id order so rows that stay blank (backing off, or re-read as a real "ungradeable")
+        // can't hold every later one out of the page.
+        var maybeBlank = db.SongQualityGrades.IgnoreQueryFilters().LatestPerSong().WhereMaybeBlank();
+        var cursor = _blankGradeCursor;
+        var blankPage = await gradeable
+            .Where(s => s.Id > cursor && maybeBlank.Any(g => g.SongId == s.Id))
+            .OrderBy(s => s.Id)
+            .Take(opts.BatchSize)
+            .Select(s => new { s.Id, s.EnrichedAtUtc })
+            .ToListAsync(ct);
+        _blankGradeCursor = blankPage.Count < opts.BatchSize ? 0 : blankPage[^1].Id;
+
+        candidates = candidates.Concat(blankPage).DistinctBy(c => c.Id).ToList();
         if (candidates.Count == 0) return 0;
 
         var ids = candidates.Select(c => c.Id).ToList();
@@ -110,6 +130,7 @@ public class QualityGradingBackgroundService(
             if (_failureBackoff.IsBackingOff(c.Id, now)) return false;           // backing off
             if (!latest.TryGetValue(c.Id, out var g)) return true;            // never graded
             if (c.EnrichedAtUtc is { } e && g.GradedAtUtc < e) return true;  // re-enriched since
+            if (g.IsBlank()) return true;                                     // an empty reply, not a grade
             // A prompt-version or model change is NOT auto-regraded here: it would re-grade the whole
             // library on every config bump. Such grades are surfaced as "outdated" in the API and
             // regraded only on an explicit manual / "regrade outdated" action (force:false still lets

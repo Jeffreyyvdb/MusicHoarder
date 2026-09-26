@@ -81,6 +81,109 @@ public class QualityGradingSweepTests
         Assert.DoesNotContain(demoSong.Id, enqueued);
     }
 
+    [Fact]
+    public async Task EnqueueUngraded_EnqueuesALegacyBlankGrade_ButNotAGenuineUngradeable()
+    {
+        using var db = NewContext();
+        var graded = new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc);
+        var beforeGrade = graded.AddDays(-1);
+
+        var blank = AddSong(db, 1, enrichedAt: beforeGrade);
+        AddGrade(db, blank.Id, graded, QualityGradingPrompt.Version, CurrentModel,
+            SongQualityVerdict.Ungradeable, raw: AnalysisOnlyReply);
+        // A blank row judged nothing, so it is regraded even when its model is no longer current.
+        var blankOldModel = AddSong(db, 2, enrichedAt: beforeGrade);
+        AddGrade(db, blankOldModel.Id, graded, QualityGradingPrompt.Version, "some/older-model",
+            SongQualityVerdict.Ungradeable, raw: "{ }");
+        var genuine = AddSong(db, 3, enrichedAt: beforeGrade);
+        AddGrade(db, genuine.Id, graded, QualityGradingPrompt.Version, CurrentModel,
+            SongQualityVerdict.Ungradeable, raw: GenuineUngradeableReply);
+
+        var channel = new QualityGradingChannel(new QualityGradingProgressTracker());
+        var sut = NewService(db, channel);
+
+        await sut.EnqueueUngradedAsync(new QualityGradingOptions { Model = CurrentModel }, CancellationToken.None);
+
+        var enqueued = Drain(channel);
+        Assert.Contains(blank.Id, enqueued);
+        Assert.Contains(blankOldModel.Id, enqueued);
+        Assert.DoesNotContain(genuine.Id, enqueued); // the model's real answer: never regraded in a loop
+    }
+
+    [Fact]
+    public async Task EnqueueUngraded_FindsALegacyBlankGradeOutsideTheNewestWindow()
+    {
+        using var db = NewContext();
+        var graded = new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var oldBlank = AddSong(db, 1, enrichedAt: graded.AddDays(-30));
+        AddGrade(db, oldBlank.Id, graded, QualityGradingPrompt.Version, CurrentModel,
+            SongQualityVerdict.Ungradeable, raw: AnalysisOnlyReply);
+        var oldGenuine = AddSong(db, 2, enrichedAt: graded.AddDays(-30));
+        AddGrade(db, oldGenuine.Id, graded, QualityGradingPrompt.Version, CurrentModel,
+            SongQualityVerdict.Ungradeable, raw: GenuineUngradeableReply);
+        // The two newest songs fill the window, and both are up to date.
+        foreach (var n in new[] { 3, 4 })
+        {
+            var newest = AddSong(db, n, enrichedAt: graded.AddDays(-1));
+            AddGrade(db, newest.Id, graded, QualityGradingPrompt.Version, CurrentModel);
+        }
+
+        var channel = new QualityGradingChannel(new QualityGradingProgressTracker());
+        var sut = NewService(db, channel);
+        var opts = new QualityGradingOptions { Model = CurrentModel, BatchSize = 2 };
+
+        var count = await sut.EnqueueUngradedAsync(opts, CancellationToken.None);
+
+        Assert.Equal(1, count);
+        Assert.Equal([oldBlank.Id], Drain(channel));
+    }
+
+    [Fact]
+    public async Task EnqueueUngraded_PagesThroughBlankCandidates_SoOneThatStaysCannotHoldTheRestOut()
+    {
+        using var db = NewContext();
+        var graded = new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        // Both pass the query's verdict/summary pre-filter; only the second is really blank. With a
+        // page of one, the genuine row fills the first sweep's page on its own.
+        var genuine = AddSong(db, 1, enrichedAt: graded.AddDays(-30));
+        AddGrade(db, genuine.Id, graded, QualityGradingPrompt.Version, CurrentModel,
+            SongQualityVerdict.Ungradeable, raw: GenuineUngradeableReply);
+        var blank = AddSong(db, 2, enrichedAt: graded.AddDays(-30));
+        AddGrade(db, blank.Id, graded, QualityGradingPrompt.Version, CurrentModel,
+            SongQualityVerdict.Ungradeable, raw: AnalysisOnlyReply);
+        var newest = AddSong(db, 3, enrichedAt: graded.AddDays(-1));
+        AddGrade(db, newest.Id, graded, QualityGradingPrompt.Version, CurrentModel);
+
+        var channel = new QualityGradingChannel(new QualityGradingProgressTracker());
+        var sut = NewService(db, channel);
+        var opts = new QualityGradingOptions { Model = CurrentModel, BatchSize = 1 };
+
+        Assert.Equal(0, await sut.EnqueueUngradedAsync(opts, CancellationToken.None));
+        Assert.Equal(1, await sut.EnqueueUngradedAsync(opts, CancellationToken.None));
+        Assert.Equal([blank.Id], Drain(channel));
+    }
+
+    private const string AnalysisOnlyReply =
+        """{"analysis":"We need to grade the final chosen metadata ... So just looks_correct. Score 95. Let's output. }" }""";
+
+    private const string GenuineUngradeableReply = """{"score":0,"verdict":"ungradeable"}""";
+
+    private static QualityGradingBackgroundService NewService(MusicHoarderDbContext db, QualityGradingChannel channel) =>
+        new(
+            new SimpleScopeFactory(db), channel, new QualityGradingProgressTracker(),
+            gradingService: null!, runtimeSettings: null!, ownerLookup: null!,
+            new TestOptionsMonitor(new QualityGradingOptions { Model = CurrentModel }),
+            NullLogger<QualityGradingBackgroundService>.Instance);
+
+    private static List<int> Drain(QualityGradingChannel channel)
+    {
+        var ids = new List<int>();
+        while (channel.Reader.TryRead(out var item)) ids.Add(item.SongId);
+        return ids;
+    }
+
     private static SongMetadata AddSong(MusicHoarderDbContext db, int n, DateTime enrichedAt)
     {
         var song = new SongMetadata
@@ -103,17 +206,19 @@ public class QualityGradingSweepTests
     }
 
     private static void AddGrade(
-        MusicHoarderDbContext db, int songId, DateTime gradedAt, int promptVersion, string? model)
+        MusicHoarderDbContext db, int songId, DateTime gradedAt, int promptVersion, string? model,
+        SongQualityVerdict verdict = SongQualityVerdict.Good, string? raw = null)
     {
         db.SongQualityGrades.Add(new SongQualityGrade
         {
             SongId = songId,
             OwnerUserId = WellKnownUsers.OwnerId,
-            Score = 80,
-            Verdict = SongQualityVerdict.Good,
+            Score = verdict == SongQualityVerdict.Ungradeable ? 0 : 80,
+            Verdict = verdict,
             EnrichmentStatusAtGrade = "Matched",
             PromptVersion = promptVersion,
             Model = model,
+            RawResponseJson = raw,
             GradedAtUtc = gradedAt,
         });
         db.SaveChanges();

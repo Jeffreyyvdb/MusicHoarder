@@ -4055,6 +4055,16 @@ export interface QualityOverview {
   verifiedCleanCount: number
   /** Graded songs whose prompt version or model changed since — surfaced, not auto-regraded. */
   outdatedCount: number
+  /**
+   * Graded Wrong or Questionable, whatever the enrichment status — the Inbox's AI flagged queue,
+   * counted with the same predicate as the "wrong-or-questionable" category, so the badge says
+   * exactly what the queue lists.
+   */
+  aiFlaggedCount: number
+  /**
+   * The 50 worst grades (Wrong, Questionable, Good, Excellent, then Ungradeable). A sample, not a
+   * queue: the AI flagged queue is the "wrong-or-questionable" category, paged in full.
+   */
   worstOffenders: QualityWorstOffender[]
   directories: QualityDirectoryRollup[]
 }
@@ -4092,6 +4102,11 @@ export type QualityCategory =
   | "good"
   | "excellent"
   | "ungradeable"
+  /**
+   * The Inbox's AI flagged queue: Wrong or Questionable, any enrichment status. Not "flagged",
+   * which is the NeedsReview-at-grade bucket.
+   */
+  | "wrong-or-questionable"
 
 export interface QualitySongsPage {
   total: number
@@ -4107,6 +4122,45 @@ export async function fetchQualitySongs(
 ): Promise<QualitySongsPage> {
   return requestJson<QualitySongsPage>(
     `/api/quality/songs?category=${encodeURIComponent(category)}&skip=${skip}&take=${take}`
+  )
+}
+
+/** The server's cap on `take` for `/api/quality/songs`. */
+const QUALITY_SONGS_MAX_TAKE = 500
+
+/**
+ * Every item of a skip/take list, fetched page by page until the server's `total` is reached.
+ * Advances by what each page returned and stops on an empty one, so a list that shrinks mid-walk
+ * (or a `total` that overstates it) can never spin it. A list that shifts mid-walk can hand the
+ * same row back twice; the first copy wins, as keyed lists need.
+ */
+export async function collectPages<T>(
+  fetchPage: (skip: number, take: number) => Promise<{ total: number; items: T[] }>,
+  pageSize: number,
+  keyOf: (item: T) => unknown
+): Promise<T[]> {
+  const seen = new Set<unknown>()
+  const items: T[] = []
+  let skip = 0
+  for (;;) {
+    const page = await fetchPage(skip, pageSize)
+    for (const item of page.items) {
+      const key = keyOf(item)
+      if (seen.has(key)) continue
+      seen.add(key)
+      items.push(item)
+    }
+    skip += page.items.length
+    if (page.items.length === 0 || skip >= page.total) return items
+  }
+}
+
+/** A whole quality category, worst first (the server's order), rather than one page of it. */
+export async function fetchAllQualitySongs(category: QualityCategory): Promise<QualitySongRow[]> {
+  return collectPages(
+    (skip, take) => fetchQualitySongs(category, skip, take),
+    QUALITY_SONGS_MAX_TAKE,
+    (row) => row.songId
   )
 }
 

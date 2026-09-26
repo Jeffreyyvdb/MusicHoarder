@@ -67,6 +67,67 @@ public class AlbumGradingServiceTests
     }
 
     [Fact]
+    public async Task GradeAlbum_ReplyWithoutAGrade_FailsAndPersistsNothing()
+    {
+        var db = CreateDb();
+        var albumId = await SeedFetchedAlbumWithOwnedSongs(db);
+
+        var service = CreateService(db, new FakeChatClient(configured: true, content: AnalysisOnlyReply));
+        var result = await service.GradeAlbumAsync(albumId, force: false);
+
+        Assert.Equal(GradeOutcome.Failed, result.Outcome);
+        Assert.Equal("bad_response", result.ErrorCode);
+        Assert.False(await db.CanonicalAlbumQualityGrades.AnyAsync());
+    }
+
+    [Fact]
+    public async Task GradeAlbum_LatestIsALegacyBlankGrade_RegradesDespiteUnchangedInput()
+    {
+        var db = CreateDb();
+        var albumId = await SeedFetchedAlbumWithOwnedSongs(db);
+
+        var client = new FakeChatClient(configured: true,
+            content: """{"score": 92, "verdict": "excellent", "summary": "Same album, two providers agree."}""");
+        var service = CreateService(db, client);
+        await service.GradeAlbumAsync(albumId, force: false);
+
+        // Rewrite that row (same fingerprint, model and prompt version) into what the old parser
+        // stored for an empty reply.
+        var stored = await db.CanonicalAlbumQualityGrades.SingleAsync();
+        stored.Score = 0;
+        stored.Verdict = SongQualityVerdict.Ungradeable;
+        stored.Summary = null;
+        stored.IssuesJson = null;
+        stored.RawResponseJson = "{ }";
+        await db.SaveChangesAsync();
+
+        var result = await service.GradeAlbumAsync(albumId, force: false);
+
+        Assert.Equal(GradeOutcome.Graded, result.Outcome);
+        Assert.Equal(SongQualityVerdict.Excellent, result.Grade!.Verdict);
+        Assert.Equal(2, client.CallCount);
+        Assert.Equal(2, await db.CanonicalAlbumQualityGrades.CountAsync()); // the blank row stays as history
+    }
+
+    [Fact]
+    public async Task GradeAlbum_LatestIsAGenuineSummarylessUngradeable_Skips()
+    {
+        var db = CreateDb();
+        var albumId = await SeedFetchedAlbumWithOwnedSongs(db);
+
+        var client = new FakeChatClient(configured: true, content: """{"score": 0, "verdict": "ungradeable"}""");
+        var service = CreateService(db, client);
+
+        var first = await service.GradeAlbumAsync(albumId, force: false);
+        var second = await service.GradeAlbumAsync(albumId, force: false);
+
+        Assert.Equal(GradeOutcome.Graded, first.Outcome);
+        Assert.Equal(SongQualityVerdict.Ungradeable, first.Grade!.Verdict);
+        Assert.Equal(GradeOutcome.Skipped, second.Outcome); // the model's real answer is reused
+        Assert.Equal(1, client.CallCount);
+    }
+
+    [Fact]
     public async Task GradeAlbum_NotFetched_ReturnsNotFound()
     {
         var db = CreateDb();
@@ -80,6 +141,9 @@ public class AlbumGradingServiceTests
     }
 
     // --- helpers ---
+
+    private const string AnalysisOnlyReply =
+        """{"analysis":"We need to grade the canonical album ... Titles line up. Score 92. Let's output. }" }""";
 
     private static async Task<int> SeedFetchedAlbumWithOwnedSongs(MusicHoarderDbContext db)
     {

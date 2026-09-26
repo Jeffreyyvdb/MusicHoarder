@@ -4,8 +4,9 @@ namespace MusicHoarder.Api.Persistence;
 
 /// <summary>
 /// Overall quality verdict an LLM assigned to a single song's enrichment result.
-/// Ordered worst→best is intentional (numeric value rises with quality) so rollups
-/// can <c>Min()</c> to find the weakest track in a directory.
+/// The numbers are a persisted contract, not a ranking: <see cref="Ungradeable"/> = 0 is "no
+/// judgement", not the worst grade, so never order or <c>Min()</c> by the value — rank through
+/// <see cref="MusicHoarder.Api.Quality.VerdictSeverity"/>.
 /// </summary>
 public enum SongQualityVerdict
 {

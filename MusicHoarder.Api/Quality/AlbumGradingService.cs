@@ -50,8 +50,10 @@ public sealed class AlbumGradingService(
             .OrderByDescending(g => g.GradedAtUtc)
             .FirstOrDefaultAsync(ct);
 
+        // A blank grade (an empty reply stored as "ungradeable") is never reused: it judged nothing.
         if (!force
             && latest is not null
+            && !latest.IsBlank()
             && latest.InputFingerprint == fingerprint
             && latest.Model == opts.Model
             && latest.PromptVersion == AlbumGradingPrompt.Version)
@@ -101,7 +103,9 @@ public sealed class AlbumGradingService(
             OwnedTrackCount = ownedSongs.Count,
             CanonicalTrackCount = album.Tracks.Count,
             DurationMs = (int)Math.Min(int.MaxValue, sw.ElapsedMilliseconds),
-            RawResponseJson = rawContent.Length > 8192 ? rawContent[..8192] : rawContent,
+            RawResponseJson = rawContent.Length > BlankGrade.MaxStoredResponseChars
+                ? rawContent[..BlankGrade.MaxStoredResponseChars]
+                : rawContent,
             GradedAtUtc = DateTime.UtcNow,
         };
 
@@ -173,6 +177,7 @@ public sealed class AlbumGradingService(
     {
         HttpRequestException { StatusCode: System.Net.HttpStatusCode.PaymentRequired } => "out_of_credits",
         HttpRequestException => "http_error",
+        JsonException => "bad_response",
         InvalidOperationException => "empty_response",
         _ => "error",
     };

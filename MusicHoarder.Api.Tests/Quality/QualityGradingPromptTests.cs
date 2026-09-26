@@ -146,6 +146,155 @@ public class QualityGradingPromptTests
         Assert.ThrowsAny<System.Text.Json.JsonException>(() => QualityGradingPrompt.Parse("I cannot grade this song."));
     }
 
+    // --- replies that hold no grade (gpt-oss leaking its reasoning channels) ---
+    //
+    // These are stored replies from production. The old parser took the first object that parsed and
+    // defaulted a missing score to 0, persisting each as an "ungradeable" verdict. A reply without a
+    // grade must instead throw, so the grader records a retryable failure.
+
+    [Fact]
+    public void Parse_FinalChannelAsJsonString_ReadsTheGradeInside()
+    {
+        var result = QualityGradingPrompt.Parse(
+            """
+            {"analysis":"We need to grade the final chosen metadata ... Use 95. Provide issues empty array. Let's do. }","final":"{\"score\":95,\"verdict\":\"excellent\",\"summary\":\"The metadata is correct, corroborated by multiple providers, and the destination path matches the chosen metadata.\",\"issues\":[]}"}
+            """);
+
+        Assert.Equal(95, result.Score);
+        Assert.Equal(SongQualityVerdict.Excellent, result.Verdict);
+        Assert.Equal(
+            "The metadata is correct, corroborated by multiple providers, and the destination path matches the chosen metadata.",
+            result.Summary);
+        Assert.Empty(result.Issues);
+    }
+
+    [Theory]
+    [InlineData("""{"analysis":"We need to grade the final chosen metadata ... So just looks_correct. Score 95. Let's output. }" }""")]
+    [InlineData("""{ }""")]
+    [InlineData("""{ "analysis": [ ]}""")]
+    [InlineData("""{"commentary to=assistant{" : "analysis"}""")]
+    [InlineData("""{"analysis":"We need to grade ... But the instructions: " , "issues": [ { "code": "<snake_case>", "severity": "low" } ] }""")]
+    public void Parse_ReplyWithoutAGrade_Throws(string reply)
+    {
+        Assert.ThrowsAny<System.Text.Json.JsonException>(() => QualityGradingPrompt.Parse(reply));
+        Assert.False(QualityGradingPrompt.TryParse(reply, out _));
+    }
+
+    [Fact]
+    public void Parse_FinalChannelAsObject_ReadsItsGrade()
+    {
+        var result = QualityGradingPrompt.Parse(
+            """{"analysis":"Nothing matched.","final":{"score":35,"verdict":"wrong","summary":"No provider matched."}}""");
+
+        Assert.Equal(35, result.Score);
+        Assert.Equal(SongQualityVerdict.Wrong, result.Verdict);
+        Assert.Equal("No provider matched.", result.Summary);
+    }
+
+    [Fact]
+    public void Parse_GradelessObjectFollowedByARealGrade_ReadsTheRealGrade()
+    {
+        var result = QualityGradingPrompt.Parse(
+            """
+            {"analysis":"Two providers agree; the album is missing. Score 72."}
+            {"score": 72, "verdict": "good", "summary": "Correct but thinly sourced."}
+            """);
+
+        Assert.Equal(72, result.Score);
+        Assert.Equal(SongQualityVerdict.Good, result.Verdict);
+        Assert.Equal("Correct but thinly sourced.", result.Summary);
+    }
+
+    // A child of a gradeless object (an issue, a nested draft) is not the model's answer: reading it
+    // would persist a verdict nobody gave, e.g. put a track in the Inbox's AI-flagged queue.
+    [Theory]
+    [InlineData("""{"verdict":"mostly good","summary":"fine","issues":[{"code":"x","verdict":"wrong"}]}""")]
+    [InlineData("""{"score":"high","verdict":"n/a","summary":"s","issues":[{"code":"x","severity":"low","score":40}]}""")]
+    public void Parse_GradeInsideAGradelessObject_IsNotTheGrade(string reply)
+    {
+        Assert.ThrowsAny<System.Text.Json.JsonException>(() => QualityGradingPrompt.Parse(reply));
+    }
+
+    [Fact]
+    public void Parse_LargeGradelessObject_DoesNotUseUpTheSearchBeforeTheRealGrade()
+    {
+        // 300 issue objects: rescanning each child would spend the whole candidate budget in here.
+        var issues = string.Join(",", Enumerable.Range(0, 300).Select(i => $$"""{"code":"c{{i}}","severity":"low"}"""));
+        var reply = $$"""
+            {"analysis":"drafting","issues":[{{issues}}]}
+            {"score": 72, "verdict": "good", "summary": "Correct but thinly sourced."}
+            """;
+
+        var result = QualityGradingPrompt.Parse(reply);
+
+        Assert.Equal(SongQualityVerdict.Good, result.Verdict);
+        Assert.Equal(72, result.Score);
+    }
+
+    [Fact]
+    public void Parse_ExplicitUngradeableVerdict_IsStillAGrade()
+    {
+        var result = QualityGradingPrompt.Parse("""{"score":0,"verdict":"ungradeable"}""");
+
+        Assert.Equal(0, result.Score);
+        Assert.Equal(SongQualityVerdict.Ungradeable, result.Verdict);
+        Assert.Null(result.Summary);
+    }
+
+    [Fact]
+    public void Parse_VerdictMatchIgnoresCaseAndWhitespace()
+    {
+        Assert.Equal(SongQualityVerdict.Questionable, QualityGradingPrompt.Parse("""{"verdict":"  Questionable "}""").Verdict);
+    }
+
+    [Theory]
+    [InlineData("""{"verdict":"meh"}""")]            // unrecognised verdict, no score
+    [InlineData("""{"score":"95"}""")]               // a score that is not an integer
+    [InlineData("""{"score":95.5,"verdict":7}""")]  // neither an integer score nor a verdict word
+    public void Parse_NoIntegerScoreAndNoRecognisedVerdict_Throws(string reply)
+    {
+        Assert.ThrowsAny<System.Text.Json.JsonException>(() => QualityGradingPrompt.Parse(reply));
+    }
+
+    [Theory]
+    [InlineData("""{'score': 90, 'verdict': 'excellent'}""")]
+    [InlineData("""{"issues": [ { "code": <snake_case>, "severity": "low" } ] }""")]
+    [InlineData("""{"score": 90, \"verdict\": \"excellent\"}""")]
+    [InlineData("""{"score": 90, <truncated""")]
+    public async Task Parse_StrayCharacterOutsideAString_TerminatesAndThrows(string reply)
+    {
+        // A non-JSON character outside a string used to rewind the scanner onto itself forever,
+        // spinning a grading worker. It must now fail the candidate and move on.
+        var parse = Task.Run(() => QualityGradingPrompt.Parse(reply));
+
+        Assert.Same(parse, await Task.WhenAny(parse, Task.Delay(TimeSpan.FromSeconds(5)))); // terminated
+        await Assert.ThrowsAnyAsync<System.Text.Json.JsonException>(() => parse);
+    }
+
+    [Fact]
+    public async Task Parse_StrayCharacterInProseBeforeTheGrade_StillFindsTheGrade()
+    {
+        var parse = Task.Run(() => QualityGradingPrompt.Parse(
+            "Let me check { the artist's <name> } first.\n{\"score\": 81, \"verdict\": \"good\"}"));
+
+        Assert.Same(parse, await Task.WhenAny(parse, Task.Delay(TimeSpan.FromSeconds(5)))); // terminated
+        Assert.Equal(SongQualityVerdict.Good, (await parse).Verdict);
+    }
+
+    [Fact]
+    public void TryParse_BlankReply_ReturnsFalse()
+    {
+        Assert.False(QualityGradingPrompt.TryParse(null, out _));
+        Assert.False(QualityGradingPrompt.TryParse("  ", out _));
+    }
+
+    [Fact]
+    public void TryParse_Grade_ReturnsIt()
+    {
+        Assert.True(QualityGradingPrompt.TryParse("""{"score": 18, "verdict": "wrong"}""", out var result));
+        Assert.Equal(SongQualityVerdict.Wrong, result.Verdict);
+    }
+
     [Fact]
     public void Version_IsTwo()
     {

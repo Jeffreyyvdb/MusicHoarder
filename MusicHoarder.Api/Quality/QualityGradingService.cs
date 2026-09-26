@@ -47,8 +47,10 @@ public class QualityGradingService(
             .OrderByDescending(g => g.GradedAtUtc)
             .FirstOrDefaultAsync(ct);
 
+        // A blank grade (an empty reply stored as "ungradeable") is never reused: it judged nothing.
         if (!force
             && latest is not null
+            && !latest.IsBlank()
             && latest.InputFingerprint == fingerprint
             && latest.Model == opts.Model
             && latest.PromptVersion == QualityGradingPrompt.Version)
@@ -98,7 +100,9 @@ public class QualityGradingService(
             EnrichmentStatusAtGrade = song.EnrichmentStatus.ToString(),
             DestinationPathPreview = dossier.DestinationPathPreview,
             DurationMs = (int)Math.Min(int.MaxValue, sw.ElapsedMilliseconds),
-            RawResponseJson = rawContent.Length > 8192 ? rawContent[..8192] : rawContent,
+            RawResponseJson = rawContent.Length > BlankGrade.MaxStoredResponseChars
+                ? rawContent[..BlankGrade.MaxStoredResponseChars]
+                : rawContent,
             GradedAtUtc = DateTime.UtcNow,
         };
 

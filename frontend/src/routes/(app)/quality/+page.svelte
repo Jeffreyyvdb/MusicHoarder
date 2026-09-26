@@ -218,6 +218,7 @@
     good: lib?.verdicts.good ?? 0,
     excellent: lib?.verdicts.excellent ?? 0,
     ungradeable: lib?.verdicts.ungradeable ?? 0,
+    'wrong-or-questionable': overview?.aiFlaggedCount ?? 0,
     silent: overview?.silentFailureCount ?? 0,
     flagged: overview?.flaggedCount ?? 0,
     verified: overview?.verifiedCleanCount ?? 0

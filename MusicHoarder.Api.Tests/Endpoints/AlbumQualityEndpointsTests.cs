@@ -48,6 +48,29 @@ public class AlbumQualityEndpointsTests
     }
 
     [Fact]
+    public async Task GetOverview_PutsUngradeableAlbumsLast()
+    {
+        // Ungradeable is 0 in the enum; ordering by the number used to rank it above Wrong.
+        await using var db = NewContext();
+        db.CanonicalAlbums.Add(Album(1, "Discovery", CanonicalAlbumStatus.Fetched));
+        db.CanonicalAlbums.Add(Album(2, "Homework", CanonicalAlbumStatus.Fetched));
+        db.CanonicalAlbums.Add(Album(3, "Alive", CanonicalAlbumStatus.Fetched));
+        db.CanonicalAlbums.Add(Album(4, "Human After All", CanonicalAlbumStatus.Fetched));
+        db.CanonicalAlbumQualityGrades.Add(Grade(1, SongQualityVerdict.Ungradeable, 0));
+        db.CanonicalAlbumQualityGrades.Add(Grade(2, SongQualityVerdict.Excellent, 95));
+        db.CanonicalAlbumQualityGrades.Add(Grade(3, SongQualityVerdict.Questionable, 50));
+        db.CanonicalAlbumQualityGrades.Add(Grade(4, SongQualityVerdict.Wrong, 20));
+        await db.SaveChangesAsync();
+
+        var result = await AlbumQualityEndpoints.GetOverview(db, Opts(), CancellationToken.None);
+
+        var worst = ((IEnumerable)GetProperty<object>(Value(result), "worstOffenders")!).Cast<object>().ToList();
+        Assert.Equal(
+            ["Wrong", "Questionable", "Excellent", "Ungradeable"],
+            worst.Select(w => GetProperty<string>(w, "verdict")));
+    }
+
+    [Fact]
     public async Task GetOverview_UsesLatestGradePerAlbum()
     {
         await using var db = NewContext();

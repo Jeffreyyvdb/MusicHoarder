@@ -77,6 +77,72 @@ public class AlbumGradingSweepTests
         Assert.Empty(Drain(channel));
     }
 
+    [Fact]
+    public async Task EnqueueUngraded_EnqueuesALegacyBlankGrade_ButNotAGenuineUngradeable()
+    {
+        using var db = NewContext();
+        var graded = new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc);
+        var beforeGrade = graded.AddDays(-1);
+
+        var blank = AddAlbum(db, 1, fetchedAt: beforeGrade);
+        AddGrade(db, blank.Id, graded, AlbumGradingPrompt.Version, SongQualityVerdict.Ungradeable, raw: "{ }");
+        var genuine = AddAlbum(db, 2, fetchedAt: beforeGrade);
+        AddGrade(db, genuine.Id, graded, AlbumGradingPrompt.Version, SongQualityVerdict.Ungradeable,
+            raw: GenuineUngradeableReply);
+
+        var channel = new AlbumGradingChannel(new AlbumGradingProgressTracker());
+        var sut = NewService(db, channel);
+
+        var count = await sut.EnqueueUngradedAsync(new QualityGradingOptions(), CancellationToken.None);
+
+        Assert.Equal(1, count);
+        Assert.Equal([blank.Id], Drain(channel)); // the genuine verdict is never regraded in a loop
+    }
+
+    [Fact]
+    public async Task EnqueueUngraded_FindsALegacyBlankGradeOutsideTheNewestWindow()
+    {
+        using var db = NewContext();
+        var graded = new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var oldBlank = AddAlbum(db, 1, fetchedAt: graded.AddDays(-30));
+        AddGrade(db, oldBlank.Id, graded, AlbumGradingPrompt.Version, SongQualityVerdict.Ungradeable,
+            raw: """{ "analysis": [ ]}""");
+        var newest = AddAlbum(db, 2, fetchedAt: graded.AddDays(-1)); // the only album in the window
+        AddGrade(db, newest.Id, graded, AlbumGradingPrompt.Version);
+
+        var channel = new AlbumGradingChannel(new AlbumGradingProgressTracker());
+        var sut = NewService(db, channel);
+
+        var count = await sut.EnqueueUngradedAsync(new QualityGradingOptions { BatchSize = 1 }, CancellationToken.None);
+
+        Assert.Equal(1, count);
+        Assert.Equal([oldBlank.Id], Drain(channel));
+    }
+
+    [Fact]
+    public async Task EnqueueUngraded_RepeatedSweepsBeforeTheQueueDrains_QueueEachBlankAlbumOnce()
+    {
+        // Regrading a blank backlog outlasts a sweep interval, and every sweep still sees the albums
+        // that haven't run yet — the channel must not hand them to the workers twice.
+        using var db = NewContext();
+        var graded = new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc);
+        var blankA = AddAlbum(db, 1, fetchedAt: graded.AddDays(-1));
+        AddGrade(db, blankA.Id, graded, AlbumGradingPrompt.Version, SongQualityVerdict.Ungradeable, raw: "{ }");
+        var blankB = AddAlbum(db, 2, fetchedAt: graded.AddDays(-2));
+        AddGrade(db, blankB.Id, graded, AlbumGradingPrompt.Version, SongQualityVerdict.Ungradeable, raw: "{ }");
+
+        var channel = new AlbumGradingChannel(new AlbumGradingProgressTracker());
+        var sut = NewService(db, channel);
+
+        await sut.EnqueueUngradedAsync(new QualityGradingOptions(), CancellationToken.None);
+        await sut.EnqueueUngradedAsync(new QualityGradingOptions(), CancellationToken.None);
+
+        Assert.Equal(new[] { blankA.Id, blankB.Id }, Drain(channel).OrderBy(id => id));
+    }
+
+    private const string GenuineUngradeableReply = """{"score":0,"verdict":"ungradeable"}""";
+
     private static AlbumGradingBackgroundService NewService(MusicHoarderDbContext db, AlbumGradingChannel channel) =>
         new(
             new SimpleScopeFactory(db), channel, new AlbumGradingProgressTracker(),
@@ -108,16 +174,19 @@ public class AlbumGradingSweepTests
         return album;
     }
 
-    private static void AddGrade(MusicHoarderDbContext db, int albumId, DateTime gradedAt, int promptVersion)
+    private static void AddGrade(
+        MusicHoarderDbContext db, int albumId, DateTime gradedAt, int promptVersion,
+        SongQualityVerdict verdict = SongQualityVerdict.Good, string? raw = null)
     {
         db.CanonicalAlbumQualityGrades.Add(new CanonicalAlbumQualityGrade
         {
             CanonicalAlbumId = albumId,
             OwnerUserId = WellKnownUsers.OwnerId,
-            Score = 80,
-            Verdict = SongQualityVerdict.Good,
+            Score = verdict == SongQualityVerdict.Ungradeable ? 0 : 80,
+            Verdict = verdict,
             PromptVersion = promptVersion,
             Model = "test/model",
+            RawResponseJson = raw,
             GradedAtUtc = gradedAt,
         });
         db.SaveChanges();

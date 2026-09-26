@@ -36,7 +36,7 @@ export type InboxCounts = {
   review: number | null;
   /** Duplicate tracks: duplicate groups. */
   dupes: number | null;
-  /** AI flagged: graded Wrong or Questionable. */
+  /** AI flagged: graded Wrong or Questionable (the quality overview's `aiFlaggedCount`). */
   ai: number | null;
   /** Artist names: variant-spelling clusters plus combined credits. */
   artists: number | null;
@@ -70,18 +70,6 @@ function songCount(status: string): number | null {
   return songs.filter((s) => mapEnrichmentStatus(s.enrichmentStatus) === status).length;
 }
 
-/**
- * "AI flagged" = the worst offenders graded Wrong or Questionable — what that queue lists.
- * Exported so a page that already holds a quality overview (the Pipeline page) counts it the same
- * way before publishing it.
- */
-export function aiFlaggedOf(
-  verdicts: readonly { verdict?: string | null }[] | null | undefined
-): number {
-  return (verdicts ?? []).filter((o) => o.verdict === 'Wrong' || o.verdict === 'Questionable')
-    .length;
-}
-
 function load(kind: 'decisions' | 'names', force: boolean): Promise<void> {
   if (typeof window === 'undefined') return Promise.resolve();
   const running = inFlight[kind];
@@ -94,8 +82,10 @@ function load(kind: 'decisions' | 'names', force: boolean): Promise<void> {
         fetchDuplicates()
           .then((r) => (fetched.dupes = (r.duplicateGroups ?? []).length))
           .catch(() => {}),
+        // The server counts it with the queue's own predicate (the "wrong-or-questionable"
+        // category), over every grade — not the overview's top-50 worst-offenders sample.
         fetchQualityOverview()
-          .then((r) => (fetched.ai = aiFlaggedOf(r.worstOffenders)))
+          .then((r) => (fetched.ai = r.aiFlaggedCount))
           .catch(() => {})
       ]);
     } else {

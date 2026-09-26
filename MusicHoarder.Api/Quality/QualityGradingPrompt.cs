@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -105,20 +106,118 @@ public static class QualityGradingPrompt
         ];
     }
 
-    /// <summary>Parses the model reply into a <see cref="GradingResult"/>, tolerating code fences and stray prose.</summary>
-    public static GradingResult Parse(string content)
+    /// <summary>
+    /// Parses the model reply into a <see cref="GradingResult"/>, tolerating code fences and stray prose.
+    /// Throws <see cref="JsonException"/> when the reply holds no grade (see <see cref="TryParse"/>), so
+    /// the caller records a failure and retries it instead of persisting an empty reply as a verdict.
+    /// </summary>
+    public static GradingResult Parse(string content) =>
+        FindGrade(content, depth: 0, out var error) ?? throw error!;
+
+    /// <summary>
+    /// <see cref="Parse"/> without the exception: <c>false</c> when the reply holds no grade. A reply
+    /// holds a grade when some JSON object in it has an integer <c>score</c> or a recognised
+    /// <c>verdict</c> word — an object that merely parses (<c>{ }</c>, or a reasoning model's leaked
+    /// <c>{"analysis": "..."}</c> channel) is not one.
+    /// </summary>
+    public static bool TryParse(string? content, [NotNullWhen(true)] out GradingResult? result)
     {
-        using var doc = ParseLenientObject(content);
-        var root = doc.RootElement;
+        result = string.IsNullOrWhiteSpace(content) ? null : FindGrade(content, depth: 0, out _);
+        return result is not null;
+    }
 
-        var score = root.TryGetProperty("score", out var s) && s.TryGetInt32(out var sc)
+    // A reply is capped by MaxOutputTokens (~16 KB), so this only bounds a pathological one.
+    private const int MaxCandidates = 256;
+
+    // How many times a harmony-style "final" channel is unwrapped (its string may wrap another).
+    private const int MaxFinalDepth = 2;
+
+    /// <summary>
+    /// Tries each <c>{</c> in the reply as a candidate object (see <see cref="ExtractCandidate"/>) and
+    /// returns the first grade found. A candidate that parses but holds no grade does not end the
+    /// search: a reasoning model (gpt-oss) leaks its channels as
+    /// <c>{"analysis": "...", "final": "{\"score\": 95, ...}"}</c>, or replies with the analysis alone,
+    /// and the real grade — when there is one — sits under <c>final</c> or in a later object. The search
+    /// resumes <i>after</i> such an object, never inside it: its children (an issue, a nested draft) are
+    /// not the model's answer, and reading one as the grade would persist a verdict nobody gave. When
+    /// nothing holds a grade, <paramref name="error"/> says why, for the caller's failure record.
+    /// </summary>
+    private static GradingResult? FindGrade(string content, int depth, out JsonException? error)
+    {
+        JsonException? lastParseError = null;
+        var sawObject = false;
+        var searchFrom = 0;
+
+        for (var tried = 0; tried < MaxCandidates; tried++)
+        {
+            var start = content.IndexOf('{', searchFrom);
+            if (start < 0) break;
+            searchFrom = start + 1;
+
+            JsonDocument doc;
+            int end;
+            try
+            {
+                doc = JsonDocument.Parse(ExtractCandidate(content, start, out end));
+            }
+            catch (JsonException ex)
+            {
+                // This region wasn't valid JSON (e.g. prose braces) — try the next '{'.
+                lastParseError = ex;
+                continue;
+            }
+
+            using (doc)
+            {
+                sawObject = true;
+                if (ReadGrade(doc.RootElement, depth) is { } grade)
+                {
+                    error = null;
+                    return grade;
+                }
+            }
+
+            searchFrom = end; // a whole object without a grade: skip its children
+        }
+
+        error = sawObject
+            ? new JsonException("Model reply held no grade (no score or recognised verdict)")
+            : lastParseError ?? new JsonException("No JSON object found in model reply.");
+        return null;
+    }
+
+    /// <summary>
+    /// Reads the grade from one parsed object, or <c>null</c> when it holds none (no integer
+    /// <c>score</c> and no recognised <c>verdict</c>). Such an object falls back to its <c>final</c>
+    /// channel: an object is read directly, a string is parsed leniently in turn.
+    /// </summary>
+    private static GradingResult? ReadGrade(JsonElement root, int depth)
+    {
+        if (root.ValueKind != JsonValueKind.Object)
+            return null;
+
+        int? score = root.TryGetProperty("score", out var s)
+            && s.ValueKind == JsonValueKind.Number && s.TryGetInt32(out var sc)
             ? Math.Clamp(sc, 0, 100)
-            : 0;
+            : null;
+        var verdictWord = ParseVerdictWord(StringProperty(root, "verdict"));
 
-        var verdictRaw = root.TryGetProperty("verdict", out var v) ? v.GetString() : null;
-        var verdict = ParseVerdict(verdictRaw, score);
+        if (score is null && verdictWord is null)
+        {
+            if (depth >= MaxFinalDepth || !root.TryGetProperty("final", out var final))
+                return null;
+            return final.ValueKind switch
+            {
+                JsonValueKind.Object => ReadGrade(final, depth + 1),
+                JsonValueKind.String => FindGrade(final.GetString()!, depth + 1, out _),
+                _ => null,
+            };
+        }
 
-        string? summary = root.TryGetProperty("summary", out var sum) ? sum.GetString() : null;
+        // Fall back to bucketing by score when the model omits/garbles the label.
+        var verdict = verdictWord ?? VerdictForScore(score!.Value);
+
+        var summary = StringProperty(root, "summary");
         if (summary is { Length: > 1024 }) summary = summary[..1024];
 
         var issues = new List<GradingIssue>();
@@ -127,84 +226,62 @@ public static class QualityGradingPrompt
             foreach (var item in iss.EnumerateArray())
             {
                 if (item.ValueKind != JsonValueKind.Object) continue;
-                var code = item.TryGetProperty("code", out var c) ? c.GetString() : null;
+                var code = StringProperty(item, "code");
                 if (string.IsNullOrWhiteSpace(code)) continue;
-                var severity = item.TryGetProperty("severity", out var sev) ? sev.GetString() ?? "medium" : "medium";
-                var detail = item.TryGetProperty("detail", out var d) ? d.GetString() : null;
-                issues.Add(new GradingIssue(code!, severity, detail));
+                var severity = StringProperty(item, "severity") ?? "medium";
+                var detail = StringProperty(item, "detail");
+                issues.Add(new GradingIssue(code, severity, detail));
             }
         }
 
-        return new GradingResult(score, verdict, summary, issues);
+        return new GradingResult(score ?? 0, verdict, summary, issues);
     }
 
-    private static SongQualityVerdict ParseVerdict(string? raw, int score) => raw?.Trim().ToLowerInvariant() switch
+    /// <summary>The property's value when it is a JSON string; <c>null</c> when absent or of another kind.</summary>
+    private static string? StringProperty(JsonElement obj, string name) =>
+        obj.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
+
+    private static SongQualityVerdict? ParseVerdictWord(string? raw) => raw?.Trim().ToLowerInvariant() switch
     {
         "excellent" => SongQualityVerdict.Excellent,
         "good" => SongQualityVerdict.Good,
         "questionable" => SongQualityVerdict.Questionable,
         "wrong" => SongQualityVerdict.Wrong,
         "ungradeable" => SongQualityVerdict.Ungradeable,
-        // Fall back to bucketing by score when the model omits/garbles the label.
-        _ => score switch
-        {
-            >= 90 => SongQualityVerdict.Excellent,
-            >= 70 => SongQualityVerdict.Good,
-            >= 40 => SongQualityVerdict.Questionable,
-            >= 1 => SongQualityVerdict.Wrong,
-            _ => SongQualityVerdict.Ungradeable,
-        },
+        _ => null,
+    };
+
+    private static SongQualityVerdict VerdictForScore(int score) => score switch
+    {
+        >= 90 => SongQualityVerdict.Excellent,
+        >= 70 => SongQualityVerdict.Good,
+        >= 40 => SongQualityVerdict.Questionable,
+        >= 1 => SongQualityVerdict.Wrong,
+        _ => SongQualityVerdict.Ungradeable,
     };
 
     /// <summary>
-    /// Finds and parses the model's JSON object from a reply that may be wrapped in code fences or
-    /// prose, and — crucially — may be <b>truncated</b> (the model ran out of output tokens, or a
-    /// reasoning model's chain-of-thought was used as a fallback). Each <c>{</c> in the text is
-    /// treated as a candidate object boundary, scanned with brace/bracket depth tracking that
-    /// respects string literals (so a <c>}</c> inside a value can't fool it):
+    /// Returns the JSON-object text starting at <paramref name="start"/>, from a reply that may be
+    /// wrapped in code fences or prose and — crucially — may be <b>truncated</b> (the model ran out of
+    /// output tokens, or a reasoning model's chain-of-thought was used as a fallback). The scan tracks
+    /// brace/bracket depth and respects string literals (so a <c>}</c> inside a value can't fool it):
     /// <list type="bullet">
-    /// <item>a <i>balanced</i> region that parses as valid JSON is returned — so trailing prose and
-    /// stray <c>{ braces }</c> in reasoning text are skipped in favour of the real object;</item>
+    /// <item>a <i>balanced</i> region is returned whole — so trailing prose and stray
+    /// <c>{ braces }</c> in reasoning text are skipped in favour of the real object;</item>
     /// <item>a truncated tail is salvaged by rewinding to the last point where a value or container
     /// had completed and appending the missing closers, yielding a valid object holding whatever
     /// fields finished (score/verdict/summary + any complete issues). The tolerant field reader in
-    /// <see cref="Parse"/> turns that into a usable grade instead of a hard failure.</item>
+    /// <see cref="ReadGrade"/> turns that into a usable grade instead of a hard failure;</item>
+    /// <item>a character that cannot appear in JSON outside a string (a single quote, <c>&lt;</c>, a
+    /// backslash…) ends the scan: the region up to it is returned, which can never parse, so
+    /// <see cref="FindGrade"/> moves on to the next <c>{</c>.</item>
     /// </list>
-    /// If no candidate parses, the last <see cref="JsonException"/> is rethrown so the caller records
-    /// a clean failure.
+    /// <paramref name="end"/> is the index just past the scanned region (the end of the reply for a
+    /// truncated one), where <see cref="FindGrade"/> resumes after a whole object that held no grade.
     /// </summary>
-    private static JsonDocument ParseLenientObject(string content)
-    {
-        JsonException? lastError = null;
-        var searchFrom = 0;
-
-        while (true)
-        {
-            var start = content.IndexOf('{', searchFrom);
-            if (start < 0) break;
-
-            var candidate = ExtractCandidate(content, start);
-            try
-            {
-                return JsonDocument.Parse(candidate);
-            }
-            catch (JsonException ex)
-            {
-                // This region wasn't valid JSON (e.g. prose braces) — try the next '{'.
-                lastError = ex;
-                searchFrom = start + 1;
-            }
-        }
-
-        throw lastError ?? new JsonException("No JSON object found in model reply.");
-    }
-
-    /// <summary>
-    /// Returns the JSON-object text starting at <paramref name="start"/>: the balanced region if the
-    /// braces close, otherwise the truncation-salvaged prefix (closers appended). See
-    /// <see cref="ParseLenientObject"/> for how candidates are validated.
-    /// </summary>
-    private static string ExtractCandidate(string content, int start)
+    private static string ExtractCandidate(string content, int start, out int end)
     {
         var stack = new Stack<char>();          // open containers: '{' or '['
         var inString = false;
@@ -261,7 +338,10 @@ public static class QualityGradingPrompt
                     MarkSafe(i + 1);                 // the container is itself a completed value
                     expectingValue = false;
                     if (stack.Count == 0)
-                        return content[start..(i + 1)]; // balanced top-level object
+                    {
+                        end = i + 1;
+                        return content[start..end]; // balanced top-level object
+                    }
                     break;
                 case ':':
                     expectingValue = true;
@@ -272,6 +352,15 @@ public static class QualityGradingPrompt
                 default:
                     if (!char.IsWhiteSpace(ch))
                     {
+                        // A stray character (a single quote, '<', a backslash…) can't be JSON here.
+                        // Hand back the region up to it — its parse is certain to fail, so the caller
+                        // moves on — rather than consume a zero-length token below and spin on it.
+                        if (!IsLiteralChar(ch))
+                        {
+                            end = i + 1;
+                            return content[start..end];
+                        }
+
                         // number / true / false / null — consume the whole token.
                         var j = i;
                         while (j < content.Length && IsLiteralChar(content[j])) j++;
@@ -284,6 +373,7 @@ public static class QualityGradingPrompt
         }
 
         // End of input with the object still open → truncated. Salvage to the last safe point.
+        end = content.Length;
         if (safeEnd > start)
             return content[start..safeEnd] + safeClosers;
 

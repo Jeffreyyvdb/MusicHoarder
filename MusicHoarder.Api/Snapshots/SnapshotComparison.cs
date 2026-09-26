@@ -1,4 +1,5 @@
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Quality;
 
 namespace MusicHoarder.Api.Snapshots;
 
@@ -35,9 +36,10 @@ public static class SnapshotComparison
 
     public static (SnapshotChangeKind Kind, string[] Reasons) Classify(SnapshotSongState from, SnapshotSongState to)
     {
+        var (fromAi, toAi) = (AiJudgement(from), AiJudgement(to));
         var statusDelta = StatusRank(to.Status) - StatusRank(from.Status);
-        var verdictDelta = (from.AiVerdict, to.AiVerdict) is ({ } fv, { } tv) ? (int)tv - (int)fv : 0;
-        var scoreDelta = (from.AiScore, to.AiScore) is ({ } fs, { } ts) ? ts - fs : 0;
+        var verdictDelta = VerdictDelta(fromAi.Verdict, toAi.Verdict);
+        var scoreDelta = (fromAi.Score, toAi.Score) is ({ } fs, { } ts) ? ts - fs : 0;
 
         var reasons = new List<string>();
         var regressed = false;
@@ -67,9 +69,19 @@ public static class SnapshotComparison
     /// <summary>Signed magnitude of change; negative = worse. Used only for ordering the diff lists.</summary>
     public static int Severity(SnapshotSongState from, SnapshotSongState to)
     {
+        var (fromAi, toAi) = (AiJudgement(from), AiJudgement(to));
         var status = (StatusRank(to.Status) - StatusRank(from.Status)) * 100;
-        var score = (to.AiScore ?? 0) - (from.AiScore ?? 0);
-        var verdict = (from.AiVerdict, to.AiVerdict) is ({ } fv, { } tv) ? ((int)tv - (int)fv) * 25 : 0;
+        var score = (toAi.Score ?? 0) - (fromAi.Score ?? 0);
+        var verdict = VerdictDelta(fromAi.Verdict, toAi.Verdict) * 25;
         return status + verdict + score;
     }
+
+    // An Ungradeable grade is no judgement — its score means "no info" — so a side holding one is
+    // compared as if it had not been graded, rather than as a drop to (or a climb from) the bottom.
+    private static (int? Score, SongQualityVerdict? Verdict) AiJudgement(SnapshotSongState s) =>
+        s.AiVerdict is { } v && !VerdictSeverity.IsJudgement(v) ? (null, null) : (s.AiScore, s.AiVerdict);
+
+    // Positive = better. Among judged verdicts the worst-first rank rises with quality; never the enum number.
+    private static int VerdictDelta(SongQualityVerdict? from, SongQualityVerdict? to) =>
+        (from, to) is ({ } fv, { } tv) ? VerdictSeverity.WorstFirstRank(tv) - VerdictSeverity.WorstFirstRank(fv) : 0;
 }

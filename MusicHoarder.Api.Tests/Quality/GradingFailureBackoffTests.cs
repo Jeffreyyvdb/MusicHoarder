@@ -181,6 +181,71 @@ public class GradingFailureBackoffTests
         }
     }
 
+    [Fact]
+    public async Task SongGrading_FailedRegradeOfABlankGradeOutsideTheWindow_IsSkippedWhileBackingOff()
+    {
+        // A blank grade on an old song reaches the sweep through its own query, not the newest-songs
+        // window — a failed regrade must back it off there too rather than re-enqueue it every pass.
+        using var db = NewContext();
+        var blank = AddSong(db, 1);
+        AddSongGrade(db, blank.Id, SongQualityVerdict.Ungradeable, raw: "{ }");
+        foreach (var n in new[] { 2, 3 }) // two newer, up-to-date songs fill the window
+        {
+            var newer = AddSong(db, n);
+            newer.EnrichedAtUtc = new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc);
+            db.SaveChanges();
+            AddSongGrade(db, newer.Id, SongQualityVerdict.Good);
+        }
+
+        var tracker = new QualityGradingProgressTracker();
+        var channel = new QualityGradingChannel(tracker);
+        var opts = new QualityGradingOptions { FailureBackoffSeconds = 3600, BatchSize = 2 };
+        var sut = NewSongService(db, channel, tracker, new ScriptedSongGrader(GradeOutcome.Failed), opts);
+
+        await sut.StartAsync(CancellationToken.None);
+        try
+        {
+            Assert.Equal(1, await sut.EnqueueUngradedAsync(opts, CancellationToken.None)); // the blank grade
+            await WaitForCycleAsync(tracker);
+
+            Assert.Equal(0, await sut.EnqueueUngradedAsync(opts, CancellationToken.None));
+        }
+        finally
+        {
+            await sut.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task AlbumGrading_FailedRegradeOfABlankGradeOutsideTheWindow_IsSkippedWhileBackingOff()
+    {
+        using var db = NewContext();
+        var blank = AddFetchedAlbum(db, 1);
+        AddAlbumGrade(db, blank.Id, SongQualityVerdict.Ungradeable, raw: "{ }");
+        var newer = AddFetchedAlbum(db, 2); // the only album in the window, up to date
+        newer.FetchedAtUtc = new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc);
+        db.SaveChanges();
+        AddAlbumGrade(db, newer.Id, SongQualityVerdict.Good);
+
+        var tracker = new AlbumGradingProgressTracker();
+        var channel = new AlbumGradingChannel(tracker);
+        var opts = new QualityGradingOptions { FailureBackoffSeconds = 3600, BatchSize = 2 };
+        var sut = NewAlbumService(db, channel, tracker, new ScriptedAlbumGrader(GradeOutcome.Failed), opts);
+
+        await sut.StartAsync(CancellationToken.None);
+        try
+        {
+            Assert.Equal(1, await sut.EnqueueUngradedAsync(opts, CancellationToken.None)); // the blank grade
+            await WaitForCycleAsync(tracker);
+
+            Assert.Equal(0, await sut.EnqueueUngradedAsync(opts, CancellationToken.None));
+        }
+        finally
+        {
+            await sut.StopAsync(CancellationToken.None);
+        }
+    }
+
     // ── fixtures ────────────────────────────────────────────────────────────────────────────────
 
     private static QualityGradingBackgroundService NewSongService(
@@ -244,6 +309,37 @@ public class GradingFailureBackoffTests
         db.CanonicalAlbums.Add(album);
         db.SaveChanges();
         return album;
+    }
+
+    /// <summary>A grade written after every fixture's enrichment/fetch, so only its verdict decides.</summary>
+    private static readonly DateTime GradedAt = new(2026, 4, 1, 0, 0, 0, DateTimeKind.Utc);
+
+    private static void AddSongGrade(MusicHoarderDbContext db, int songId, SongQualityVerdict verdict, string? raw = null)
+    {
+        db.SongQualityGrades.Add(new SongQualityGrade
+        {
+            SongId = songId,
+            OwnerUserId = WellKnownUsers.OwnerId,
+            Verdict = verdict,
+            PromptVersion = QualityGradingPrompt.Version,
+            RawResponseJson = raw,
+            GradedAtUtc = GradedAt,
+        });
+        db.SaveChanges();
+    }
+
+    private static void AddAlbumGrade(MusicHoarderDbContext db, int albumId, SongQualityVerdict verdict, string? raw = null)
+    {
+        db.CanonicalAlbumQualityGrades.Add(new CanonicalAlbumQualityGrade
+        {
+            CanonicalAlbumId = albumId,
+            OwnerUserId = WellKnownUsers.OwnerId,
+            Verdict = verdict,
+            PromptVersion = AlbumGradingPrompt.Version,
+            RawResponseJson = raw,
+            GradedAtUtc = GradedAt,
+        });
+        db.SaveChanges();
     }
 
     private static MusicHoarderDbContext NewContext() =>

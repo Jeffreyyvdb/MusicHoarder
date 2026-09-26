@@ -113,6 +113,74 @@ public class QualityGradingServiceTests
     }
 
     [Fact]
+    public async Task GradeSong_ReplyWithoutAGrade_FailsAndPersistsNothing()
+    {
+        var db = CreateDb();
+        var song = AddSong(db);
+        await db.SaveChangesAsync();
+
+        // gpt-oss leaking only its analysis channel: once stored as an "ungradeable" verdict.
+        var client = new FakeChatClient(configured: true, content: AnalysisOnlyReply);
+        var service = CreateService(db, client);
+
+        var result = await service.GradeSongAsync(song.Id, force: false);
+
+        Assert.Equal(GradeOutcome.Failed, result.Outcome);
+        Assert.Equal("bad_response", result.ErrorCode);
+        Assert.False(await db.SongQualityGrades.AnyAsync());
+    }
+
+    [Fact]
+    public async Task GradeSong_LatestIsALegacyBlankGrade_RegradesDespiteUnchangedInput()
+    {
+        var db = CreateDb();
+        var song = AddSong(db);
+        await db.SaveChangesAsync();
+
+        var client = new FakeChatClient(configured: true,
+            content: """{"score": 80, "verdict": "good", "summary": "Consistent, thinly sourced."}""");
+        var service = CreateService(db, client);
+        await service.GradeSongAsync(song.Id, force: false);
+
+        // Rewrite that row (same fingerprint, model and prompt version) into what the old parser
+        // stored for an analysis-only reply.
+        var stored = await db.SongQualityGrades.SingleAsync();
+        stored.Score = 0;
+        stored.Verdict = SongQualityVerdict.Ungradeable;
+        stored.Summary = null;
+        stored.IssuesJson = null;
+        stored.RawResponseJson = AnalysisOnlyReply;
+        await db.SaveChangesAsync();
+
+        var result = await service.GradeSongAsync(song.Id, force: false);
+
+        Assert.Equal(GradeOutcome.Graded, result.Outcome);
+        Assert.Equal(SongQualityVerdict.Good, result.Grade!.Verdict);
+        Assert.Equal(2, client.CallCount);
+        Assert.Equal(2, await db.SongQualityGrades.CountAsync()); // the blank row stays as history
+    }
+
+    [Fact]
+    public async Task GradeSong_LatestIsAGenuineSummarylessUngradeable_Skips()
+    {
+        var db = CreateDb();
+        var song = AddSong(db);
+        await db.SaveChangesAsync();
+
+        var client = new FakeChatClient(configured: true, content: """{"score": 0, "verdict": "ungradeable"}""");
+        var service = CreateService(db, client);
+
+        var first = await service.GradeSongAsync(song.Id, force: false);
+        var second = await service.GradeSongAsync(song.Id, force: false);
+
+        Assert.Equal(GradeOutcome.Graded, first.Outcome);
+        Assert.Equal(SongQualityVerdict.Ungradeable, first.Grade!.Verdict);
+        Assert.Null(first.Grade.Summary);
+        Assert.Equal(GradeOutcome.Skipped, second.Outcome); // the model's real answer is reused
+        Assert.Equal(1, client.CallCount);
+    }
+
+    [Fact]
     public async Task GradeSong_MissingSong_ReturnsNotFound()
     {
         var db = CreateDb();
@@ -126,6 +194,9 @@ public class QualityGradingServiceTests
     }
 
     // --- helpers ---
+
+    private const string AnalysisOnlyReply =
+        """{"analysis":"We need to grade the final chosen metadata ... So just looks_correct. Score 95. Let's output. }" }""";
 
     private static MusicHoarderDbContext CreateDb() =>
         new(new DbContextOptionsBuilder<MusicHoarderDbContext>()
