@@ -71,6 +71,8 @@ fun OverviewTab(
     isPlayingNow: Boolean = false,
     /** A favourite row's "Remove from favourites"; null leaves the rows without a menu entry. */
     onToggleLike: ((Track) -> Unit)? = null,
+    /** A favourite row's "Add to playlist…"; null leaves it out of the menu. */
+    onAddToPlaylist: ((Track) -> Unit)? = null,
     linksOf: (Track) -> NowPlayingLinks? = { null },
     onOpenAlbumKey: (String) -> Unit = {},
     onOpenArtistName: (String) -> Unit = {},
@@ -123,6 +125,7 @@ fun OverviewTab(
                             sharedBy = sharedByOf(track),
                             onOpenAlbum = links?.let { { onOpenAlbumKey(it.albumKey) } },
                             onOpenArtist = links?.let { { onOpenArtistName(it.artist) } },
+                            onAddToPlaylist = onAddToPlaylist?.let { add -> { add(track) } },
                         )
                         if (index < favourites.lastIndex) TrackRowSeparator()
                     }

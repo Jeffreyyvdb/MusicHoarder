@@ -30,6 +30,8 @@
     HeartOff,
     History,
     Info,
+    ListMinus,
+    ListPlus,
     Mic2,
     Play,
     Send,
@@ -41,6 +43,7 @@
   import { Button } from '$lib/components/ui/button';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import ShareWithFriendDialog from '$lib/components/file-browser/ShareWithFriendDialog.svelte';
+  import AddToPlaylistSheet from '$lib/components/v2/AddToPlaylistSheet.svelte';
   import { albumKeyForSong, type ApiSong } from '$lib/api-client';
   import { can, isAdmin } from '$lib/auth/capabilities';
   import { findShareLink, shareLink, type ShareLink } from '$lib/share-links';
@@ -54,8 +57,9 @@
   // touch-and-hold / right-click twin (the row calls `openAt`). iOS context-menu rules: at most
   // three groups by frequency, unavailable items hidden rather than disabled, destructive last.
   //   1. Play (Play next is omitted: the player has no insert-into-queue API)
-  //   2. Add to / Remove from favourites · Go to album · Go to artist
+  //   2. Add to / Remove from favourites · Add to playlist… · Go to album · Go to artist
   //   3. Song info · Share link… · Send to… · Share with a friend… · View timeline
+  // and, on a playlist's own page, Remove from playlist — destructive, so last and on its own.
   type Props = {
     song: ApiSong;
     /**
@@ -69,6 +73,8 @@
     showAlbum?: boolean;
     /** Off on the artist's own view. */
     showArtist?: boolean;
+    /** On a playlist's page, for a song added there: removes it from that playlist. */
+    onremove?: () => void;
     /** Classes for the ⋯ trigger (a desktop row hides it until hover). */
     class?: string;
   };
@@ -79,6 +85,7 @@
     albumKey,
     showAlbum = true,
     showArtist = true,
+    onremove,
     class: className
   }: Props = $props();
 
@@ -148,6 +155,14 @@
     friendsOpen = true;
   }
 
+  // Mounted on first use, like the friends sheet.
+  let playlistOpen = $state(false);
+  let playlistMounted = $state(false);
+  function openAddToPlaylist() {
+    playlistMounted = true;
+    playlistOpen = true;
+  }
+
   async function toggleLike() {
     try {
       await songsStore.toggleLike(song.id);
@@ -211,6 +226,9 @@
           <Heart /> Add to favourites
         {/if}
       </DropdownMenu.Item>
+      <DropdownMenu.Item onSelect={openAddToPlaylist}>
+        <ListPlus /> Add to playlist…
+      </DropdownMenu.Item>
       {#if showAlbum && albumHref}
         <DropdownMenu.Item onSelect={() => void goto(albumHref)}>
           <Disc3 /> Go to album
@@ -246,8 +264,20 @@
         </DropdownMenu.Item>
       {/if}
     </DropdownMenu.Group>
+    {#if onremove}
+      <DropdownMenu.Separator />
+      <DropdownMenu.Group>
+        <DropdownMenu.Item variant="destructive" onSelect={onremove}>
+          <ListMinus /> Remove from playlist
+        </DropdownMenu.Item>
+      </DropdownMenu.Group>
+    {/if}
   </DropdownMenu.Content>
 </DropdownMenu.Root>
+
+{#if playlistMounted}
+  <AddToPlaylistSheet bind:open={playlistOpen} songIds={[song.id]} label={title} />
+{/if}
 
 {#if friendsMounted && song.album}
   <!-- Grants are per album (or wider), so sharing a song with someone shares its album; the sheet

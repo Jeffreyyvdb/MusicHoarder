@@ -65,6 +65,13 @@ public class WishlistSource
 
     public DateTime? LastSyncedAtUtc { get; set; }
 
+    /// <summary>
+    /// When the sync last recorded the remote list's full tracklist as <see cref="WishlistSourceTrack"/>
+    /// rows. Null for a source not completely read since those rows existed — its playlist then falls
+    /// back to the items this source introduced, and a Deezer sync does not skip an unchanged checksum.
+    /// </summary>
+    public DateTime? TracksRecordedAtUtc { get; set; }
+
     public DateTime CreatedAtUtc { get; set; }
 
     /// <summary>

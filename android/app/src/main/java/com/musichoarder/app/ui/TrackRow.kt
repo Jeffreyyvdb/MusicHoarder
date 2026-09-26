@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
@@ -23,6 +24,7 @@ import androidx.compose.material.icons.rounded.Group
 import androidx.compose.material.icons.rounded.HeartBroken
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.PlaylistRemove
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -94,9 +96,13 @@ fun TrackRow(
     onOpenAlbum: (() -> Unit)? = null,
     /** "Go to artist"; null hides it. */
     onOpenArtist: (() -> Unit)? = null,
+    /** "Add to playlist…"; null hides it (a share row, whose ids belong to another server). */
+    onAddToPlaylist: (() -> Unit)? = null,
+    /** On a playlist's page, for a track added there: "Remove from playlist", last in the menu. */
+    onRemoveFromPlaylist: (() -> Unit)? = null,
 ) {
     val colors = MhTheme.colors
-    val actions = rowMenuActions(liked, onToggleLike, onOpenAlbum, onOpenArtist)
+    val actions = rowMenuActions(liked, onToggleLike, onAddToPlaylist, onOpenAlbum, onOpenArtist, onRemoveFromPlaylist)
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -243,14 +249,24 @@ private val ArtworkShape = RoundedCornerShape(6.dp)
 private val NUMBER_WIDTH: Dp = 28.dp
 private val TEXT_GAP: Dp = 12.dp
 
-private class RowMenuAction(val label: String, val icon: ImageVector, val onClick: () -> Unit)
+private class RowMenuAction(
+    val label: String,
+    val icon: ImageVector,
+    val onClick: () -> Unit,
+    val destructive: Boolean = false,
+)
 
-/** The web `TrackRowMenu`'s middle group, minus whatever this row cannot offer. */
+/**
+ * The web `TrackRowMenu`'s middle group, minus whatever this row cannot offer — and, on a playlist's
+ * page, its destructive "Remove from playlist", last as the web puts it.
+ */
 private fun rowMenuActions(
     liked: Boolean,
     onToggleLike: (() -> Unit)?,
+    onAddToPlaylist: (() -> Unit)?,
     onOpenAlbum: (() -> Unit)?,
     onOpenArtist: (() -> Unit)?,
+    onRemoveFromPlaylist: (() -> Unit)?,
 ): List<RowMenuAction> = buildList {
     onToggleLike?.let {
         add(
@@ -258,8 +274,12 @@ private fun rowMenuActions(
             else RowMenuAction("Add to favourites", Icons.Rounded.FavoriteBorder, it)
         )
     }
+    onAddToPlaylist?.let { add(RowMenuAction("Add to playlist…", Icons.AutoMirrored.Rounded.PlaylistAdd, it)) }
     onOpenAlbum?.let { add(RowMenuAction("Go to album", Icons.Rounded.Album, it)) }
     onOpenArtist?.let { add(RowMenuAction("Go to artist", Icons.Rounded.Person, it)) }
+    onRemoveFromPlaylist?.let {
+        add(RowMenuAction("Remove from playlist", Icons.Rounded.PlaylistRemove, it, destructive = true))
+    }
 }
 
 /** The trailing ⋮: a full 48dp target, and a solid popover menu like the web's. */
@@ -282,19 +302,20 @@ private fun TrackRowMenu(title: String, actions: List<RowMenuAction>) {
             containerColor = colors.popover,
         ) {
             for (action in actions) {
+                if (action.destructive) HorizontalDivider(color = colors.separator)
                 DropdownMenuItem(
                     text = {
                         Text(
                             action.label,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = colors.foreground,
+                            color = if (action.destructive) colors.destructiveText else colors.foreground,
                         )
                     },
                     leadingIcon = {
                         Icon(
                             action.icon,
                             contentDescription = null,
-                            tint = colors.mutedForeground,
+                            tint = if (action.destructive) colors.destructiveText else colors.mutedForeground,
                             modifier = Modifier.size(20.dp),
                         )
                     },

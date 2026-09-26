@@ -187,7 +187,7 @@ data/     ServerSession (pairing + DataStore), MusicHoarderApi (OkHttp + kotlinx
           memory), Track/Album models, Lyrics (+ LRC parser)
 player/   PlaybackService (Media3 MediaSessionService), PlayerController (MediaController + UI state),
           VideoController (the muted clip that chases the audio clock)
-ui/       PairScreen, LibraryShell (+ the four tabs and the navigation bar), AlbumScreen,
+ui/       PairScreen, LibraryShell (+ the tabs and the navigation bar), AlbumScreen, PlaylistScreen,
           NowPlayingScreen (+ PlayerTransport, PlayerVideo, LyricsView), MiniPlayer, Chrome,
           AppViewModel
 AppGraph  One OkHttpClient shared by the API, ExoPlayer, and Coil — so all three carry the token
@@ -617,12 +617,12 @@ The app deliberately looks like the web app rather than like stock Material.
 - **Placeholders** — `albumTint()` in `Artwork.kt` is a direct port of `frontend/src/lib/album-tint.ts`,
   down to `cyrb53`'s 32-bit multiplies, so an album without a cover gets the same gradient on both
   clients.
-- **Navigation** — the four tabs (Overview · Albums · Artists · Tracks, a member's tabs on the web)
+- **Navigation** — the five tabs (Overview · Albums · Artists · Tracks · Playlists, a member's tabs on the web)
   are a Material 3 `NavigationBar` docked at the bottom, or a `NavigationRail` from 600dp wide.
   Re-tapping the active tab returns to its root (out of an album, off the Albums artist drill-in)
   and at the root scrolls back to the top. The bar takes the navigation-bar inset itself, so the
   screen stays edge to edge. Back unwinds in one fixed order (player → invite → share → album →
-  artist filter → any tab but Overview → Overview → exit), and each tab keeps its scroll position
+  playlist → artist filter → any tab but Overview → Overview → exit), and each tab keeps its scroll position
   across tab switches and album drill-ins. The artist drill-in narrows Albums and Tracks only, so
   choosing Overview or Artists leaves it behind rather than keeping an invisible filter alive.
 - **Chrome** — `Chrome.kt` carries the shared pieces. Every tab opens on a header that is the
@@ -660,5 +660,7 @@ and named for TalkBack. A linked or still-checking album has none.
 
 ## Not here yet
 
-Offline downloads, playlists, liked songs, search against the server (search is client-side over the
-loaded library), and Android Auto browsing.
+Offline downloads, liked songs, search against the server (search is client-side over the
+loaded library), Android Auto browsing, and a playlist's "Export to library" switch (the web's; it
+only concerns the server's files). Playlists themselves are here: the Playlists tab, a playlist's
+page, and "Add to playlist…" on every track row and an album's ⋮.

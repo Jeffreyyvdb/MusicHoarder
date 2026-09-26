@@ -89,6 +89,16 @@ public sealed partial class MemberWriteGuardMiddleware
         Shared("DELETE", "like", Capability.TrackListening),
         Shared("POST", "played", Capability.TrackListening),
 
+        // The caller's own playlists. Playlist rows are filtered to their owner, so an id that is not
+        // the caller's is a 404, and every song added is checked against what the caller may read —
+        // see PlaylistsEndpoints. One rule per verb and shape: nothing else under /api/playlists.
+        Exact("POST", "/api/playlists"),
+        Playlist("PATCH", ""),
+        Playlist("DELETE", ""),
+        Playlist("POST", "/songs"),
+        Playlist("PUT", "/songs"),
+        Playlist("DELETE", @"/songs/\d+"),
+
         // A public share link's open/play beacons. Anyone on the internet holding the link may send
         // these, so a member who happens to be signed in when they open one must too — otherwise
         // their visit silently goes uncounted. They write a ShareVisit row and nothing else.
@@ -163,6 +173,10 @@ public sealed partial class MemberWriteGuardMiddleware
 
     private static WriteRule Song(string method, string action, Capability required) =>
         new(method, new Regex($@"^/songs/\d+/{Regex.Escape(action)}/?$", RegexOptions.IgnoreCase), required);
+
+    /// <summary><c>/api/playlists/{id}</c> plus an exact tail (a regex fragment, e.g. <c>/songs/\d+</c>).</summary>
+    private static WriteRule Playlist(string method, string tailPattern) =>
+        new(method, new Regex($@"^/api/playlists/\d+{tailPattern}/?$", RegexOptions.IgnoreCase), Capability.None);
 
     /// <summary><c>/api/share/{token}/{leaf}</c>, with the token one path segment.</summary>
     private static Regex ShareBeacon(string leafPattern) =>

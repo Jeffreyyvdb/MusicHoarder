@@ -28,6 +28,14 @@ class ApiRoutesTest {
     }
 
     @Test
+    fun `playlists are addressed by id, and a song within one by its song id`() {
+        assertEquals("/api/playlists", ApiRoutes.playlists())
+        assertEquals("/api/playlists/3", ApiRoutes.playlist(3))
+        assertEquals("/api/playlists/3/songs", ApiRoutes.playlistSongs(3))
+        assertEquals("/api/playlists/3/songs/12", ApiRoutes.playlistSong(3, 12))
+    }
+
+    @Test
     fun `the radio route carries the seed, the limit and the ids already heard`() {
         assertEquals(
             "/api/radio?seedSongId=7&limit=20&exclude=7,8,9",

@@ -19,6 +19,16 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 
+/** The account's playlists as the server last sent them. */
+data class PlaylistsState(
+    val playlists: List<PlaylistDto> = emptyList(),
+    val isLoading: Boolean = false,
+    val loaded: Boolean = false,
+    /** The server predates playlists; the tab says so rather than looking empty. */
+    val unsupported: Boolean = false,
+    val error: String? = null,
+)
+
 /** Playback facts that move without a refetch. */
 data class PlayStat(val playCount: Int, val lastPlayedAtMs: Long)
 
@@ -115,7 +125,11 @@ class LibraryRepository(private val api: MusicHoarderApi) {
     )
     val messages: SharedFlow<String> = _messages.asSharedFlow()
 
+    private val _playlists = MutableStateFlow(PlaylistsState())
+    val playlists: StateFlow<PlaylistsState> = _playlists.asStateFlow()
+
     private val loadMutex = Mutex()
+    private val playlistsMutex = Mutex()
 
     /** The identity set the last status lookup covered, so a silent refetch does not re-post it. */
     private var statusSignature: String? = null
@@ -171,6 +185,54 @@ class LibraryRepository(private val api: MusicHoarderApi) {
         }
     }
 
+    // --- Playlists ---------------------------------------------------------------------------
+    // Small, and changed from this phone and others, so fetched on every visit to the tab rather
+    // than held like the library dump. Every write puts the server's copy of that playlist in place.
+
+    suspend fun refreshPlaylists() {
+        playlistsMutex.withLock {
+            _playlists.update { it.copy(isLoading = true, error = null) }
+            try {
+                val fetched = api.fetchPlaylists()
+                _playlists.value = PlaylistsState(
+                    playlists = fetched.orEmpty(),
+                    loaded = true,
+                    unsupported = fetched == null,
+                )
+            } catch (e: Exception) {
+                // A dead token included: the library's own refresh is what evicts the account.
+                _playlists.update { it.copy(isLoading = false, error = e.message ?: "Could not load playlists.") }
+            }
+        }
+    }
+
+    suspend fun createPlaylist(name: String, songIds: List<Int>): PlaylistDto =
+        api.createPlaylist(name, songIds).also(::putPlaylist)
+
+    suspend fun addToPlaylist(id: Int, songIds: List<Int>): PlaylistSongsResult =
+        api.addToPlaylist(id, songIds).also { putPlaylist(it.playlist) }
+
+    suspend fun removeFromPlaylist(id: Int, songId: Int): PlaylistDto =
+        api.removeFromPlaylist(id, songId).also(::putPlaylist)
+
+    suspend fun renamePlaylist(id: Int, name: String): PlaylistDto =
+        api.renamePlaylist(id, name).also(::putPlaylist)
+
+    suspend fun deletePlaylist(id: Int) {
+        api.deletePlaylist(id)
+        _playlists.update { state -> state.copy(playlists = state.playlists.filterNot { it.id == id }) }
+    }
+
+    private fun putPlaylist(playlist: PlaylistDto) = _playlists.update { state ->
+        val index = state.playlists.indexOfFirst { it.id == playlist.id }
+        val next = if (index == -1) {
+            (state.playlists + playlist).sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+        } else {
+            state.playlists.toMutableList().also { it[index] = playlist }
+        }
+        state.copy(playlists = next)
+    }
+
     /** The heart's current state for a song, overlay first. */
     fun likedStamp(track: Track): String? =
         if (_likes.value.containsKey(track.id)) _likes.value[track.id] else track.likedAtUtc
@@ -215,6 +277,7 @@ class LibraryRepository(private val api: MusicHoarderApi) {
         _likes.value = emptyMap()
         _plays.value = emptyMap()
         _albumStatuses.value = emptyMap()
+        _playlists.value = PlaylistsState()
         statusSignature = null
     }
 

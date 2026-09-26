@@ -54,6 +54,9 @@ public class MusicHoarderDbContext : DbContext
     public DbSet<WishlistSource> WishlistSources { get; set; } = null!;
     public DbSet<WishlistItem> WishlistItems { get; set; } = null!;
     public DbSet<ExportedPlaylist> ExportedPlaylists { get; set; } = null!;
+    public DbSet<WishlistSourceTrack> WishlistSourceTracks { get; set; } = null!;
+    public DbSet<Playlist> Playlists { get; set; } = null!;
+    public DbSet<PlaylistEntry> PlaylistEntries { get; set; } = null!;
     public DbSet<RuntimeSettings> RuntimeSettings { get; set; } = null!;
     public DbSet<IngestRun> IngestRuns { get; set; } = null!;
     public DbSet<LibraryWriteEvent> LibraryWriteEvents { get; set; } = null!;
@@ -391,6 +394,65 @@ public class MusicHoarderDbContext : DbContext
             entity.HasIndex(e => new { e.OwnerUserId, e.Kind, e.SpotifyPlaylistId }).IsUnique();
 
             entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+        });
+
+        modelBuilder.Entity<WishlistSourceTrack>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.WishlistSourceId, e.Position });
+
+            // The sync rewrites a source's rows wholesale; they go with the source, and a track goes
+            // when its wishlist item is deleted by hand.
+            entity.HasOne(e => e.WishlistSource)
+                .WithMany()
+                .HasForeignKey(e => e.WishlistSourceId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.WishlistItem)
+                .WithMany()
+                .HasForeignKey(e => e.WishlistItemId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasQueryFilter(e => !hasUser || e.WishlistSource.OwnerUserId == userId);
+        });
+
+        modelBuilder.Entity<Playlist>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.OwnerUserId);
+            // One playlist per collected source.
+            entity.HasIndex(e => new { e.OwnerUserId, e.WishlistSourceId })
+                .IsUnique()
+                .HasFilter("\"WishlistSourceId\" IS NOT NULL");
+
+            // Removing a source keeps a playlist that had MusicHoarder additions (as a native one, its
+            // synced tracks frozen in by PlaylistService.DetachSourceAsync); the FK only nulls out.
+            entity.HasOne(e => e.WishlistSource)
+                .WithMany()
+                .HasForeignKey(e => e.WishlistSourceId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+        });
+
+        modelBuilder.Entity<PlaylistEntry>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.PlaylistId, e.SongId }).IsUnique();
+            entity.HasIndex(e => new { e.PlaylistId, e.Position });
+
+            entity.HasOne(e => e.Playlist)
+                .WithMany(p => p.Entries)
+                .HasForeignKey(e => e.PlaylistId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Crosses tenants for a member's playlist (the song is the grantor's), like UserSongState:
+            // the filter is on the playlist's owner, and reads re-check the song through the library scope.
+            entity.HasOne(e => e.Song)
+                .WithMany()
+                .HasForeignKey(e => e.SongId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasQueryFilter(e => !hasUser || e.Playlist.OwnerUserId == userId);
         });
 
         modelBuilder.Entity<RuntimeSettings>(entity =>

@@ -671,6 +671,12 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IPlaylistExportService, PlaylistExportService>();
         services.AddHostedService<PlaylistExportBackgroundService>();
 
+        // MusicHoarder's own playlists: exported to the same folder shortly after each edit, and on an
+        // interval for tracks built since.
+        services.AddSingleton<Playlists.LibraryPlaylistExportQueue>();
+        services.AddSingleton<Playlists.ILibraryPlaylistExporter, Playlists.LibraryPlaylistExporter>();
+        services.AddHostedService<Playlists.LibraryPlaylistExportBackgroundService>();
+
         return services;
     }
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ChevronRight, Disc3, Heart, ListMusic, Mic2, Music2 } from '@lucide/svelte';
+  import { ChevronRight, Disc3, Heart, ListMusic, ListVideo, Mic2, Music2 } from '@lucide/svelte';
   import { page } from '$app/state';
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
@@ -19,8 +19,9 @@
   } from '$lib/api-client';
   import { isAdmin } from '$lib/auth/capabilities';
   import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-  import { navGroupsFor } from '$lib/nav';
+  import { NAV_GROUPS, navGroupsFor } from '$lib/nav';
   import { playerStore } from '$lib/stores/player.svelte';
+  import { playlistsStore } from '$lib/stores/playlists.svelte';
   import { songsStore } from '$lib/stores/songs.svelte';
   import { titleOf } from '$lib/track-list-view.svelte';
   import { cn } from '$lib/utils';
@@ -122,10 +123,21 @@
   const randomAlbums = $derived(seededOrder(allAlbums, (a) => a.key).slice(0, SHELF_SIZE));
 
   // ── Library rows ────────────────────────────────────────────────────────────
-  // Only for an audience with several tabs (admin, demo): a member's tab bar already IS Overview /
-  // Albums / Artists / Tracks. Phones only — the desktop sidebar lists the same pages.
-  const multiGroup = $derived(navGroupsFor(user).length > 1);
-  const libraryRows = $derived([
+  // The Listen pages the tab bar does not carry. An admin's and the demo's tab bar has one tab per
+  // group, so every page is a row here; a member's tab bar already IS Overview / Albums / Artists /
+  // Tracks (and Chats), so only Playlists is. Phones only — the desktop sidebar lists them all.
+  const groupTabs = $derived(navGroupsFor(user).length === NAV_GROUPS.length);
+  // The Playlists row's count; the list is small, and opening Playlists next reuses it.
+  $effect(() => {
+    if (compact) playlistsStore.revalidate();
+  });
+  const playlistsRow = $derived({
+    href: '/playlists',
+    label: 'Playlists',
+    icon: ListVideo,
+    count: playlistsStore.playlists.length
+  });
+  const allLibraryRows = $derived([
     { href: '/library', label: 'Albums', icon: Disc3, count: allAlbums.length },
     { href: '/artists', label: 'Artists', icon: Mic2, count: artistGroups.length },
     { href: '/tracks', label: 'Tracks', icon: ListMusic, count: trackListSongs.length },
@@ -144,8 +156,11 @@
             count: trackListSongs.filter(isSpotifyLiked).length
           }
         ]
-      : [])
+      : []),
+    // After Tracks' own slices (Favourites, Spotify liked), which read as part of Tracks.
+    playlistsRow
   ]);
+  const libraryRows = $derived(groupTabs ? allLibraryRows : [playlistsRow]);
 
   // ── playback ────────────────────────────────────────────────────────────────
   function fallbackArtist(s: ApiSong): string {
@@ -241,7 +256,7 @@
           </p>
         </div>
       {:else}
-        {#if compact && multiGroup}
+        {#if compact && libraryRows.length > 0}
           <!-- Library: a plain list with inset separators (Apple Music's Library rows). -->
           <nav aria-label="Library">
             <ul>

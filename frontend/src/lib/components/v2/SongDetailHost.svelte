@@ -7,6 +7,7 @@
   import { Button } from '$lib/components/ui/button';
   import TrackPanel from '$lib/components/file-browser/TrackPanel.svelte';
   import ShareWithFriendDialog from '$lib/components/file-browser/ShareWithFriendDialog.svelte';
+  import AddToPlaylistSheet from '$lib/components/v2/AddToPlaylistSheet.svelte';
   import VideoBackdrop from '$lib/components/v2/VideoBackdrop.svelte';
   import { SongVideo } from '$lib/components/file-browser/now-playing/song-video.svelte';
   import { coverDimAlpha, DIM_UNKNOWN } from '$lib/components/file-browser/now-playing/cover-dim';
@@ -151,6 +152,15 @@
     if (!r) return;
     friendShare = { artist: r.album.artist, album: r.album.title };
     friendShareOpen = true;
+  }
+
+  // "Add to playlist…" likewise opens over Now Playing, for the song on screen.
+  let playlistAdd = $state<{ songId: number; title: string } | null>(null);
+  let playlistAddOpen = $state(false);
+  function addToPlaylist() {
+    if (!r) return;
+    playlistAdd = { songId: r.song.id, title: r.song.title ?? r.song.fileName };
+    playlistAddOpen = true;
   }
 
   // ── Drag to dismiss ─────────────────────────────────────────────────────────
@@ -362,6 +372,7 @@
             timelineHref={`/track/${r.song.id}`}
             {onDragStart}
             onShareWithFriend={shareWithFriend}
+            onAddToPlaylist={addToPlaylist}
             bind:watching={videoWatching}
           />
         {:else if detailState === 'error'}
@@ -395,6 +406,15 @@
     </DialogPrimitive.Content>
   </DialogPrimitive.Portal>
 </DialogPrimitive.Root>
+
+{#if playlistAdd}
+  <AddToPlaylistSheet
+    bind:open={playlistAddOpen}
+    nested
+    songIds={[playlistAdd.songId]}
+    label={playlistAdd.title}
+  />
+{/if}
 
 {#if friendShare && isAdmin(page.data.user)}
   <ShareWithFriendDialog

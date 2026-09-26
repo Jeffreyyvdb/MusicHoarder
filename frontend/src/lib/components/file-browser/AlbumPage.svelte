@@ -12,6 +12,7 @@
     HardDrive,
     Heart,
     History,
+    ListPlus,
     Loader2,
     Pause,
     Play,
@@ -37,6 +38,7 @@
   import AlbumTimelineDialog from '$lib/components/file-browser/AlbumTimelineDialog.svelte';
   import ProvenanceSheet from '$lib/components/file-browser/ProvenanceSheet.svelte';
   import ShareWithFriendDialog from '$lib/components/file-browser/ShareWithFriendDialog.svelte';
+  import AddToPlaylistSheet from '$lib/components/v2/AddToPlaylistSheet.svelte';
   import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
   import TrackRowMenu, { activateTrack } from '$lib/components/v2/TrackRowMenu.svelte';
   import { longpress, type LongPressPoint } from '$lib/actions/long-press';
@@ -261,6 +263,9 @@
 
   // Album provenance timeline, opened from the ⋯ menu.
   let timelineOpen = $state(false);
+  // "Add to playlist…" for the whole album, in its track order. Every account has it — a member
+  // makes playlists of what was shared with them.
+  let addToPlaylistOpen = $state(false);
   // The admin status row's sheet: link state, completeness, the AI grade.
   let infoOpen = $state(false);
 
@@ -644,7 +649,8 @@
 
 {#snippet albumMenu()}
   <!-- The page's own ⋯ (not the bar's `more`) so it can look up the album's share link as it
-       opens. Three groups: share · files · details. Every item is an admin action. -->
+       opens. Add to playlist… for everyone; then, for the admin, three groups: share · files ·
+       details. -->
   <DropdownMenu.Root onOpenChange={onMoreOpenChange}>
     <DropdownMenu.Trigger>
       {#snippet child({ props })}
@@ -655,69 +661,80 @@
     </DropdownMenu.Trigger>
     <DropdownMenu.Content align="end" class="w-64 pointer-coarse:w-72">
       <DropdownMenu.Group>
-        <DropdownMenu.Item onSelect={shareAlbum}>
-          <Share /> Share link…
+        <DropdownMenu.Item
+          onSelect={() => (addToPlaylistOpen = true)}
+          disabled={tracks.length === 0}
+        >
+          <ListPlus /> Add to playlist…
         </DropdownMenu.Item>
-        <DropdownMenu.Item onSelect={sendAlbum}>
-          <Send /> Send to…
-        </DropdownMenu.Item>
-        {#if canShareWithPeople}
-          <DropdownMenu.Item onSelect={() => (shareWithFriendOpen = true)}>
-            <UsersRound /> Share with a friend…
-          </DropdownMenu.Item>
-        {/if}
       </DropdownMenu.Group>
-      <DropdownMenu.Separator />
-      <DropdownMenu.Group>
-        {#if destinationFolder}
-          <!-- What Re-tag does used to be a hover tooltip; it is the item's second line now. -->
-          <DropdownMenu.Item onSelect={retagAlbum} disabled={retagState === 'loading'}>
-            {#if retagState === 'loading'}
-              <Loader2 class="animate-spin" />
-            {:else}
-              <RefreshCw />
-            {/if}
-            <span class="flex min-w-0 flex-col">
-              <span>{retagState === 'loading' ? 'Re-tagging…' : 'Re-tag'}</span>
-              <span class="text-muted-foreground pointer-coarse:text-footnote text-xs">
-                Re-copy and re-tag the files in place
+      {#if isOwner}
+        <DropdownMenu.Separator />
+        <DropdownMenu.Group>
+          <DropdownMenu.Item onSelect={shareAlbum}>
+            <Share /> Share link…
+          </DropdownMenu.Item>
+          <DropdownMenu.Item onSelect={sendAlbum}>
+            <Send /> Send to…
+          </DropdownMenu.Item>
+          {#if canShareWithPeople}
+            <DropdownMenu.Item onSelect={() => (shareWithFriendOpen = true)}>
+              <UsersRound /> Share with a friend…
+            </DropdownMenu.Item>
+          {/if}
+        </DropdownMenu.Group>
+        <DropdownMenu.Separator />
+        <DropdownMenu.Group>
+          {#if destinationFolder}
+            <!-- What Re-tag does used to be a hover tooltip; it is the item's second line now. -->
+            <DropdownMenu.Item onSelect={retagAlbum} disabled={retagState === 'loading'}>
+              {#if retagState === 'loading'}
+                <Loader2 class="animate-spin" />
+              {:else}
+                <RefreshCw />
+              {/if}
+              <span class="flex min-w-0 flex-col">
+                <span>{retagState === 'loading' ? 'Re-tagging…' : 'Re-tag'}</span>
+                <span class="text-muted-foreground pointer-coarse:text-footnote text-xs">
+                  Re-copy and re-tag the files in place
+                </span>
               </span>
-            </span>
+            </DropdownMenu.Item>
+          {/if}
+          {#if linkStatus === 'linked'}
+            <DropdownMenu.Item onSelect={copyDossier}>
+              <Copy /> Copy dossier
+            </DropdownMenu.Item>
+          {/if}
+          {#if destinationFolder}
+            <DropdownMenu.Item onSelect={revealInDestination}>
+              <HardDrive /> Copy destination path
+            </DropdownMenu.Item>
+          {/if}
+        </DropdownMenu.Group>
+        <DropdownMenu.Separator />
+        <DropdownMenu.Group>
+          <DropdownMenu.Item onSelect={() => (timelineOpen = true)}>
+            <History /> Album timeline
           </DropdownMenu.Item>
-        {/if}
-        {#if linkStatus === 'linked'}
-          <DropdownMenu.Item onSelect={copyDossier}>
-            <Copy /> Copy dossier
-          </DropdownMenu.Item>
-        {/if}
-        {#if destinationFolder}
-          <DropdownMenu.Item onSelect={revealInDestination}>
-            <HardDrive /> Copy destination path
-          </DropdownMenu.Item>
-        {/if}
-      </DropdownMenu.Group>
-      <DropdownMenu.Separator />
-      <DropdownMenu.Group>
-        <DropdownMenu.Item onSelect={() => (timelineOpen = true)}>
-          <History /> Album timeline
-        </DropdownMenu.Item>
-        {#if missingCount > 0}
-          <DropdownMenu.Item onSelect={() => albumViewPrefs.toggleHideMissing()}>
-            {#if hideMissing}
-              <Eye /> Show {missingCount} missing
-            {:else}
-              <EyeOff /> Hide {missingCount} missing
-            {/if}
-            <DropdownMenu.Shortcut>H</DropdownMenu.Shortcut>
-          </DropdownMenu.Item>
-        {/if}
-        {#if linkStatus === 'linked'}
-          <DropdownMenu.Item onSelect={gradeNow} disabled={grading}>
-            <Sparkles />
-            {grading ? 'Grading…' : albumGrade?.graded ? 'Re-grade match' : 'Grade match'}
-          </DropdownMenu.Item>
-        {/if}
-      </DropdownMenu.Group>
+          {#if missingCount > 0}
+            <DropdownMenu.Item onSelect={() => albumViewPrefs.toggleHideMissing()}>
+              {#if hideMissing}
+                <Eye /> Show {missingCount} missing
+              {:else}
+                <EyeOff /> Hide {missingCount} missing
+              {/if}
+              <DropdownMenu.Shortcut>H</DropdownMenu.Shortcut>
+            </DropdownMenu.Item>
+          {/if}
+          {#if linkStatus === 'linked'}
+            <DropdownMenu.Item onSelect={gradeNow} disabled={grading}>
+              <Sparkles />
+              {grading ? 'Grading…' : albumGrade?.graded ? 'Re-grade match' : 'Grade match'}
+            </DropdownMenu.Item>
+          {/if}
+        </DropdownMenu.Group>
+      {/if}
     </DropdownMenu.Content>
   </DropdownMenu.Root>
 {/snippet}
@@ -762,9 +779,7 @@
       back={desktopBack}
     >
       {#snippet actions()}
-        {#if isOwner}
-          {@render albumMenu()}
-        {/if}
+        {@render albumMenu()}
       {/snippet}
     </PageToolbarV2>
 
@@ -832,7 +847,12 @@
                live state. -->
           {#if compact}
             <div class="mt-4 flex w-full gap-3">
-              <Button variant="gray" size="pill" class="text-primary flex-1" onclick={playAlbumStart}>
+              <Button
+                variant="gray"
+                size="pill"
+                class="text-primary flex-1"
+                onclick={playAlbumStart}
+              >
                 {#if playerStore.isPlaying && currentlyPlaying}
                   <Pause fill="currentColor" /> Pause
                 {:else}
@@ -1408,6 +1428,12 @@
     loading={!provenance && !provenanceError}
     error={provenanceError}
     canManage={isOwner}
+  />
+
+  <AddToPlaylistSheet
+    bind:open={addToPlaylistOpen}
+    songIds={tracks.map((t) => t.id)}
+    label={album.title}
   />
 
   {#if isOwner}
