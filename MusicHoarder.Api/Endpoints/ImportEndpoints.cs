@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
+using MusicHoarder.Api.Discover;
 using MusicHoarder.Api.Download;
 using MusicHoarder.Api.Import;
 using MusicHoarder.Api.Jobs;
@@ -32,11 +33,24 @@ public static class ImportEndpoints
                 CancellationToken ct) =>
             {
                 if (!ImportUrlParser.TryParse(body.Url, out var kind, out var id))
+                {
+                    // A playlist is not one track, but it is something this app can add: say so, with
+                    // the provider, so the dialog can offer to keep the playlist in sync instead.
+                    if (PlaylistUrlParser.TryParse(body.Url, out var playlistProvider, out var playlistId))
+                        return Results.BadRequest(new
+                        {
+                            error = "playlist_link",
+                            message = "That is a playlist link, not a single track.",
+                            provider = playlistProvider,
+                            playlistId,
+                        });
+
                     return Results.BadRequest(new
                     {
                         error = "invalid_url",
                         message = "Paste a Spotify track link (open.spotify.com/track/…) or a YouTube video link.",
                     });
+                }
 
                 if (kind == ImportUrlKind.SpotifyTrack)
                 {
@@ -130,12 +144,14 @@ public static class ImportEndpoints
                 // yt-dlp downloads exactly what it's handed, so only accept a recognized YouTube URL and
                 // re-canonicalize it. Spotify imports carry a track id and no SourceUrl.
                 string? sourceUrl = null;
+                string? youTubeVideoId = null;
                 var spotifyTrackId = string.IsNullOrWhiteSpace(body.SpotifyTrackId) ? null : body.SpotifyTrackId!.Trim();
                 if (!string.IsNullOrWhiteSpace(body.SourceUrl))
                 {
                     if (!ImportUrlParser.TryParse(body.SourceUrl, out var kind, out var vid) || kind != ImportUrlKind.YouTube)
                         return Results.BadRequest(new { error = "invalid_url", message = "Source URL must be a valid YouTube link." });
                     sourceUrl = ImportUrlParser.YouTubeWatchUrl(vid);
+                    youTubeVideoId = vid;
                 }
 
                 if (spotifyTrackId is null && sourceUrl is null)
@@ -145,9 +161,11 @@ public static class ImportEndpoints
                 var now = DateTime.UtcNow;
 
                 // Idempotent: re-importing the same track requeues the existing row instead of piling up
-                // duplicates (matches the wishlist's per-track dedupe on sync).
+                // duplicates (matches the wishlist's per-track dedupe on sync) — including a video a
+                // synced YouTube playlist already put on the wishlist.
                 var existing = await db.WishlistItems.FirstOrDefaultAsync(w =>
                     (sourceUrl != null && w.SourceUrl == sourceUrl) ||
+                    (youTubeVideoId != null && w.YouTubeVideoId == youTubeVideoId) ||
                     (spotifyTrackId != null && w.SpotifyTrackId == spotifyTrackId), ct);
 
                 WishlistItem item;
@@ -161,6 +179,8 @@ public static class ImportEndpoints
                     if (body.DurationMs is > 0) existing.DurationMs = body.DurationMs.Value;
                     if (!string.IsNullOrWhiteSpace(body.CoverUrl)) existing.AlbumArt = body.CoverUrl!.Trim();
                     if (body.DownloadMusicVideo is not null) existing.DownloadMusicVideo = body.DownloadMusicVideo;
+                    // A row imported before the column existed: it is this video, so give it the key.
+                    if (existing.SourceUrl == sourceUrl) existing.YouTubeVideoId ??= youTubeVideoId;
                     existing.UpdatedAtUtc = now;
                     item = existing;
                 }
@@ -172,6 +192,7 @@ public static class ImportEndpoints
                         WishlistSourceId = null,
                         SpotifyTrackId = spotifyTrackId,
                         SourceUrl = sourceUrl,
+                        YouTubeVideoId = youTubeVideoId,
                         Title = title,
                         Artist = artist,
                         Album = album,

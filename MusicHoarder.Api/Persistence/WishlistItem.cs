@@ -30,7 +30,7 @@ public enum WishlistItemStatus
 /// </summary>
 public enum WishlistItemOrigin
 {
-    /// <summary>The owner asked for it — Spotify liked songs, a playlist, a Deezer discover list, a URL import.</summary>
+    /// <summary>The owner asked for it — Spotify liked songs, a playlist, a Deezer discover list, a YouTube playlist, a URL import.</summary>
     UserRequested = 0,
 
     /// <summary>
@@ -96,13 +96,23 @@ public class WishlistItem
     public string? DeezerTrackId { get; set; }
 
     /// <summary>
-    /// Direct source URL for single-track URL imports (e.g. a pasted YouTube video). When set, the
-    /// downloader fetches this exact URL instead of searching by artist/title — the only way to acquire
-    /// a specific YouTube remix/edit that has no Spotify/streaming equivalent. Null for playlist-sourced
-    /// items, which resolve by identity through the provider chain.
+    /// Direct source URL for items tied to one exact video: a pasted YouTube link, or an entry of a
+    /// synced YouTube playlist. When set, the downloader fetches this exact URL instead of searching by
+    /// artist/title — the only way to acquire a specific YouTube remix/edit that has no
+    /// Spotify/streaming equivalent. Null for Spotify- and Deezer-sourced items, which resolve by
+    /// identity through the provider chain.
     /// </summary>
     [MaxLength(2048)]
     public string? SourceUrl { get; set; }
+
+    /// <summary>
+    /// The YouTube video id behind <see cref="SourceUrl"/>, when that is a YouTube video. The dedupe key
+    /// for YouTube playlist sync, the same way <see cref="SpotifyTrackId"/> and
+    /// <see cref="DeezerTrackId"/> are for their sources. Items imported before this column existed
+    /// carry the id only inside <see cref="SourceUrl"/>, and the sync reads it from there.
+    /// </summary>
+    [MaxLength(32)]
+    public string? YouTubeVideoId { get; set; }
 
     [MaxLength(512)]
     public string Title { get; set; } = string.Empty;

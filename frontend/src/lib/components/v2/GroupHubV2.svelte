@@ -172,7 +172,7 @@
         {:else if group === 'add'}
           {#if admin}
             <GroupedList.Section
-              footer="Paste a Spotify track or YouTube link to download it into your library."
+              footer="Paste a Spotify track or YouTube video to download it into your library — or a playlist link to keep it in sync."
             >
               <GroupedList.Row icon={Link} onclick={() => (addOpen = true)}>
                 <span class="text-body text-primary md:text-sm">Add from link…</span>

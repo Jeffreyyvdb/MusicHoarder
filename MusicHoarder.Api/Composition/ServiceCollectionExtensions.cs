@@ -347,6 +347,8 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<Storage.StorageUsageBackgroundService>();
         // Single-track URL import: resolves a pasted YouTube video's metadata via a yt-dlp probe.
         services.AddSingleton<Import.IYouTubeMetadataResolver, Import.YouTubeMetadataResolver>();
+        // YouTube playlist wishlist sources: lists a playlist's videos via a flat yt-dlp read.
+        services.AddSingleton<Import.IYouTubePlaylistReader, Import.YouTubePlaylistReader>();
 
         // Quality upgrades (manual + automatic): search/download worker over the IUpgradeProvider
         // chain, the merge sweep that swaps a verified better file into the target row (Id-preserving),

@@ -3,14 +3,17 @@ using System.Text.RegularExpressions;
 namespace MusicHoarder.Api.Discover;
 
 /// <summary>
-/// Parses a pasted Spotify or Deezer playlist reference — a full web URL (with or without query string),
-/// a <c>spotify:playlist:{id}</c> URI, or a bare id — into a <c>(provider, playlistId)</c> pair. Deezer
-/// playlist ids are numeric; Spotify ids are base62 (typically 22 chars).
+/// Parses a pasted Spotify, Deezer or YouTube playlist reference — a full web URL (with or without query
+/// string), a <c>spotify:playlist:{id}</c> URI, or a bare id — into a <c>(provider, playlistId)</c> pair.
+/// Deezer playlist ids are numeric; Spotify ids are base62 (typically 22 chars). YouTube is recognised by
+/// URL only (the <c>list=</c> parameter of any youtube.com / youtu.be link): a bare YouTube list id can
+/// look like a Spotify id.
 /// </summary>
 public static partial class PlaylistUrlParser
 {
     public const string Spotify = "spotify";
     public const string Deezer = "deezer";
+    public const string YouTube = "youtube";
 
     public static bool TryParse(string? input, out string provider, out string playlistId)
     {
@@ -48,6 +51,15 @@ public static partial class PlaylistUrlParser
             return true;
         }
 
+        // (music.|m.|www.)youtube.com/playlist?list={id}, …/watch?v=…&list={id}, youtu.be/…?list={id}
+        var yt = YouTubeListRegex().Match(s);
+        if (yt.Success)
+        {
+            provider = YouTube;
+            playlistId = yt.Groups[1].Value;
+            return true;
+        }
+
         // Bare ids: Deezer playlist ids are numeric; Spotify ids are base62.
         if (NumericRegex().IsMatch(s))
         {
@@ -74,6 +86,12 @@ public static partial class PlaylistUrlParser
 
     [GeneratedRegex(@"deezer\.com/(?:[a-z]{2}/)?playlist/(\d+)", RegexOptions.IgnoreCase)]
     private static partial Regex DeezerWebRegex();
+
+    // `list=` may follow other query parameters (watch?v=…&list=…). List ids are [A-Za-z0-9_-].
+    [GeneratedRegex(
+        @"(?:youtu\.be/|(?:music\.|m\.|www\.)?youtube\.com/)[^\s]*?[?&]list=([A-Za-z0-9_-]+)",
+        RegexOptions.IgnoreCase)]
+    private static partial Regex YouTubeListRegex();
 
     [GeneratedRegex(@"^\d+$")]
     private static partial Regex NumericRegex();

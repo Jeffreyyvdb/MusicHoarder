@@ -95,6 +95,7 @@ public static class OriginKeys
     public const string SpotifyLiked = "spotifyLiked";
     public const string SpotifyPlaylist = "spotifyPlaylist";
     public const string DeezerPlaylist = "deezerPlaylist";
+    public const string YouTubePlaylist = "youtubePlaylist";
     public const string DirectUrl = "directUrl";
     public const string AlbumCompletion = "albumCompletion";
     /// <summary>Downloaded, but no wishlist link says why — quality upgrades, for one.</summary>
@@ -105,7 +106,7 @@ public static class OriginKeys
 
     public static readonly IReadOnlyList<string> All =
     [
-        SpotifyLiked, SpotifyPlaylist, DeezerPlaylist, DirectUrl, AlbumCompletion, OtherDownload, Synced, Local,
+        SpotifyLiked, SpotifyPlaylist, DeezerPlaylist, YouTubePlaylist, DirectUrl, AlbumCompletion, OtherDownload, Synced, Local,
     ];
 }
 

@@ -387,6 +387,7 @@ public sealed class StorageUsageCalculator(
         SongOriginSource.SpotifyLiked => OriginKeys.SpotifyLiked,
         SongOriginSource.SpotifyPlaylist => OriginKeys.SpotifyPlaylist,
         SongOriginSource.DeezerPlaylist => OriginKeys.DeezerPlaylist,
+        SongOriginSource.YouTubePlaylist => OriginKeys.YouTubePlaylist,
         SongOriginSource.DirectUrl => OriginKeys.DirectUrl,
         SongOriginSource.AlbumCompletion => OriginKeys.AlbumCompletion,
         _ => origin.Kind switch

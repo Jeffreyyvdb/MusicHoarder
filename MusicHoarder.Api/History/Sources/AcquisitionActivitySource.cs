@@ -91,6 +91,7 @@ public sealed class AcquisitionActivitySource(MusicHoarderDbContext db) : IActiv
             WishlistSourceType.LikedSongs => ("downloaded", "Downloaded", $"From Spotify — {sourceName ?? "Liked Songs"}"),
             WishlistSourceType.Playlist => ("downloaded", "Downloaded", $"From the Spotify playlist {ActivityText.Quote(sourceName)}"),
             WishlistSourceType.DeezerPlaylist => ("downloaded", "Downloaded", $"From the Deezer playlist {ActivityText.Quote(sourceName)}"),
+            WishlistSourceType.YouTubePlaylist => ("downloaded", "Downloaded", $"From the YouTube playlist {ActivityText.Quote(sourceName)}"),
             _ => ("downloaded", "Downloaded", sourceUrl is null ? "Added by hand" : $"Added by hand from {HostOf(sourceUrl)}"),
         };
     }
@@ -134,6 +135,7 @@ public sealed class AcquisitionActivitySource(MusicHoarderDbContext db) : IActiv
                 WishlistSourceType.LikedSongs => $"from Spotify — {group.Key.SourceName ?? "Liked Songs"}",
                 WishlistSourceType.Playlist => $"from the Spotify playlist {ActivityText.Quote(group.Key.SourceName)}",
                 WishlistSourceType.DeezerPlaylist => $"from the Deezer playlist {ActivityText.Quote(group.Key.SourceName)}",
+                WishlistSourceType.YouTubePlaylist => $"from the YouTube playlist {ActivityText.Quote(group.Key.SourceName)}",
                 _ => "by hand",
             };
             summaries.Add(ActivityText.Summary(

@@ -119,19 +119,24 @@ a mock-up. The image above follows your GitHub light or dark theme.</sub>
 ### Grow your library
 
 - **Discover playlists** *(optional)* — browse Deezer-backed editorial and chart playlists by genre
-  or search, or paste a Spotify/Deezer playlist link, then subscribe so new tracks are wishlisted
-  and (with downloads enabled) fetched automatically.
+  or search, or paste a Spotify/Deezer/YouTube playlist link, then subscribe so new tracks are
+  wishlisted and (with downloads enabled) fetched automatically.
 - **Spotify sync** *(optional)* — connect a Spotify account (read-only) and browse your Liked Songs
   and playlists with every track's local-library match shown inline. Add any playlist (or your Liked
   Songs) as an **auto-syncing wishlist source** so new additions flow in on their own, see a
   track-by-track *in-library vs missing* comparison, and a fast poll picks up songs you just liked
   within seconds.
-- **Wishlist with auto-download** *(optional)* — everything wishlisted (from Spotify sync or
-  Discover) is turned into an actual file by an ordered fetch chain: an optional streaming-FLAC
-  sidecar, a self-run [slskd](https://github.com/slskd/slskd) (Soulseek), then a yt-dlp fallback
-  that keeps native Opus and stamps the authoritative identity so the download enriches correctly
-  and lands in the right album. Already-owned tracks are skipped; failures retry individually or in
-  bulk. Off by default; see the [self-hosting guide](docs/SELF_HOSTING.md#optional-integrations).
+- **Wishlist with auto-download** *(optional)* — everything wishlisted (from Spotify sync,
+  Discover or a YouTube playlist) is turned into an actual file by an ordered fetch chain: an
+  optional streaming-FLAC sidecar, a self-run [slskd](https://github.com/slskd/slskd) (Soulseek),
+  then a yt-dlp fallback that keeps native Opus and stamps the authoritative identity so the
+  download enriches correctly and lands in the right album. Already-owned tracks are skipped;
+  failures retry individually or in bulk. Off by default; see the
+  [self-hosting guide](docs/SELF_HOSTING.md#optional-integrations).
+- **YouTube playlists** *(optional)* — paste a YouTube playlist link (public or unlisted) under
+  Add from link or Discover and subscribe: every video on it, and each one you add later, is
+  wishlisted and downloaded from that exact video — the song and its music video, in sync. The
+  playlist is re-read on the wishlist sync interval, and only new videos cost a request.
 - **Add from link** — paste a Spotify track or YouTube link to download it straight into the
   library.
 - **Playlist sync** *(optional)* — mirror your Spotify Liked Songs or any playlist as a static

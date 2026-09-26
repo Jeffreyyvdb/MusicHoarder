@@ -5,6 +5,7 @@ using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
 using MusicHoarder.Api.Deezer;
 using MusicHoarder.Api.Discover;
+using MusicHoarder.Api.Import;
 using MusicHoarder.Api.Matching;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
@@ -112,6 +113,7 @@ public static class DiscoverEndpoints
                 ResolvePlaylistRequest body,
                 IDeezerCatalogService deezer,
                 ISpotifyApiService spotifyApi,
+                IYouTubePlaylistReader youTubePlaylists,
                 MusicHoarderDbContext db,
                 CancellationToken ct) =>
             {
@@ -119,8 +121,28 @@ public static class DiscoverEndpoints
                     return Results.BadRequest(new
                     {
                         error = "invalid_url",
-                        message = "Could not recognize a Spotify or Deezer playlist link. Paste a playlist URL or id.",
+                        message = "Could not recognize a Spotify, Deezer or YouTube playlist link. Paste a playlist URL or id.",
                     });
+
+                if (provider == PlaylistUrlParser.YouTube)
+                {
+                    // One page of the listing: the name, cover and video count, not every video.
+                    var read = await youTubePlaylists.ReadAsync(playlistId, maxEntries: 1, ct);
+                    if (!read.Ok)
+                        return Results.UnprocessableEntity(new
+                        {
+                            error = "youtube_playlist_unreadable",
+                            message = read.Hint ?? "Could not read that YouTube playlist. It may be private, or yt-dlp is unavailable.",
+                            detail = read.Detail,
+                        });
+
+                    var youTube = read.Playlist!;
+                    var youTubeSubscribed = await db.WishlistSources
+                        .AnyAsync(s => s.SourceType == WishlistSourceType.YouTubePlaylist && s.YouTubePlaylistId == playlistId, ct);
+                    return Results.Ok(new ResolvePlaylistResponse(
+                        PlaylistUrlParser.YouTube, playlistId, youTube.Title, youTube.ThumbnailUrl,
+                        youTube.VideoCount, youTubeSubscribed));
+                }
 
                 if (provider == PlaylistUrlParser.Spotify)
                 {
@@ -154,7 +176,7 @@ public static class DiscoverEndpoints
                     deezerPlaylist.CoverUrl, deezerPlaylist.TrackCount, deezerSubscribed));
             })
             .WithName("DiscoverResolve")
-            .WithSummary("Resolve a pasted Spotify/Deezer playlist URL or id into subscribe-ready metadata.")
+            .WithSummary("Resolve a pasted Spotify/Deezer playlist URL or id, or a YouTube playlist URL, into subscribe-ready metadata.")
             .RequireAdmin();
 
         return app;

@@ -59,6 +59,10 @@ public static partial class ImportUrlParser
         return false;
     }
 
+    /// <summary>True for an 11-character YouTube video id.</summary>
+    public static bool IsYouTubeVideoId(string? value) =>
+        value is { Length: 11 } && YouTubeVideoIdRegex().IsMatch(value);
+
     /// <summary>Canonical clean watch URL for a parsed YouTube video id (no playlist/timestamp params).</summary>
     public static string YouTubeWatchUrl(string videoId) => $"https://www.youtube.com/watch?v={videoId}";
 
@@ -77,4 +81,7 @@ public static partial class ImportUrlParser
         @"(?:youtu\.be/|(?:music\.|m\.|www\.)?youtube\.com/(?:watch\?(?:[^\s&]*&)*v=|shorts/|embed/|v/|live/))([A-Za-z0-9_-]{11})",
         RegexOptions.IgnoreCase)]
     private static partial Regex YouTubeRegex();
+
+    [GeneratedRegex(@"^[A-Za-z0-9_-]{11}$")]
+    private static partial Regex YouTubeVideoIdRegex();
 }

@@ -34,6 +34,7 @@ const ORIGIN_META: Record<StorageOriginKey, StorageOriginMeta> = {
   spotifyLiked: { label: 'Spotify Liked Songs', color: 'bg-chart-1' },
   spotifyPlaylist: { label: 'Spotify playlists', color: 'bg-chart-2' },
   deezerPlaylist: { label: 'Deezer playlists', color: 'bg-chart-3' },
+  youtubePlaylist: { label: 'YouTube playlists', color: 'bg-red-500' },
   directUrl: { label: 'Added from a URL', color: 'bg-chart-4' },
   albumCompletion: { label: 'Album completion', color: 'bg-chart-5' },
   otherDownload: { label: 'Other downloads', color: 'bg-orange-500' },

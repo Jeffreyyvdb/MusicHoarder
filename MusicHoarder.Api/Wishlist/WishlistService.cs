@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using MusicHoarder.Api.Deezer;
+using MusicHoarder.Api.Download;
+using MusicHoarder.Api.Import;
 using MusicHoarder.Api.Logging;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Spotify;
@@ -30,13 +32,13 @@ public interface IWishlistService
 
     /// <summary>
     /// Pages the source's current tracks and appends any not already on the owner's wishlist as
-    /// Pending items (deduped by the owner's Spotify/Deezer track ids). Updates
+    /// Pending items (deduped by the owner's Spotify/Deezer track ids, or YouTube video ids). Updates
     /// <see cref="WishlistSource.LastSyncedAtUtc"/>.
     /// </summary>
     /// <param name="maxPages">
     /// When set, stop after this many Spotify pages (50 tracks each) instead of paging the whole source.
     /// Used by the fast Liked-Songs poll, which only needs the newest-first first page(s). Null = full sweep.
-    /// Ignored for Deezer sources (a discover playlist is always paged to completion).
+    /// Ignored for Deezer and YouTube sources (those playlists are always read to completion).
     /// </param>
     Task<WishlistSyncResult> SyncSourceAsync(
         Guid ownerId, WishlistSource source, CancellationToken ct, int? maxPages = null);
@@ -47,6 +49,8 @@ public class WishlistService(
     ISpotifyApiService spotifyApi,
     IDeezerCatalogService deezer,
     ISpotifyIsrcResolver isrcResolver,
+    IYouTubePlaylistReader youTubePlaylists,
+    IYouTubeMetadataResolver youTubeVideos,
     ILogger<WishlistService> logger) : IWishlistService
 {
     private const int Page = 50;
@@ -65,11 +69,15 @@ public class WishlistService(
             throw new InvalidOperationException("A playlistId is required for a playlist source.");
         if (type == WishlistSourceType.DeezerPlaylist && string.IsNullOrWhiteSpace(playlistId))
             throw new InvalidOperationException("A deezerPlaylistId is required for a Deezer playlist source.");
+        if (type == WishlistSourceType.YouTubePlaylist && string.IsNullOrWhiteSpace(playlistId))
+            throw new InvalidOperationException("A youTubePlaylistId is required for a YouTube playlist source.");
 
         // The single provider playlist id lands in exactly one of the typed columns (matches the unique
-        // indexes: Spotify playlists key on SpotifyPlaylistId, Deezer on DeezerPlaylistId).
+        // indexes: Spotify playlists key on SpotifyPlaylistId, Deezer on DeezerPlaylistId, YouTube on
+        // YouTubePlaylistId).
         var spotifyPlaylistId = type == WishlistSourceType.Playlist ? playlistId : null;
         var deezerPlaylistId = type == WishlistSourceType.DeezerPlaylist ? playlistId : null;
+        var youTubePlaylistId = type == WishlistSourceType.YouTubePlaylist ? playlistId?.Trim() : null;
 
         var (name, imageUrl) = await ResolveSourceMetadataAsync(type, playlistId, ct);
 
@@ -78,7 +86,8 @@ public class WishlistService(
             .FirstOrDefaultAsync(s => s.OwnerUserId == ownerId
                 && s.SourceType == type
                 && s.SpotifyPlaylistId == spotifyPlaylistId
-                && s.DeezerPlaylistId == deezerPlaylistId, ct);
+                && s.DeezerPlaylistId == deezerPlaylistId
+                && s.YouTubePlaylistId == youTubePlaylistId, ct);
 
         if (source is null)
         {
@@ -88,6 +97,7 @@ public class WishlistService(
                 SourceType = type,
                 SpotifyPlaylistId = spotifyPlaylistId,
                 DeezerPlaylistId = deezerPlaylistId,
+                YouTubePlaylistId = youTubePlaylistId,
                 Name = name,
                 ImageUrl = imageUrl,
                 AutoSync = autoSync,
@@ -108,9 +118,12 @@ public class WishlistService(
 
     public Task<WishlistSyncResult> SyncSourceAsync(
         Guid ownerId, WishlistSource source, CancellationToken ct, int? maxPages = null) =>
-        source.SourceType == WishlistSourceType.DeezerPlaylist
-            ? SyncDeezerSourceAsync(ownerId, source, ct)
-            : SyncSpotifySourceAsync(ownerId, source, ct, maxPages);
+        source.SourceType switch
+        {
+            WishlistSourceType.DeezerPlaylist => SyncDeezerSourceAsync(ownerId, source, ct),
+            WishlistSourceType.YouTubePlaylist => SyncYouTubeSourceAsync(ownerId, source, ct),
+            _ => SyncSpotifySourceAsync(ownerId, source, ct, maxPages),
+        };
 
     private async Task<WishlistSyncResult> SyncSpotifySourceAsync(
         Guid ownerId, WishlistSource source, CancellationToken ct, int? maxPages)
@@ -285,6 +298,148 @@ public class WishlistService(
         return new WishlistSyncResult(source.Id, added, alreadyPresent);
     }
 
+    /// <summary>
+    /// Appends the playlist's new videos. Each item downloads that exact video — its audio, and the
+    /// clip itself as the song's music video, whatever the server's music-video default: the video is
+    /// why it is on the list. The flat listing carries no channel, so each new video is probed once
+    /// for its artist (and, for YouTube Music uploads, its album); only new videos cost a request.
+    /// </summary>
+    private async Task<WishlistSyncResult> SyncYouTubeSourceAsync(
+        Guid ownerId, WishlistSource source, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(source.YouTubePlaylistId))
+            return new WishlistSyncResult(source.Id, 0, 0);
+
+        var outcome = await youTubePlaylists.ReadAsync(source.YouTubePlaylistId, maxEntries: null, ct);
+        if (!outcome.Ok)
+            throw new InvalidOperationException(
+                $"Could not read the YouTube playlist: {outcome.Hint ?? outcome.Detail ?? "no detail from yt-dlp"}");
+        var playlist = outcome.Playlist!;
+
+        // Dedupe by video against every row of the owner's wishlist, from any source. A video pasted by
+        // hand before YouTubeVideoId existed carries its id only inside its SourceUrl.
+        var existing = await db.WishlistItems
+            .IgnoreQueryFilters()
+            .Where(w => w.OwnerUserId == ownerId && (w.YouTubeVideoId != null || w.SourceUrl != null))
+            .Select(w => new { w.YouTubeVideoId, w.SourceUrl })
+            .ToListAsync(ct);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var row in existing)
+        {
+            if (row.YouTubeVideoId is { } videoId)
+                seen.Add(videoId);
+            else if (ImportUrlParser.TryParse(row.SourceUrl, out var kind, out var parsedId) && kind == ImportUrlKind.YouTube)
+                seen.Add(parsedId);
+        }
+
+        var added = 0;
+        var alreadyPresent = 0;
+        foreach (var entry in playlist.Entries)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (!seen.Add(entry.VideoId))
+            {
+                alreadyPresent++;
+                continue;
+            }
+
+            // Re-check before the probe: a first snapshot is slow, and the periodic sweep can reach the
+            // same playlist while it runs. The other run may have stored this video since `seen` was read,
+            // and a probe is a YouTube request.
+            if (await db.WishlistItems.IgnoreQueryFilters()
+                    .AnyAsync(w => w.OwnerUserId == ownerId && w.YouTubeVideoId == entry.VideoId, ct))
+            {
+                alreadyPresent++;
+                continue;
+            }
+
+            var watchUrl = ImportUrlParser.YouTubeWatchUrl(entry.VideoId);
+            var video = await DescribeVideoAsync(entry, watchUrl, ct);
+            var now = DateTime.UtcNow;
+            var item = new WishlistItem
+            {
+                OwnerUserId = ownerId,
+                WishlistSourceId = source.Id,
+                YouTubeVideoId = entry.VideoId,
+                SourceUrl = watchUrl,
+                Title = video.Title,
+                Artist = video.Artist,
+                Album = video.Album,
+                DurationMs = video.DurationMs,
+                AlbumArt = video.CoverUrl,
+                DownloadMusicVideo = true,
+                // No save date: YouTube's flat listing does not say when a video was added, and this
+                // column is read as "when you saved it on Spotify".
+                SpotifyAddedAtUtc = null,
+                Status = WishlistItemStatus.Pending,
+                CreatedAtUtc = now,
+                UpdatedAtUtc = now,
+            };
+            db.WishlistItems.Add(item);
+
+            // Per item, like the Deezer path: probing makes a first snapshot slow, so rows appear as they
+            // are read and a cancellation keeps what was done.
+            try
+            {
+                await db.SaveChangesAsync(ct);
+                added++;
+            }
+            catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException { SqlState: Npgsql.PostgresErrorCodes.UniqueViolation })
+            {
+                // The unique (owner, video) index: the other run stored the video between the re-check
+                // above and this save. Forget this copy so the context can keep saving, and go on.
+                db.Entry(item).State = EntityState.Detached;
+                alreadyPresent++;
+                logger.LogInformation("YouTube video {VideoId} was already on the wishlist; skipped", entry.VideoId);
+            }
+        }
+
+        // The listing names the playlist, so a rename on YouTube (or a source created while YouTube
+        // could not be read, and named after its id) catches up here.
+        source.Name = playlist.Title;
+        source.ImageUrl = playlist.ThumbnailUrl ?? source.ImageUrl;
+        source.LastSyncedAtUtc = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+
+        if (added > 0)
+            logger.LogInformation("Wishlist source {SourceId} ({Name}): added {Added} new YouTube videos", source.Id, LogSanitizer.ForLog(source.Name), added);
+
+        return new WishlistSyncResult(source.Id, added, alreadyPresent);
+    }
+
+    private sealed record YouTubeVideoIdentity(string Title, string Artist, string? Album, int DurationMs, string? CoverUrl);
+
+    /// <summary>
+    /// What a new playlist video is, for the wishlist row and the tags the downloader stamps. The probe
+    /// reads the video's own page (YouTube Music's artist/track fields, else the channel); when it fails
+    /// the video title alone is split as "Artist - Title". Upload noise such as "(Official Music Video)"
+    /// is stripped from the title either way: no one edits these rows before they download, and that
+    /// noise in TITLE is what sends a downloaded track to review instead of a match.
+    /// </summary>
+    private async Task<YouTubeVideoIdentity> DescribeVideoAsync(
+        YouTubePlaylistEntry entry, string watchUrl, CancellationToken ct)
+    {
+        var probe = await youTubeVideos.ProbeAsync(watchUrl, ct);
+        if (probe.Result is { } r)
+            return new YouTubeVideoIdentity(
+                CleanTitle(r.Title), r.Artist, r.Album,
+                r.DurationMs > 0 ? r.DurationMs : entry.DurationMs,
+                r.ThumbnailUrl ?? DefaultThumbnail(entry.VideoId));
+
+        var (artist, title) = YouTubeMetadataResolver.Derive(entry.Title, track: null, artist: null, uploader: null);
+        return new YouTubeVideoIdentity(
+            CleanTitle(title), artist, Album: null, entry.DurationMs, DefaultThumbnail(entry.VideoId));
+    }
+
+    private static string CleanTitle(string title)
+    {
+        var cleaned = MusicVideoDownloader.StripNoiseSegments(title);
+        return cleaned.Length > 0 ? cleaned : title.Trim();
+    }
+
+    /// <summary>The one thumbnail every YouTube video has (480×360); the probe usually finds a larger one.</summary>
+    private static string DefaultThumbnail(string videoId) => $"https://i.ytimg.com/vi/{videoId}/hqdefault.jpg";
+
     private async Task<(IReadOnlyList<SpotifyTrackItem> Items, int Total)> FetchSpotifyPageAsync(
         WishlistSource source, int offset, CancellationToken ct)
     {
@@ -308,6 +463,17 @@ public class WishlistService(
     {
         if (type == WishlistSourceType.LikedSongs)
             return ("Liked Songs", null);
+
+        if (type == WishlistSourceType.YouTubePlaylist)
+        {
+            // First page only: the name, cover and count, not every video.
+            var outcome = string.IsNullOrWhiteSpace(playlistId)
+                ? null
+                : await youTubePlaylists.ReadAsync(playlistId, maxEntries: 1, ct);
+            return outcome?.Playlist is { } youTube
+                ? (youTube.Title, youTube.ThumbnailUrl)
+                : (playlistId ?? "Playlist", null);
+        }
 
         if (type == WishlistSourceType.DeezerPlaylist)
         {

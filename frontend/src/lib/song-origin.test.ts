@@ -75,6 +75,16 @@ describe('songOriginLabel', () => {
     expect(songOriginLabel(song({}))).toBeNull();
   });
 
+  it('names the YouTube playlist a synced video came from, and does not call it a link', () => {
+    const s = song({ originSource: 'YouTubePlaylist', originDetail: 'Cool music', originKind: 'Downloaded' });
+    const label = songOriginLabel(s);
+    expect(label?.label).toBe('YouTube');
+    expect(label?.title).toContain('Cool music');
+    // "Added by link" is the Add-from-link dialog; a playlist sync is not that.
+    expect(isAddedByLink(s)).toBe(false);
+    expect(isSpotifySourced(s)).toBe(false);
+  });
+
   it('names the album an album-fill track was completing', () => {
     const label = songOriginLabel(
       song({ originSource: 'AlbumCompletion', originDetail: 'Discovery', originKind: 'Downloaded' })

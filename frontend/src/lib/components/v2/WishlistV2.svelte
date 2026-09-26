@@ -98,6 +98,7 @@
     CircleCheck,
     ChevronRight,
     Music,
+    ListVideo,
     Lock,
     Disc3,
     Ellipsis,
@@ -119,6 +120,7 @@
     updateSettings,
     openProgressStream,
     isPermissionError,
+    playlistProviderLabel,
     type WishlistItem,
     type WishlistSource,
     type WishlistItemStatus,
@@ -967,8 +969,7 @@
     <GroupedList.Row
       class={rowClass}
       label={source.name}
-      sublabel="{source.provider === 'deezer' ? 'Deezer' : 'Spotify'}{source.sourceType ===
-      'LikedSongs'
+      sublabel="{playlistProviderLabel(source.provider)}{source.sourceType === 'LikedSongs'
         ? ''
         : ' playlist'} · {source.itemCount.toLocaleString()} tracks"
     >
@@ -990,7 +991,9 @@
             class="bg-muted text-muted-foreground flex size-10 items-center justify-center rounded-sm"
             aria-hidden="true"
           >
-            {#if source.sourceType === 'LikedSongs'}<Heart class="size-5" />{:else}<Music
+            {#if source.sourceType === 'LikedSongs'}<Heart
+                class="size-5"
+              />{:else if source.provider === 'youtube'}<ListVideo class="size-5" />{:else}<Music
                 class="size-5"
               />{/if}
           </span>

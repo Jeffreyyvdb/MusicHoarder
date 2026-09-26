@@ -26,6 +26,7 @@ public enum SongOriginSource
     SpotifyLiked,
     SpotifyPlaylist,
     DeezerPlaylist,
+    YouTubePlaylist,
     DirectUrl,
 
     /// <summary>
@@ -82,6 +83,7 @@ public static class SongOriginResolver
             WishlistSourceType.LikedSongs => (SongOriginSource.SpotifyLiked, l.SourceName ?? "Liked Songs"),
             WishlistSourceType.Playlist => (SongOriginSource.SpotifyPlaylist, l.SourceName),
             WishlistSourceType.DeezerPlaylist => (SongOriginSource.DeezerPlaylist, l.SourceName),
+            WishlistSourceType.YouTubePlaylist => (SongOriginSource.YouTubePlaylist, l.SourceName),
             // Album completion carries no WishlistSource (there's no remote collection to sync), so it
             // is identified by the item's own origin discriminator instead.
             null when l.Origin == WishlistItemOrigin.AlbumCompletion => (SongOriginSource.AlbumCompletion, l.Album),
@@ -122,18 +124,20 @@ public static class SongOriginResolver
     /// <summary>
     /// Picks the link that best describes a song when several wishlist items point at it (a track can
     /// sit in Liked Songs and a playlist at once). Liked Songs wins — its timestamp is the real
-    /// "when did I like this" — then playlists, then a bare URL; ties go to the earliest save.
+    /// "when did I like this" — then playlists (Spotify, Deezer, YouTube), then a bare URL; ties go to
+    /// the earliest save.
     /// Album completion ranks last of all: if anything asked for this track by name, that is the more
     /// interesting answer to "where did this come from".
     /// </summary>
     public static WishlistLink Best(IEnumerable<WishlistLink> links) =>
         links
-            .OrderBy(l => l.Origin == WishlistItemOrigin.AlbumCompletion ? 4 : l.SourceType switch
+            .OrderBy(l => l.Origin == WishlistItemOrigin.AlbumCompletion ? 5 : l.SourceType switch
             {
                 WishlistSourceType.LikedSongs => 0,
                 WishlistSourceType.Playlist => 1,
                 WishlistSourceType.DeezerPlaylist => 2,
-                _ => 3,
+                WishlistSourceType.YouTubePlaylist => 3,
+                _ => 4,
             })
             .ThenBy(l => l.SpotifyAddedAtUtc ?? DateTime.MaxValue)
             .First();

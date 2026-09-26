@@ -325,6 +325,10 @@ public class MusicHoarderDbContext : DbContext
             entity.HasIndex(e => new { e.OwnerUserId, e.SourceType, e.DeezerPlaylistId })
                 .IsUnique()
                 .HasFilter("\"DeezerPlaylistId\" IS NOT NULL");
+            // YouTube playlists likewise, on their own column.
+            entity.HasIndex(e => new { e.OwnerUserId, e.SourceType, e.YouTubePlaylistId })
+                .IsUnique()
+                .HasFilter("\"YouTubePlaylistId\" IS NOT NULL");
 
             entity.HasQueryFilter(s => !hasUser || s.OwnerUserId == userId);
         });
@@ -341,6 +345,10 @@ public class MusicHoarderDbContext : DbContext
             entity.HasIndex(e => new { e.OwnerUserId, e.DeezerTrackId })
                 .IsUnique()
                 .HasFilter("\"DeezerTrackId\" IS NOT NULL");
+            // And by YouTube video: one row per video, whether a playlist sync or a pasted link added it.
+            entity.HasIndex(e => new { e.OwnerUserId, e.YouTubeVideoId })
+                .IsUnique()
+                .HasFilter("\"YouTubeVideoId\" IS NOT NULL");
             // The download worker sweeps by owner + status, then orders by origin (user-requested work
             // is claimed strictly before album completion), so the index covers all three.
             entity.HasIndex(e => new { e.OwnerUserId, e.Status, e.Origin });

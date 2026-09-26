@@ -10,7 +10,7 @@ using MusicHoarder.Api.Spotify;
 namespace MusicHoarder.Api.Wishlist;
 
 /// <summary>
-/// Keeps the wishlist current with Spotify on two cadences from a single loop. Every tick runs a cheap
+/// Keeps the wishlist current with its sources (Spotify, Deezer and YouTube) on two cadences from a single loop. Every tick runs a cheap
 /// near-real-time <em>fast poll</em> of auto-synced Liked-Songs sources (first page(s) only, newest-first),
 /// so a freshly liked song lands on the wishlist within <c>LikedSongsFastPollSeconds</c> instead of waiting
 /// the full interval; once per <c>WishlistSyncIntervalMinutes</c> the tick instead runs a <em>full sweep</em>
@@ -117,15 +117,16 @@ public class WishlistSyncBackgroundService(
         var sources = await sourcesQuery.ToListAsync(ct);
         if (sources.Count == 0) return 0;
 
-        // Spotify-backed sources (Liked Songs, Spotify playlists) need a connected account; Deezer
-        // playlists sync over the free public API regardless. Gate only the Spotify-dependent sources on
-        // connectivity so a Deezer-only user's subscriptions still resync when Spotify isn't connected.
+        // Spotify-backed sources (Liked Songs, Spotify playlists) need a connected account; Deezer and
+        // YouTube playlists are read from public listings regardless. Gate only the Spotify-dependent
+        // sources on connectivity so a Deezer- or YouTube-only user's subscriptions still resync when
+        // Spotify isn't connected.
         var connected = await db.SpotifySettings
             .IgnoreQueryFilters()
             .AsNoTracking()
             .AnyAsync(s => !string.IsNullOrEmpty(s.AccessToken) && !string.IsNullOrEmpty(s.RefreshToken), ct);
         if (!connected)
-            sources = sources.Where(s => s.SourceType == WishlistSourceType.DeezerPlaylist).ToList();
+            sources = sources.Where(s => !s.NeedsSpotify).ToList();
         if (sources.Count == 0) return 0;
 
         int? maxPages = full ? null : Math.Max(1, spotifyOptions.Value.WishlistFastPollMaxPages);
