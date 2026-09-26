@@ -19,6 +19,7 @@ import Library from '@lucide/svelte/icons/library';
 import Link2 from '@lucide/svelte/icons/link-2';
 import ListMusic from '@lucide/svelte/icons/list-music';
 import ListVideo from '@lucide/svelte/icons/list-video';
+import MessageCircle from '@lucide/svelte/icons/message-circle';
 import Music2 from '@lucide/svelte/icons/music-2';
 import Settings from '@lucide/svelte/icons/settings';
 import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal';
@@ -43,8 +44,9 @@ import type { SessionUser } from '$lib/auth/session-types';
  * and /track/[id] belonged to no section at all. Adding a route in one place and forgetting
  * the other five is the failure mode this module exists to make impossible.
  *
- * Four groups, in sidebar order:
+ * Five groups, in sidebar order:
  *   Listen — the results. What the pipeline produced, for playing.
+ *   Chats  — talking to the other people on this instance, and what they sent you.
  *   Inbox  — the pile that needs a human decision.
  *   Add    — the doors music comes in through.
  *   Manage — the machinery, plus the numbers it produces and the knobs it takes.
@@ -101,7 +103,7 @@ function isArtistView(url: URL): boolean {
   );
 }
 
-export type NavGroupId = 'listen' | 'inbox' | 'add' | 'manage';
+export type NavGroupId = 'listen' | 'chats' | 'inbox' | 'add' | 'manage';
 
 export type NavItem = {
   /** Unique across ALL groups — the sidebar, strip and tests key off it. */
@@ -187,6 +189,23 @@ export const NAV_GROUPS: NavGroup[] = [
         href: '/tracks',
         icon: ListMusic,
         keywords: 'songs everything liked favourites favorites hearts loved my music mine local files spotify video lyrics unreleased'
+      }
+    ]
+  },
+  {
+    // Everyone's, not administration: a member gets it as a fifth tab beside Listen's four pages.
+    id: 'chats',
+    label: 'Chats',
+    href: '/chats',
+    hub: '/chats',
+    icon: MessageCircle,
+    items: [
+      {
+        id: 'messages',
+        label: 'Messages',
+        href: '/chats',
+        icon: MessageCircle,
+        keywords: 'chat chats messages message dm send share friends people conversation talk'
       }
     ]
   },
@@ -382,9 +401,10 @@ export const NAV_GROUPS: NavGroup[] = [
 export function navGroupsFor(user: NavAudience): NavGroup[] {
   // The demo keeps the FULL nav on purpose: it exists to show the whole product, pipeline
   // included, and it is already write-blocked server-side by DemoReadOnlyMiddleware. Narrowing it
-  // to Listen would quietly turn the public demo into a music player. Only a member is narrowed.
+  // to Listen would quietly turn the public demo into a music player. Only a member is narrowed —
+  // to listening and chatting.
   if (isAdmin(user) || isDemo(user)) return NAV_GROUPS;
-  return NAV_GROUPS.filter((g) => g.id === 'listen');
+  return NAV_GROUPS.filter((g) => g.id === 'listen' || g.id === 'chats');
 }
 
 /** Whoever the nav is being built for. Structural, so tests can pass a bare object. */
@@ -491,8 +511,8 @@ export type NavTab = {
   root: string;
   /** Show a live pulse dot while a pipeline job is running. */
   live?: boolean;
-  /** Which count badges this tab. Only the Inbox has one; the predicate lives in nav-badges. */
-  badge?: 'inbox';
+  /** Which count badges this tab: the Inbox's (nav-badges) or unread chats (the chat store). */
+  badge?: 'inbox' | 'chats';
 };
 
 /** One tab per group, rooted at the group's hub. */
@@ -502,10 +522,17 @@ const GROUP_TABS: NavTab[] = NAV_GROUPS.map((g) => ({
   icon: g.icon,
   root: g.hub,
   ...(g.live ? { live: true } : {}),
-  ...(g.id === 'inbox' ? { badge: 'inbox' as const } : {})
+  ...(g.id === 'inbox' ? { badge: 'inbox' as const } : {}),
+  ...(g.id === 'chats' ? { badge: 'chats' as const } : {})
 }));
 
 const INBOX_TAB = GROUP_TABS.find((t) => t.id === 'inbox') ?? null;
+
+const CHATS_TAB = (() => {
+  const tab = GROUP_TABS.find((t) => t.id === 'chats');
+  if (!tab) throw new Error('nav: no Chats tab');
+  return tab;
+})();
 
 const LISTEN = (() => {
   const group = NAV_GROUPS.find((g) => g.id === 'listen');
@@ -522,6 +549,9 @@ const ITEM_TABS: NavTab[] = LISTEN.items.map((item) => ({
   ...(item.live ? { live: true } : {})
 }));
 
+/** A member's tab bar: Listen's own pages, then Chats — the same tab an admin has. */
+const MEMBER_TABS: NavTab[] = [...ITEM_TABS, CHATS_TAB];
+
 function listenItem(id: string): NavItem {
   const item = LISTEN.items.find((i) => i.id === id);
   if (!item) throw new Error(`nav: no Listen item '${id}'`);
@@ -537,13 +567,14 @@ function param(url: URL, name: string): string | null {
 /**
  * The tabs the compact tab bar shows.
  *
- * An audience that sees several groups (admin, demo) gets one tab per group, rooted at the hub. A
- * member sees only Listen, and a tab bar with one tab is not navigation — so their tabs are
- * Listen's own pages, the same four the Android client's library shell switches between.
- * The arrays are module constants, so the result is referentially stable per audience.
+ * An audience that sees the whole nav (admin, demo) gets one tab per group, rooted at the hub. A
+ * member sees Listen and Chats, and a Listen tab over a single hub would hide the four pages that
+ * are the whole of their app — so their tabs are Listen's own pages (the same four the Android
+ * client's library shell switches between) plus Chats. The arrays are module constants, so the
+ * result is referentially stable per audience.
  */
 export function tabsFor(user: NavAudience): NavTab[] {
-  return navGroupsFor(user).length > 1 ? GROUP_TABS : ITEM_TABS;
+  return navGroupsFor(user).length === NAV_GROUPS.length ? GROUP_TABS : MEMBER_TABS;
 }
 
 /**
@@ -570,7 +601,7 @@ function rootTabOf(url: URL, user: NavAudience): NavTab | null {
   ) {
     return null;
   }
-  return ITEM_TABS.find((t) => t.root === path) ?? null;
+  return MEMBER_TABS.find((t) => t.root === path) ?? null;
 }
 
 /**
@@ -614,6 +645,8 @@ export function tabFor(url: URL, user: NavAudience, activeTabId?: string | null)
     return tabs.find((t) => t.id === match.group.id) ?? null;
   }
 
+  // A conversation belongs to Chats wherever it was opened from (a notification, Send to…).
+  if (match.group.id === CHATS_TAB.id) return CHATS_TAB;
   if (match.group.id !== LISTEN.id) return null;
   if (active) return active;
   const path = strip(url.pathname);
@@ -661,6 +694,8 @@ export function backFor(url: URL, user: NavAudience): NavBack | null {
     if (artist) return to(listenItem('artists'));
   }
   if (under('/track')(url)) return to(listenItem('tracks'));
+  // A conversation, and the share-sheet page, go back to the list of chats — for every audience.
+  if (match.group.id === CHATS_TAB.id) return { label: CHATS_TAB.label, href: CHATS_TAB.root };
 
   // A member has no hubs: everything that is not a tab root sits on top of their Overview. That
   // includes /settings, which is not in their nav at all.

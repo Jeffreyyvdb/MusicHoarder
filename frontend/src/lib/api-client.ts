@@ -2578,6 +2578,280 @@ export function shareUrl(token: string): string {
   return `${location.origin}/share/${encodeURIComponent(token)}`
 }
 
+// ── Chat (between the accounts of this instance) ─────────────────────────────
+
+/** Someone you can chat with. `email` is only sent to administrators. */
+export interface ChatPerson {
+  id: string
+  name: string
+  email?: string | null
+  isAdmin: boolean
+}
+
+/** A song or album carried by a share link. `token` is null once the link was revoked. */
+export interface ChatShare {
+  token: string | null
+  scope: "Song" | "Album"
+  songId: number
+  title: string
+  artist?: string | null
+  album?: string | null
+  year?: number | null
+  hasCover: boolean
+  revoked: boolean
+  /** The viewer owns the song: play it from their own library rather than through the link. */
+  ownedByViewer: boolean
+  ownerName?: string | null
+}
+
+export interface ChatLink {
+  url: string
+  provider?: "spotify" | "youtube" | null
+  kind?: string | null
+  title?: string | null
+  subtitle?: string | null
+  imageUrl?: string | null
+  /** A Spotify track the viewer already has: the song to play instead. */
+  librarySongId?: number | null
+}
+
+export type ChatMessageKind = "text" | "share" | "link" | "shareOpened"
+
+export interface ChatMessage {
+  id: number
+  conversationId: string
+  senderId: string
+  mine: boolean
+  kind: ChatMessageKind
+  text?: string | null
+  share?: ChatShare | null
+  link?: ChatLink | null
+  /** A server-written line shown with the message (why a share-link open is in your chats). */
+  notice?: string | null
+  createdAtUtc: string
+}
+
+export interface ChatConversation {
+  id: string
+  /** The other people in it — never you. */
+  members: ChatPerson[]
+  lastMessage?: ChatMessage | null
+  unreadCount: number
+  lastMessageAtUtc: string
+  lastReadAtUtc?: string | null
+  /** How far the other person has read, in a direct chat: what "Seen" is decided from. */
+  peerLastReadAtUtc?: string | null
+}
+
+export interface ChatMessagePage {
+  messages: ChatMessage[]
+  hasMore: boolean
+}
+
+/** What to send: text, and at most one of a song/album of yours or a link. */
+export interface ChatDraft {
+  text?: string | null
+  url?: string | null
+  songId?: number | null
+  scope?: "song" | "album" | null
+}
+
+export async function fetchChatPeople(): Promise<ChatPerson[]> {
+  return requestJson<ChatPerson[]>("/api/chat/people")
+}
+
+export async function fetchChatConversations(): Promise<ChatConversation[]> {
+  return requestJson<ChatConversation[]>("/api/chat/conversations")
+}
+
+export async function fetchChatConversation(id: string): Promise<ChatConversation> {
+  return requestJson<ChatConversation>(`/api/chat/conversations/${encodeURIComponent(id)}`)
+}
+
+export async function startChatConversation(userId: string): Promise<ChatConversation> {
+  return requestJson<ChatConversation>("/api/chat/conversations", {
+    method: "POST",
+    body: JSON.stringify({ userId }),
+  })
+}
+
+export async function fetchChatMessages(
+  conversationId: string,
+  opts: { before?: number; after?: number; limit?: number } = {},
+): Promise<ChatMessagePage> {
+  const q = new URLSearchParams()
+  if (opts.before != null) q.set("before", String(opts.before))
+  if (opts.after != null) q.set("after", String(opts.after))
+  if (opts.limit != null) q.set("limit", String(opts.limit))
+  const query = q.toString()
+  return requestJson<ChatMessagePage>(
+    `/api/chat/conversations/${encodeURIComponent(conversationId)}/messages${query ? `?${query}` : ""}`,
+  )
+}
+
+export async function sendChatMessage(conversationId: string, draft: ChatDraft): Promise<ChatMessage> {
+  return requestJson<ChatMessage>(`/api/chat/conversations/${encodeURIComponent(conversationId)}/messages`, {
+    method: "POST",
+    body: JSON.stringify(draft),
+  })
+}
+
+/** The same message to several people, each in their own direct chat (Send to…, the share sheet). */
+export async function sendChatToPeople(recipientIds: string[], draft: ChatDraft): Promise<{ messages: ChatMessage[] }> {
+  return requestJson<{ messages: ChatMessage[] }>("/api/chat/send", {
+    method: "POST",
+    body: JSON.stringify({ recipientIds, ...draft }),
+  })
+}
+
+export async function markChatRead(conversationId: string): Promise<void> {
+  await requestJson<unknown>(`/api/chat/conversations/${encodeURIComponent(conversationId)}/read`, { method: "POST" })
+}
+
+/** The conversation a share link you opened was put in, and who shared it; null when there is none. */
+export async function fetchChatShareContext(
+  token: string,
+): Promise<{ conversationId: string; ownerName: string } | null> {
+  try {
+    return await requestJson<{ conversationId: string; ownerName: string }>(
+      `/api/chat/share-links/${encodeURIComponent(token)}`,
+    )
+  } catch {
+    return null
+  }
+}
+
+/** The chat stream (server-sent events), through the same-origin proxy. */
+export const CHAT_STREAM_URL = `${API_PREFIX}/api/chat/stream`
+
+export interface ChatStreamHandlers {
+  /** The stream (re)opened: anything may have happened while it was down, so re-read. */
+  onReady: () => void
+  onMessage: (event: { conversationId: string; messageId: number }) => void
+  onRead: (event: { conversationId: string; userId: string; lastReadAtUtc: string }) => void
+}
+
+/**
+ * Open the account's chat stream and keep it open — the same arrangement as
+ * {@link openPlaybackStream}: `EventSource` reconnects by itself after the server's routine end of
+ * each stream, and an HTTP error (which it never retries) is retried here with the same backoff.
+ * Events only say what changed; the handlers re-read. Returns the close function.
+ */
+export function openChatStream(
+  handlers: ChatStreamHandlers,
+  options: {
+    createEventSource?: (url: string) => EventSource
+    setTimer?: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>
+    clearTimer?: (timer: ReturnType<typeof setTimeout>) => void
+  } = {},
+): () => void {
+  const create = options.createEventSource ?? ((url: string) => new EventSource(url))
+  const setTimer = options.setTimer ?? ((fn: () => void, ms: number) => setTimeout(fn, ms))
+  const clearTimer = options.clearTimer ?? ((timer: ReturnType<typeof setTimeout>) => clearTimeout(timer))
+  let source: EventSource | null = null
+  let retryTimer: ReturnType<typeof setTimeout> | null = null
+  let backoff = 0
+  let closed = false
+
+  const record = (event: Event): Record<string, unknown> | null => {
+    const value = parseEventData((event as MessageEvent).data)
+    return value && typeof value === "object" ? (value as Record<string, unknown>) : null
+  }
+
+  const connect = () => {
+    retryTimer = null
+    if (closed) return
+    const es = create(CHAT_STREAM_URL)
+    source = es
+    es.addEventListener("ready", () => {
+      backoff = 0
+      handlers.onReady()
+    })
+    es.addEventListener("message", (event) => {
+      const body = record(event)
+      if (typeof body?.conversationId === "string" && typeof body.messageId === "number") {
+        handlers.onMessage({ conversationId: body.conversationId, messageId: body.messageId })
+      }
+    })
+    es.addEventListener("read", (event) => {
+      const body = record(event)
+      if (
+        typeof body?.conversationId === "string" &&
+        typeof body.userId === "string" &&
+        typeof body.lastReadAtUtc === "string"
+      ) {
+        handlers.onRead({
+          conversationId: body.conversationId,
+          userId: body.userId,
+          lastReadAtUtc: body.lastReadAtUtc,
+        })
+      }
+    })
+    es.onerror = () => {
+      if (es.readyState !== EVENT_SOURCE_CLOSED) return
+      es.close()
+      if (closed || source !== es) return
+      source = null
+      backoff = nextStreamBackoff(backoff)
+      retryTimer = setTimer(connect, backoff)
+    }
+  }
+
+  connect()
+  return () => {
+    closed = true
+    if (retryTimer) clearTimer(retryTimer)
+    retryTimer = null
+    source?.close()
+    source = null
+  }
+}
+
+// ── Push notifications ───────────────────────────────────────────────────────
+
+export interface PushConfig {
+  enabled: boolean
+  publicKey?: string | null
+}
+
+export async function fetchPushConfig(): Promise<PushConfig> {
+  return requestJson<PushConfig>("/api/push/config")
+}
+
+/** Saves this browser's subscription (the shape of `PushSubscription.toJSON()`) for the signed-in account. */
+export async function savePushSubscription(subscription: PushSubscriptionJSON): Promise<void> {
+  const response = await fetch(`${API_PREFIX}/api/push/subscriptions`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(subscription),
+    cache: "no-store",
+  })
+  if (!response.ok) {
+    let message = `Could not turn on notifications (${response.status}).`
+    try {
+      const body = (await response.json()) as { message?: string }
+      if (body.message) message = body.message
+    } catch {
+      // keep the generic message
+    }
+    throw new ApiError(message, null, response.status)
+  }
+}
+
+export async function removePushSubscription(endpoint: string): Promise<void> {
+  await fetch(`${API_PREFIX}/api/push/unsubscribe`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ endpoint }),
+    cache: "no-store",
+    keepalive: true,
+  }).catch(() => {})
+}
+
+export async function sendTestPush(): Promise<{ subscriptions: number; delivered: number }> {
+  return requestJson<{ subscriptions: number; delivered: number }>("/api/push/test", { method: "POST" })
+}
+
 // ── Friends (owner-only management: invites + grants) ────────────────────────
 
 export interface FriendInviteView {

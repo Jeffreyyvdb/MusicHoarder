@@ -117,6 +117,41 @@ public class MemberWriteGuardMiddlewareTests
         Assert.True(nextCalled());
     }
 
+    // --- Chat and notifications ------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("POST", "/api/chat/conversations")]
+    [InlineData("POST", "/api/chat/send")]
+    [InlineData("POST", "/api/chat/conversations/7c9e6679-7425-40de-944b-e07fc1f90ae7/messages")]
+    [InlineData("POST", "/api/chat/conversations/7c9e6679-7425-40de-944b-e07fc1f90ae7/read")]
+    [InlineData("POST", "/api/push/subscriptions")]
+    [InlineData("POST", "/api/push/unsubscribe")]
+    [InlineData("POST", "/api/push/test")]
+    public async Task Member_may_chat_and_manage_their_notifications_without_any_capability(string method, string path)
+    {
+        // ChatService checks conversation membership on every route and a subscription is saved for
+        // the caller only, so holding an account is the whole requirement.
+        var (_, nextCalled) = await InvokeAsync(NoCapabilities, method, path);
+
+        Assert.True(nextCalled());
+    }
+
+    [Theory]
+    [InlineData("DELETE", "/api/chat/conversations/7c9e6679-7425-40de-944b-e07fc1f90ae7")]
+    [InlineData("POST", "/api/chat/conversations/7c9e6679-7425-40de-944b-e07fc1f90ae7")]
+    [InlineData("POST", "/api/chat/conversations/not-a-guid/messages")]
+    [InlineData("POST", "/api/chat/conversations/7c9e6679-7425-40de-944b-e07fc1f90ae7/messages/1")]
+    [InlineData("PUT", "/api/chat/send")]
+    [InlineData("DELETE", "/api/push/subscriptions")]
+    [InlineData("POST", "/api/chat/sendall")]
+    public async Task Allowing_chat_did_not_open_up_neighbouring_writes(string method, string path)
+    {
+        var (ctx, nextCalled) = await InvokeAsync(NoCapabilities, method, path);
+
+        Assert.False(nextCalled());
+        Assert.Equal(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);
+    }
+
     // --- Playback sync between the member's own devices -----------------------------------------
 
     [Theory]

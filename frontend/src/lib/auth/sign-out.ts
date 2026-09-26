@@ -15,8 +15,12 @@ import { APP_HOME } from '$lib/app-home';
 import { songsStore } from '$lib/stores/songs.svelte';
 import { playerStore } from '$lib/stores/player.svelte';
 import { playbackSync } from '$lib/stores/playback-sync.svelte';
+import { chatStore } from '$lib/stores/chat.svelte';
+import { forgetPushOnSignOut } from '$lib/push/web-push';
 
 export async function signOutAndReset(allSessions = false): Promise<void> {
+  // While the session still stands: this account's chat notifications stop arriving here.
+  await forgetPushOnSignOut();
   const { fallback } = await signOut(allSessions);
   if (fallback) {
     // The server promoted a parked account. A hard reload (not `goto`) resets every module
@@ -29,6 +33,7 @@ export async function signOutAndReset(allSessions = false): Promise<void> {
   songsStore.reset();
   playbackSync.stop(); // before the player stops, so stopping is not reported as this device's news
   playerStore.stop();
+  chatStore.stop();
   resetGrantors();
   await goto('/login', { invalidateAll: true });
 }

@@ -9,6 +9,7 @@
   import { isTrackListSong } from '$lib/track-list-view.svelte';
   import { songsStore } from '$lib/stores/songs.svelte';
   import { inboxCounts, refreshInboxNameCounts } from '$lib/stores/nav-badges.svelte';
+  import { chatStore } from '$lib/stores/chat.svelte';
   import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
   import { storageUsage } from '$lib/stores/storage-usage.svelte';
   import { storageSummary } from '$lib/storage-usage-meta';
@@ -93,10 +94,15 @@
     dupes: () => inbox.dupes,
     aiflag: () => inbox.ai,
     'dupe-artists': () => inbox.artists,
-    'dupe-albums': () => inbox.albums
+    'dupe-albums': () => inbox.albums,
+    // Unread messages; nothing at all when everything is read, like the tab bar's badge.
+    messages: () => (chatStore.unreadTotal > 0 ? chatStore.unreadTotal : null)
   };
   // The one group that carries a total on its header: the tab bar's badge figure.
-  const TOTALS: Partial<Record<NavGroupId, () => number | null>> = { inbox: () => inbox.total };
+  const TOTALS: Partial<Record<NavGroupId, () => number | null>> = {
+    inbox: () => inbox.total,
+    chats: () => (chatStore.unreadTotal > 0 ? chatStore.unreadTotal : null)
+  };
 
   // Single matcher, shared with the tab bar and the browser-tab title.
   const match = $derived(resolveNav(page.url));

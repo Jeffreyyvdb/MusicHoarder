@@ -9,6 +9,7 @@
   import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
   import { songsStore } from '$lib/stores/songs.svelte';
   import { inboxBadgeCount } from '$lib/stores/nav-badges.svelte';
+  import { chatStore } from '$lib/stores/chat.svelte';
   import { isAdmin } from '$lib/auth/capabilities';
   import { cn } from '$lib/utils';
 
@@ -39,6 +40,7 @@
   const inboxBadge = $derived(inboxBadgeCount());
 
   function badgeFor(tab: NavTab): number | null {
+    if (tab.badge === 'chats') return chatStore.unreadTotal > 0 ? chatStore.unreadTotal : null;
     return tab.badge === 'inbox' && inboxBadge != null && inboxBadge > 0 ? inboxBadge : null;
   }
 
@@ -68,7 +70,9 @@
         {@const badge = badgeFor(tab)}
         {@const extras = [
           live ? 'pipeline running' : null,
-          badge != null ? `${badge > 99 ? 'more than 99' : badge} items need review` : null
+          badge != null
+            ? `${badge > 99 ? 'more than 99' : badge} ${tab.badge === 'chats' ? 'unread messages' : 'items need review'}`
+            : null
         ].filter((s) => s != null)}
         <a
           href={tabMemory.hrefFor(tab)}

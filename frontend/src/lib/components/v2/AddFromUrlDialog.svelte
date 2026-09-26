@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import {
     AlertTriangle,
     CircleCheck,
@@ -22,7 +23,14 @@
     type ImportResolveResult
   } from '$lib/api-client';
 
-  let { open = $bindable(false) }: { open?: boolean } = $props();
+  let {
+    open = $bindable(false),
+    initialUrl = null
+  }: {
+    open?: boolean;
+    /** A link to start from (a Spotify or YouTube link someone sent in a chat): resolved on open. */
+    initialUrl?: string | null;
+  } = $props();
 
   // One BottomSheet at every width: a bottom sheet with a grabber below md (four fields in a
   // vertically-centred box used to end up under the iOS keyboard with nowhere to scroll), a centred
@@ -61,6 +69,17 @@
       playlist = null;
       subscribing = false;
     }
+  });
+
+  // Opened with a link in hand: fill it in and look it up at once, as if it had been pasted.
+  $effect(() => {
+    if (!open || !initialUrl) return;
+    const link = initialUrl;
+    // Untracked: the lookup reads the field, and typing in it must not start this again.
+    untrack(() => {
+      url = link;
+      void onResolve();
+    });
   });
 
   async function onResolve() {

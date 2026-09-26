@@ -1,10 +1,14 @@
 <script lang="ts">
-  import type { Snippet } from 'svelte';
-  import { afterNavigate, beforeNavigate, invalidate } from '$app/navigation';
+  import { untrack, type Snippet } from 'svelte';
+  import { afterNavigate, beforeNavigate, goto, invalidate } from '$app/navigation';
   import { page } from '$app/state';
   import ImportPipelineDrawer from '$lib/components/pipeline/ImportPipelineDrawer.svelte';
   import CommandPalette from '$lib/components/CommandPalette.svelte';
   import AppShellV2 from '$lib/components/v2/AppShellV2.svelte';
+  import SendToSheet from '$lib/components/chat/SendToSheet.svelte';
+  import { chatStore } from '$lib/stores/chat.svelte';
+  import { readPendingShare } from '$lib/chat/pending-share';
+  import { setAppBadge, syncPush } from '$lib/push/web-push';
   import { initPlayer, playerStore } from '$lib/stores/player.svelte';
   import { playbackSync } from '$lib/stores/playback-sync.svelte';
   import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
@@ -14,7 +18,7 @@
   import { songsStore } from '$lib/stores/songs.svelte';
   import { IsMobile } from '$lib/hooks/is-mobile.svelte';
   import { isInboxHub, resolveNav } from '$lib/nav';
-  import { isAdmin } from '$lib/auth/capabilities';
+  import { isAdmin, isDemo } from '$lib/auth/capabilities';
   import { createSessionWatch, SESSION_DEPENDENCY } from '$lib/auth/session-watch';
   import { fetchCurrentUser } from '$lib/api-client';
 
@@ -159,6 +163,43 @@
   // Leaving the app shell (signing out, the share page) closes the stream and unplugs the player.
   $effect(() => () => playbackSync.stop());
 
+  // Chat: the account's conversations over the chat stream (the Chats badge, the list), and this
+  // browser's notification subscription kept current when the account turned notifications on.
+  // Neither runs for the demo account (chat is off for it).
+  $effect(() => {
+    const user = page.data.user;
+    chatStore.start(user);
+    void syncPush(isDemo(user) ? null : user?.id);
+  });
+  $effect(() => () => chatStore.stop());
+  // The installed app's icon carries the unread count, like any messaging app's.
+  $effect(() => {
+    if (chatStore.loaded) setAppBadge(chatStore.unreadTotal);
+  });
+
+  // A notification tapped while the app is open: the service worker asks this page to go there,
+  // so the move is a client-side navigation and whatever is playing keeps playing.
+  $effect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data as { type?: string; url?: string } | null;
+      if (data?.type === 'mh:navigate' && typeof data.url === 'string' && data.url.startsWith('/')) {
+        void goto(data.url);
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage);
+  });
+
+  // Something shared into the app while signed out (the share sheet → /share-target → sign-in)
+  // comes back once someone is signed in. Once, when the shell mounts: the share page takes the
+  // stored share as it opens, so this never pulls anyone back to it.
+  $effect(() => {
+    untrack(() => {
+      if (readPendingShare() && !page.url.pathname.startsWith('/chats/share')) void goto('/chats/share');
+    });
+  });
+
   const drawerOpen = $derived(pipelineOverlay.isOpen);
 </script>
 
@@ -171,6 +212,7 @@
 </AppShellV2>
 
 <CommandPalette />
+<SendToSheet />
 
 {#if drawerOpen && !isFriendSession}
   <ImportPipelineDrawer />
