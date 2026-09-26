@@ -10,9 +10,10 @@ namespace MusicHoarder.Api.Enrichment.AlbumTracklist;
 /// <summary>
 /// Background sweep that builds a reconciled canonical tracklist for each album once it lands in the
 /// library (≥1 <see cref="EnrichmentStatus.Matched"/> song). For each album identity it runs every
-/// enabled <see cref="IAlbumTracklistProvider"/> concurrently, reconciles the candidates via
-/// <see cref="AlbumTracklistReconciler"/>, and persists a <see cref="CanonicalAlbum"/> + its tracks so
-/// the album view can show every real track and grey out the ones the user is missing.
+/// enabled <see cref="IAlbumTracklistProvider"/> concurrently, keeps the candidates that are this album
+/// (<see cref="CanonicalAlbumMatch"/>), reconciles them via <see cref="AlbumTracklistReconciler"/>, and
+/// persists a <see cref="CanonicalAlbum"/> + its tracks so the album view can show every real track and
+/// grey out the ones the user is missing.
 /// </summary>
 public sealed class CanonicalAlbumFetchService(
     IServiceScopeFactory scopeFactory,
@@ -90,7 +91,8 @@ public sealed class CanonicalAlbumFetchService(
             .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic
                 && s.EnrichmentStatus == EnrichmentStatus.Matched
                 && s.Album != null && s.Album != "")
-            .Select(s => new SongHint(s.AlbumArtist, s.Artist, s.Album, s.MusicBrainzReleaseId, s.SpotifyId, s.Isrc))
+            .Select(s => new SongHint(
+                s.AlbumArtist, s.Artist, s.Album, s.Title, s.AcquisitionIntent, s.MusicBrainzReleaseId, s.SpotifyId, s.Isrc))
             .ToListAsync(ct);
 
         if (songs.Count == 0)
@@ -111,6 +113,8 @@ public sealed class CanonicalAlbumFetchService(
             .Where(a => keys.Contains(a.ArtistKey))
             .ToListAsync(ct);
         var existingByKey = existing.ToDictionary(a => (a.ArtistKey, a.AlbumKey));
+
+        await RetireMismatchedAsync(db, groups, existingByKey, now, ct);
 
         var toFetch = groups
             .Where(g => NeedsFetch(existingByKey.GetValueOrDefault(g.Key), now))
@@ -133,7 +137,10 @@ public sealed class CanonicalAlbumFetchService(
             var query = BuildQuery(members);
             var row = existingByKey.GetValueOrDefault(group.Key);
 
-            var candidates = await GatherCandidatesAsync(enabledProviders, query, ct);
+            var ownedTitles = OwnedTitles(members);
+            var candidates = (await GatherCandidatesAsync(enabledProviders, query, ct))
+                .Where(c => IsThisAlbum(query, ownedTitles, c))
+                .ToList();
             var reconciled = AlbumTracklistReconciler.Reconcile(candidates);
 
             if (reconciled is null)
@@ -151,6 +158,71 @@ public sealed class CanonicalAlbumFetchService(
         }
 
         return fetched;
+    }
+
+    /// <summary>
+    /// A provider's answer counts only when it is the album these songs are tagged with: a search
+    /// always returns something, and for an album the catalog does not carry that something is another
+    /// album (see <see cref="CanonicalAlbumMatch"/>).
+    /// </summary>
+    private bool IsThisAlbum(AlbumQuery query, IReadOnlyList<string?> ownedTitles, AlbumTracklistCandidate candidate)
+    {
+        var opts = options.Value;
+        if (CanonicalAlbumMatch.IsSameAlbum(
+                query.Album, query.AlbumArtist, ownedTitles,
+                candidate.Title, candidate.AlbumArtist, candidate.Tracks.Select(t => t.Title),
+                opts.IdentityTitleThreshold, opts.IdentityArtistThreshold))
+            return true;
+
+        logger.LogDebug(
+            "Album tracklist provider {Provider} answered {Artist} - {Album} with a different album ({CandidateArtist} - {CandidateTitle}); ignoring it",
+            candidate.Source, query.AlbumArtist, query.Album, candidate.AlbumArtist, candidate.Title);
+        return false;
+    }
+
+    /// <summary>
+    /// Rows fetched before answers had to prove themselves can still describe another album. Each is
+    /// retired the way a fetch that found nothing is — NotFound on the retry timer — so no reader trusts
+    /// it any more, and the retry asks the providers again under the rule. Its display fields stay:
+    /// album-fill wishlist items, and the provenance that explains them, still point at the row.
+    /// <para>
+    /// Every track counts here, contested or not, because the fetch counts every track of each
+    /// candidate: a stricter test would retire rows the next fetch rebuilds, every retry period. The
+    /// split-album heal asks more of a row before it rewrites an album artist from it.
+    /// </para>
+    /// </summary>
+    private async Task RetireMismatchedAsync(
+        MusicHoarderDbContext db,
+        IEnumerable<IGrouping<(string ArtistKey, string AlbumKey), (SongHint Hint, string? ArtistRaw, string Album)>> groups,
+        IReadOnlyDictionary<(string ArtistKey, string AlbumKey), CanonicalAlbum> existingByKey,
+        DateTime now,
+        CancellationToken ct)
+    {
+        var opts = options.Value;
+        var retired = 0;
+        foreach (var group in groups)
+        {
+            CanonicalAlbum? row = existingByKey.GetValueOrDefault(group.Key);
+            if (row is not { Status: CanonicalAlbumStatus.Fetched })
+                continue;
+
+            var query = BuildQuery(group.ToList());
+            if (CanonicalAlbumMatch.IsSameAlbum(
+                    query.Album, query.AlbumArtist, OwnedTitles(group),
+                    row.DisplayTitle, row.DisplayArtist, row.Tracks.Select(t => t.Title),
+                    opts.IdentityTitleThreshold, opts.IdentityArtistThreshold))
+                continue;
+
+            logger.LogInformation(
+                "Retiring the canonical album for {Artist} - {Album}: it was {DisplayArtist} - {DisplayTitle}, a different album",
+                query.AlbumArtist, query.Album, row.DisplayArtist, row.DisplayTitle);
+            UpsertFailure(db, ref row, group.Key, CanonicalAlbumStatus.NotFound,
+                opts.CanonicalAlbumNotFoundRetryDays > 0 ? now.AddDays(opts.CanonicalAlbumNotFoundRetryDays) : null);
+            retired++;
+        }
+
+        if (retired > 0)
+            await db.SaveChangesAsync(ct);
     }
 
     private async Task<IReadOnlyList<AlbumTracklistCandidate>> GatherCandidatesAsync(
@@ -178,6 +250,14 @@ public sealed class CanonicalAlbumFetchService(
         var results = await Task.WhenAll(tasks);
         return results.Where(c => c is not null).Select(c => c!).ToList();
     }
+
+    // What a candidate's tracklist is checked against. Album-fill downloads are left out: they exist
+    // because of a canonical album, so they cannot vouch for one (see CanonicalAlbumMatch).
+    private static List<string?> OwnedTitles(IEnumerable<(SongHint Hint, string? ArtistRaw, string Album)> members) =>
+        members
+            .Where(m => m.Hint.Intent != SongAcquisitionIntent.AlbumFill)
+            .Select(m => m.Hint.Title)
+            .ToList();
 
     private static AlbumQuery BuildQuery(List<(SongHint Hint, string? ArtistRaw, string Album)> members)
     {
@@ -282,5 +362,12 @@ public sealed class CanonicalAlbumFetchService(
     }
 
     private sealed record SongHint(
-        string? AlbumArtist, string? Artist, string? Album, string? MusicBrainzReleaseId, string? SpotifyId, string? Isrc);
+        string? AlbumArtist,
+        string? Artist,
+        string? Album,
+        string? Title,
+        SongAcquisitionIntent Intent,
+        string? MusicBrainzReleaseId,
+        string? SpotifyId,
+        string? Isrc);
 }

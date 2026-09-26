@@ -549,6 +549,196 @@ public class AlbumSplitHealerTests
         Assert.Equal(new AlbumSplitHealResult(0, 0, 0), await Healer(db).HealAsync());
     }
 
+    [Fact]
+    public async Task HealAsync_CanonicalRowForADifferentAlbum_IsNotOverlaid()
+    {
+        // What started the prod chain: the row fetched for Kanye's unreleased "CHIRAQ" describes a Fat Joe
+        // single, and the overlay handed the album to Fat Joe.
+        await using var db = NewContext();
+        AddCanonical(db, "Kanye West", "CHIRAQ", "Pride 'n' Joy (feat. Kanye West, Miguel) - Single", "Fat Joe");
+        db.Songs.AddRange(ChiraqSong("/c1.mp3", "Awesome", 3, "Kanye West"), ChiraqSong("/c2.mp3", "Creep Theme", 5, "Kanye West"));
+        await db.SaveChangesAsync();
+
+        Assert.Equal(new AlbumSplitHealResult(0, 0, 0), await Healer(db).HealAsync());
+        Assert.All(await db.Songs.ToListAsync(), s => Assert.Equal("Kanye West", s.AlbumArtist));
+    }
+
+    [Fact]
+    public async Task HealAsync_CrossArtistCanonical_IsNotOverlaidEvenWhenItSharesTracks()
+    {
+        // A tribute album shares every title with the real one. Sharing a track lets a featured artist's
+        // song show on someone else's tracklist; it never renames an album's artist.
+        await using var db = NewContext();
+        AddCanonical(db, "Eminem", "Curtain Call", "Curtain Call: The Hits", "Tom Ball", "Lose Yourself", "Stan");
+        db.Songs.AddRange(
+            Song("/e1.mp3", "Lose Yourself", 1, year: 2005, album: "Curtain Call", artist: "Eminem", albumArtist: "Eminem"),
+            Song("/e2.mp3", "Stan", 2, year: 2005, album: "Curtain Call", artist: "Eminem", albumArtist: "Eminem"));
+        await db.SaveChangesAsync();
+
+        Assert.Equal(new AlbumSplitHealResult(0, 0, 0), await Healer(db).HealAsync());
+        Assert.All(await db.Songs.ToListAsync(), s => Assert.Equal("Eminem", s.AlbumArtist));
+    }
+
+    [Fact]
+    public async Task HealAsync_RestoresAlbumArtistsAWrongCanonicalAlbumWrote()
+    {
+        // The prod chain, after the fact: each wrong row renamed the songs, the new name keyed a new search,
+        // and the last name was a cumbia band whose album completion then downloaded.
+        await using var db = NewContext();
+        SeedChiraqChain(db);
+        var awesome = ChiraqSong("/c1.mp3", "Awesome", 3, "Rigo Dominguez Y Su Grupo Audaz");
+        // Synced in from another instance that had already renamed it once.
+        var feelLikeThat = ChiraqSong("/c2.mp3", "I Feel Like That (feat. Frank Ocean)", 9, "Rigo Dominguez Y Su Grupo Audaz");
+        db.Songs.AddRange(awesome, feelLikeThat);
+        await db.SaveChangesAsync();
+        SeedHealChange(db, awesome.Id, "Kanye West", "Fat Joe");
+        foreach (var song in new[] { awesome, feelLikeThat })
+        {
+            SeedHealChange(db, song.Id, "Fat Joe", "Chiqito");
+            SeedHealChange(db, song.Id, "Chiqito", "Rigo Dominguez Y Su Grupo Audaz");
+        }
+        await db.SaveChangesAsync();
+
+        // The dry run reports it and writes nothing.
+        var report = Assert.Single(await Healer(db).DetectAsync());
+        Assert.Equal(2, report.MembersNeedingCorrection);
+        Assert.Equal(2, await db.Songs.CountAsync(s => s.AlbumArtist == "Rigo Dominguez Y Su Grupo Audaz"));
+
+        var result = await Healer(db).HealAsync();
+
+        Assert.Equal(2, result.SongsCorrected);
+        Assert.Equal(2, result.SongsRequeued);
+        var songs = await db.Songs.ToListAsync();
+        // The first back to what it had before any wrong write; the second never had a right value on
+        // record, so it takes its own artist credit.
+        Assert.All(songs, s => Assert.Equal("Kanye West", s.AlbumArtist));
+        Assert.All(songs, s => Assert.Equal(LibraryBuildStatus.Pending, s.LibraryBuildStatus));
+        Assert.All(songs, s => Assert.NotNull(s.PreviousDestinationPath));
+        var restores = await db.SongMetadataChanges.Where(c => c.CreatedAtUtc > EnrichedAt).ToListAsync();
+        Assert.Equal(2, restores.Count);
+        Assert.All(restores, c => Assert.Equal(("album-identity-heal", "Kanye West"), (c.Source, c.NewValue)));
+
+        Assert.Equal(new AlbumSplitHealResult(0, 0, 0), await Healer(db).HealAsync());
+    }
+
+    [Fact]
+    public async Task HealAsync_NeverRestoresAnAlbumArtistTheHealDidNotWrite()
+    {
+        // Enrichment or the owner put it there; undoing someone else's value is not this heal's business.
+        await using var db = NewContext();
+        SeedChiraqChain(db);
+        db.Songs.AddRange(
+            ChiraqSong("/c1.mp3", "Awesome", 3, "Rigo Dominguez Y Su Grupo Audaz"),
+            ChiraqSong("/c2.mp3", "Creep Theme", 5, "Rigo Dominguez Y Su Grupo Audaz"));
+        await db.SaveChangesAsync();
+
+        Assert.Equal(new AlbumSplitHealResult(0, 0, 0), await Healer(db).HealAsync());
+    }
+
+    [Fact]
+    public async Task HealAsync_FillDownloadsAndContestedTracksDoNotVouchForAWrongAlbumArtist()
+    {
+        // Kanye's "So Help Me God" leak was renamed to 2 Chainz from a row that merged MusicBrainz's
+        // listing of the leak with 2 Chainz's record of that name, and album completion then downloaded
+        // 2 Chainz's tracks into the album. Neither the leak's slots (contested: one provider) nor the
+        // downloads (they exist because of the row) can make the row look like the owner's album.
+        await using var db = NewContext();
+        var merged = AddCanonical(db, "Kanye West", "So Help Me God!", "So Help Me God!", "2 Chainz", "Lambo Wrist");
+        foreach (var (title, number) in new[] { ("Only One", 2), ("Southside Serenade", 3) })
+            merged.Tracks.Add(new CanonicalAlbumTrack { DiscNumber = 1, TrackNumber = number, Title = title, IsContested = true });
+        AddCanonical(db, "2 Chainz", "So Help Me God!", "So Help Me God!", "2 Chainz", "Lambo Wrist");
+
+        var leak = new[]
+        {
+            Song("/k1.mp3", "Only One", 1, year: 2015, album: "So Help Me God!", artist: "Kanye West", albumArtist: "2 Chainz"),
+            Song("/k2.mp3", "Southside Serenade", 2, year: 2015, album: "So Help Me God!", artist: "Kanye West", albumArtist: "2 Chainz"),
+        };
+        var download = Song("/f1.mp3", "Lambo Wrist", 1, year: 2020, album: "So Help Me God!", artist: "2 Chainz", albumArtist: "2 Chainz");
+        download.AcquisitionIntent = SongAcquisitionIntent.AlbumFill;
+        db.Songs.AddRange([.. leak, download]);
+        await db.SaveChangesAsync();
+        foreach (var song in leak)
+            SeedHealChange(db, song.Id, "Kanye West", "2 Chainz");
+        await db.SaveChangesAsync();
+
+        await Healer(db).HealAsync();
+
+        Assert.All(leak, s => Assert.Equal("Kanye West", s.AlbumArtist));
+        Assert.Equal("2 Chainz", download.AlbumArtist); // credited to 2 Chainz: it is 2 Chainz's song
+    }
+
+    [Fact]
+    public async Task HealAsync_KeepsACrossArtistAlbumArtistTheRealAlbumVouchesFor()
+    {
+        // Shyne's verse on Kanye's "I'm Good..." sits under Kanye West because the album's own row —
+        // fetched for Shyne, listing Shyne's track — says so. A wrong row also naming Kanye West for that
+        // title must not undo it.
+        await using var db = NewContext();
+        AddCanonical(db, "Shyne", "I'm Good...", "I'm Good…", "Kanye West", "Quiet", "Bring the Pain");
+        AddCanonical(db, "Lil' Kim", "I'm Good...", "808s & Heartbreak", "Kanye West", "Say You Will");
+        var quiet = Song("/s1.mp3", "Quiet", 4, year: 2009, album: "I'm Good...", artist: "Shyne", albumArtist: "Kanye West");
+        db.Songs.Add(quiet);
+        await db.SaveChangesAsync();
+        SeedHealChange(db, quiet.Id, "Shyne", "Kanye West");
+        await db.SaveChangesAsync();
+
+        Assert.Equal(new AlbumSplitHealResult(0, 0, 0), await Healer(db).HealAsync());
+        Assert.Equal("Kanye West", quiet.AlbumArtist);
+    }
+
+    [Fact]
+    public async Task HealAsync_OscillationFreeze_IgnoresNamesOfAnotherArtist()
+    {
+        // The contended-spelling setup, plus a stranger's name in the log from a wrong row. It sorts first
+        // ("2" < "D"), and letting it compete would freeze the album onto it.
+        await using var db = NewContext();
+        AddCanonical(db, "Domo Genesis", "No Idols", "No Idols", "Domo Genesis, The Alchemist");
+        var s1 = NoIdolsSong("/n1.opus", "Fuck Everybody Else", 1, "Domo Genesis");
+        var s2 = NoIdolsSong("/n2.opus", "All Alone", 2, "Domo Genesis");
+        db.Songs.AddRange(s1, s2);
+        await db.SaveChangesAsync();
+        SeedHealChange(db, s1.Id, "Domo Genesis", "2 Chainz");
+        foreach (var id in new[] { s1.Id, s2.Id })
+        {
+            SeedHealChange(db, id, "Domo Genesis, The Alchemist", "Domo Genesis");
+            SeedHealChange(db, id, "Domo Genesis", "Domo Genesis, The Alchemist");
+        }
+        await db.SaveChangesAsync();
+
+        await Healer(db).HealAsync();
+
+        Assert.All(await db.Songs.ToListAsync(), s => Assert.Equal("Domo Genesis", s.AlbumArtist));
+    }
+
+    // Every row the prod CHIRAQ chain left behind, each keyed by the name the previous one wrote.
+    private static void SeedChiraqChain(MusicHoarderDbContext db)
+    {
+        AddCanonical(db, "Kanye West", "CHIRAQ", "Pride 'n' Joy (feat. Kanye West, Miguel) - Single", "Fat Joe", "Pride 'n' Joy");
+        AddCanonical(db, "Fat Joe", "CHIRAQ", "Fat Joe", "Chiqito", "Fat Joe");
+        AddCanonical(db, "Chiqito", "CHIRAQ", "Charanga Internacional / El Espejo del Chinito", "Rigo Dominguez Y Su Grupo Audaz", "Charanga Internacional");
+        AddCanonical(db, "Rigo Dominguez Y Su Grupo Audaz", "CHIRAQ", "20 Éxitos Bailables", "Rigo Dominguez y Su Grupo Audaz", "Macumba", "La Morena");
+    }
+
+    private static CanonicalAlbum AddCanonical(
+        MusicHoarderDbContext db, string keyArtist, string keyAlbum, string displayTitle, string displayArtist, params string[] tracks)
+    {
+        var row = new CanonicalAlbum
+        {
+            ArtistKey = TitleNormalizer.NormalizeForSearch(keyArtist),
+            AlbumKey = TitleNormalizer.NormalizeForSearch(keyAlbum),
+            DisplayTitle = displayTitle,
+            DisplayArtist = displayArtist,
+            Status = CanonicalAlbumStatus.Fetched,
+        };
+        for (var i = 0; i < tracks.Length; i++)
+            row.Tracks.Add(new CanonicalAlbumTrack { DiscNumber = 1, TrackNumber = i + 1, Title = tracks[i] });
+        db.CanonicalAlbums.Add(row);
+        return row;
+    }
+
+    private static SongMetadata ChiraqSong(string path, string title, int trackNumber, string albumArtist) =>
+        Song(path, title, trackNumber, year: 2016, album: "CHIRAQ", artist: "Kanye West", albumArtist: albumArtist);
+
     private static SongMetadata UnitedSong(string path, string title, int trackNumber, string albumArtist) =>
         Song(path, title, trackNumber, year: 1967, album: "United",
             artist: "Marvin Gaye & Tammi Terrell", albumArtist: albumArtist);

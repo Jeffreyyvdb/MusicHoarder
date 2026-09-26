@@ -10,6 +10,7 @@ namespace MusicHoarder.Api.Download;
 public readonly record struct AlbumCompletionCandidate(
     string? AlbumArtist,
     string? Artist,
+    string? Album,
     bool IsCompilation,
     string? ReleaseTypes);
 
@@ -27,6 +28,7 @@ public static class AlbumCompletionEligibility
     public const string ReasonVariousArtists = "various-artists";
     public const string ReasonCompilationReleaseType = "compilation-release-type";
     public const string ReasonArtistMismatch = "artist-mismatch";
+    public const string ReasonAlbumMismatch = "album-mismatch";
     public const string ReasonTooFewCanonicalTracks = "too-few-canonical-tracks";
 
     /// <summary>
@@ -67,6 +69,15 @@ public static class AlbumCompletionEligibility
             }
         }
 
+        // The keys matched, but the row can still describe another album: a search answers even for an
+        // album no catalog carries, and a row stored before answers had to prove themselves
+        // (CanonicalAlbumMatch) holds whatever came back — "CHIRAQ" filled in "20 Éxitos Bailables". The
+        // artist rule below could not catch that one: the split-album heal had already given the owned
+        // tracks the wrong album's artist.
+        var album = owned.Select(o => o.Album).FirstOrDefault(a => !string.IsNullOrWhiteSpace(a));
+        if (!CanonicalAlbumMatch.TitleMatches(album, canonical.DisplayTitle, options.IdentityTitleThreshold))
+            return ReasonAlbumMismatch;
+
         // The guard that catches the nastiest case. A compilation ingested with no album artist groups
         // by *track* artist, so it shatters into one plausible-looking single-artist album per
         // contributor — each with a track or two owned. Without this, the sweep would queue the whole
@@ -74,8 +85,7 @@ public static class AlbumCompletionEligibility
         // canonical album's artist to resemble the group's artist kills that, and the generic
         // "two different albums share a title" collision with it.
         var groupArtist = albumArtist ?? owned.Select(o => o.Artist).FirstOrDefault(a => !string.IsNullOrWhiteSpace(a));
-        var ratio = FuzzyTextMatch.Ratio(canonical.DisplayArtist, groupArtist);
-        if (ratio is { } r && r < options.IdentityTitleThreshold)
+        if (!CanonicalAlbumMatch.SameArtist(groupArtist, canonical.DisplayArtist, options.IdentityTitleThreshold))
             return ReasonArtistMismatch;
 
         return null;

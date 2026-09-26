@@ -309,7 +309,7 @@ public class AlbumCompletionSweep(
         CancellationToken ct)
     {
         var candidateFacts = owned
-            .Select(s => new AlbumCompletionCandidate(s.AlbumArtist, s.Artist, s.IsCompilation, s.ReleaseTypes))
+            .Select(s => new AlbumCompletionCandidate(s.AlbumArtist, s.Artist, s.Album, s.IsCompilation, s.ReleaseTypes))
             .ToList();
 
         var skipReason = AlbumCompletionEligibility.Skip(candidateFacts, canonical, opts);

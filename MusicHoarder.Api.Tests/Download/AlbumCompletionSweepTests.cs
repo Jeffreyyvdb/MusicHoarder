@@ -291,6 +291,36 @@ public class AlbumCompletionSweepTests
         await AssertSkipped(db, AlbumCompletionEligibility.ReasonArtistMismatch);
     }
 
+    [Fact]
+    public async Task Sweep_CanonicalAlbumDescribingADifferentAlbum_IsSkippedOnAlbumMismatch()
+    {
+        // The prod case: Kanye West's unreleased "CHIRAQ" matched to a cumbia record, and the split-album
+        // heal had already given the owned tracks that record's artist — so only the title gives it away.
+        await using var db = NewContext();
+        AddCanonicalAlbumAs(db, "Rigo Dominguez Y Su Grupo Audaz", "CHIRAQ", "Rigo Dominguez y Su Grupo Audaz",
+            "Macumba", "La Morena", "Ni Juana la Cubana");
+        db.CanonicalAlbums.Local.Single().DisplayTitle = "20 Éxitos Bailables";
+        db.Songs.Add(Song("/a.mp3", "Rigo Dominguez Y Su Grupo Audaz", "CHIRAQ", title: "Awesome", track: 3,
+            artist: "Kanye West"));
+        await db.SaveChangesAsync();
+
+        Assert.Equal(0, (await CreateSweep(db).SweepAsync(CancellationToken.None)).TracksQueued);
+        await AssertSkipped(db, AlbumCompletionEligibility.ReasonAlbumMismatch);
+    }
+
+    [Fact]
+    public async Task Sweep_ShortArtistNameInsideAnother_IsSkippedOnArtistMismatch()
+    {
+        // Partial fuzzy matching found rapper Ka inside "Vea Kaiser", the reader of a German audiobook.
+        await using var db = NewContext();
+        AddCanonicalAlbumAs(db, "KA", "Die Man", "Vea Kaiser", "Kapitel 1", "Kapitel 2", "Kapitel 3");
+        db.Songs.Add(Song("/a.mp3", "KA", "Die Man", title: "Kapitel 1", track: 1));
+        await db.SaveChangesAsync();
+
+        Assert.Equal(0, (await CreateSweep(db).SweepAsync(CancellationToken.None)).TracksQueued);
+        await AssertSkipped(db, AlbumCompletionEligibility.ReasonArtistMismatch);
+    }
+
     // ── Throttles ──────────────────────────────────────────────────────────────
 
     [Fact]
