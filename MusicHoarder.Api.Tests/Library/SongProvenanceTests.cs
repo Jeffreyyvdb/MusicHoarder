@@ -13,6 +13,7 @@ public class SongProvenanceTests
 {
     private const string DownloadDir = "/data/downloads";
     private const string SyncedDir = "/data/synced";
+    private const double AlbumTitleThreshold = 85; // MusicEnricherOptions.IdentityTitleThreshold's default
 
     [Theory]
     [InlineData(SongOriginKind.Scanned, SongOriginSource.None, ProvenanceReason.LocalFile)]
@@ -175,6 +176,43 @@ public class SongProvenanceTests
     }
 
     [Fact]
+    public async Task Build_AlbumFillOfAMistakenAlbum_SaysWhatItWasMistakenFor()
+    {
+        // Album completion took Kanye's unreleased "CHIRAQ" for a cumbia record. The row is keyed under the
+        // name the heal had given the CHIRAQ songs; the heal has since given them back their own, so the
+        // album title alone finds what started it.
+        await using var db = NewContext();
+        var seed = Song("/data/synced/Kanye West/03 Awesome.mp3", "Awesome");
+        seed.Artist = seed.AlbumArtist = "Kanye West";
+        seed.Album = "CHIRAQ";
+        var filled = Song($"{DownloadDir}/ni-juana.opus", "Ni Juana la Cubana", SongAcquisitionIntent.AlbumFill);
+        filled.Artist = filled.AlbumArtist = "Rigo Dominguez Y Su Grupo Audaz";
+        filled.Album = "20 Éxitos Bailables";
+        db.Songs.AddRange(seed, filled);
+        var album = new CanonicalAlbum
+        {
+            ArtistKey = "rigo dominguez y su grupo audaz",
+            AlbumKey = "chiraq",
+            DisplayArtist = "Rigo Dominguez y Su Grupo Audaz",
+            DisplayTitle = "20 Éxitos Bailables",
+            Status = CanonicalAlbumStatus.NotFound, // retired: it was never this album
+        };
+        db.CanonicalAlbums.Add(album);
+        await db.SaveChangesAsync();
+        AddFillItem(db, filled, album.Id, DateTime.UtcNow);
+        await db.SaveChangesAsync();
+
+        var fill = Assert.Single((await Build(db, filled.Id)).Groups);
+
+        Assert.Equal("Filled in by album completion", fill.Label);
+        Assert.Equal("20 Éxitos Bailables", fill.Fill!.Album);
+        Assert.Equal(seed.Id, Assert.Single(fill.Fill.Seeds).SongId);
+        Assert.Equal(
+            "You had “Awesome” from “CHIRAQ”. Album completion mistook that album for “20 Éxitos Bailables” and queued its tracks.",
+            fill.Explanation);
+    }
+
+    [Fact]
     public async Task Build_AlbumFillWithoutAWishlistLink_StillExplainsItself()
     {
         await using var db = NewContext();
@@ -201,7 +239,7 @@ public class SongProvenanceTests
     }
 
     private static Task<SongProvenanceResponse> Build(MusicHoarderDbContext db, params int[] ids) =>
-        SongProvenanceService.BuildAsync(db, ids, DownloadDir, SyncedDir, CancellationToken.None);
+        SongProvenanceService.BuildAsync(db, ids, DownloadDir, SyncedDir, AlbumTitleThreshold, CancellationToken.None);
 
     private static CanonicalAlbum AddCanonicalAlbum(MusicHoarderDbContext db)
     {

@@ -133,6 +133,148 @@ public class CanonicalAlbumFetchServiceTests
         Assert.Empty(db.CanonicalAlbums);
     }
 
+    [Fact]
+    public async Task Sweep_ProviderAnswersWithADifferentAlbum_MarksNotFound()
+    {
+        // An album no catalog carries still gets an answer from every search: something else.
+        await using var db = NewContext();
+        db.Songs.Add(MatchedSong("/a.mp3", "Kanye West", "CHIRAQ", title: "Awesome"));
+        await db.SaveChangesAsync();
+
+        var providers = new IAlbumTracklistProvider[]
+        {
+            new StubProvider(EnrichmentProvider.AppleMusic, _ => new AlbumTracklistCandidate(
+                EnrichmentProvider.AppleMusic, "530026734", "Pride 'n' Joy (feat. Kanye West) - Single", "Fat Joe",
+                2012, null, [new CandidateTrack(1, 1, "Pride 'n' Joy", 300000, null)])),
+        };
+
+        var fetched = await CreateService(db, providers).RunSweepAsync(CancellationToken.None);
+
+        Assert.Equal(0, fetched);
+        var row = await db.CanonicalAlbums.SingleAsync();
+        Assert.Equal(CanonicalAlbumStatus.NotFound, row.Status);
+        Assert.Empty(db.CanonicalAlbumTracks);
+    }
+
+    [Fact]
+    public async Task Sweep_KeepsOnlyTheProvidersThatFoundThisAlbum()
+    {
+        await using var db = NewContext();
+        db.Songs.Add(MatchedSong("/a.mp3", "Daft Punk", "Discovery", title: "One More Time"));
+        await db.SaveChangesAsync();
+
+        var providers = new IAlbumTracklistProvider[]
+        {
+            new StubProvider(EnrichmentProvider.MusicBrainzWeb, _ => Candidate(EnrichmentProvider.MusicBrainzWeb, "Discovery")),
+            new StubProvider(EnrichmentProvider.Deezer, _ => Candidate(EnrichmentProvider.Deezer, "Homework")),
+        };
+
+        await CreateService(db, providers).RunSweepAsync(CancellationToken.None);
+
+        var row = await db.CanonicalAlbums.SingleAsync();
+        Assert.Equal(CanonicalAlbumStatus.Fetched, row.Status);
+        var source = Assert.Single(CanonicalAlbumSources.Parse(row.SourcesJson));
+        Assert.Equal(EnrichmentProvider.MusicBrainzWeb, source.Provider);
+    }
+
+    [Fact]
+    public async Task Sweep_FeaturedTrackOnAnotherArtistsAlbum_IsKept()
+    {
+        // Drake's verse on "Forever" files the song under Drake, but the album is Eminem's.
+        await using var db = NewContext();
+        db.Songs.Add(MatchedSong("/a.mp3", "Drake", "Relapse: Refill", title: "Forever"));
+        await db.SaveChangesAsync();
+
+        var providers = new IAlbumTracklistProvider[]
+        {
+            new StubProvider(EnrichmentProvider.Deezer, _ => new AlbumTracklistCandidate(
+                EnrichmentProvider.Deezer, "464090", "Relapse: Refill", "Eminem", 2009, null,
+                [new CandidateTrack(1, 1, "Forever", 357000, null), new CandidateTrack(1, 2, "Crack a Bottle", 297000, null)])),
+        };
+
+        Assert.Equal(1, await CreateService(db, providers).RunSweepAsync(CancellationToken.None));
+        Assert.Equal("Eminem", (await db.CanonicalAlbums.SingleAsync()).DisplayArtist);
+    }
+
+    [Fact]
+    public async Task Sweep_AlbumFillDownloadsDoNotVouchForAnAlbum()
+    {
+        // Album completion once filled 2 Chainz's "So Help Me God!" into a Kanye leak of that name. The
+        // downloads share tracks with 2 Chainz's record only because they were fetched from it.
+        await using var db = NewContext();
+        db.Songs.Add(MatchedSong("/a.mp3", "Kanye West", "So Help Me God", title: "Only One"));
+        db.Songs.Add(MatchedSong("/b.mp3", "Kanye West", "So Help Me God", title: "Lambo Wrist",
+            intent: SongAcquisitionIntent.AlbumFill));
+        await db.SaveChangesAsync();
+
+        var providers = new IAlbumTracklistProvider[]
+        {
+            new StubProvider(EnrichmentProvider.Deezer, _ => new AlbumTracklistCandidate(
+                EnrichmentProvider.Deezer, "184493512", "So Help Me God!", "2 Chainz", 2020, null,
+                [new CandidateTrack(1, 1, "Lambo Wrist", 200000, null), new CandidateTrack(1, 2, "Grey Area", 180000, null)])),
+        };
+
+        Assert.Equal(0, await CreateService(db, providers).RunSweepAsync(CancellationToken.None));
+        Assert.Equal(CanonicalAlbumStatus.NotFound, (await db.CanonicalAlbums.SingleAsync()).Status);
+    }
+
+    [Fact]
+    public async Task Sweep_StoredRowDescribingADifferentAlbum_IsRetired()
+    {
+        // Stored before answers had to prove themselves. Retired like a fetch that found nothing, so no
+        // reader trusts it; its display fields stay for the fill items that point at it.
+        await using var db = NewContext();
+        db.Songs.Add(MatchedSong("/a.mp3", "Rigo Dominguez Y Su Grupo Audaz", "CHIRAQ", title: "Awesome"));
+        var row = new CanonicalAlbum
+        {
+            ArtistKey = "rigo dominguez y su grupo audaz",
+            AlbumKey = "chiraq",
+            DisplayTitle = "20 Éxitos Bailables",
+            DisplayArtist = "Rigo Dominguez y Su Grupo Audaz",
+            Status = CanonicalAlbumStatus.Fetched,
+            FetchedAtUtc = DateTime.UtcNow.AddDays(-2),
+        };
+        row.Tracks.Add(new CanonicalAlbumTrack { DiscNumber = 1, TrackNumber = 1, Title = "Macumba" });
+        db.CanonicalAlbums.Add(row);
+        await db.SaveChangesAsync();
+
+        var called = false;
+        var providers = new IAlbumTracklistProvider[]
+        {
+            new StubProvider(EnrichmentProvider.Deezer, _ => { called = true; return null; }),
+        };
+
+        await CreateService(db, providers).RunSweepAsync(CancellationToken.None);
+
+        var retired = await db.CanonicalAlbums.Include(a => a.Tracks).SingleAsync();
+        Assert.Equal(CanonicalAlbumStatus.NotFound, retired.Status);
+        Assert.NotNull(retired.NextRetryAfterUtc);
+        Assert.Equal("20 Éxitos Bailables", retired.DisplayTitle);
+        Assert.Single(retired.Tracks);
+        Assert.False(called); // waits for the retry timer like any NotFound
+    }
+
+    [Fact]
+    public async Task Sweep_StoredRowForThisAlbum_IsKept()
+    {
+        await using var db = NewContext();
+        db.Songs.Add(MatchedSong("/a.mp3", "Daft Punk", "Discovery", title: "One More Time"));
+        db.CanonicalAlbums.Add(new CanonicalAlbum
+        {
+            ArtistKey = "daft punk",
+            AlbumKey = "discovery",
+            DisplayTitle = "Discovery",
+            DisplayArtist = "Daft Punk",
+            Status = CanonicalAlbumStatus.Fetched,
+            FetchedAtUtc = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        await CreateService(db, []).RunSweepAsync(CancellationToken.None);
+
+        Assert.Equal(CanonicalAlbumStatus.Fetched, (await db.CanonicalAlbums.SingleAsync()).Status);
+    }
+
     private static AlbumTracklistCandidate Candidate(EnrichmentProvider source, string title)
         => new(source, $"id-{source}", title, "Daft Punk", 2001, null,
             [
@@ -151,7 +293,9 @@ public class CanonicalAlbumFetchServiceTests
             new SimpleScopeFactory(db), providers, options, NullLogger<CanonicalAlbumFetchService>.Instance);
     }
 
-    private static SongMetadata MatchedSong(string sourcePath, string albumArtist, string album) => new()
+    private static SongMetadata MatchedSong(
+        string sourcePath, string albumArtist, string album, string? title = null,
+        SongAcquisitionIntent intent = SongAcquisitionIntent.Explicit) => new()
     {
         OwnerUserId = WellKnownUsers.OwnerId,
         SourcePath = sourcePath,
@@ -164,6 +308,8 @@ public class CanonicalAlbumFetchServiceTests
         AlbumArtist = albumArtist,
         Artist = albumArtist,
         Album = album,
+        Title = title,
+        AcquisitionIntent = intent,
     };
 
     private static MusicHoarderDbContext NewContext()

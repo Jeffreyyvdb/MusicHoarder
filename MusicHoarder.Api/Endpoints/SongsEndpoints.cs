@@ -130,7 +130,8 @@ public static class SongsEndpoints
         }
 
         var response = await SongProvenanceService.BuildAsync(
-            db, songIds, enricherOptions.Value.DownloadDirectory, syncOptions.Value.SyncedSourceDirectory, ct);
+            db, songIds, enricherOptions.Value.DownloadDirectory, syncOptions.Value.SyncedSourceDirectory,
+            enricherOptions.Value.IdentityTitleThreshold, ct);
         return Results.Ok(response);
     }
 

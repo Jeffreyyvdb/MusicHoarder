@@ -81,6 +81,12 @@ public sealed record SongProvenanceResponse(
 /// after the fill is still the reason the fill happened.
 /// </para>
 /// <para>
+/// A fill can also have been a mistake: before canonical albums had to prove they were the album
+/// searched for (<see cref="CanonicalAlbumMatch"/>), "CHIRAQ" filled in "20 Éxitos Bailables". Such a
+/// fill is recognizable from its row alone — the title it describes is not the title it is keyed
+/// under — and says so, naming the owned songs from the album it was mistaken for.
+/// </para>
+/// <para>
 /// The text is composed here rather than in each client for the reason the History feed does it:
 /// two clients render it, and the explanation must not drift between them.
 /// </para>
@@ -118,6 +124,7 @@ public static class SongProvenanceService
         IReadOnlyCollection<int> songIds,
         string? downloadDirectory,
         string? syncedSourceDirectory,
+        double albumTitleThreshold,
         CancellationToken ct)
     {
         if (songIds.Count == 0) return Empty;
@@ -147,7 +154,8 @@ public static class SongProvenanceService
 
         var fills = classified.Where(c => c.Reason == ProvenanceReason.AlbumFill).ToList();
         if (fills.Count > 0)
-            groups.AddRange(await DescribeFillsAsync(db, fills, saveDates, downloadDirectory, syncedSourceDirectory, ct));
+            groups.AddRange(await DescribeFillsAsync(
+                db, fills, saveDates, downloadDirectory, syncedSourceDirectory, albumTitleThreshold, ct));
 
         return new SongProvenanceResponse(Summarize(groups), groups.FirstOrDefault()?.Reason, groups);
     }
@@ -249,6 +257,7 @@ public static class SongProvenanceService
         SpotifySaveDates saveDates,
         string? downloadDirectory,
         string? syncedSourceDirectory,
+        double albumTitleThreshold,
         CancellationToken ct)
     {
         var fillIds = fills.Select(f => f.Song.Id).ToList();
@@ -272,13 +281,21 @@ public static class SongProvenanceService
             .Select(a => new { a.Id, a.ArtistKey, a.AlbumKey, a.DisplayTitle, a.DisplayArtist })
             .ToListAsync(ct);
         var albumById = albums.ToDictionary(a => a.Id);
+        var mistaken = albums
+            .Where(a => !CanonicalAlbumMatch.TitleMatches(a.AlbumKey, a.DisplayTitle, albumTitleThreshold))
+            .Select(a => a.Id)
+            .ToHashSet();
 
         // The sweep's own grouping, recomputed: explicit, non-duplicate songs with an album, keyed the
         // way AlbumCompletionSweep keys them (normalized album artist, falling back to the track artist).
         var seedsByKey = new Dictionary<(string, string), List<Classified>>();
+        // A mistaken fill's seeds can have moved to another artist key since (the heal gives them back
+        // their own album artist), so for those the album title alone finds them.
+        var seedsByAlbum = new Dictionary<string, List<Classified>>();
         if (albums.Count > 0)
         {
             var wanted = albums.Select(a => (a.ArtistKey, a.AlbumKey)).ToHashSet();
+            var wantedAlbums = albums.Where(a => mistaken.Contains(a.Id)).Select(a => a.AlbumKey).ToHashSet();
             var candidates = await SelectFacts(db.Songs
                     .AsNoTracking()
                     .Where(s => s.AcquisitionIntent == SongAcquisitionIntent.Explicit
@@ -290,9 +307,22 @@ public static class SongProvenanceService
                 var key = (
                     TitleNormalizer.NormalizeForSearch(song.AlbumArtist ?? song.Artist),
                     TitleNormalizer.NormalizeForSearch(song.Album));
-                if (!wanted.Contains(key)) continue;
-                if (!seedsByKey.TryGetValue(key, out var list)) seedsByKey[key] = list = [];
-                list.Add(Classify(song, saveDates, downloadDirectory, syncedSourceDirectory));
+                var byKey = wanted.Contains(key);
+                var byAlbum = wantedAlbums.Contains(key.Item2);
+                if (!byKey && !byAlbum) continue;
+
+                var classified = Classify(song, saveDates, downloadDirectory, syncedSourceDirectory);
+                if (byKey)
+                {
+                    if (!seedsByKey.TryGetValue(key, out var list)) seedsByKey[key] = list = [];
+                    list.Add(classified);
+                }
+
+                if (byAlbum)
+                {
+                    if (!seedsByAlbum.TryGetValue(key.Item2, out var list)) seedsByAlbum[key.Item2] = list = [];
+                    list.Add(classified);
+                }
             }
         }
 
@@ -312,8 +342,11 @@ public static class SongProvenanceService
             }
 
             var album = albumById[albumId];
+            var isMistake = mistaken.Contains(albumId);
             // Live seeds before deleted ones, then the earliest arrival — the likeliest trigger.
-            var seeds = seedsByKey.GetValueOrDefault((album.ArtistKey, album.AlbumKey)) ?? [];
+            var seeds = seedsByKey.GetValueOrDefault((album.ArtistKey, album.AlbumKey))
+                ?? (isMistake ? seedsByAlbum.GetValueOrDefault(album.AlbumKey) : null)
+                ?? [];
             var ordered = seeds
                 .OrderBy(s => s.Song.DeletedAtUtc != null)
                 .ThenBy(s => s.Song.AcquiredAtUtc ?? s.Song.IndexedAtUtc)
@@ -324,7 +357,7 @@ public static class SongProvenanceService
             groups.Add(new ProvenanceGroup(
                 nameof(ProvenanceReason.AlbumFill),
                 Describe(ProvenanceReason.AlbumFill, null).Label,
-                ExplainFill(album.DisplayTitle, ordered),
+                isMistake ? ExplainMistakenFill(album.DisplayTitle, ordered) : ExplainFill(album.DisplayTitle, ordered),
                 Tracks(group),
                 new ProvenanceFill(
                     album.DisplayTitle,
@@ -353,14 +386,26 @@ public static class SongProvenanceService
         if (seeds.Count == 0)
             return $"Album completion queued the missing tracks of {target}, but the track that started it is no longer in your library.";
 
-        var had = seeds.Count switch
-        {
-            1 => Quote(TitleOf(seeds[0].Song)),
-            2 => $"{Quote(TitleOf(seeds[0].Song))} and {Quote(TitleOf(seeds[1].Song))}",
-            _ => $"{Quote(TitleOf(seeds[0].Song))} and {seeds.Count - 1} other tracks",
-        };
-        return $"You had {had} from {target}, so album completion looked up its full tracklist and queued the tracks you were missing.";
+        return $"You had {Had(seeds)} from {target}, so album completion looked up its full tracklist and queued the tracks you were missing.";
     }
+
+    /// <summary>A fill completing an album other than the one it started from.</summary>
+    private static string ExplainMistakenFill(string? album, IReadOnlyList<Classified> seeds)
+    {
+        var target = string.IsNullOrWhiteSpace(album) ? "another album" : Quote(album);
+        var yours = seeds.Select(s => s.Song.Album).FirstOrDefault(a => !string.IsNullOrWhiteSpace(a));
+        if (seeds.Count == 0 || yours is null)
+            return $"Album completion mistook one of your albums for {target} and queued its tracks.";
+
+        return $"You had {Had(seeds)} from {Quote(yours)}. Album completion mistook that album for {target} and queued its tracks.";
+    }
+
+    private static string Had(IReadOnlyList<Classified> seeds) => seeds.Count switch
+    {
+        1 => Quote(TitleOf(seeds[0].Song)),
+        2 => $"{Quote(TitleOf(seeds[0].Song))} and {Quote(TitleOf(seeds[1].Song))}",
+        _ => $"{Quote(TitleOf(seeds[0].Song))} and {seeds.Count - 1} other tracks",
+    };
 
     /// <summary>
     /// "Liked on Spotify · 16 filled in": the biggest collection you asked for, how many other
