@@ -1,6 +1,7 @@
 using System.Diagnostics.Metrics;
 using System.IO.Abstractions;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.AppleMusic;
 using MusicHoarder.Api.Artwork;
@@ -21,6 +22,7 @@ using MusicHoarder.Api.Observability;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Pipeline;
+using MusicHoarder.Api.Playback;
 using MusicHoarder.Api.Quality;
 using MusicHoarder.Api.Scanner;
 using MusicHoarder.Api.Settings;
@@ -617,6 +619,14 @@ public static class ServiceCollectionExtensions
             return new SpotifyLibraryComparisonService(
                 spotifyApi, scopeFactory, ownerLookup, navidromeLikeEnqueuer, trackSyncEnqueuer, spotifyOptions, logger);
         });
+
+        // Playback sync ("Connect"): the live per-account session and device registry is an
+        // in-memory singleton (the API runs as one replica); the flusher sweeps reachability and
+        // writes changed sessions to PlaybackSessions in batches, plus once more at shutdown.
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddSingleton<IPlaybackSessionStore, EfPlaybackSessionStore>();
+        services.AddSingleton<PlaybackCoordinator>();
+        services.AddHostedService<PlaybackSessionFlushService>();
 
         // Export Spotify Liked Songs + playlists to on-disk .m3u8 files for Navidrome/Plex/Jellyfin.
         services.AddSingleton<IM3uPlaylistWriter, M3uPlaylistWriter>();

@@ -23,6 +23,8 @@ public class AuthenticationMiddlewareTests
 
         var user = Assert.IsType<CurrentUser>(ctx.Items[HttpContextCurrentUserAccessor.HttpContextItemKey]);
         Assert.Equal(WellKnownUsers.OwnerId, user.Id);
+        // Recorded for a long-lived request (the playback stream) to re-check later.
+        Assert.Equal(ActiveSessionId, ctx.Items[AuthenticationMiddleware.SessionIdItemKey]);
     }
 
     [Fact]
@@ -46,6 +48,7 @@ public class AuthenticationMiddlewareTests
 
         Assert.True(nextCalled);
         Assert.False(ctx.Items.ContainsKey(HttpContextCurrentUserAccessor.HttpContextItemKey));
+        Assert.False(ctx.Items.ContainsKey(AuthenticationMiddleware.SessionIdItemKey));
     }
 
     [Fact]
@@ -72,6 +75,7 @@ public class AuthenticationMiddlewareTests
         await RunAsync(ctx, cookies);
 
         Assert.NotNull(ctx.Items[HttpContextCurrentUserAccessor.HttpContextItemKey]);
+        Assert.Equal(ActiveSessionId, ctx.Items[AuthenticationMiddleware.SessionIdItemKey]);
     }
 
     [Fact]

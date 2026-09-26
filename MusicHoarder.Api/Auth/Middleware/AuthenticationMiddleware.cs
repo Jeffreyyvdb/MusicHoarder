@@ -9,6 +9,12 @@ namespace MusicHoarder.Api.Auth.Middleware;
 /// </summary>
 public sealed class AuthenticationMiddleware
 {
+    /// <summary>
+    /// The id of the session that authenticated the request, for a long-lived request (the
+    /// playback stream) to re-check later that it has not been revoked since.
+    /// </summary>
+    public const string SessionIdItemKey = "__mh_session_id";
+
     private readonly RequestDelegate _next;
 
     public AuthenticationMiddleware(RequestDelegate next)
@@ -49,9 +55,10 @@ public sealed class AuthenticationMiddleware
             return;
         }
 
-        var (_, user) = resolved.Value;
+        var (session, user) = resolved.Value;
         context.Items[HttpContextCurrentUserAccessor.HttpContextItemKey] = new CurrentUser(
             user.Id, user.Email, user.Role, user.DisplayName, user.Capabilities);
+        context.Items[SessionIdItemKey] = session.Id;
 
         await _next(context);
     }
