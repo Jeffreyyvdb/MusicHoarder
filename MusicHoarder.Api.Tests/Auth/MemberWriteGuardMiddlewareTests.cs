@@ -184,6 +184,41 @@ public class MemberWriteGuardMiddlewareTests
         Assert.Equal("member_write_denied", await ReadErrorAsync(ctx));
     }
 
+    [Theory]
+    [InlineData("POST", "/api/playlists")]
+    [InlineData("PATCH", "/api/playlists/7")]
+    [InlineData("DELETE", "/api/playlists/7")]
+    [InlineData("POST", "/api/playlists/7/songs")]
+    [InlineData("PUT", "/api/playlists/7/songs")]
+    [InlineData("DELETE", "/api/playlists/7/songs/12")]
+    public async Task Member_may_edit_their_own_playlists_without_any_capability(string method, string path)
+    {
+        // Playlist rows are filtered to their owner and every song is checked against the caller's
+        // library scope in the handler, so holding an account is the whole requirement.
+        var (_, nextCalled) = await InvokeAsync(NoCapabilities, method, path);
+
+        Assert.True(nextCalled());
+    }
+
+    [Theory]
+    [InlineData("PUT", "/api/playlists")]
+    [InlineData("DELETE", "/api/playlists")]
+    [InlineData("POST", "/api/playlists/7")]
+    [InlineData("POST", "/api/playlists/7/export")]
+    [InlineData("POST", "/api/playlists/7/songs/12")]
+    [InlineData("DELETE", "/api/playlists/7/songs")]
+    [InlineData("POST", "/api/playlists/x/songs")]
+    [InlineData("POST", "/api/playlist-sync/subscribe")]
+    [InlineData("POST", "/api/playlist-sync/regenerate")]
+    public async Task Playlist_allowances_are_exact(string method, string path)
+    {
+        var (ctx, nextCalled) = await InvokeAsync(Listener, method, path);
+
+        Assert.False(nextCalled());
+        Assert.Equal(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);
+        Assert.Equal("member_write_denied", await ReadErrorAsync(ctx));
+    }
+
     // --- Capability-gated allowances -----------------------------------------------------------
 
     [Theory]
