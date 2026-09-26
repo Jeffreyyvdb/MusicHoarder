@@ -2,14 +2,14 @@ package com.musichoarder.app.player
 
 import android.content.ComponentName
 import android.content.Context
-import android.net.Uri
-import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.musichoarder.app.data.DeviceKind
 import com.musichoarder.app.data.MusicHoarderApi
+import com.musichoarder.app.data.PlaybackMode
 import com.musichoarder.app.data.Track
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -47,6 +47,23 @@ data class PlayerUiState(
     val repeatMode: Int = Player.REPEAT_MODE_OFF,
     val playbackRate: Float = 1f,
     val error: String? = null,
+    /**
+     * Whose player this describes. [PlaybackMode.Local] is this phone's own; otherwise every field
+     * above describes the account's session on another device (`sessionPlayerState`), and the
+     * transport sends that device commands instead of touching the local player.
+     */
+    val mode: PlaybackMode = PlaybackMode.Local,
+    /** "Playing on MacBook", "Paused on MacBook", "Last played on iPhone"; null in local mode. */
+    val deviceLine: String? = null,
+    /** The [DeviceKind] of the device [deviceLine] names, for the icon beside it. */
+    val deviceKind: String = DeviceKind.UNKNOWN,
+    /**
+     * Show the Devices control: the feature is on — signed in, not the demo, not a share queue.
+     * Now Playing's Devices button follows this alone, as the web's does (so a lone phone still
+     * shows it, and its picker explains how other devices appear); the mini player only offers the
+     * picker from its device line, which is quiet in local mode.
+     */
+    val devicesAvailable: Boolean = false,
 ) {
     val isActive: Boolean get() = trackId != null
 }
@@ -89,13 +106,16 @@ class PlayerController(
     private var pendingPlay: Pair<List<Track>, Int>? = null
 
     /**
-     * The track the station was built from: the last one the *user* chose, not whatever the radio
-     * is playing now. Anchoring it keeps a station coherent — reseeding from each appended track
-     * lets it wander somewhere unrelated within a few hops.
+     * The station's seed is the track the *user* last chose, not whatever the radio is playing now.
+     * Anchoring it keeps a station coherent — reseeding from each appended track lets it wander
+     * somewhere unrelated within a few hops. It lives in the player's playlist metadata
+     * ([stationSeedId]) rather than here, so the playback sync in the service can report it and an
+     * adopted session can set it.
      */
-    private var radioSeedId: Int? = null
-    /** True once the server has no unplayed neighbour left, so we stop asking. */
-    private var radioExhausted = false
+    private val radioSeedId: Int? get() = controller?.stationSeedId
+
+    /** The seed the server has no unplayed neighbour left for, so we stop asking about it. */
+    private var exhaustedSeedId: Int? = null
     private var radioJob: Job? = null
 
     private val listener = object : Player.Listener {
@@ -148,17 +168,17 @@ class PlayerController(
     fun play(tracks: List<Track>, startIndex: Int) {
         if (tracks.isEmpty()) return
         val index = startIndex.coerceIn(tracks.indices)
-        // A deliberate pick re-seeds the station and revives an exhausted one: the user has just
-        // said what they want to hear, which is the question the radio answers.
-        radioSeedId = tracks[index].id
-        radioExhausted = false
-
         val player = controller ?: run {
             pendingPlay = tracks to startIndex
             connect()
             return
         }
-        player.setMediaItems(tracks.map(::toMediaItem), index, 0L)
+        // A deliberate pick re-seeds the station and revives an exhausted one: the user has just
+        // said what they want to hear, which is the question the radio answers. A share track
+        // seeds nothing — its ids belong to another server.
+        exhaustedSeedId = null
+        player.playlistMetadata = stationMetadata(tracks[index].id.takeIf { tracks[index].streamUrl == null })
+        player.setMediaItems(tracks.map { it.toMediaItem(api) }, index, 0L)
         player.prepare()
         player.play()
         maybeTopUpRadio()
@@ -176,7 +196,7 @@ class PlayerController(
     private fun maybeTopUpRadio() {
         val player = controller ?: return
         val seed = radioSeedId ?: return
-        if (radioExhausted || radioJob?.isActive == true) return
+        if (seed == exhaustedSeedId || radioJob?.isActive == true) return
         if (player.mediaItemCount - 1 - player.currentMediaItemIndex > RADIO_PREFETCH_AT) return
 
         val queued = (0 until player.mediaItemCount)
@@ -193,14 +213,17 @@ class PlayerController(
             val heard = queued.toSet()
             val fresh = fetched.filter { it.id !in heard }
             if (fresh.isEmpty()) {
-                radioExhausted = true
+                exhaustedSeedId = seed
                 return@launch
             }
 
             val target = controller ?: return@launch
             val firstAppended = target.mediaItemCount
-            val wasEnded = target.playbackState == Player.STATE_ENDED
-            target.addMediaItems(fresh.map(::toMediaItem))
+            // Ran dry while it was meant to be playing. Not one somebody paused since — the
+            // session moving to another device pauses an ended queue too, and restarting it
+            // here would take the music straight back.
+            val wasEnded = target.playbackState == Player.STATE_ENDED && target.playWhenReady
+            target.addMediaItems(fresh.map { it.toMediaItem(api) })
             if (wasEnded) {
                 target.seekTo(firstAppended, 0L)
                 target.prepare()
@@ -275,42 +298,15 @@ class PlayerController(
 
     fun stop() {
         pendingPlay = null
-        radioSeedId = null
-        radioExhausted = false
+        exhaustedSeedId = null
         radioJob?.cancel()
         radioJob = null
         controller?.stop()
         controller?.clearMediaItems()
+        controller?.playlistMetadata = MediaMetadata.EMPTY
         lastReportedTrackId = null
         _state.value = PlayerUiState()
     }
-
-    private fun toMediaItem(track: Track): MediaItem = MediaItem.Builder()
-        .setMediaId(track.id.toString())
-        // A share track carries its own absolute token-in-path URL; only library tracks go
-        // through the paired route (which throws when unpaired — shares must not).
-        .setUri(track.streamUrl ?: api.streamUrl(track.id))
-        .setMediaMetadata(
-            MediaMetadata.Builder()
-                .setTitle(track.title)
-                .setArtist(track.artist)
-                .setAlbumTitle(track.album)
-                .setAlbumArtist(track.albumArtist)
-                // The library already knows how long the track is. ExoPlayer only learns it once
-                // it has parsed enough of the stream, which over the internet can take most of a
-                // minute — and until then the bar is inert and the label reads "--:--". This is
-                // the web transport's `fallbackDuration` prop, carried on the item.
-                .setDurationMs(track.durationMs)
-                .setArtworkUri(
-                    // 640 is the largest server-side thumbnail bucket — enough for the lock screen.
-                    track.artworkUrl?.let(Uri::parse)
-                        ?: if (track.hasCover) Uri.parse(api.coverUrl(track.id, 640)) else null
-                )
-                .setIsBrowsable(false)
-                .setIsPlayable(true)
-                .build()
-        )
-        .build()
 
     private fun pushState(player: Player) {
         val metadata = player.mediaMetadata

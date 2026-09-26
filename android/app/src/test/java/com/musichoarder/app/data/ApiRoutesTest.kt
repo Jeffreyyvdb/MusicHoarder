@@ -42,6 +42,27 @@ class ApiRoutesTest {
     }
 
     @Test
+    fun `the playback sync routes`() {
+        assertEquals("/api/playback", ApiRoutes.playback())
+        assertEquals("/api/playback/state", ApiRoutes.playbackState())
+        assertEquals("/api/playback/command", ApiRoutes.playbackCommand())
+    }
+
+    @Test
+    fun `the playback stream introduces the device in its query, spaces as %20`() {
+        assertEquals(
+            "/api/playback/stream?deviceId=0f8fad5b-d9cb&installId=0f8fad5b-d9cb" +
+                "&name=Alex%27s%20Pixel%20%26%20co&kind=phone&client=android",
+            ApiRoutes.playbackStream("0f8fad5b-d9cb", "0f8fad5b-d9cb", "Alex's Pixel & co", "phone", "android"),
+        )
+        // No install id is an empty parameter, which the server reads as none.
+        assertEquals(
+            "/api/playback/stream?deviceId=abc12345&installId=&name=Pixel&kind=phone&client=android",
+            ApiRoutes.playbackStream("abc12345", null, "Pixel", "phone", "android"),
+        )
+    }
+
+    @Test
     fun `no route points at the deprecated shared surface`() {
         val all = listOf(
             ApiRoutes.songs(),

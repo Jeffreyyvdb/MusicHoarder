@@ -2,6 +2,7 @@ package com.musichoarder.app.ui
 
 import android.app.Application
 import android.content.Context
+import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.musichoarder.app.MusicHoarderApp
@@ -12,6 +13,9 @@ import com.musichoarder.app.data.ArtistMode
 import com.musichoarder.app.data.ChipKey
 import android.net.Uri
 import com.musichoarder.app.data.ApiException
+import com.musichoarder.app.data.DeviceKind
+import com.musichoarder.app.data.DevicePicker
+import com.musichoarder.app.data.DevicePickerRow
 import com.musichoarder.app.data.LibraryContent
 import com.musichoarder.app.data.LibraryTab
 import com.musichoarder.app.data.InviteLink
@@ -22,6 +26,8 @@ import com.musichoarder.app.data.PairingUri
 import com.musichoarder.app.data.PasskeyCancelledException
 import com.musichoarder.app.data.PasskeySignIn
 import com.musichoarder.app.data.PasskeyUnavailableException
+import com.musichoarder.app.data.PlaybackCommand
+import com.musichoarder.app.data.PlaybackMode
 import com.musichoarder.app.data.RowTap
 import com.musichoarder.app.data.ShareLink
 import com.musichoarder.app.data.SortKey
@@ -38,12 +44,19 @@ import com.musichoarder.app.data.resolveNowPlayingLinks
 import com.musichoarder.app.data.rowTapFor
 import com.musichoarder.app.data.scopedTo
 import com.musichoarder.app.data.sortForChipChange
+import com.musichoarder.app.player.ConnectNotice
+import com.musichoarder.app.player.ConnectView
+import com.musichoarder.app.player.PlaybackConnect
 import com.musichoarder.app.player.PlayerController
+import com.musichoarder.app.player.PlayerUiState
 import com.musichoarder.app.player.VideoController
+import com.musichoarder.app.player.sessionPlayerState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -52,6 +65,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
@@ -144,8 +160,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         scope = viewModelScope,
         onTrackStarted = { songId ->
             // A share queue's ids belong to the sharing server — feeding them into the local
-            // play stats (or reporting them against the paired one) would corrupt both.
-            if (!_isShareQueue.value) {
+            // play stats (or reporting them against the paired one) would corrupt both. And a
+            // session picked up from another device carries on a listen already counted there.
+            if (!_isShareQueue.value && !graph.playbackConnect.consumeAdoptedStart(songId)) {
                 // Mirror what the server is about to record, so the Overview's "Last played" and
                 // "Discover" shelves move as you listen instead of waiting for the next full fetch.
                 graph.library.notePlayed(songId, System.currentTimeMillis())
@@ -162,6 +179,177 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
         },
     )
+
+    /** Playback sync: the account's session on its other devices, and this phone's place in it. */
+    private val connect: PlaybackConnect = graph.playbackConnect
+
+    /**
+     * Ticks four times a second while another device is playing the session, so the position it
+     * shows moves; nothing ticks otherwise (the local player has its own 200 ms ticker).
+     */
+    private val remoteClock: Flow<Unit> = connect.view
+        .map { it.mode != PlaybackMode.Local && it.session?.isPlaying == true }
+        .distinctUntilChanged()
+        .flatMapLatest { ticking ->
+            if (!ticking) {
+                flowOf(Unit)
+            } else {
+                flow {
+                    while (true) {
+                        emit(Unit)
+                        delay(250)
+                    }
+                }
+            }
+        }
+
+    /**
+     * A scrub on a remembered session: where Play will pick it up, for that session version only.
+     * Nothing is playing it, so a scrub only moves the position — the web's `rememberedSeekMs` —
+     * rather than starting the music the way Play does.
+     */
+    private data class RememberedSeek(val version: Long, val positionMs: Long)
+
+    private val rememberedSeek = MutableStateFlow<RememberedSeek?>(null)
+
+    /**
+     * What the mini player and Now Playing show: this phone's own player, or — while another device
+     * holds the account's session, or it is only remembered — that session, in the same shape
+     * ([sessionPlayerState]), so the same composables render both. The library rides along because
+     * a session's song is resolved against it for the cover and credits.
+     */
+    val nowPlaying: StateFlow<PlayerUiState> = combine(
+        player.state,
+        connect.view,
+        remoteClock,
+        graph.library.state,
+        rememberedSeek,
+    ) { local, view, _, _, _ -> displayState(local, view) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PlayerUiState())
+
+    /** The remembered-session scrub, while it still applies to what is shown. */
+    private fun rememberedSeekFor(view: ConnectView): Long? {
+        val seek = rememberedSeek.value ?: return null
+        val session = view.session ?: return null
+        return seek.positionMs.takeIf { view.mode == PlaybackMode.Remembered && seek.version == session.version }
+    }
+
+    private fun displayState(local: PlayerUiState, view: ConnectView): PlayerUiState {
+        val session = view.session
+        // The mini player's device line is what stays quiet in local mode; the button does not.
+        val devicesAvailable = view.showsDevices
+        if (view.mode == PlaybackMode.Local || session == null) return local.copy(devicesAvailable = devicesAvailable)
+        // Any row of the library, built or not — the same rows an adoption resolves against.
+        val track = graph.library.songById(session.songId)
+        return sessionPlayerState(
+            session = session,
+            mode = view.mode,
+            positionMs = rememberedSeekFor(view) ?: view.knowledge.positionAt(SystemClock.elapsedRealtime()),
+            track = track,
+            artworkUrl = track?.takeIf { it.hasCover }?.let { runCatching { graph.api.coverUrl(it.id, 640) }.getOrNull() },
+            heldHere = session.activeDeviceId == view.myDeviceId,
+            deviceKind = view.knowledge.devices.firstOrNull { it.deviceId == session.activeDeviceId }?.kind
+                ?: DeviceKind.UNKNOWN,
+            devicesAvailable = devicesAvailable,
+        )
+    }
+
+    /** The shown state right now, for a tap that has to act on it (the flow above may be idle). */
+    private fun shown(): PlayerUiState = displayState(player.state.value, connect.view.value)
+
+    /** The picker's rows: "This device" first, then the account's other devices. */
+    val devicePicker: StateFlow<DevicePicker> = connect.view
+        .map { it.picker }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DevicePicker())
+
+    /** Supersede, unreachable and missing-song messages, some with a "Play here" action. */
+    val connectNotices: SharedFlow<ConnectNotice> = connect.notices
+
+    val thisDeviceName: String get() = connect.thisDeviceName
+    val thisDeviceKind: String get() = connect.thisDeviceKind
+
+    // ---- The transport. Local mode drives this phone's player; remote mode sends the device
+    // holding the session a command; remembered mode picks the session up here, which is a local
+    // play intent like any other. --------------------------------------------------------------
+
+    fun togglePlayPause() {
+        val state = shown()
+        when (state.mode) {
+            PlaybackMode.Local -> player.togglePlayPause()
+            PlaybackMode.Remote ->
+                connect.sendCommand(if (state.isPlaying) PlaybackCommand.PAUSE else PlaybackCommand.RESUME)
+            PlaybackMode.Remembered -> pickUpRemembered()
+        }
+    }
+
+    /** Play on a remembered session: picked up here, where a scrub left it if there was one. */
+    private fun pickUpRemembered(action: PlaybackConnect.HereAction = PlaybackConnect.HereAction.Resume) {
+        val at = rememberedSeekFor(connect.view.value)
+        rememberedSeek.value = null
+        connect.playHere(action, positionMs = at)
+    }
+
+    /** The loaded row's tap: carry on, never pause and never restart — wherever it is playing. */
+    fun resume() {
+        val state = shown()
+        when (state.mode) {
+            PlaybackMode.Local -> player.resume()
+            PlaybackMode.Remote -> if (!state.isPlaying) connect.sendCommand(PlaybackCommand.RESUME)
+            PlaybackMode.Remembered -> pickUpRemembered()
+        }
+    }
+
+    fun next() {
+        when (shown().mode) {
+            PlaybackMode.Local -> player.next()
+            PlaybackMode.Remote -> connect.sendCommand(PlaybackCommand.NEXT)
+            PlaybackMode.Remembered -> pickUpRemembered(PlaybackConnect.HereAction.Next)
+        }
+    }
+
+    fun previous() {
+        when (shown().mode) {
+            PlaybackMode.Local -> player.previous()
+            PlaybackMode.Remote -> connect.sendCommand(PlaybackCommand.PREVIOUS)
+            PlaybackMode.Remembered -> pickUpRemembered(PlaybackConnect.HereAction.Previous)
+        }
+    }
+
+    fun seekTo(positionMs: Long) {
+        when (shown().mode) {
+            PlaybackMode.Local -> player.seekTo(positionMs)
+            PlaybackMode.Remote -> connect.sendCommand(PlaybackCommand.SEEK, positionMs)
+            PlaybackMode.Remembered -> connect.view.value.session?.let { session ->
+                rememberedSeek.value = RememberedSeek(session.version, positionMs.coerceAtLeast(0))
+            }
+        }
+        video.onSeek(positionMs)
+    }
+
+    /**
+     * "This device" in the picker, and the snackbars' Play here: the music, here. Already here, it
+     * only makes sure it plays — a resume through the session, so it still claims (the web's
+     * `playHere`); otherwise the session is picked up here at its position.
+     */
+    fun playHere() {
+        val state = shown()
+        if (state.mode == PlaybackMode.Remembered) {
+            pickUpRemembered()
+        } else if (state.mode == PlaybackMode.Remote) {
+            connect.playHere()
+        } else if (state.isActive && !state.isPlaying) {
+            player.resume()
+        }
+    }
+
+    /** A row of the device picker: "This device" picks the music up; another asks it to take over. */
+    fun chooseDevice(row: DevicePickerRow?) {
+        when {
+            row == null -> playHere()
+            // Already where the music is: nothing to move.
+            !row.current -> connect.transferTo(row.deviceId)
+        }
+    }
 
     /** The muted clip behind the player; it chases [player]'s clock and never drives it. */
     val video = VideoController(
@@ -211,7 +399,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun onNowPlayingTrackChanged(songId: Int?) {
         // Share queues: no video backdrop (the controller is wired to the paired api), and lyrics
         // come from the share's own anonymous endpoint on the sharing server.
-        val shareLink = if (_isShareQueue.value) _share.value?.link else null
+        val shareLink = if (_isShareQueue.value && shown().mode == PlaybackMode.Local) _share.value?.link else null
         if (shareLink == null) video.load(songId) else video.load(null)
         if (songId == lyricsSongId) return
         lyricsSongId = songId
@@ -621,18 +809,30 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * library at that rate to answer a question that only changes between songs would be waste.
      */
     val nowPlayingLinks: StateFlow<NowPlayingLinks?> = combine(
-        player.state.map { it.trackId }.distinctUntilChanged(),
+        nowPlaying.map { it.trackId to it.mode }.distinctUntilChanged(),
         graph.library.state,
         _isShareQueue,
-    ) { trackId, state, isShareQueue ->
+    ) { (trackId, mode), state, isShareQueue ->
         // A share track can carry a library track's id, so the flag has to rule it out before the
         // lookup — otherwise a colliding id would link the wrong record.
-        if (isShareQueue) null else resolveNowPlayingLinks(state, trackId)
+        // A session shown from another device is always this library's own.
+        if (isShareQueue && mode == PlaybackMode.Local) null else resolveNowPlayingLinks(state, trackId)
     }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private var shareJob: Job? = null
+
+    init {
+        // An adopted session replaced whatever the player held — a share queue included — so the
+        // share guards must let go, and the lyrics refetch for what is now a library song.
+        viewModelScope.launch {
+            connect.adoptions.collect {
+                _isShareQueue.value = false
+                lyricsSongId = null
+            }
+        }
+    }
 
     fun openShare(link: ShareLink) {
         shareJob?.cancel()
@@ -675,7 +875,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     /** A tap on a share viewer row: [activateRow]'s rule, where only the share queue is loaded. */
     fun activateShareRow(tracks: List<Track>, index: Int): RowTap {
-        val tap = rowTapFor(tracks[index].id, player.state.value.trackId, sameQueueKind = _isShareQueue.value)
+        val state = shown()
+        val tap = rowTapFor(
+            tracks[index].id,
+            state.trackId,
+            sameQueueKind = _isShareQueue.value && state.mode == PlaybackMode.Local,
+        )
         if (tap == RowTap.OpenPlayer) player.resume() else playShare(tracks, index)
         return tap
     }
@@ -891,8 +1096,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * [play] instead: they mean "from the top" even when the first track happens to be loaded.
      */
     fun activateRow(tracks: List<Track>, index: Int): RowTap {
-        val tap = rowTapFor(tracks[index].id, player.state.value.trackId, sameQueueKind = !_isShareQueue.value)
-        if (tap == RowTap.OpenPlayer) player.resume() else play(tracks, index)
+        // The loaded row is whatever the player shows — the session's song on another device
+        // included, whose tap brings Now Playing up over it rather than restarting it here.
+        val state = shown()
+        val sameKind = state.mode != PlaybackMode.Local || !_isShareQueue.value
+        val tap = rowTapFor(tracks[index].id, state.trackId, sameQueueKind = sameKind)
+        if (tap == RowTap.OpenPlayer) resume() else play(tracks, index)
         return tap
     }
 

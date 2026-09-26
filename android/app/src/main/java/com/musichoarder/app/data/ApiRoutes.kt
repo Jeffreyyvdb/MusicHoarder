@@ -1,5 +1,7 @@
 package com.musichoarder.app.data
 
+import java.net.URLEncoder
+
 /**
  * The per-song and library paths, relative to the `/api/mh` proxy prefix.
  *
@@ -44,5 +46,23 @@ internal object ApiRoutes {
 
     fun played(id: Int) = "${song(id)}/played"
 
+    /** The account's playback session and its devices ("Connect"). */
+    fun playback() = "/api/playback"
+
+    fun playbackState() = "/api/playback/state"
+
+    fun playbackCommand() = "/api/playback/command"
+
+    /**
+     * The session's event stream. The device introduces itself in the query rather than a header,
+     * because the stream is a plain GET that registers the device for as long as it stays open.
+     */
+    fun playbackStream(deviceId: String, installId: String?, name: String, kind: String, client: String): String =
+        "/api/playback/stream?deviceId=${query(deviceId)}&installId=${query(installId.orEmpty())}" +
+            "&name=${query(name)}&kind=${query(kind)}&client=${query(client)}"
+
     private fun song(id: Int) = "/songs/$id"
+
+    /** `%20` rather than `+` for a space: a device name crosses the frontend proxy too. */
+    private fun query(value: String): String = URLEncoder.encode(value, "UTF-8").replace("+", "%20")
 }
