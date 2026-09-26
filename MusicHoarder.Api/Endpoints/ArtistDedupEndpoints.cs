@@ -12,8 +12,9 @@ public record ArtistDismissRequest(string[] Names);
 
 /// <summary>
 /// Artist-level dedup: detect variant spellings of one artist ("JAY-Z" / "JAYZ" / "Jaÿ-z") and
-/// combined credits registered as a single artist ("JAY-Z &amp; Kanye West"), merge them onto a
-/// canonical spelling (tags are rewritten via the re-tag pipeline), or dismiss false positives.
+/// combined credits registered as a single artist ("JAY-Z &amp; Kanye West", an album artist of
+/// "Hef met Jayh"), merge spellings onto a canonical one or split a credit into its artists (tags
+/// are rewritten via the re-tag pipeline), or dismiss false positives.
 /// </summary>
 public static class ArtistDedupEndpoints
 {
@@ -31,7 +32,7 @@ public static class ArtistDedupEndpoints
 
         app.MapPost("/api/library/artists/split-credit", SplitCredit)
             .WithName("SplitArtistCredit")
-            .WithSummary("Backfill the discrete Artists list for songs whose display credit is a combined \"A & B\" string.")
+            .WithSummary("Split a combined credit (\"A & B\", \"Hef met Jayh\"): backfill blank discrete Artists lists with its artists and move an album artist equal to the credit to the lead; re-queues built files for re-tag.")
             .WithTags("Library").RequireAdmin();
 
         app.MapPost("/api/library/artists/dismiss", Dismiss)

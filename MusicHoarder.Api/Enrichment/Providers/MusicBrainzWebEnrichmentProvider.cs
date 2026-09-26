@@ -147,10 +147,15 @@ public class MusicBrainzWebEnrichmentProvider(
         var artist = string.IsNullOrWhiteSpace(rec.Artist) ? song.Artist : rec.Artist;
         return new EnrichmentProviderResult(
             Artist: artist,
-            // Prefer the release-level album-artist. Never fall back to the *track* artist credit —
-            // on compilations/collabs it's a featured guest and comma-names ("Tyler, The Creator") get
-            // truncated, both of which split one album into several. Keep the song's curated album-artist
-            // otherwise; only resort to the track's primary artist for genuinely untagged files.
+            // Prefer the recording's lead credited artist (rec.AlbumArtist). The mapper reads it from the
+            // same artist-credit entry as AlbumArtistMusicBrainzId rather than re-parsing the joined
+            // credit, so the name and id always describe one artist: "Hef met Jayh" gives "Hef",
+            // "Tyler, The Creator" stays whole. It is the recording's credit, not a release-level
+            // album-artist, and null only when MusicBrainz returned no credit at all. Never fall back to
+            // re-parsing the *track* artist credit — on compilations/collabs it's a featured guest and
+            // comma-names get truncated, both of which split one album into several. Keep the song's
+            // curated album-artist otherwise; only resort to the track's primary artist for genuinely
+            // untagged files.
             AlbumArtist: !string.IsNullOrWhiteSpace(rec.AlbumArtist) ? rec.AlbumArtist
                 : !string.IsNullOrWhiteSpace(song.AlbumArtist) ? song.AlbumArtist
                 : ArtistCreditNormalizer.GetPrimaryArtist(artist),

@@ -46,7 +46,7 @@ internal static class MusicBrainzResponseMapper
             Id: r.Id,
             Title: r.Title ?? string.Empty,
             Artist: artist,
-            AlbumArtist: ArtistCreditNormalizer.GetPrimaryArtist(artist),
+            AlbumArtist: BuildLeadArtist(r.ArtistCredit),
             ReleaseId: release?.Id,
             ReleaseTitle: release?.Title,
             Year: ReleaseDateParser.ParseYear(release?.Date),
@@ -75,7 +75,6 @@ internal static class MusicBrainzResponseMapper
 
     internal static MusicBrainzRelease MapRelease(MusicBrainzReleaseDetailDto r)
     {
-        var artist = BuildArtistCredit(r.ArtistCredit);
         var media = r.Media ?? [];
 
         var tracks = new List<MusicBrainzReleaseTrack>();
@@ -104,7 +103,7 @@ internal static class MusicBrainzResponseMapper
         return new MusicBrainzRelease(
             Id: r.Id,
             Title: r.Title,
-            AlbumArtist: string.IsNullOrWhiteSpace(artist) ? null : ArtistCreditNormalizer.GetPrimaryArtist(artist),
+            AlbumArtist: BuildLeadArtist(r.ArtistCredit),
             Year: ReleaseDateParser.ParseYear(r.Date),
             TotalDiscs: totalDiscs,
             TotalTracks: totalTracks,
@@ -168,6 +167,21 @@ internal static class MusicBrainzResponseMapper
 
         return string.Concat(credits.Select(c => (c.Name ?? c.Artist?.Name ?? string.Empty) + (c.JoinPhrase ?? string.Empty))).Trim();
     }
+
+    // The album-artist: the LEAD credited artist, read from the same structured entry that
+    // AlbumArtistMusicBrainzId and AlbumArtistSort come from — never re-parsed out of the joined
+    // display credit. A re-parse only knows the join phrases ArtistCreditNormalizer.SplitArtists
+    // knows, so "Hef met Jayh", "2Pac + Outlawz" and "50 Cent and Olivia" came back whole while
+    // carrying the lead's MBID (and the artist-dedup Inbox then offered each collab as a spelling of
+    // its lead: "same MusicBrainz artist id"); and it cut single artists whose own name holds a
+    // delimiter ("Simon & Garfunkel" → "Simon", "Tyler, The Creator" → "Tyler"). The credited-as
+    // name wins over the canonical one, which is what the old parse returned whenever it was right.
+    // No credit list → null, exactly what the old parse of the empty credit gave.
+    private static string? BuildLeadArtist(List<MusicBrainzArtistCreditDto>? credits)
+        => credits is null or { Count: 0 }
+            ? null
+            : ArtistCreditNormalizer.NormalizeDisplayCredit(credits[0].Name)
+                ?? ArtistCreditNormalizer.NormalizeDisplayCredit(credits[0].Artist?.Name);
 
     // Discrete artist names (one per credited artist, no join phrases) for the multi-value ARTISTS tag.
     private static string? BuildDiscreteArtists(List<MusicBrainzArtistCreditDto>? credits)

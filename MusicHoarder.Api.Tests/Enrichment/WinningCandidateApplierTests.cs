@@ -57,6 +57,32 @@ public class WinningCandidateApplierTests
     }
 
     [Fact]
+    public void TryApply_CandidateStoredWithACollabAlbumArtist_AppliesTheLead()
+    {
+        // A NeedsReview candidate stored before the MusicBrainz mapping fix still says album artist
+        // "Hef met Jayh"; approving it must not write (and lock) the collab's own folder.
+        var song = NewSong(artist: "Hef met Jayh", title: "Track");
+        song.MatchedBy = "MusicBrainzWeb";
+        song.EnrichmentStatus = EnrichmentStatus.NeedsReview;
+        var candidate = new EnrichmentProviderResult(
+            Artist: "Hef met Jayh", AlbumArtist: "Hef met Jayh", Title: "Track", Year: 2020, TrackNumber: 1,
+            MusicBrainzId: "rec-1", MusicBrainzReleaseId: null, SpotifyId: null, AcoustIdTrackId: null, Isrc: null,
+            MatchedBy: "MusicBrainzWeb", MatchConfidence: 0.8, MatchWarnings: [],
+            RecommendedStatus: EnrichmentStatus.NeedsReview, Artists: "Hef;Jayh");
+        song.ProviderAttempts.Add(new SongProviderAttempt
+        {
+            Provider = EnrichmentProvider.MusicBrainzWeb,
+            Status = ProviderAttemptStatus.Matched,
+            AttemptedAtUtc = DateTime.UtcNow,
+            MatchedDataJson = JsonSerializer.Serialize(candidate),
+        });
+
+        Assert.True(WinningCandidateApplier.TryApply(song));
+        Assert.Equal("Hef", song.AlbumArtist);
+        Assert.Equal("Hef met Jayh", song.Artist);
+    }
+
+    [Fact]
     public void TryApply_CarriesEveryCandidateFieldOntoTheSong()
     {
         // Characterization test: pins the FULL provider-candidate -> song field mapping (the

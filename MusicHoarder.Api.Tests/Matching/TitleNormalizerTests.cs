@@ -50,4 +50,21 @@ public class TitleNormalizerTests
             TitleNormalizer.FoldDiacritics("cafe"),
             TitleNormalizer.FoldDiacritics("café"));
     }
+
+    [Theory]
+    [InlineData("JAY-Z", "jayz")]
+    [InlineData("Jaÿ-z", "jayz")]
+    [InlineData("Beyoncé", "beyonce")]
+    [InlineData("  OutKast  ", "outkast")]
+    [InlineData("Nas (featuring AZ)", "nas featuring az")]
+    [InlineData("Nas feat. AZ", "nas feat az")]
+    [InlineData("Nas [ft AZ]", "nas ft az")]
+    [InlineData("2Pac + Outlawz", "2pac outlawz")]
+    [InlineData(null, "")]
+    public void NormalizeArtistKey_FoldsSpellingButKeepsExtraArtists(string? input, string expected)
+    {
+        // Unlike the search form, a featuring clause or bracketed text is part of the key: it names
+        // more artists, so "Nas (featuring AZ)" must never key as plain "nas".
+        Assert.Equal(expected, TitleNormalizer.NormalizeArtistKey(input));
+    }
 }

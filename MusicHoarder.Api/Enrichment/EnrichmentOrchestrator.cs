@@ -189,8 +189,17 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         // a re-enrichment must not reintroduce a variant ("JAYZ") the user already merged away
         // ("JAY-Z"). Whole-name and discrete-list mapping only — multi-artist display credits are
         // left untouched (partial rewrites inside a joined credit are riskier than the drift).
+        // ResolveName enforces that: it refuses a credit SplitArtists splits ("Nas feat. AZ", "Nas
+        // (feat. AZ)") and, given the winner's discrete list, one that is its joined form ("Hef met
+        // Jayh" over "Hef; Jayh"), before it ever looks the name up.
         if (consensus.Status == EnrichmentStatus.Matched && consensus.Winner is not null)
         {
+            // A winner built from an attempt stored before the MusicBrainz mapping took the album
+            // artist from the first credit entry still carries the joined collab ("Hef met Jayh").
+            if (Metadata.ArtistCreditNormalizer.LeadOfJoinedCredit(
+                    consensus.Winner.AlbumArtist, Metadata.MultiValue.Split(consensus.Winner.Artists)) is { } lead)
+                consensus = consensus with { Winner = consensus.Winner with { AlbumArtist = lead } };
+
             var aliases = await Library.ArtistAliasMap.LoadForOwnerAsync(dbContext, song.OwnerUserId, ct);
             if (!aliases.IsEmpty)
             {
@@ -199,8 +208,9 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
                 {
                     Winner = winner with
                     {
-                        Artist = aliases.ResolveName(song.OwnerUserId, winner.Artist) ?? winner.Artist,
-                        AlbumArtist = aliases.ResolveName(song.OwnerUserId, winner.AlbumArtist) ?? winner.AlbumArtist,
+                        Artist = aliases.ResolveName(song.OwnerUserId, winner.Artist, winner.Artists) ?? winner.Artist,
+                        AlbumArtist = aliases.ResolveName(song.OwnerUserId, winner.AlbumArtist, winner.Artists)
+                            ?? winner.AlbumArtist,
                         Artists = aliases.MapList(song.OwnerUserId, winner.Artists) ?? winner.Artists,
                     },
                 };

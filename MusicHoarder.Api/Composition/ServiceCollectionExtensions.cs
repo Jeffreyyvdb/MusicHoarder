@@ -224,6 +224,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IAlbumIdentityReconciler, AlbumIdentityReconciler>();
         services.AddScoped<IAlbumSplitHealer, AlbumSplitHealer>();
         services.AddScoped<IArtistCreditHealer, ArtistCreditHealer>();
+        services.AddScoped<IArtistCreditRepairHealer, ArtistCreditRepairHealer>();
         services.AddScoped<IArtistDuplicateService, ArtistDuplicateService>();
         services.AddScoped<IAlbumDuplicateDetector, AlbumDuplicateDetector>();
         services.AddScoped<IDedupActionHistory, DedupActionHistoryService>();

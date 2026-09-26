@@ -7,7 +7,8 @@
     splitArtistCredit,
     dismissArtistDuplicates,
     type ArtistDuplicateReport,
-    type ArtistDuplicateCluster
+    type ArtistDuplicateCluster,
+    type CombinedCreditCandidate
   } from '$lib/api-client';
   import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
   import { Badge } from '$lib/components/ui/badge';
@@ -111,6 +112,20 @@
     });
   }
 
+  const partList = new Intl.ListFormat('en', { type: 'conjunction' });
+
+  // What Split does, said on the row: the artists it lists separately, and — where the credit is
+  // the album artist — that those tracks are filed under the lead instead of a folder of their own.
+  function creditSummary(credit: CombinedCreditCandidate): string {
+    const tracks = `${credit.songCount} track${credit.songCount === 1 ? '' : 's'}`;
+    const moved = credit.albumArtistSongCount ?? 0;
+    const filing =
+      moved === 0
+        ? ''
+        : `, files ${moved === credit.songCount ? '' : `${moved} `}under ${credit.parts[0]}`;
+    return `Splits into ${partList.format(credit.parts)}${filing} — ${tracks}`;
+  }
+
   function clusterHeader(cluster: ArtistDuplicateCluster): string {
     const tracks = cluster.variants.reduce((s, v) => s + v.songCount, 0);
     return `${cluster.suggestedCanonical} · ${cluster.variants.length} spellings · ${tracks} track${tracks === 1 ? '' : 's'}`;
@@ -162,7 +177,7 @@
       {:else if total === 0}
         <InboxQueueStates state="empty" icon={Check} title="No artist duplicates found">
           Variant spellings of one artist ("JAY-Z" / "JAYZ") and combined credits registered as a
-          single artist ("A &amp; B") show up here with a one-step fix.
+          single artist ("A &amp; B", "Hef met Jayh") show up here with a one-step fix.
         </InboxQueueStates>
       {:else if report}
         {#each report.clusters as cluster (cluster.suggestedCanonical)}
@@ -252,15 +267,13 @@
         {/each}
 
         {#if report.combinedCredits.length > 0}
-          <GroupedList.Section header="Combined credits registered as one artist">
+          <GroupedList.Section
+            header="Combined credits registered as one artist"
+            footer="Splitting lists each artist on the track separately. Where the credit is also the album artist, the tracks are filed under the first artist instead. Built files are re-tagged, and moved when their folder changes."
+          >
             {#each report.combinedCredits as credit (credit.credit)}
               {@const key = `credit:${credit.credit}`}
-              <GroupedList.Row
-                label={credit.credit}
-                sublabel="Splits into {credit.parts.join(
-                  ' · '
-                )} — {credit.songCount} track{credit.songCount === 1 ? '' : 's'}"
-              >
+              <GroupedList.Row label={credit.credit} sublabel={creditSummary(credit)}>
                 {@render cardError(key)}
                 {#snippet trailing()}
                   <Button
