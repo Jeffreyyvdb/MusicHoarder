@@ -21,7 +21,7 @@ public static class QualityEndpoints
     {
         app.MapGet("/api/quality/overview", GetOverview)
             .WithName("GetQualityOverview")
-            .WithSummary("Library-wide AI quality rollup: verdict counts, average score, top issues, worst offenders, per-directory breakdown.")
+            .WithSummary("Library-wide AI quality rollup: verdict counts, average score, top issues, AI-flagged count, worst offenders, per-directory breakdown.")
             .WithTags("Quality");
 
         app.MapGet("/api/quality/directories", GetDirectories)
@@ -31,7 +31,7 @@ public static class QualityEndpoints
 
         app.MapGet("/api/quality/songs", GetSongs)
             .WithName("ListQualitySongs")
-            .WithSummary("Graded songs classified into flagged / silent-failure / verified-clean (or by verdict), worst first, paged.")
+            .WithSummary("Graded songs classified into flagged / silent-failure / verified-clean, by verdict, or wrong-or-questionable (the Inbox's AI-flagged queue), worst first, paged.")
             .WithTags("Quality");
 
         app.MapGet("/api/quality/songs/{id:int}", GetSongGrade)
@@ -163,8 +163,16 @@ public static class QualityEndpoints
         "good" => r.Verdict == SongQualityVerdict.Good,
         "excellent" => r.Verdict == SongQualityVerdict.Excellent,
         "ungradeable" => r.Verdict == SongQualityVerdict.Ungradeable,
+        "wrong-or-questionable" => VerdictSeverity.IsAiFlagged(r.Verdict),
         _ => true, // "all" / unknown
     };
+
+    // Worst first: Wrong → Questionable → Good → Excellent → Ungradeable (see VerdictSeverity), then
+    // lowest score, then most recently graded.
+    private static IOrderedEnumerable<GradeRowDto> OrderWorstFirst(IEnumerable<GradeRowDto> rows) => rows
+        .OrderBy(r => VerdictSeverity.WorstFirstRank(r.Verdict))
+        .ThenBy(r => r.Score)
+        .ThenByDescending(r => r.GradedAtUtc);
 
     private static object AggregateToDto(QualityAggregate agg) => new
     {
@@ -193,10 +201,7 @@ public static class QualityEndpoints
 
         var agg = QualityRollup.Aggregate(rows.Select(r => new QualityRollup.GradeRow(r.Verdict, r.Score, r.IssuesJson)));
 
-        var worst = rows
-            .OrderBy(r => (int)r.Verdict)
-            .ThenBy(r => r.Score)
-            .ThenByDescending(r => r.GradedAtUtc)
+        var worst = OrderWorstFirst(rows)
             .Take(50)
             .Select(ToWorstOffender)
             .ToList();
@@ -217,6 +222,10 @@ public static class QualityEndpoints
 
         var outdatedCount = rows.Count(r => GradeFreshness.IsSongGradeOutdated(r.PromptVersion, r.Model, currentModel));
 
+        // The Inbox's "AI flagged" count: exactly what the wrong-or-questionable category lists, so a
+        // badge never has to count the capped worst-offender list.
+        var aiFlaggedCount = rows.Count(r => VerdictSeverity.IsAiFlagged(r.Verdict));
+
         return Results.Ok(new
         {
             gradeableTotal,
@@ -226,6 +235,7 @@ public static class QualityEndpoints
             silentFailureCount = silent,
             verifiedCleanCount = verified,
             outdatedCount,
+            aiFlaggedCount,
             worstOffenders = worst,
             directories,
         });
@@ -233,7 +243,8 @@ public static class QualityEndpoints
 
     /// <summary>
     /// Graded songs for the AI-quality workbench master list, filtered by <paramref name="category"/>
-    /// (flagged / silent / verified, or a verdict bucket, or "all"), ordered worst-first, paged.
+    /// (flagged / silent / verified, a verdict bucket, "wrong-or-questionable", or "all"), ordered
+    /// worst-first, paged.
     /// </summary>
     // category/skip/take are optional with defaults — minimal API treats a non-nullable `int`
     // query param as REQUIRED and 400s when it's absent, so they must have defaults here.
@@ -252,13 +263,7 @@ public static class QualityEndpoints
 
         var rows = await LoadGradeRowsAsync(db, ct);
 
-        var filtered = rows
-            .Where(r => MatchesCategory(r, cat))
-            // Worst first: lowest verdict, then lowest score, then most recently graded.
-            .OrderBy(r => (int)r.Verdict)
-            .ThenBy(r => r.Score)
-            .ThenByDescending(r => r.GradedAtUtc)
-            .ToList();
+        var filtered = OrderWorstFirst(rows.Where(r => MatchesCategory(r, cat))).ToList();
 
         var items = filtered.Skip(offset).Take(pageSize).Select(r => ToSongRow(r, currentModel)).ToList();
 
@@ -273,7 +278,7 @@ public static class QualityEndpoints
             {
                 var agg = QualityRollup.Aggregate(
                     grp.Select(r => new QualityRollup.GradeRow(r.Verdict, r.Score, r.IssuesJson)));
-                var worstInDir = (SongQualityVerdict)grp.Min(r => (int)r.Verdict);
+                var worstInDir = VerdictSeverity.WorstOf(grp.Select(r => r.Verdict));
                 return (
                     directory: grp.Key,
                     agg,

@@ -31,6 +31,9 @@ public class AlbumGradingBackgroundService(
     // keeps failing (e.g. an OpenRouter 403). Mirrors the song sweep.
     private readonly FailureBackoffTracker _failureBackoff = new();
 
+    // Last album id of the previous sweep's page of possibly-blank grades; 0 starts from the top.
+    private int _blankGradeCursor;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var opts = options.CurrentValue;
@@ -61,20 +64,35 @@ public class AlbumGradingBackgroundService(
             onSweepFailed: ex => logger.LogWarning(ex, "Album auto-grade sweep failed"),
             ct);
 
-    /// <summary>Finds fetched albums whose latest grade is missing or stale and enqueues them. Returns the count enqueued.</summary>
+    /// <summary>Finds fetched albums whose latest grade is missing, stale or blank and enqueues them. Returns the count enqueued.</summary>
     internal async Task<int> EnqueueUngradedAsync(QualityGradingOptions opts, CancellationToken ct)
     {
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
 
-        var candidates = await db.CanonicalAlbums
+        var fetched = db.CanonicalAlbums
             .AsNoTracking()
-            .Where(a => a.Status == CanonicalAlbumStatus.Fetched)
+            .Where(a => a.Status == CanonicalAlbumStatus.Fetched);
+
+        var candidates = await fetched
             .OrderByDescending(a => a.FetchedAtUtc)
             .Take(opts.BatchSize)
             .Select(a => new { a.Id, a.FetchedAtUtc })
             .ToListAsync(ct);
 
+        // Blank grades (see BlankGrade) found by their latest grade, a page per sweep walked in id
+        // order — they mostly sit outside the newest window above. Mirrors the song sweep.
+        var maybeBlank = db.CanonicalAlbumQualityGrades.IgnoreQueryFilters().LatestPerAlbum().WhereMaybeBlank();
+        var cursor = _blankGradeCursor;
+        var blankPage = await fetched
+            .Where(a => a.Id > cursor && maybeBlank.Any(g => g.CanonicalAlbumId == a.Id))
+            .OrderBy(a => a.Id)
+            .Take(opts.BatchSize)
+            .Select(a => new { a.Id, a.FetchedAtUtc })
+            .ToListAsync(ct);
+        _blankGradeCursor = blankPage.Count < opts.BatchSize ? 0 : blankPage[^1].Id;
+
+        candidates = candidates.Concat(blankPage).DistinctBy(c => c.Id).ToList();
         if (candidates.Count == 0) return 0;
 
         var ids = candidates.Select(c => c.Id).ToList();
@@ -95,6 +113,7 @@ public class AlbumGradingBackgroundService(
             if (_failureBackoff.IsBackingOff(c.Id, now)) return false;         // backing off
             if (!latest.TryGetValue(c.Id, out var g)) return true;          // never graded
             if (c.FetchedAtUtc is { } f && g.GradedAtUtc < f) return true; // re-fetched since
+            if (g.IsBlank()) return true;                                   // an empty reply, not a grade
             // A prompt-version or model change is NOT auto-regraded here (it would re-grade every
             // album on a config bump); such grades are surfaced as "outdated" and regraded only on an
             // explicit manual / "regrade outdated" action. See AlbumQualityEndpoints grade-outdated.
@@ -158,7 +177,7 @@ public class AlbumGradingBackgroundService(
             }
             finally
             {
-                channel.MarkProcessed();
+                channel.MarkProcessed(item.CanonicalAlbumId);
             }
         }
     }

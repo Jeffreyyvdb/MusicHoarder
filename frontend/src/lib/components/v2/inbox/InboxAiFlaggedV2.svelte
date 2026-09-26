@@ -15,11 +15,12 @@
     Loader2
   } from '@lucide/svelte';
   import {
-    fetchQualityOverview,
+    fetchAllQualitySongs,
+    fetchQualitySongs,
     fetchEnrichmentDetail,
     copyQualitySongDossier,
     enrichSong,
-    type QualityWorstOffender,
+    type QualitySongRow,
     type QualityVerdict
   } from '$lib/api-client';
   import { issueLabel } from '$lib/quality-ui';
@@ -45,16 +46,17 @@
   const isMobile = new IsMobile();
   const compact = $derived(isMobile.current);
 
-  let offenders = $state<QualityWorstOffender[]>([]);
+  let offenders = $state<QualitySongRow[]>([]);
   let loading = $state(true);
   let error = $state<string | null>(null);
   let configured = $state(true);
 
   // Invoke via untrack() so this effect tracks `loading`/`offenders` only, not
   // the `oncount` prop identity — see the note in InboxTagReviewV2 for why
-  // tracking it loops (effect_update_depth_exceeded).
+  // tracking it loops (effect_update_depth_exceeded). A failed load has no figure
+  // to hand over (null), so the badge keeps the server's count instead of 0.
   $effect(() => {
-    const n = loading ? null : offenders.length;
+    const n = loading || error ? null : offenders.length;
     untrack(() => oncount?.(n));
   });
 
@@ -62,12 +64,13 @@
     try {
       loading = true;
       error = null;
-      const ov = await fetchQualityOverview();
-      // "AI flagged" = worst offenders the grader marked Wrong / Questionable.
-      offenders = (ov.worstOffenders ?? []).filter(
-        (o) => o.verdict === 'Wrong' || o.verdict === 'Questionable'
-      );
-      configured = (ov.library?.graded ?? 0) > 0 || offenders.length > 0;
+      // "AI flagged" = every track the grader marked Wrong / Questionable, worst first (the
+      // server's order) — the whole queue, not the overview's top-50 sample.
+      const flagged = await fetchAllQualitySongs('wrong-or-questionable');
+      // Only an empty queue needs to know whether grading has run at all (its empty-state copy),
+      // and one row of the full graded list answers that.
+      configured = flagged.length > 0 || (await fetchQualitySongs('all', 0, 1)).total > 0;
+      offenders = flagged;
     } catch (err) {
       error = err instanceof Error ? err.message : 'Failed to load AI grades';
     } finally {
@@ -198,7 +201,7 @@
     }
   }
 
-  function algorithmRows(o: QualityWorstOffender): { l: string; v: string; mono?: boolean }[] {
+  function algorithmRows(o: QualitySongRow): { l: string; v: string; mono?: boolean }[] {
     return [
       { l: 'Title', v: o.title ?? '—' },
       { l: 'Artist', v: o.artist ?? '—' },
@@ -231,7 +234,7 @@
 
 <!-- One line of text after the dot, so the separators are evenly spaced (a second flex item
      would sit a gap away from the score instead of a space). -->
-{#snippet verdictLine(o: QualityWorstOffender, outOf = false, after = '')}
+{#snippet verdictLine(o: QualitySongRow, outOf = false, after = '')}
   <span
     class={cn('size-2 shrink-0 rounded-full md:size-1.5', verdictDot(o.verdict))}
     aria-hidden="true"
@@ -347,7 +350,7 @@
       title={configured ? 'Nothing flagged by AI' : 'AI grading not run yet'}
     >
       {#if configured}
-        The quality grader hasn't marked any built tracks Wrong or Questionable.
+        The quality grader hasn't marked any tracks Wrong or Questionable.
       {:else}
         Run AI quality grading from the
         <a href="/quality" class="text-primary hover:underline">AI quality</a> page to surface enrichments

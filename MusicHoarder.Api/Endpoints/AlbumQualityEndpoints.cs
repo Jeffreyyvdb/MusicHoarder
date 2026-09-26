@@ -91,8 +91,9 @@ public static class AlbumQualityEndpoints
         var fetchedTotal = await db.CanonicalAlbums.CountAsync(a => a.Status == CanonicalAlbumStatus.Fetched, ct);
         var agg = QualityRollup.Aggregate(rows.Select(r => new QualityRollup.GradeRow(r.Verdict, r.Score, r.IssuesJson)));
 
+        // Worst first, Ungradeable last (see VerdictSeverity) — never by the verdict's enum number.
         var worst = rows
-            .OrderBy(r => (int)r.Verdict)
+            .OrderBy(r => VerdictSeverity.WorstFirstRank(r.Verdict))
             .ThenBy(r => r.Score)
             .ThenByDescending(r => r.GradedAtUtc)
             .Take(100)

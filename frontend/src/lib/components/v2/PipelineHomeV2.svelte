@@ -50,7 +50,7 @@
   } from '$lib/stores/pipeline-overlay.svelte';
   import { cn } from '$lib/utils';
   import { formatBytesShort } from '$lib/formatters';
-  import { aiFlaggedOf, inboxCounts, publishInboxQueueCount } from '$lib/stores/nav-badges.svelte';
+  import { inboxCounts, publishInboxQueueCount } from '$lib/stores/nav-badges.svelte';
 
   // The pipeline's home: what is running and how to hold it, what the library looks like, where
   // each stage stands, what is waiting for a decision, and what just happened. On a phone it is
@@ -108,7 +108,7 @@
       // this page's "Awaiting you" on the same, freshest figures.
       if (dupRes.status === 'fulfilled')
         publishInboxQueueCount('dupes', (dupRes.value.duplicateGroups ?? []).length);
-      if (qRes.status === 'fulfilled') publishInboxQueueCount('ai', aiFlaggedOf(qRes.value.worstOffenders));
+      if (qRes.status === 'fulfilled') publishInboxQueueCount('ai', qRes.value.aiFlaggedCount);
       // Quality failures stay silent (may be legitimately unconfigured); the core
       // fetches failing means the KPIs below are stale/missing, so say so.
       loadError =
