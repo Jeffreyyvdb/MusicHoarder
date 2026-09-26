@@ -54,6 +54,13 @@ public sealed partial class MemberWriteGuardMiddleware
         // Switch to another account already parked in this browser. Possession of the alts cookie
         // is the credential — see AccountSwitchService.
         Prefix("POST", "/api/auth/switch"),
+        // Sign in with an emailed link while still holding a session: "Add an account" on the web
+        // (the callback forwards the browser's cookies so the current account gets parked) and on
+        // the phone (the interceptor attaches the active account's bearer). The emailed token is
+        // the credential; these grant nothing an anonymous caller lacks.
+        Exact("POST", "/api/auth/request-link"),
+        Exact("POST", "/api/auth/consume"),
+        Exact("POST", "/api/auth/token"),
 
         // Playback sync between the caller's own devices: report this device's player, and
         // remote-control or hand over to another of the caller's devices. Keyed by the caller's

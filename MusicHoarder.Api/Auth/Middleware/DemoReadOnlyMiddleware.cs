@@ -22,13 +22,20 @@ public sealed class DemoReadOnlyMiddleware
     // the stale demo cookie into the anonymous WebAuthn authenticate ceremony), or accept a friend
     // invite (same stale-cookie story: the invitee may have tried the demo first), or switch back
     // to an account already parked in its own browser (possession of the alts cookie is the
-    // credential — see AccountSwitchService). The owner-only register/* routes are deliberately
-    // NOT here. Everything else that mutates state is off-limits.
+    // credential — see AccountSwitchService). The magic-link routes are here for the same
+    // stale-cookie reason: /login keeps its form for a demo tab, and the callback forwards the
+    // browser's cookies to /consume so the account switcher can park the demo session — blocking
+    // them turned "Try the demo, then sign in with an emailed link" into "Sign-in didn't go
+    // through". They grant nothing an anonymous caller lacks. The owner-only register/* routes are
+    // deliberately NOT here. Everything else that mutates state is off-limits.
     private static readonly string[] AllowlistedWritePaths =
     [
         "/api/auth/demo-login",
         "/api/auth/logout",
         "/api/auth/switch",
+        "/api/auth/request-link",
+        "/api/auth/consume",
+        "/api/auth/token",
         "/api/auth/webauthn/authenticate",
         "/api/invite/accept",
     ];
