@@ -55,20 +55,28 @@ public sealed class DedupActionHistoryService(
     // endpoint-scoped context only ever sees the caller's own history.
     public async Task<IReadOnlyList<DedupActionSummary>> ListAsync(int take = 20, CancellationToken ct = default)
     {
-        // Recent slice only — batches are reconstructed client-side (grouping by a computed key
-        // doesn't translate on the in-memory provider, and the slice is small anyway).
-        var changes = await db.SongMetadataChanges
+        // Pick the batches first, then load only their rows. Heals are automatic and can run every
+        // few minutes, so they get a small separate quota: a slice of the newest rows (or batches)
+        // across all sources let an oscillating heal bury every user merge, and with it the only
+        // way to revert a bad one.
+        var userSources = DedupSources.Where(s => s != NonRevertibleSource).ToArray();
+        var batches = (await RecentBatchesAsync(userSources, take, ct))
+            .Concat(await RecentBatchesAsync([NonRevertibleSource], Math.Min(take, MaxHealBatchesListed), ct))
+            .ToHashSet();
+        var stamps = batches.Select(b => b.CreatedAtUtc).Distinct().ToList();
+
+        // Batches are reconstructed client-side (grouping by a computed key doesn't translate on the
+        // in-memory provider, and the rows are bounded by the batch quota anyway).
+        var changes = (await db.SongMetadataChanges
             .AsNoTracking()
-            .Where(c => DedupSources.Contains(c.Source) && c.AppliedAtUtc != null)
-            .OrderByDescending(c => c.CreatedAtUtc)
-            .Take(5000)
+            .Where(c => DedupSources.Contains(c.Source) && c.AppliedAtUtc != null && stamps.Contains(c.CreatedAtUtc))
             .Select(c => new { c.Source, c.CreatedAtUtc, c.SongId, c.FieldName, c.NewValue, c.RevertedAtUtc })
-            .ToListAsync(ct);
+            .ToListAsync(ct))
+            .Where(c => batches.Contains((c.Source, c.CreatedAtUtc)));
 
         return changes
             .GroupBy(c => (c.Source, c.CreatedAtUtc))
             .OrderByDescending(g => g.Key.CreatedAtUtc)
-            .Take(take)
             .Select(g =>
             {
                 var reverted = g.All(c => c.RevertedAtUtc != null);
@@ -89,6 +97,23 @@ public sealed class DedupActionHistoryService(
                     Revertible: !reverted && g.Key.Source != NonRevertibleSource);
             })
             .ToList();
+    }
+
+    /// <summary>How many of the newest heal batches the history shows beside the user actions.</summary>
+    private const int MaxHealBatchesListed = 3;
+
+    private async Task<List<(string Source, DateTime CreatedAtUtc)>> RecentBatchesAsync(
+        string[] sources, int take, CancellationToken ct)
+    {
+        var rows = await db.SongMetadataChanges
+            .AsNoTracking()
+            .Where(c => sources.Contains(c.Source) && c.AppliedAtUtc != null)
+            .Select(c => new { c.Source, c.CreatedAtUtc })
+            .Distinct()
+            .OrderByDescending(b => b.CreatedAtUtc)
+            .Take(take)
+            .ToListAsync(ct);
+        return rows.Select(r => (r.Source, r.CreatedAtUtc)).ToList();
     }
 
     public async Task<DedupActionRevertResult> RevertAsync(

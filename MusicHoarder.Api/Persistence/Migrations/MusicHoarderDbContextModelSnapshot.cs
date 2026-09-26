@@ -1112,6 +1112,47 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.ToTable("RuntimeSettings");
                 });
 
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.ShareVisit", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("OccurredAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OwnerUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ShareId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("SongId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Source")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("VisitorKey")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ShareId", "Kind", "OccurredAtUtc");
+
+                    b.HasIndex("ShareId", "VisitorKey", "OccurredAtUtc");
+
+                    b.ToTable("ShareVisits");
+                });
+
             modelBuilder.Entity("MusicHoarder.Api.Persistence.SongDuplicateLink", b =>
                 {
                     b.Property<int>("Id")
@@ -1652,6 +1693,12 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<string>("LastError")
                         .HasMaxLength(2048)
                         .HasColumnType("character varying(2048)");
+
+                    b.Property<double?>("LetterboxFraction")
+                        .HasColumnType("double precision");
+
+                    b.Property<double?>("PillarboxFraction")
+                        .HasColumnType("double precision");
 
                     b.Property<int>("SongId")
                         .HasColumnType("integer");
@@ -2358,6 +2405,17 @@ namespace MusicHoarder.Api.Persistence.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("Song");
+                });
+
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.ShareVisit", b =>
+                {
+                    b.HasOne("MusicHoarder.Api.Persistence.SongShare", "Share")
+                        .WithMany()
+                        .HasForeignKey("ShareId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Share");
                 });
 
             modelBuilder.Entity("MusicHoarder.Api.Persistence.SongDuplicateLink", b =>

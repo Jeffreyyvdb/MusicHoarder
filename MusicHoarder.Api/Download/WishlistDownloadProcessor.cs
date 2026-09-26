@@ -152,7 +152,7 @@ public class WishlistDownloadProcessor(
                         // is what routes a build into a shared "Unknown Album" folder.
                         DownloadTagWriter.Stamp(
                             result.FilePath, item.Artist, item.Title,
-                            DownloadTagWriter.ResolveAlbum(item.Album, item.Title), item.Isrc, logger);
+                            DownloadTagWriter.ResolveAlbum(item.Album, item.Title), result.Isrc ?? item.Isrc, logger);
                         // Give the file the artwork of the identity it was requested for (Spotify album
                         // image / YouTube thumbnail). yt-dlp embeds nothing, and the build's cover pass
                         // searches the external providers by album — which finds nothing for a one-off

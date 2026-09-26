@@ -133,6 +133,8 @@ public static class ServiceCollectionExtensions
         // Both resolve ICurrentUserAccessor from RequestServices themselves.
         services.AddScoped<Sharing.ISharedLibraryGrantResolver, Sharing.SharedLibraryGrantResolver>();
         services.AddScoped<Sharing.ILibraryScopeResolver, Sharing.LibraryScopeResolver>();
+        // Share-link open/play counter: holds the day's in-memory visitor salt and the per-share cap.
+        services.AddSingleton<Sharing.ShareVisitTracker>();
 
         // Pick the magic-link sender at startup: Resend when an API key is configured, otherwise
         // the console-logging fallback. Registered as a singleton; no Resend → no Resend client.
@@ -257,6 +259,9 @@ public static class ServiceCollectionExtensions
                 "cover-thumbs");
             return new CoverThumbnailService(dir.FullName, sp.GetRequiredService<ILogger<CoverThumbnailService>>());
         });
+        // Decodes a song to PCM for clients that cannot play the file as it is (?format=wav on the
+        // stream endpoints). Stateless: one ffmpeg per requested range, nothing cached.
+        services.AddSingleton<IPcmDecoder, FfmpegPcmDecoder>();
         services.AddScoped<ILibraryTagWriter, TagLibLibraryTagWriter>();
         services.AddScoped<ILibraryDestinationCleaner, LibraryDestinationCleaner>();
         services.AddScoped<ILibraryBuilderService, LibraryBuilderService>();

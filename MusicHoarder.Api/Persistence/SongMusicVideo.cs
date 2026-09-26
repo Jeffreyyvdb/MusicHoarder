@@ -64,6 +64,17 @@ public class SongMusicVideo
     /// </summary>
     public double? SyncConfidence { get; set; }
 
+    /// <summary>
+    /// Height of each of the black bars baked into the top and bottom of the frame, as a share of the
+    /// frame (0.13 for a 2.39:1 film in a 16:9 upload). The backdrop fills the screen with the video,
+    /// so without cropping these the bars show as solid bands across the player. Null until the
+    /// file has been measured; measured together with <see cref="PillarboxFraction"/>.
+    /// </summary>
+    public double? LetterboxFraction { get; set; }
+
+    /// <summary>Width of each of the bars baked into the sides of the frame; see <see cref="LetterboxFraction"/>.</summary>
+    public double? PillarboxFraction { get; set; }
+
     public MusicVideoStatus Status { get; set; } = MusicVideoStatus.Fetching;
 
     [MaxLength(2048)]

@@ -1,110 +1,57 @@
 <script lang="ts">
+  import { ChevronRight } from '@lucide/svelte';
   import { Button } from '$lib/components/ui/button';
-  import CommandBlock from '$lib/components/landing/CommandBlock.svelte';
+  import Screenshot from '$lib/components/landing/Screenshot.svelte';
   import { createPrimaryCta } from '$lib/components/landing/cta.svelte';
-  import { demoHeroLog, githubUrl, installCommand } from '$lib/components/landing/landing-demo-data';
+  import { githubUrl } from '$lib/components/landing/landing-content';
 
   const cta = createPrimaryCta({ signedOutLabel: 'Try the live demo' });
 </script>
 
-<!-- The phone's single column is `minmax(0,1fr)`, not the implicit `auto` track: an auto track
-     grows to the install command's 560px max-content and clips the copy and the card on the right. -->
-<section
-  class="mx-auto grid max-w-[1280px] grid-cols-[minmax(0,1fr)] items-center gap-10 px-6 pt-3 pb-14 md:grid-cols-[1.1fr_1fr] md:gap-16 md:px-14"
->
-  <!-- LEFT column -->
-  <div class="min-w-0 pt-3">
-    <div
-      class="text-muted-foreground flex items-center gap-2 font-mono text-[11px] font-semibold tracking-[0.12em] uppercase"
-    >
-      <span class="bg-primary relative inline-block size-[7px] flex-shrink-0 rounded-full">
-        <span class="bg-primary absolute inset-0 animate-ping rounded-full opacity-60"></span>
-      </span>
-      <span>SELF-HOSTED · MIT · YOUR HARDWARE</span>
-    </div>
-
+<section class="bg-background px-4 pt-14 pb-16 md:px-10 md:pt-24 md:pb-24">
+  <div class="mx-auto max-w-[1200px] text-center">
+    <p class="text-muted-foreground text-[17px] leading-[22px] font-semibold md:text-[19px]">
+      Self-hosted · Open source · Free
+    </p>
     <h1
-      class="mt-3.5 mb-5 text-[clamp(40px,5.5vw,68px)] leading-[1.0] font-bold tracking-[-0.035em] text-balance"
+      class="mx-auto mt-3 max-w-[960px] text-[clamp(44px,7.4vw,92px)] leading-[1.02] font-bold tracking-[-0.035em] text-balance"
     >
-      Point it at the mess.<br />Get back a <em class="text-primary font-normal italic"
-        >library.</em
-      >
+      Point it at the mess. Get back a library.
     </h1>
-
-    <p class="text-muted-foreground mb-6 max-w-[540px] text-[16px] leading-[1.6] text-pretty">
-      MusicHoarder is a self-hosted pipeline that <strong class="text-foreground"
-        >fingerprints every track</strong
-      >, reaches <strong class="text-foreground">consensus across seven providers</strong>, grades
-      the result with a <strong class="text-foreground">quality LLM</strong>, dedupes, and writes a
-      tidy library to your own disk.
+    <p
+      class="text-muted-foreground mx-auto mt-6 max-w-[720px] text-[19px] leading-[1.45] text-pretty md:text-[24px]"
+    >
+      MusicHoarder identifies every track by its sound, fixes the tags and builds a clean library on
+      your own disk — then plays it in an app that feels at home on your iPhone, your Android phone
+      and your desktop.
     </p>
 
-    <CommandBlock text={installCommand} label="your-server : ~" class="mb-6 max-w-[560px]" />
-
-    <div class="mb-6 flex flex-wrap items-center gap-3">
-      <Button
-        size="lg"
-        class="h-11 rounded-full px-5 text-[15px] md:h-9 md:rounded-lg md:px-3 md:text-sm"
-        onclick={cta.activate}
-        disabled={cta.busy}>{cta.label}</Button
-      >
+    <div class="mt-9 flex flex-wrap items-center justify-center gap-x-6 gap-y-3">
+      <Button size="pill" onclick={cta.activate} disabled={cta.busy}>{cta.label}</Button>
       <a
         href={githubUrl}
         target="_blank"
         rel="noopener noreferrer"
-        class="text-muted-foreground hover:text-foreground inline-flex min-h-11 items-center px-1 text-[14px] font-medium transition-colors"
+        class="text-primary inline-flex min-h-11 items-center text-[17px] font-medium hover:underline"
       >
         View on GitHub
+        <ChevronRight class="size-4" aria-hidden="true" />
       </a>
     </div>
 
-    <div class="text-muted-foreground flex flex-wrap gap-x-5 gap-y-1.5 font-mono text-[11.5px]">
-      <span>runs on your hardware</span>
-      <span>source mounted read-only</span>
-      <span>open files on disk</span>
+    <div class="mx-auto mt-12 max-w-[1200px] md:mt-16">
+      <Screenshot
+        name="hero"
+        dark="hero-dark"
+        width={2400}
+        height={1543}
+        sizes="(min-width: 1200px) 1200px, 100vw"
+        alt="MusicHoarder on a desktop and an iPhone: the Albums grid of a real library, next to Now Playing with time-synced lyrics over the song's music video"
+      />
     </div>
-  </div>
 
-  <!-- RIGHT column: live-pipeline log card -->
-  <div class="min-w-0 md:justify-self-end">
-    <div
-      class="bg-card border-border shadow-[0_8px_24px_rgba(0,0,0,0.08),0_0_0_0.5px_rgba(0,0,0,0.06)] dark:shadow-[0_8px_24px_rgba(0,0,0,0.35),0_0_0_0.5px_rgba(255,255,255,0.08)] overflow-hidden rounded-[10px] border"
-    >
-      <div
-        class="bg-surface-sunken border-border text-muted-foreground flex items-center gap-2 border-b px-4 py-3 text-[11px] font-semibold tracking-[0.04em] uppercase"
-      >
-        <span class="bg-primary relative h-[7px] w-[7px] rounded-full">
-          <span class="bg-primary absolute inset-0 animate-ping rounded-full opacity-60"></span>
-        </span>
-        <span>live pipeline</span>
-        <span
-          class="ml-auto max-w-[240px] truncate font-mono text-[11px] font-normal tracking-normal normal-case"
-        >
-          ~/Downloads/music_dump_2024
-        </span>
-      </div>
-
-      <div class="max-h-[280px] overflow-hidden px-4 py-3 font-mono text-[11px] leading-[1.6]">
-        {#each demoHeroLog as [stage, msg, level] (stage + msg)}
-          <div class="flex gap-2 py-0.5">
-            <span
-              class="flex-shrink-0 font-mono"
-              style:color={level === 'warn' ? 'var(--warning-text)' : 'var(--primary)'}
-            >
-              [{stage}]
-            </span>
-            <span class="text-muted-foreground flex-1 truncate font-mono">{msg}</span>
-          </div>
-        {/each}
-      </div>
-
-      <div
-        class="bg-surface-sunken border-border text-muted-foreground flex justify-between border-t px-4 py-2.5 text-[11px]"
-      >
-        <span>processed <strong class="text-foreground font-semibold">8,955</strong></span>
-        <span>remaining <strong class="text-foreground font-semibold">3,892</strong></span>
-        <span>eta <strong class="text-foreground font-semibold">00:14:32</strong></span>
-      </div>
-    </div>
+    <p class="text-muted-foreground mt-6 text-[13px] leading-[18px]">
+      Runs on your hardware · Your originals stay read-only · Plain files on disk
+    </p>
   </div>
 </section>

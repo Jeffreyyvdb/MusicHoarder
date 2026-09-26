@@ -13,6 +13,12 @@
         <!-- The SDK container target defaults to a non-root user; run as root so the app can create
              and write the DataProtection keys dir and the mounted music/keys volumes. -->
         <ContainerUser>root</ContainerUser>
+        <!-- Workstation GC, not the ASP.NET default Server GC. Server GC keeps one heap per core and
+             returns memory lazily, so on a shared 8-core host the API's startup catch-up burst grew
+             to ~4 GB before settling at ~1 GB. This is a single-user app sharing the box with its own
+             Postgres and other stacks; the throughput Server GC buys is not worth that footprint.
+             Concurrent (background) collection stays on, so request latency is unaffected. -->
+        <ServerGarbageCollection>false</ServerGarbageCollection>
     </PropertyGroup>
 
     <!-- Release builds bake the semantic-release version into the assembly's
@@ -30,7 +36,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="Aspire.Npgsql.EntityFrameworkCore.PostgreSQL" Version="13.5.3" />
+        <PackageReference Include="Aspire.Npgsql.EntityFrameworkCore.PostgreSQL" Version="13.5.4" />
         <PackageReference Include="Fido2.AspNet" Version="4.0.1" />
         <PackageReference Include="FuzzySharp" Version="2.0.2" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.12" />
@@ -45,13 +51,13 @@
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
         <PackageReference Include="Microsoft.OpenApi" Version="2.12.2" />
-        <PackageReference Include="Scalar.AspNetCore" Version="2.17.3" />
-        <PackageReference Include="SkiaSharp" Version="4.152.0" />
+        <PackageReference Include="Scalar.AspNetCore" Version="2.17.6" />
+        <PackageReference Include="SkiaSharp" Version="4.152.1" />
         <!-- Headless image decode/resize/encode only (no text rendering), so the NoDependencies
              native asset avoids needing libfontconfig in the Linux container. The base SkiaSharp
              package already carries the macOS/Windows natives for local dev. Managed SkiaSharp and
              the native asset must move together — a mismatch fails the native-lib version check. -->
-        <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.152.0" />
+        <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.152.1" />
         <PackageReference Include="System.IO.Abstractions" Version="22.2.0" />
         <PackageReference Include="System.IO.Abstractions.TestingHelpers" Version="22.2.0" />
         <PackageReference Include="TagLibSharp" Version="2.3.0" />

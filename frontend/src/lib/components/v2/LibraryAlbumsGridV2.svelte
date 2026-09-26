@@ -16,9 +16,8 @@
   import { playerStore } from '$lib/stores/player.svelte';
   import { cn, shuffle } from '$lib/utils';
 
-  // Rendered by the SSR landing page (LibraryShowcase) as well as the app, so everything new is
-  // opt-in and browser-only: the menu is off unless asked for, and the long-press action and the
-  // menu's DOM only exist in the browser.
+  // Safe to server-render: everything interactive is opt-in and browser-only — the menu is off
+  // unless asked for, and the long-press action and the menu's DOM only exist in the browser.
   type Props = {
     albums: AlbumSummary[];
     /** href builder for an album card (keeps deep-linkable `?album=` URLs). */

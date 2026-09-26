@@ -64,6 +64,12 @@ public static class MusicVideoEndpoints
         return app;
     }
 
+    /// <param name="Letterbox">
+    /// Height of each black bar baked into the top and bottom of the frame, as a share of the frame;
+    /// <paramref name="Pillarbox"/> is the width of each bar at the sides. The backdrop crops them
+    /// when it fills the screen with the video. Null until the file has been measured, which the
+    /// players read as "no bars".
+    /// </param>
     public record VideoInfoDto(
         string Status,
         int SyncOffsetMs,
@@ -73,7 +79,9 @@ public static class MusicVideoEndpoints
         string? YouTubeVideoId,
         DateTime FetchedAtUtc,
         string? LastError,
-        bool FileMissing);
+        bool FileMissing,
+        double? Letterbox,
+        double? Pillarbox);
 
     /// <param name="includeDiagnostics">
     /// Whether <c>LastError</c> may be returned. Defaults to FALSE so callers are safe by
@@ -100,7 +108,9 @@ public static class MusicVideoEndpoints
         // healthy while the stream endpoint 404s — the UI needs to offer a refetch, not a black
         // backdrop.
         FileMissing: v.Status == MusicVideoStatus.Ready
-            && (v.FilePath is null || !File.Exists(v.FilePath)));
+            && (v.FilePath is null || !File.Exists(v.FilePath)),
+        Letterbox: v.LetterboxFraction,
+        Pillarbox: v.PillarboxFraction);
 
     /// <summary>
     /// The video row for a song the caller may read — their own, or one shared with them.

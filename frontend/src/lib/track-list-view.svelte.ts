@@ -284,10 +284,12 @@ export function createTrackListView(opts: {
   const filtered = $derived(applyChips(searched, chips));
 
   const sorted = $derived.by(() => {
-    const r = [...filtered];
+    // Read once: a rune read inside the comparator is a tracked read per comparison.
+    const key = sortKey;
+    const asc = sortDir === 'asc';
     // null = "not known for this track" (only Match today); those always sort last.
     const pick = (s: ApiSong): string | number | null => {
-      switch (sortKey) {
+      switch (key) {
         case 'title':
           return titleOf(s).toLowerCase();
         case 'artist':
@@ -311,17 +313,20 @@ export function createTrackListView(opts: {
           return songAddedTime(s);
       }
     };
-    r.sort((a, b) => {
-      const av = pick(a);
-      const bv = pick(b);
+    // Each key is worked out once per row, not once per comparison: the default sort parses a date
+    // (and the text sorts lower-case a string) for every song, and a comparator does that
+    // ~2·n·log n times — thousands of rows made opening Tracks wait on it. The sort is stable, so
+    // the order is exactly what comparing the rows directly gives.
+    const keyed = filtered.map((song) => ({ song, key: pick(song) }));
+    keyed.sort(({ key: av }, { key: bv }) => {
       if (av == null || bv == null) return av == null ? (bv == null ? 0 : 1) : -1;
       if (typeof av === 'string' && typeof bv === 'string') {
         const c = av.localeCompare(bv);
-        return sortDir === 'asc' ? c : -c;
+        return asc ? c : -c;
       }
-      return sortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number);
+      return asc ? (av as number) - (bv as number) : (bv as number) - (av as number);
     });
-    return r;
+    return keyed.map((k) => k.song);
   });
 
   const stats = $derived.by(() => ({

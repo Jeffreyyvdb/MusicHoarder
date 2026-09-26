@@ -25,6 +25,7 @@
   import { Button } from '$lib/components/ui/button';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import * as GroupedList from '$lib/components/ui/grouped-list';
+  import { ScrollArea } from '$lib/components/ui/scroll-area';
   import { toast } from 'svelte-sonner';
   import { cn } from '$lib/utils';
   import InboxDecisionBar from './InboxDecisionBar.svelte';
@@ -296,9 +297,10 @@
     {@const head = groupLabel(selectedGroup)}
     <!-- ── Phone: the pushed cluster, one section per copy ───────────────────────── -->
     <div class="bg-background-grouped flex min-h-0 flex-1 flex-col">
-      <div
-        bind:this={detailScroller}
-        class="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-(--mh-content-pad)"
+      <ScrollArea
+        bind:viewportRef={detailScroller}
+        class="min-h-0 flex-1"
+        viewportClass="overscroll-contain"
       >
         <PageToolbarV2
           title="{position.position} of {position.total}"
@@ -384,7 +386,7 @@
             {/if}
           </div>
         </div>
-      </div>
+      </ScrollArea>
 
       <!-- At larger text sizes "Not duplicates" falls back to its glyph (the words stay for
            VoiceOver) and "Keep recommended" truncates — see InboxDecisionBar. -->
@@ -411,9 +413,10 @@
   {:else}
     <!-- ── Phone: the list of clusters ───────────────────────────────────────────── -->
     <div class="flex min-h-0 flex-1 flex-col">
-      <div
-        bind:this={listScroller}
-        class="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-(--mh-content-pad)"
+      <ScrollArea
+        bind:viewportRef={listScroller}
+        class="min-h-0 flex-1"
+        viewportClass="overscroll-contain"
       >
         <PageToolbarV2
           title="Duplicate tracks"
@@ -427,7 +430,7 @@
         {:else}
           {@render queueList()}
         {/if}
-      </div>
+      </ScrollArea>
     </div>
   {/if}
 {:else}
@@ -441,9 +444,9 @@
       actions={refreshAction}
     />
     {#if !loading && (error || groups.length === 0)}
-      <div class="min-h-0 flex-1 overflow-y-auto pb-(--mh-content-pad)">
+      <ScrollArea class="min-h-0 flex-1">
         {@render queueStates()}
-      </div>
+      </ScrollArea>
     {:else}
       <!-- The list pane gives up width first (down to 240px); see InboxTagReviewV2. -->
       <div
@@ -453,15 +456,15 @@
           aria-label="Duplicate groups"
           class="border-separator bg-surface-sunken flex min-h-0 flex-col border-r"
         >
-          <div
-            class="min-h-0 flex-1 overflow-y-auto p-1.5 pb-[calc(0.375rem_+_var(--mh-content-pad))]"
-          >
-            {#if loading}
-              {@render queueStates()}
-            {:else}
-              {@render queueList()}
-            {/if}
-          </div>
+          <ScrollArea class="min-h-0 flex-1">
+            <div class="p-1.5">
+              {#if loading}
+                {@render queueStates()}
+              {:else}
+                {@render queueList()}
+              {/if}
+            </div>
+          </ScrollArea>
         </aside>
 
         {#if selectedGroup}
@@ -482,88 +485,90 @@
               </div>
             </div>
 
-            <div class="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4 @min-[36rem]:px-6">
-              {#each selectedGroup.members as m (m.id)}
-                {@const keeper = m.isKeeper}
-                <div
-                  class={cn(
-                    'rounded-lg border p-4',
-                    keeper ? 'border-primary bg-primary/5' : 'border-border bg-card'
-                  )}
-                >
-                  <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
-                    <div
-                      class={cn(
-                        'flex items-center gap-1.5 text-[11px] font-medium',
-                        keeper ? 'text-primary' : 'text-muted-foreground'
-                      )}
-                    >
-                      <span
+            <ScrollArea class="min-h-0 flex-1" data-mh-no-clearance="">
+              <div class="space-y-3 px-4 py-4 @min-[36rem]:px-6">
+                {#each selectedGroup.members as m (m.id)}
+                  {@const keeper = m.isKeeper}
+                  <div
+                    class={cn(
+                      'rounded-lg border p-4',
+                      keeper ? 'border-primary bg-primary/5' : 'border-border bg-card'
+                    )}
+                  >
+                    <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <div
                         class={cn(
-                          'size-1.5 rounded-full',
-                          keeper ? 'bg-primary' : 'bg-muted-foreground-dim'
+                          'flex items-center gap-1.5 text-[11px] font-medium',
+                          keeper ? 'text-primary' : 'text-muted-foreground'
                         )}
-                        aria-hidden="true"
-                      ></span>
-                      {keeper ? 'Recommended keep' : 'Duplicate copy'}
-                      {#if m.isPinned}
-                        <span class="text-primary inline-flex items-center gap-0.5"
-                          ><Pin class="size-3" aria-hidden="true" /> pinned</span
+                      >
+                        <span
+                          class={cn(
+                            'size-1.5 rounded-full',
+                            keeper ? 'bg-primary' : 'bg-muted-foreground-dim'
+                          )}
+                          aria-hidden="true"
+                        ></span>
+                        {keeper ? 'Recommended keep' : 'Duplicate copy'}
+                        {#if m.isPinned}
+                          <span class="text-primary inline-flex items-center gap-0.5"
+                            ><Pin class="size-3" aria-hidden="true" /> pinned</span
+                          >
+                        {/if}
+                      </div>
+                      {#if !keeper}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={acting}
+                          onclick={() => keep(selectedGroup, m.id)}
                         >
+                          Keep this one
+                        </Button>
                       {/if}
                     </div>
-                    {#if !keeper}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={acting}
-                        onclick={() => keep(selectedGroup, m.id)}
-                      >
-                        Keep this one
-                      </Button>
+                    <div class="truncate text-[15px] font-medium">{m.title || m.fileName}</div>
+                    <div class="text-muted-foreground truncate text-[12px]">
+                      {subtitleOf(m) || '—'}
+                    </div>
+                    {#if reasonChips(m).length > 0}
+                      <div class="mt-2 flex flex-wrap gap-1">
+                        {#each reasonChips(m) as chip, chipIdx (chipIdx)}
+                          <span class="bg-muted text-foreground rounded-sm px-1.5 py-px text-[11px]"
+                            >{chip}</span
+                          >
+                        {/each}
+                      </div>
                     {/if}
-                  </div>
-                  <div class="truncate text-[15px] font-medium">{m.title || m.fileName}</div>
-                  <div class="text-muted-foreground truncate text-[12px]">
-                    {subtitleOf(m) || '—'}
-                  </div>
-                  {#if reasonChips(m).length > 0}
-                    <div class="mt-2 flex flex-wrap gap-1">
-                      {#each reasonChips(m) as chip, chipIdx (chipIdx)}
-                        <span class="bg-muted text-foreground rounded-sm px-1.5 py-px text-[11px]"
-                          >{chip}</span
-                        >
+                    <div class="mt-3 grid grid-cols-2 gap-3 @min-[30rem]:grid-cols-4">
+                      {#each statsOf(m) as stat (stat.l)}
+                        <div>
+                          <div class="text-muted-foreground text-[11px]">{stat.l}</div>
+                          <div
+                            class={cn(
+                              'text-[12.5px] tabular-nums',
+                              stat.mono && 'font-mono text-[11.5px]'
+                            )}
+                          >
+                            {stat.v}
+                          </div>
+                        </div>
                       {/each}
                     </div>
-                  {/if}
-                  <div class="mt-3 grid grid-cols-2 gap-3 @min-[30rem]:grid-cols-4">
-                    {#each statsOf(m) as stat (stat.l)}
-                      <div>
-                        <div class="text-muted-foreground text-[11px]">{stat.l}</div>
-                        <div
-                          class={cn(
-                            'text-[12.5px] tabular-nums',
-                            stat.mono && 'font-mono text-[11.5px]'
-                          )}
-                        >
-                          {stat.v}
-                        </div>
-                      </div>
-                    {/each}
+                    <div
+                      class="text-muted-foreground mt-3 font-mono text-[11px] leading-relaxed break-all"
+                    >
+                      {m.sourcePath}
+                    </div>
+                    {#if !keeper && m.isBuilt}
+                      <p class="text-muted-foreground mt-2 text-[11px]">
+                        Already built — its destination file is left in place (nothing is deleted).
+                      </p>
+                    {/if}
                   </div>
-                  <div
-                    class="text-muted-foreground mt-3 font-mono text-[11px] leading-relaxed break-all"
-                  >
-                    {m.sourcePath}
-                  </div>
-                  {#if !keeper && m.isBuilt}
-                    <p class="text-muted-foreground mt-2 text-[11px]">
-                      Already built — its destination file is left in place (nothing is deleted).
-                    </p>
-                  {/if}
-                </div>
-              {/each}
-            </div>
+                {/each}
+              </div>
+            </ScrollArea>
 
             <!-- Last item in a full-height column: carries the mini player's clearance itself. -->
             <div

@@ -10,7 +10,7 @@
   import { formatBytesShort, formatFileSize, formatRelativeTime } from '$lib/formatters';
 
   // A bottom sheet on a phone (grabber, drag to dismiss) and a centred dialog on a desktop — the
-  // BottomSheet primitive switches at md. One scroller: the sheet body, never a scroll area
+  // BottomSheet primitive switches at md. One scroller: the sheet body, never a second one
   // nested inside it. Opened from the sidebar footer, the Manage hub and the account panel; the
   // shell mounts it, so it outlives whichever of those opened it.
 

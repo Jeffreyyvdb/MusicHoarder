@@ -9,6 +9,12 @@ import {
   type ApiSong
 } from '$lib/api-client';
 import {
+  convertedStreamUrl,
+  createUnplayableFormats,
+  needsConversion,
+  type UnplayableFormats
+} from '$lib/audio-formats';
+import {
   canAutoResume,
   readPlaybackSnapshot,
   writePlaybackSnapshot,
@@ -27,6 +33,11 @@ export interface PlayerSong {
   coverUrl?: string | null;
   /** Album name, surfaced on the OS Media Session tile (or null/omitted). */
   album?: string | null;
+  /**
+   * The file's format ('opus', see `formatOf`), when known. Decides whether this browser gets the
+   * file as it is or the server's decoded stream of it; unknown means the original is tried first.
+   */
+  format?: string | null;
   /**
    * A bare id kept from the account's session, picked up before the library's rows arrived; it
    * becomes its row once they do (see `hydrateStandIns`).
@@ -150,6 +161,48 @@ function remoteView(): PlayerRemote | null {
 }
 
 let audioEl: HTMLAudioElement | null = null;
+/** Whether the loaded source is the server's decoded stream rather than the file as it is. */
+let sourceIsConverted = false;
+/**
+ * Whether the listener wants sound: set by every play intent, cleared by pause. A fallback to the
+ * decoded stream keeps it, so a paused song stays paused and a playing one carries on.
+ */
+let wantsPlayback = false;
+/** A format that looks unplayable here, until its decoded stream loads (see `fallBackToConverted`). */
+let suspectedFormat: {
+  songId: number;
+  format: string;
+  originalReachable: Promise<boolean>;
+} | null = null;
+let unplayable: UnplayableFormats | null = null;
+/**
+ * The second the loaded stream last played at, off `timeupdate`: where a reload resumes, and what
+ * tells the loop coming round from a seek (see `cameRoundToStart`). The reactive `currentTime`
+ * cannot serve, because it is written by the rAF loop, which does not run while the page is hidden.
+ */
+let lastPlayedPosition = 0;
+/**
+ * Whether the loaded source has produced audio — what makes a later `waiting` a stall, and a jump
+ * back to its start the loop coming round.
+ */
+let sourceHasPlayed = false;
+/**
+ * Retries spent on the loaded track — reloads of its stream, or, once it has ended, asks of the
+ * station for what follows — and the second the last reload resumed from.
+ */
+let trackRetries = 0;
+let retriedFrom = 0;
+/** Tracks skipped for failing since audio last played. */
+let skipsInARow = 0;
+/** Set once the player gave up on a stream, so the next Play reloads it instead of poking it. */
+let sourceNeedsReload = false;
+/**
+ * The loaded song played to its end (see `songFinished`) and the next one has not replaced it yet.
+ * The element loops, so `ended` never says so.
+ */
+let sourceFinished = false;
+let recoveryTimer: ReturnType<typeof setTimeout> | null = null;
+let stallTimer: ReturnType<typeof setTimeout> | null = null;
 /** Pre-mute level, restored on unmute so toggling mute is non-destructive. */
 let lastNonZeroVolume = 1;
 let loadGeneration = 0;
@@ -269,8 +322,9 @@ function refreshActionHandlers() {
   set('seekto', (details) => {
     if (typeof details.seekTime === 'number') mediaSeek(details.seekTime);
   });
-  set('seekbackward', (details) => mediaSeek(currentTime - (details.seekOffset ?? 10)));
-  set('seekforward', (details) => mediaSeek(currentTime + (details.seekOffset ?? 10)));
+  // No `seekbackward` / `seekforward`: iOS shows either the track pair or the seek pair, never
+  // both, and picks the seek pair whenever it is registered, which puts ±10s buttons where
+  // previous/next belong on the lock screen, Control Center and Dynamic Island.
 }
 
 function mediaKey(step: 'none' | 'next' | 'previous') {
@@ -317,6 +371,239 @@ function claimPlaybackAudioSession() {
   }
 }
 
+// ── A song never ends ──────────────────────────────────────────────────────
+// The pin does not survive the end of a song. When an audio element plays to its end and nothing
+// else is playing, WebKit deactivates the audio session (`sessionWillEndPlayback` in
+// MediaSessionManagerCocoa.mm, since iOS 17), whatever type the page declared. A foreground app
+// gets it back with the next `play()`; an app in the background does not, because iOS will not
+// activate a session for an app that is not already playing. So the next song waits, silent,
+// until the app is opened again, while the lock screen shows it paused (WebKit bugs 261858 and
+// 267606). A pause or a seek deactivates nothing in the background, hence the loop: a song
+// reaching its end is, to WebKit, a seek back to its start, and that jump is where this store
+// moves on, pausing first so the restarted song is not heard while the next one loads.
+
+/**
+ * How close to its start a jump has to land to be the loop coming round. The loop lands on 0; a
+ * source still being positioned, or a seek of ours, never counts (see `cameRoundToStart`).
+ */
+const LOOP_START_WINDOW_S = 0.5;
+
+/**
+ * Whether the loop just brought the song back to its start: a jump from further in to its first
+ * moments, on a source that has played. `seek` moves `lastPlayedPosition` along with it, so a seek
+ * to the start, like Previous restarting the song, is never taken for the end.
+ */
+function cameRoundToStart(el: HTMLAudioElement): boolean {
+  return (
+    sourceHasPlayed &&
+    el.currentTime < LOOP_START_WINDOW_S &&
+    lastPlayedPosition >= LOOP_START_WINDOW_S
+  );
+}
+
+/** The song played to its end: what an `ended` event would have meant. */
+function songFinished(el: HTMLAudioElement) {
+  lastPlayedPosition = 0; // where the element is now, so the jump is not seen twice
+  sourceFinished = true;
+  el.pause(); // a paused element that has not ended keeps the audio session
+  nextTrack(); // with nothing to follow, the song stays loaded, paused at its start
+}
+
+// ── Recovering a stream ────────────────────────────────────────────────────
+// The pinned category keeps the audio session; it does not keep the page
+// running. Once a hidden page stops being audible, WebKit holds its process
+// awake for 10 more seconds (`audibleActivityClearDelay` in WebPageProxy.cpp)
+// and then lets iOS suspend it, and a suspended page runs no script — nothing it
+// scheduled can start the music again. So a stream that fails (a redeploy
+// cutting the connection, Wi-Fi handing over to cellular, the proxy timing out)
+// is reloaded from the same second, and a track that will not play is skipped,
+// all inside that window. A stream stalled mid-track still counts as playing,
+// which is why its watchdog can wait longer before stepping in.
+
+/** Delay before each retry of a failed stream or station; together they leave most of the 10s window. */
+const RETRY_DELAYS_MS = [1000, 3000];
+/** How far a reloaded stream has to play past where it failed to earn its reloads back. */
+const RETRY_BUDGET_RESET_S = 10;
+/** Tracks skipped in a row before giving up: by then it is the server that is gone, not a file. */
+const MAX_SKIPS_IN_A_ROW = 3;
+/** How long a playing stream may wait for data before it is reloaded. */
+const STALL_TIMEOUT_MS = 10_000;
+/**
+ * How late a recovery may fire and still act. Later than this the page was suspended in between,
+ * and starting the music whenever the app is next opened — minutes or hours on — would be a
+ * surprise, not a recovery; the player gives up instead, paused at the second it reached.
+ */
+const RECOVERY_LATE_MS = 5000;
+
+function clearRecovery() {
+  if (recoveryTimer !== null) clearTimeout(recoveryTimer);
+  if (stallTimer !== null) clearTimeout(stallTimer);
+  recoveryTimer = null;
+  stallTimer = null;
+}
+
+/** Run `action` after `delayMs`, unless playback was paused, moved on, or slept through it. */
+function afterDelay(delayMs: number, action: () => void): ReturnType<typeof setTimeout> {
+  const gen = loadGeneration;
+  const due = Date.now() + delayMs;
+  return setTimeout(() => {
+    if (!wantsPlayback || gen !== loadGeneration) return;
+    if (Date.now() - due > RECOVERY_LATE_MS) stopTrying();
+    else action();
+  }, delayMs);
+}
+
+/** Point the element at the stream it already had, at the second it last played. */
+function reloadSource(el: HTMLAudioElement, song: PlayerSong) {
+  sourceFinished = false;
+  sourceHasPlayed = false;
+  sourceNeedsReload = false;
+  el.src = sourceIsConverted ? convertedStreamUrl(song.streamUrl) : song.streamUrl;
+  el.load();
+  // Before metadata arrives this is the start position, as in `fallBackToConverted`.
+  if (lastPlayedPosition > 0) el.currentTime = lastPlayedPosition;
+}
+
+/**
+ * The stream failed, or stopped delivering, while the listener wants sound: reload it from the
+ * same second a couple of times, then move on to the next track. Returns false once both are used
+ * up, which leaves the failure to be reported.
+ */
+function recoverStream(): boolean {
+  const el = audioEl;
+  const song = currentSong;
+  if (!el || !song || !wantsPlayback) return false;
+  if (trackRetries < RETRY_DELAYS_MS.length) {
+    const delay = RETRY_DELAYS_MS[trackRetries];
+    trackRetries += 1;
+    retriedFrom = lastPlayedPosition;
+    if (recoveryTimer !== null) clearTimeout(recoveryTimer);
+    recoveryTimer = afterDelay(delay, () => {
+      reloadSource(el, song);
+      void playElement();
+    });
+    return true;
+  }
+  if (skipsInARow >= MAX_SKIPS_IN_A_ROW || !canAdvance()) return false;
+  skipsInARow += 1;
+  toast.error('Skipped a track', { description: `Could not play "${song.title}".` });
+  nextTrack(); // the player moving on, not someone pressing Next: nothing to claim or steer
+  return true;
+}
+
+/** Out of retries, or slept through them: report it and leave the song paused where it got to. */
+function stopTrying() {
+  const song = currentSong;
+  clearRecovery();
+  wantsPlayback = false;
+  sourceNeedsReload = true;
+  if (audioEl && !audioEl.paused) audioEl.pause();
+  isPlaying = false;
+  setPlaybackState('paused');
+  if (song) toast.error('Playback failed', { description: `Could not play "${song.title}".` });
+}
+
+// ── Formats this browser cannot play ───────────────────────────────────────
+// A song whose file this browser cannot play as it is (Ogg Opus in Safari) streams decoded by the
+// server instead; see `$lib/audio-formats`. Every other song, and every song in a browser
+// that can play it, streams as the original file.
+
+/** `MediaError` codes, spelled out because the global is absent outside a browser. */
+const MEDIA_ERR_DECODE = 3;
+const MEDIA_ERR_SRC_NOT_SUPPORTED = 4;
+/** `HTMLMediaElement.HAVE_METADATA`, for the same reason. */
+const HAVE_METADATA = 1;
+
+function unplayableFormats(): UnplayableFormats {
+  if (!unplayable) {
+    let storage: Storage | null = null;
+    try {
+      storage = window.localStorage;
+    } catch {
+      // Storage blocked: the record lasts for this page only.
+    }
+    unplayable = createUnplayableFormats(storage, navigator.userAgent ?? '');
+  }
+  return unplayable;
+}
+
+/** The URL to load for `song` here: the file as it is, unless this browser cannot play it. */
+function streamSourceFor(song: PlayerSong): { url: string; converted: boolean } {
+  const el = audioEl;
+  const canPlayType =
+    el && typeof el.canPlayType === 'function' ? (type: string) => el.canPlayType(type) : null;
+  return needsConversion(song.format, canPlayType, unplayableFormats())
+    ? { url: convertedStreamUrl(song.streamUrl), converted: true }
+    : { url: song.streamUrl, converted: false };
+}
+
+/** Point the element at `song`'s source (see `streamSourceFor`) and start loading it. */
+function loadSource(el: HTMLAudioElement, song: PlayerSong) {
+  sourceFinished = false;
+  const source = streamSourceFor(song);
+  sourceIsConverted = source.converted;
+  suspectedFormat = null;
+  clearRecovery();
+  lastPlayedPosition = 0;
+  sourceHasPlayed = false;
+  sourceNeedsReload = false;
+  trackRetries = 0;
+  el.src = source.url;
+  el.load();
+}
+
+/**
+ * After the original file failed to load or decode, load the decoded stream instead, from the same
+ * second and in the same play state. Returns false when there is nothing to fall back to, which
+ * leaves the failure to be reported.
+ *
+ * A failure before any metadata arrived may be the format rather than this file, and a format
+ * this browser cannot play should send the rest of the queue straight to decoded streams. The same
+ * error code reports an HTTP failure of the original (a 404, a proxy timeout), which says nothing
+ * about the format, and remembering a format wrongly would convert every song in it from then on.
+ * So the format is only suspected here, and remembered once the original proves reachable and the
+ * decoded stream loads (`confirmSuspectedFormat`).
+ */
+function fallBackToConverted(): boolean {
+  const el = audioEl;
+  const song = currentSong;
+  if (!el || !song || sourceIsConverted) return false;
+  const code = el.error?.code;
+  // A network failure is not the format's fault; converting would not help.
+  if (code !== MEDIA_ERR_DECODE && code !== MEDIA_ERR_SRC_NOT_SUPPORTED) return false;
+
+  suspectedFormat =
+    song.format && !(duration > 0)
+      ? {
+          songId: song.id,
+          format: song.format,
+          originalReachable: fetch(song.streamUrl, { headers: { Range: 'bytes=0-0' } }).then(
+            (res) => res.ok,
+            () => false
+          )
+        }
+      : null;
+  const position = currentTime;
+  sourceIsConverted = true;
+  sourceHasPlayed = false;
+  lastPlayedPosition = position;
+  el.src = convertedStreamUrl(song.streamUrl);
+  el.load();
+  if (position > 0) el.currentTime = position;
+  if (wantsPlayback) void playElement();
+  return true;
+}
+
+/** The decoded stream of a suspected format loaded: remember the format if its original was reachable. */
+function confirmSuspectedFormat() {
+  const suspect = suspectedFormat;
+  if (!suspect || !sourceIsConverted || currentSong?.id !== suspect.songId) return;
+  suspectedFormat = null;
+  void suspect.originalReachable.then((reachable) => {
+    if (reachable) unplayableFormats().add(suspect.format);
+  });
+}
+
 /**
  * Own the audio element imperatively rather than rendering it in a component.
  * A DOM-rendered `<audio>` is subject to Svelte's reconciliation: re-renders
@@ -331,6 +618,7 @@ function ensureAudioEl(): HTMLAudioElement | null {
 
   const el = new Audio();
   el.preload = 'metadata';
+  el.loop = true; // a song's end is the jump back to its start (see `songFinished`)
   el.volume = volumeState;
   // `defaultPlaybackRate` is what a new `src` resets `playbackRate` to, so
   // keeping both in sync makes the chosen speed survive track changes.
@@ -348,24 +636,49 @@ function ensureAudioEl(): HTMLAudioElement | null {
   el.addEventListener('loadedmetadata', () => {
     duration = el.duration;
     updatePositionState();
+    confirmSuspectedFormat();
     sync?.changed(); // the session learns the track's length
   });
-  el.addEventListener('ended', () => {
-    stopRaf();
-    isPlaying = false;
-    if (Number.isFinite(el.duration)) currentTime = el.duration; // land the bar at 100%
-    nextTrack(); // no-op when the current song is the last in the queue
+  el.addEventListener('seeking', () => {
+    if (cameRoundToStart(el)) songFinished(el);
   });
   el.addEventListener('error', () => {
     stopRaf();
     isPlaying = false;
-    const song = currentSong;
-    if (song) {
-      toast.error('Playback failed', { description: `Could not play "${song.title}".` });
-    }
-    // A failed source leaves the element "not paused" (see `elementPlaying`), and its `play` event
-    // already told the session this track was playing: say once that it is not.
+    if (stallTimer !== null) clearTimeout(stallTimer);
+    if (fallBackToConverted()) return;
+    if (recoverStream()) return;
+    stopTrying();
+    // Its `play` event already told the session this track was playing: say once that it is not.
     sync?.changed();
+  });
+  el.addEventListener('timeupdate', () => {
+    // Before metadata the element reports the position it is resetting from, not a real one.
+    if (el.readyState < HAVE_METADATA) return;
+    // `seeking` has normally seen the loop come round already; this catches an engine that loops
+    // without one, or a position read before the loop's seek was announced.
+    if (cameRoundToStart(el)) {
+      songFinished(el);
+      return;
+    }
+    lastPlayedPosition = el.currentTime;
+    if (trackRetries > 0 && lastPlayedPosition > retriedFrom + RETRY_BUDGET_RESET_S) {
+      trackRetries = 0;
+    }
+  });
+  el.addEventListener('playing', () => {
+    sourceHasPlayed = true;
+    skipsInARow = 0;
+    clearRecovery(); // a stall that came back by itself needs no reload
+  });
+  el.addEventListener('waiting', () => {
+    // Waiting on a stream that has played is a stall. One that has not is still loading, and a
+    // load that fails reports itself through `error`.
+    if (!wantsPlayback || !sourceHasPlayed) return;
+    if (stallTimer !== null) clearTimeout(stallTimer);
+    stallTimer = afterDelay(STALL_TIMEOUT_MS, () => {
+      if (!el.paused && !recoverStream()) stopTrying();
+    });
   });
   el.addEventListener('play', () => {
     isPlaying = true;
@@ -410,6 +723,12 @@ export type PlayOutcome = 'played' | 'blocked' | 'failed';
  */
 function attemptPlay(options: { quietBlock?: boolean } = {}): Promise<PlayOutcome> {
   miniPlayerDismissed = false; // any play intent brings the mini player back
+  wantsPlayback = true;
+  return playElement(options);
+}
+
+/** The element half of `attemptPlay`, which leaves a hidden mini player hidden. */
+function playElement(options: { quietBlock?: boolean } = {}): Promise<PlayOutcome> {
   claimPlaybackAudioSession();
   const el = audioEl;
   if (!el) return Promise.resolve('failed');
@@ -448,10 +767,10 @@ async function loadAndPlay(song: PlayerSong) {
 
   // The pre-flight turns a missing file into a clear toast while the old song keeps playing, but
   // it is an await between the decision to play and `play()`. In the background that gap is the
-  // one place a hand-off can die: after `ended` nothing is audible, and a slow round trip to the
-  // server lets iOS stop treating the app as a player before the next song starts. So while the
-  // page is hidden (Home Screen, another app, the lock screen) the swap is synchronous, and a
-  // missing file is reported by the element's own `error` event instead.
+  // one place a hand-off can die: once a song finishes nothing is audible, and a slow round trip
+  // to the server lets iOS stop treating the app as a player before the next song starts. So the
+  // swap is synchronous while the page is hidden (Home Screen, another app, the lock screen), and
+  // a missing file is reported by the element's own `error` event instead.
   if (!document.hidden) {
     try {
       const res = await fetch(song.streamUrl, { headers: { Range: 'bytes=0-0' } });
@@ -477,8 +796,7 @@ async function loadAndPlay(song: PlayerSong) {
   duration = 0;
   updateMediaMetadata(song);
   refreshActionHandlers(); // queue position may have changed (next/prev availability)
-  audioEl.src = song.streamUrl;
-  audioEl.load();
+  loadSource(audioEl, song);
   void attemptPlay();
   reportPlay(song.id);
 }
@@ -516,14 +834,14 @@ function dropPendingLoad() {
     const pick = pendingPick();
     pendingLoad = null;
     loadGeneration += 1;
-    if (audioEl?.ended && pick) {
+    const el = audioEl;
+    if (sourceFinished && pick && el) {
       currentSong = pick;
       currentTime = 0;
       duration = 0;
       updateMediaMetadata(pick);
       refreshActionHandlers();
-      audioEl.src = pick.streamUrl;
-      audioEl.load();
+      loadSource(el, pick);
       listenOwed = loadGeneration;
       return;
     }
@@ -560,6 +878,7 @@ function seedQueue(song: PlayerSong, contextQueue?: PlayerSong[], index?: number
   // what they want to hear next, which is exactly the question the radio answers.
   radioSeedId = song.id;
   radioExhausted = false;
+  skipsInARow = 0;
   maybePrefetchRadio();
 }
 
@@ -586,11 +905,9 @@ async function playSong(song: PlayerSong, contextQueue?: PlayerSong[], index?: n
   // A superseded device's paused leftovers are not "the loaded song": a pick starts it afresh.
   if (!remote && currentSong?.id === song.id) {
     if (audioEl.paused) {
-      sync?.playIntent();
-      void attemptPlay();
+      localResume();
     } else {
-      audioEl.pause();
-      isPlaying = false;
+      pause();
     }
     return;
   }
@@ -646,8 +963,12 @@ async function startQueue(contextQueue: PlayerSong[], index = 0, options: StartQ
     // place that clears this) only runs when paused.
     miniPlayerDismissed = false;
     refreshActionHandlers(); // the new queue decides whether Next is live
-    if (audioEl.paused) void attemptPlay();
-    else sync?.changed(); // the new queue is news even though the song plays on
+    if (audioEl.paused) {
+      reloadIfGivenUp();
+      void attemptPlay();
+    } else {
+      sync?.changed(); // the new queue is news even though the song plays on
+    }
     return;
   }
 
@@ -675,7 +996,14 @@ function nextTrack() {
   // At the tail. This is the path a one-track album takes: nothing follows it in the queue, so the
   // station is what keeps the music going instead of the bar going silent.
   void topUpRadio().then((appended) => {
-    if (appended) advance();
+    if (appended) {
+      advance();
+    } else if (wantsPlayback && canAdvance() && trackRetries < RETRY_DELAYS_MS.length) {
+      // The station could not be asked (a redeploy, a dropped connection): ask again inside the
+      // window a hidden page has before iOS suspends it, rather than ending on silence.
+      if (recoveryTimer !== null) clearTimeout(recoveryTimer);
+      recoveryTimer = afterDelay(RETRY_DELAYS_MS[trackRetries++], nextTrack);
+    }
   });
 }
 
@@ -741,12 +1069,15 @@ async function topUpRadio(): Promise<boolean> {
       refreshActionHandlers(); // a next track exists now, so the OS control lights up
       sync?.changed(); // "up next" moved on; another device picking the session up gets it too
       return true;
-    } catch {
+    } catch (err) {
       // A failed top-up is not worth a toast: the user asked to play a song, not to run a radio.
-      // It does end the station though, rather than re-asking on every `ended` — the anonymous
-      // share viewer has no radio to reach at all, and a Next button that stays lit and does
-      // nothing is worse than one that goes out. Picking another track revives it.
-      radioExhausted = true;
+      // A refusal ends the station — the anonymous share viewer has no radio to reach at all, and
+      // a Next button that stays lit and does nothing is worse than one that goes out. Picking
+      // another track revives it. A request that could not be made or answered (a redeploy, a
+      // dropped connection, a proxy timeout) is only this attempt, though: ending the station on
+      // one of those is what left a shuffled album silent after a single blip. The next track
+      // change, or the retry at the end of the queue, asks again.
+      if (isRefusal(err)) radioExhausted = true;
       return false;
     } finally {
       radioTopUp = null;
@@ -754,6 +1085,14 @@ async function topUpRadio(): Promise<boolean> {
   })();
 
   return radioTopUp;
+}
+
+/** A 4xx answer, which asking again will not change — unless it was a timeout or a rate limit. */
+function isRefusal(err: unknown): boolean {
+  const status = (err as { status?: unknown } | null)?.status;
+  return (
+    typeof status === 'number' && status >= 400 && status < 500 && status !== 408 && status !== 429
+  );
 }
 
 /**
@@ -795,6 +1134,8 @@ function pause() {
 }
 
 function localPause() {
+  wantsPlayback = false;
+  clearRecovery();
   audioEl?.pause();
   isPlaying = false;
 }
@@ -811,7 +1152,23 @@ function resume() {
 function localResume() {
   ensureAudioEl();
   if (currentSong) sync?.playIntent();
+  reloadIfGivenUp();
   void attemptPlay();
+}
+
+/**
+ * A stream that failed for good cannot be played again as it is: load it afresh, from the second
+ * it reached, with its retries back.
+ */
+function reloadIfGivenUp() {
+  const el = audioEl;
+  const song = currentSong;
+  if (el && song && (sourceNeedsReload || el.error)) {
+    clearRecovery(); // this reload replaces any still pending
+    trackRetries = 0;
+    skipsInARow = 0;
+    reloadSource(el, song);
+  }
 }
 
 function togglePlay() {
@@ -838,6 +1195,7 @@ function localSeek(time: number) {
   if (audioEl) {
     audioEl.currentTime = time;
     currentTime = time;
+    lastPlayedPosition = time;
     updatePositionState();
     persistPlayback(); // a seek while paused is the one position change the rAF loop never sees
     sync?.changed();
@@ -897,6 +1255,12 @@ function stop() {
   }
   currentSong = null;
   isPlaying = false;
+  wantsPlayback = false;
+  clearRecovery();
+  sourceIsConverted = false;
+  suspectedFormat = null;
+  sourceNeedsReload = false;
+  skipsInARow = 0;
   currentTime = 0;
   duration = 0;
   queue = [];
@@ -1029,19 +1393,24 @@ function restorePlayback(userId: string) {
   duration = 0;
   updateMediaMetadata(song);
   refreshActionHandlers();
-  el.src = song.streamUrl;
-  el.load();
+  const autoResume = canAutoResume(snapshot, Date.now());
+  // Wanted once it may start: with the session plugged in, only after the gate below agrees — a
+  // stream recovery must not start what the gate is about to keep silent.
+  wantsPlayback = autoResume && !sync;
+  loadSource(el, song);
   // Before metadata arrives this sets the default playback start position, which the element
   // seeks to as soon as it can — so the paused bar shows the right second and a later play
   // starts there, without waiting on `loadedmetadata` ourselves.
   el.currentTime = snapshot.position;
+  lastPlayedPosition = snapshot.position;
   // No `reportPlay` here: coming back to a track is not another listen of it.
 
-  if (!canAutoResume(snapshot, Date.now())) return;
+  if (!autoResume) return;
   const generation = loadGeneration;
   const resumeRestored = () => {
     // Something else was picked (or picked up) while the gate below was open; that wins.
     if (generation !== loadGeneration || !el.paused) return;
+    wantsPlayback = true;
     claimPlaybackAudioSession();
     sync?.playIntent();
     void el
@@ -1105,9 +1474,11 @@ function adoptQueue(target: AdoptTarget): Promise<PlayOutcome> {
   duration = 0;
   updateMediaMetadata(song);
   refreshActionHandlers();
-  el.src = song.streamUrl;
-  el.load();
+  loadSource(el, song);
+  // As in the reload restore: the start position before metadata, and where the loop (see
+  // `songFinished`) measures from.
   el.currentTime = target.positionSec;
+  lastPlayedPosition = target.positionSec;
   const played = attemptPlay({ quietBlock: true });
   if (target.listen) reportPlay(song.id);
   maybePrefetchRadio();

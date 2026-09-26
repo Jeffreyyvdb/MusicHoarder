@@ -1,4 +1,5 @@
 import { createPasskey, getPasskeyAssertion } from "$lib/webauthn-client"
+import { formatOf } from "$lib/audio-formats"
 import type { PlayerSong } from "$lib/stores/player.svelte"
 import type { LyricsProvenance, LyricsSyncStatus } from "$lib/types"
 import {
@@ -1509,6 +1510,76 @@ export async function fetchAlbumTimeline(artist: string, album: string): Promise
   return requestJson<AlbumTimelineResponse>(`/api/albums/timeline?${qs}`)
 }
 
+// ── Provenance: why a track is in the library ─────────────────────────────────
+
+export type ProvenanceReason =
+  | "LocalFile"
+  | "SpotifyLiked"
+  | "SpotifyPlaylist"
+  | "DeezerPlaylist"
+  | "Link"
+  | "Synced"
+  | "Downloaded"
+  | "AlbumFill"
+
+export interface ProvenanceTrack {
+  songId: number
+  title: string
+  /** When the reason happened — liked on Spotify, found by a scan, arrived here. */
+  atUtc?: string | null
+  /** What `atUtc` is: "Liked", "Added to the playlist", "Found", "Synced", "Arrived". */
+  atLabel: string
+}
+
+/** An owned track album completion started from — with that track's own reason. */
+export interface ProvenanceSeed {
+  songId: number
+  title: string
+  album?: string | null
+  reason: ProvenanceReason
+  label: string
+  atUtc?: string | null
+  atLabel: string
+  /** Deleted since — still the reason the fill happened. */
+  isDeleted: boolean
+}
+
+export interface ProvenanceFill {
+  /** The album completion was filling in (can differ from the album the tracks ended up under). */
+  album?: string | null
+  artist?: string | null
+  queuedAtUtc?: string | null
+  seeds: ProvenanceSeed[]
+  /** Every seed found; `seeds` holds the first few. */
+  seedCount: number
+}
+
+export interface ProvenanceGroup {
+  reason: ProvenanceReason
+  label: string
+  explanation: string
+  tracks: ProvenanceTrack[]
+  /** Album fill only, and only while its wishlist link survives. */
+  fill?: ProvenanceFill | null
+}
+
+/**
+ * How a set of songs got into the library. The text is the server's, as in the History feed, so the
+ * two clients explain it the same way. Empty for songs you do not own (a grantor's are never
+ * explained — their pipeline is theirs).
+ */
+export interface SongProvenance {
+  /** One line for an album header: "Liked on Spotify · 16 filled in". */
+  summary: string | null
+  primaryReason: ProvenanceReason | null
+  groups: ProvenanceGroup[]
+}
+
+export async function fetchSongProvenance(songIds: number[]): Promise<SongProvenance> {
+  const qs = new URLSearchParams({ ids: songIds.join(",") }).toString()
+  return requestJson<SongProvenance>(`/api/songs/provenance?${qs}`)
+}
+
 // ── Album reconciliation grading (AI: is the linked album the correct one?) ─────
 
 /** Latest reconciliation grade for one album. */
@@ -2166,6 +2237,12 @@ export interface SongVideoInfo {
   lastError?: string | null
   /** Ready row whose mp4 vanished from disk — the stream would 404; offer a refetch instead. */
   fileMissing?: boolean
+  /**
+   * The black bars baked into the frame, as the share of it each bar of a pair covers (top/bottom,
+   * sides); null until the server has measured the file. The backdrop crops them (`cropMatte`).
+   */
+  letterbox?: number | null
+  pillarbox?: number | null
 }
 
 /**
@@ -2397,6 +2474,7 @@ export function toPlayerSong(song: ApiSong, fallbackArtist: string): PlayerSong 
     streamUrl: getSongStreamUrl(song.id),
     coverUrl: coverUrlForSong(song),
     album: song.album ?? null,
+    format: formatOf(song.extension),
   }
 }
 
@@ -2437,6 +2515,57 @@ export async function listSongShares(): Promise<SongShareView[]> {
 export async function revokeSongShare(id: number): Promise<void> {
   const response = await fetch(`${API_PREFIX}/api/shares/${id}`, { method: "DELETE", cache: "no-store" })
   if (!response.ok) throw new Error(`Could not revoke share (${response.status}).`)
+}
+
+/** A share link — active or revoked — with how often it was opened and played, all time. */
+export interface ShareStatsRow {
+  id: number
+  token: string
+  scope: "Song" | "Album"
+  songId: number
+  createdAtUtc: string
+  revokedAtUtc?: string | null
+  title: string
+  artist?: string | null
+  album?: string | null
+  /** Opens of the share page (repeats by one visitor within 30 minutes count once). */
+  views: number
+  /** Distinct visitors, each counted once per day. */
+  visitors: number
+  plays: number
+  lastViewedAtUtc?: string | null
+}
+
+export interface ShareDailyPoint {
+  /** The caller's local calendar day, `YYYY-MM-DD`. */
+  date: string
+  views: number
+  visitors: number
+  plays: number
+}
+
+export interface ShareStatsDetail {
+  share: ShareStatsRow
+  /** One point per day from the link's first day (or `days` ago) through today, zeros included. */
+  daily: ShareDailyPoint[]
+  /** Opens by where they came from, most first. A null source is "direct or unknown". */
+  sources: { source?: string | null; views: number }[]
+  /** Plays per track, most first. Only tracks that were played. */
+  tracks: { songId: number; title: string; plays: number }[]
+}
+
+/** Every share link you made, newest first, with its counts. */
+export async function fetchShareStatsList(): Promise<ShareStatsRow[]> {
+  return requestJson<ShareStatsRow[]>("/api/shares/stats")
+}
+
+/** One link's counts, per-day series (in this browser's time zone), sources and track plays. */
+export async function fetchShareStats(id: number, days = 30): Promise<ShareStatsDetail> {
+  const params = new URLSearchParams({
+    days: String(days),
+    tzOffsetMinutes: String(new Date().getTimezoneOffset()),
+  })
+  return requestJson<ShareStatsDetail>(`/api/shares/${id}/stats?${params}`)
 }
 
 /** The public URL a friend opens — same origin, so it works for every deployment. */

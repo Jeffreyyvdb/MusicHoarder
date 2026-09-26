@@ -39,8 +39,8 @@ class FakeAudio {
   playResult: 'ok' | 'blocked' = 'ok';
   /** Set by a failed source; as on the real element, only a new load clears it (not `paused`). */
   error: { code: number } | null = null;
-  /** Played to its end; only a new load clears it, as on the real element. */
-  ended = false;
+  readyState = 0;
+  loop = false;
   private listeners = new Map<string, ((e: Event) => void)[]>();
   addEventListener(type: string, fn: (e: Event) => void) {
     this.listeners.set(type, [...(this.listeners.get(type) ?? []), fn]);
@@ -54,8 +54,20 @@ class FakeAudio {
   load() {
     this.currentTime = 0;
     this.paused = true;
-    this.ended = false;
+    this.readyState = 0;
     this.error = null;
+  }
+  /**
+   * The song plays out. The element loops (see the player's `songFinished`), so the end is audio
+   * flowing near it and then the jump back to 0:00, never an `ended`.
+   */
+  finish() {
+    this.readyState = 4;
+    this.currentTime = this.duration - 1;
+    this.dispatch('playing');
+    this.dispatch('timeupdate');
+    this.currentTime = 0;
+    this.dispatch('seeking');
   }
   play = vi.fn(() => {
     if (this.playResult === 'blocked') {
@@ -173,7 +185,7 @@ describe('play intents', () => {
     await settle();
 
     // A track ending hands on to the next one: news, not a claim.
-    audio.dispatch('ended');
+    audio.finish();
     await settle();
     expect(sync.playIntent).toHaveBeenCalledTimes(3);
     expect(playerStore.currentSong?.id).toBe(2);
@@ -414,11 +426,8 @@ describe('a pick still in its pre-flight when the session pauses this device', (
     vi.mocked(fetch).mockImplementationOnce(
       () => new Promise<Response>((resolve) => (answer = resolve))
     );
-    // Song 1 plays out: at its end, paused, ended — and the queue moves on to song 2's pre-flight.
-    audio.currentTime = audio.duration;
-    audio.ended = true;
-    audio.pause();
-    audio.dispatch('ended');
+    // Song 1 plays out — back at 0:00, paused — and the queue moves on to song 2's pre-flight.
+    audio.finish();
     expect(localPlayback.loading()?.id).toBe(2);
 
     // Another device sent Pause (or took the session).
@@ -454,7 +463,7 @@ describe('a pick still in its pre-flight when the session pauses this device', (
 });
 
 describe('a track the element cannot play', () => {
-  it('is not playing, whatever `paused` still says, and the session hears so once', async () => {
+  it('is not playing, whatever `paused` still says', async () => {
     const { playerStore, localPlayback, setPlaybackSync } = await load();
     const sync = fakeSync();
     setPlaybackSync(sync);
@@ -462,13 +471,12 @@ describe('a track the element cannot play', () => {
     sync.changed.mockClear();
 
     // As the media error steps leave it: `play()` was called, the source failed, and `paused` is
-    // never set back — only the error says anything happened.
-    audio.error = { code: 4 };
-    audio.dispatch('error');
+    // never set back — only the error says anything happened. (What the store then does about it —
+    // reload, skip, give up — is the player's recovery; see playback-sync's test of giving up.)
+    audio.error = { code: 2 };
     expect(audio.paused).toBe(false);
     expect(localPlayback.playing()).toBe(false);
     expect(localPlayback.state()).toMatchObject({ song: { id: 1 }, isPlaying: false });
-    expect(sync.changed).toHaveBeenCalledTimes(1);
 
     // A new load clears the error: the next track plays, and says so.
     playerStore.playNext();

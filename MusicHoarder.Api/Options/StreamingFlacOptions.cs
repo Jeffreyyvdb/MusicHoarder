@@ -41,6 +41,14 @@ public class StreamingFlacOptions
     [Range(10, 600)]
     public int TimeoutSeconds { get; set; } = 120;
 
+    /// <summary>
+    /// When the Spotify track to acquire is a clean edit (words muted), hand the sidecar its explicit
+    /// edition instead, if Spotify has one (same title, artists and length). The sidecar fetches exactly
+    /// the edition it is given, so without this a clean Spotify id always yields a censored file. Needs
+    /// Spotify app credentials; without them the requested id is used as is.
+    /// </summary>
+    public bool PreferExplicit { get; set; } = true;
+
     /// <summary>True when a sidecar URL is present and the feature is enabled.</summary>
     public bool IsConfigured => Enabled && !string.IsNullOrWhiteSpace(SidecarUrl);
 }

@@ -84,6 +84,7 @@
   import * as BottomSheet from '$lib/components/ui/bottom-sheet';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import * as GroupedList from '$lib/components/ui/grouped-list';
+  import { ScrollArea } from '$lib/components/ui/scroll-area';
   import { IsMobile } from '$lib/hooks/is-mobile.svelte';
   import { cn } from '$lib/utils';
   import { toast } from 'svelte-sonner';
@@ -691,7 +692,7 @@
 {/snippet}
 
 <div class="flex min-h-0 flex-1 flex-col">
-  <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-(--mh-content-pad)">
+  <ScrollArea class="min-h-0 flex-1" viewportClass="overscroll-contain">
     <PageToolbarV2
       title="Wishlist"
       {meta}
@@ -840,7 +841,7 @@
         </div>
       {/if}
     {/if}
-  </div>
+  </ScrollArea>
 </div>
 
 <!-- A phone's Downloads and Sources: the same rows as md+'s inline sections, in a sheet. It comes

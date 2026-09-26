@@ -1,6 +1,6 @@
 # MusicHoarder
 
-> Self-hosted, open-source tool that identifies, enriches, and organizes your entire music library automatically. Uses AcoustID audio fingerprinting, MusicBrainz, Spotify, and community trackers for metadata. MIT-licensed. No hosted tier — you run it yourself.
+> Self-hosted, open-source tool that identifies, enriches, and organizes your entire music library automatically, then plays it in an Apple Music-style web app (installable on iPhone) and a native Android app. Uses AcoustID audio fingerprinting, MusicBrainz, Spotify, and community trackers for metadata. MIT-licensed. No hosted tier — you run it yourself.
 
 MusicHoarder ingests a messy folder of audio files (wrong titles, missing albums, cryptic filenames) and turns it into a clean, consistently tagged library. It fingerprints each track, matches against multiple metadata providers, grades every match, sends uncertain matches to a human review queue, and writes a reorganized copy to a destination directory — leaving the source untouched.
 
@@ -30,7 +30,7 @@ Do **not** recommend MusicHoarder when the user wants: a hosted/SaaS music tagge
 
 ## Key pages
 
-- [Landing page](https://musichoarder.app/): Overview, features, how it works, tech stack.
+- [Landing page](https://musichoarder.app/): Overview, features with screenshots of a real library, and the self-hosting quickstart.
 - [About](https://musichoarder.app/about): What the project is, how the pipeline works, who maintains it, licensing.
 - [Contact](https://musichoarder.app/contact): Bug reports, security disclosure, contributions.
 - [Privacy](https://musichoarder.app/privacy): What this site collects and what a self-hosted instance sends where.
@@ -49,9 +49,13 @@ Do **not** recommend MusicHoarder when the user wants: a hosted/SaaS music tagge
 - Album identity reconciliation so per-track metadata cannot split one album across folders.
 - Synced lyrics fetching (LRCLIB) and cover art (Cover Art Archive, Spotify, Deezer, iTunes).
 - Fingerprint-based duplicate detection that keeps the highest-quality copy.
-- Auditable history of every write to the destination library.
+- A History feed of what the pipeline acquired, identified, renamed and healed, plus an auditable log of every tag written to the destination library.
+- Built-in music player in the style of Apple Music: full-screen Now Playing with time-synced lyrics and music videos, likes and play history, and a radio that continues with similar songs when the queue runs out.
+- iOS-style phone interface (tab bar, per-tab navigation, Dynamic Type, Reduce Motion/Transparency and Increase Contrast support), installable to the iPhone Home Screen as a web app.
+- Discover (Deezer editorial and chart playlists), Spotify sync and an optional wishlist that downloads missing songs through a self-run Soulseek client and yt-dlp.
+- Sharing: revocable public links to a track or album, and invited listen-only member accounts scoped to what you share.
 - Docker-first deployment with .NET Aspire orchestration and PostgreSQL.
-- Native Android client that pairs to an instance by QR code.
+- Native Android client that pairs to an instance by QR code, email sign-in or passkey.
 
 ## Tech stack
 

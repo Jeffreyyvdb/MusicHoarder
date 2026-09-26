@@ -167,6 +167,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 // "Discover" shelves move as you listen instead of waiting for the next full fetch.
                 graph.library.notePlayed(songId, System.currentTimeMillis())
                 viewModelScope.launch { graph.api.reportPlayed(songId) }
+            } else {
+                // A share's play is counted where it belongs: on the sharing server's Share links
+                // page, each track once per open of the link, as the web share page does.
+                val link = _share.value?.link
+                if (link != null && reportedSharePlays.add(songId)) {
+                    viewModelScope.launch { graph.api.reportSharePlay(link, songId) }
+                }
             }
         },
         radioTracks = { seedId, exclude ->
@@ -823,6 +830,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private var shareJob: Job? = null
 
+    /** Share tracks already reported as played since the viewer opened; see onTrackStarted. */
+    private val reportedSharePlays = mutableSetOf<Int>()
+
     init {
         // An adopted session replaced whatever the player held — a share queue included — so the
         // share guards must let go, and the lyrics refetch for what is now a library song.
@@ -836,10 +846,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun openShare(link: ShareLink) {
         shareJob?.cancel()
+        reportedSharePlays.clear()
         _share.value = ShareUiState.Loading(link)
         shareJob = viewModelScope.launch {
             _share.value = try {
                 val payload = graph.api.fetchShare(link)
+                // Counted on the owner's Share links page once the link has proved live, like the
+                // web share page's beacon. Its own coroutine: the count must never hold up the page.
+                viewModelScope.launch { graph.api.reportShareVisit(link) }
                 val tracks = payload.tracks.map { dto ->
                     dto.toTrack(
                         album = payload.album,

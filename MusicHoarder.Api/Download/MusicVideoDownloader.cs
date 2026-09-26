@@ -286,25 +286,84 @@ public class MusicVideoDownloader(
         psi.ArgumentList.Add(outputTemplate);
         psi.ArgumentList.Add(target);
 
-        var (exitCode, stdout, stderr) = await RunAsync(psi, ct);
-        var produced = YtDlpDownloadProvider.LocateProducedFile(directory, stem);
-
-        if (produced is not null)
+        string? produced = null;
+        try
         {
-            var (videoId, duration) = ParsePrinted(stdout);
-            return MusicVideoDownloadResult.Ok(produced, videoId, duration);
-        }
+            var (exitCode, stdout, stderr) = await RunAsync(psi, ct);
+            produced = LocateFinishedVideo(directory, stem);
 
-        if (exitCode == 0 || YtDlpDownloadProvider.LooksLikeNoResults(stderr))
+            if (produced is not null)
+            {
+                var (videoId, duration) = ParsePrinted(stdout);
+                return MusicVideoDownloadResult.Ok(produced, videoId, duration);
+            }
+
+            if (exitCode == 0 || YtDlpDownloadProvider.LooksLikeNoResults(stderr))
+            {
+                logger.LogInformation("yt-dlp found no music video for '{Target}': {Error}",
+                    LogSanitizer.ForLog(target), LogSanitizer.ForLog(Truncate(stderr)));
+                return MusicVideoDownloadResult.Missing(stderr.Length == 0 ? "no results" : Truncate(stderr));
+            }
+
+            logger.LogWarning("yt-dlp video fetch exited {Code} for '{Target}': {Error}",
+                exitCode, LogSanitizer.ForLog(target), LogSanitizer.ForLog(Truncate(stderr)));
+            return MusicVideoDownloadResult.Failed($"exited {exitCode}: {Truncate(stderr)}");
+        }
+        finally
         {
-            logger.LogInformation("yt-dlp found no music video for '{Target}': {Error}",
-                LogSanitizer.ForLog(target), LogSanitizer.ForLog(Truncate(stderr)));
-            return MusicVideoDownloadResult.Missing(stderr.Length == 0 ? "no results" : Truncate(stderr));
+            // Whatever else carries this run's stem is debris — including when the fetch was
+            // cancelled and yt-dlp killed between downloading the streams and merging them.
+            DeleteLeftovers(directory, stem, keep: produced);
         }
+    }
 
-        logger.LogWarning("yt-dlp video fetch exited {Code} for '{Target}': {Error}",
-            exitCode, LogSanitizer.ForLog(target), LogSanitizer.ForLog(Truncate(stderr)));
-        return MusicVideoDownloadResult.Failed($"exited {exitCode}: {Truncate(stderr)}");
+    /// <summary>Containers a finished clip comes out in: the merge is forced to mp4, the <c>/best</c> tail takes what exists.</summary>
+    private static readonly HashSet<string> VideoExtensions = [".mp4", ".webm", ".mkv", ".mov"];
+
+    /// <summary>
+    /// The finished clip yt-dlp wrote for <paramref name="stem"/>: exactly <c>&lt;stem&gt;.&lt;ext&gt;</c>, in a
+    /// video container. Deliberately stricter than the audio provider's
+    /// <see cref="YtDlpDownloadProvider.LocateProducedFile"/>: a video+audio format downloads each
+    /// stream to <c>&lt;stem&gt;.f&lt;format&gt;.&lt;ext&gt;</c> and only the merge writes <c>&lt;stem&gt;.mp4</c>.
+    /// yt-dlp carries on after a download error by default, so when the video stream dies mid-way
+    /// it still finishes the audio stream and exits without merging, leaving a complete
+    /// <c>&lt;stem&gt;.f140.m4a</c> — an audio file, which must never be recorded as the clip.
+    /// </summary>
+    internal static string? LocateFinishedVideo(string directory, string stem) =>
+        Directory.EnumerateFiles(directory, stem + ".*")
+            .FirstOrDefault(f => Path.GetFileNameWithoutExtension(f) == stem
+                && VideoExtensions.Contains(Path.GetExtension(f).ToLowerInvariant()));
+
+    /// <summary>
+    /// Deletes every file this run's stem left in the videos directory except <paramref name="keep"/>:
+    /// a half-downloaded stream (<c>.part</c>), or a finished stream that was never merged. The
+    /// latter is the one that matters — an unmerged audio stream is a complete <c>.m4a</c>, and the
+    /// videos directory defaults to a folder inside the download root the scanner indexes. The stem
+    /// is a fresh GUID, so nothing else can match. Best effort: a file that will not go is logged,
+    /// never allowed to turn the fetch's outcome into an exception.
+    /// </summary>
+    private void DeleteLeftovers(string directory, string stem, string? keep)
+    {
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(directory, stem + ".*"))
+            {
+                if (string.Equals(file, keep, StringComparison.Ordinal))
+                    continue;
+                try
+                {
+                    File.Delete(file);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    logger.LogWarning(ex, "Could not delete music video leftover {File}", file);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            logger.LogWarning(ex, "Could not clean up music video leftovers for {Stem}", stem);
+        }
     }
 
     internal sealed record SearchCandidate(

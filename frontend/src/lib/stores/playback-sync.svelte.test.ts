@@ -68,8 +68,8 @@ class FakeAudio {
   playResult: 'ok' | 'blocked' = 'ok';
   /** Set by a failed source; as on the real element, only a new load clears it (not `paused`). */
   error: { code: number } | null = null;
-  /** Played to its end; only a new load clears it, as on the real element. */
-  ended = false;
+  readyState = 0;
+  loop = false;
   /** `play()` stays unanswered (the stream buffering) until `finishLoading()`. */
   hold = false;
   private waiting: { resolve: () => void; reject: (err: unknown) => void } | null = null;
@@ -85,15 +85,20 @@ class FakeAudio {
   load() {
     this.currentTime = 0;
     this.paused = true;
-    this.ended = false;
+    this.readyState = 0;
     this.error = null;
   }
-  /** The track plays out, as the real element ends one: at its end, paused (`pause`), `ended`. */
+  /**
+   * The track plays out. The element loops (see the player's `songFinished`), so the end is audio
+   * flowing near it and then the jump back to 0:00, never an `ended`.
+   */
   end() {
-    this.currentTime = this.duration;
-    this.ended = true;
-    this.pause();
-    this.dispatch('ended');
+    this.readyState = 4;
+    this.currentTime = this.duration - 1;
+    this.dispatch('playing');
+    this.dispatch('timeupdate');
+    this.currentTime = 0;
+    this.dispatch('seeking');
   }
   play = vi.fn(() => {
     if (this.playResult === 'blocked') {
@@ -562,7 +567,7 @@ describe('a pick whose file is missing', () => {
 });
 
 describe('a track the element cannot play', () => {
-  it('is reported stopped at once, and every heartbeat after says the same', async () => {
+  it('is reported stopped once the player gives up on it, and every heartbeat after says the same', async () => {
     const { playerStore } = await boot();
     api.handlers!.onSnapshot({ session: null, devices: [] });
     await playerStore.startQueue(QUEUE, 0);
@@ -572,10 +577,13 @@ describe('a track the element cannot play', () => {
     );
     api.reportPlaybackState.mockClear();
 
-    // The file went missing, or this browser cannot decode it: `play` already said "playing", then
-    // the source fails — `error` fires and `paused` is never set back.
-    audio!.error = { code: 4 };
+    // The stream drops: `play` already said "playing", then the source fails — `error` fires and
+    // `paused` is never set back. The player schedules a reload from the same second, but iOS
+    // suspends the page before it can run; the late retry gives up, paused where it got to.
+    audio!.error = { code: 2 };
     audio!.dispatch('error');
+    vi.setSystemTime(Date.now() + 60_000);
+    await flush(1_000); // the retry comes due, late: it gives up
     await flush(1_000);
     expect(reports()).toHaveLength(1);
     expect(reports()[0]).toMatchObject({ claim: false, songId: 1, isPlaying: false });

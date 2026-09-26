@@ -152,6 +152,9 @@ services:
       restart_policy:
         condition: "any"
         delay: "5s"
+      resources:
+        limits:
+          memory: "${API_MEMORY_LIMIT:-3g}"
     healthcheck:
       test:
         - "CMD-SHELL"

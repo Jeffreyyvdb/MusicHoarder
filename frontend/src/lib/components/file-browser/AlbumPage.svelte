@@ -34,6 +34,7 @@
   import { Button } from '$lib/components/ui/button';
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import AlbumTimelineDialog from '$lib/components/file-browser/AlbumTimelineDialog.svelte';
+  import ProvenanceSheet from '$lib/components/file-browser/ProvenanceSheet.svelte';
   import ShareWithFriendDialog from '$lib/components/file-browser/ShareWithFriendDialog.svelte';
   import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
   import TrackRowMenu, { activateTrack } from '$lib/components/v2/TrackRowMenu.svelte';
@@ -53,6 +54,7 @@
     copyAlbumDossier,
     coverThumbUrl,
     fetchAlbumDetail,
+    fetchSongProvenance,
     gradeAlbum,
     mapEnrichmentStatus,
     prettyProvider,
@@ -62,8 +64,10 @@
     type AlbumQualityGradeView,
     type AlbumSummary,
     type AlbumTracklist,
-    type ApiSong
+    type ApiSong,
+    type SongProvenance
   } from '$lib/api-client';
+  import { PROVENANCE_ICON } from '$lib/provenance';
   import { VERDICT_DOT } from '$lib/quality-ui';
   import { findShareLink, shareLink, type ShareLink } from '$lib/share-links';
   import { toast } from 'svelte-sonner';
@@ -207,6 +211,50 @@
     tracklist
       ? tracklist.sources.filter((s) => s.inWinningCluster).map((s) => prettyProvider(s.provider))
       : []
+  );
+
+  // ── how it got here ────────────────────────────────────────────────────────
+  // Why these tracks are in the library at all — local files, a Spotify like, a playlist, or album
+  // completion filling in around a track you had. Only your own albums: a shared album's history is
+  // its owner's (the endpoint would answer empty anyway). Keyed on the id list as a string for the
+  // same reason `detailKey` is: `album` is a fresh object on every songs-store refresh.
+  const provenanceKey = $derived(
+    album && !sharedBy
+      ? album.songs
+          .map((s) => s.id)
+          .sort((a, b) => a - b)
+          .join(',')
+      : null
+  );
+  // Kept per album and not cleared on a refetch, so a track arriving mid-visit updates the row in
+  // place instead of blinking it back to "Tracing…".
+  let provenanceFor = $state<{ albumKey: string; data: SongProvenance } | null>(null);
+  let provenanceError = $state<string | null>(null);
+  let provenanceOpen = $state(false);
+  const provenance = $derived(
+    provenanceFor && provenanceFor.albumKey === album?.key ? provenanceFor.data : null
+  );
+  $effect(() => {
+    const key = provenanceKey;
+    provenanceError = null;
+    if (!key) return;
+    const albumKey = untrack(() => album?.key) ?? '';
+    let cancelled = false;
+    void fetchSongProvenance(key.split(',').map(Number))
+      .then((data) => {
+        if (!cancelled) provenanceFor = { albumKey, data };
+      })
+      .catch(() => {
+        if (!cancelled) provenanceError = 'Could not work out how this album got here.';
+      });
+    return () => {
+      cancelled = true;
+    };
+  });
+  // Shown while it loads (so the tracklist does not jump when it lands), hidden if it fails or
+  // there turned out to be nothing to say.
+  const showProvenance = $derived(
+    provenanceKey !== null && !provenanceError && (!provenance || Boolean(provenance.summary))
   );
 
   // Album provenance timeline, opened from the ⋯ menu.
@@ -841,6 +889,44 @@
               <ChevronRight class="text-muted-foreground-dim size-4 shrink-0" aria-hidden="true" />
             </button>
           {/if}
+
+          {#if showProvenance}
+            <!-- How it got here → the provenance sheet: which tracks came from where, and for an
+                 album fill, the tracks you already had that started it. -->
+            <button
+              type="button"
+              onclick={() => (provenanceOpen = true)}
+              disabled={!provenance}
+              aria-label={provenance?.summary
+                ? `How it got here: ${provenance.summary}`
+                : undefined}
+              class={cn(
+                'bg-secondary hover:bg-secondary-hover text-subheadline focus-visible:ring-ring disabled:hover:bg-secondary flex min-h-11 w-full max-w-full items-center gap-2 rounded-xl px-3 text-left outline-none focus-visible:ring-2 md:w-auto md:max-w-[min(100%,28rem)] md:text-sm',
+                isOwner ? 'mt-2' : 'mt-3'
+              )}
+            >
+              {#if provenance?.primaryReason}
+                {@const ReasonIcon = PROVENANCE_ICON[provenance.primaryReason]}
+                <ReasonIcon class="text-muted-foreground size-4 shrink-0" aria-hidden="true" />
+              {:else}
+                <span
+                  aria-hidden="true"
+                  class="bg-muted-foreground-dim mx-1 size-2 shrink-0 animate-pulse rounded-full"
+                ></span>
+              {/if}
+              <!-- Two lines rather than an ellipsis: the tail ("· 16 filled in") is the part
+                   that answers the question. -->
+              <span
+                class={cn(
+                  'line-clamp-2 min-w-0 flex-1 py-2',
+                  !provenance && 'text-muted-foreground'
+                )}
+              >
+                {provenance?.summary ?? 'Tracing how it got here…'}
+              </span>
+              <ChevronRight class="text-muted-foreground-dim size-4 shrink-0" aria-hidden="true" />
+            </button>
+          {/if}
         </div>
       </div>
     </div>
@@ -1302,6 +1388,14 @@
   </ScrollArea>
 
   <AlbumTimelineDialog bind:open={timelineOpen} artist={album.artist} album={album.title} />
+
+  <ProvenanceSheet
+    bind:open={provenanceOpen}
+    {provenance}
+    loading={!provenance && !provenanceError}
+    error={provenanceError}
+    canManage={isOwner}
+  />
 
   {#if isOwner}
     <ShareWithFriendDialog

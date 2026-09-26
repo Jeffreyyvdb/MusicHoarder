@@ -77,6 +77,9 @@
   $effect(() => {
     if (pipelineOverlay.snapshot) untrack(dropSeed);
   });
+  // The library's shared cuts (built songs, the Tracks base, the artist groups) stay computed for
+  // the whole session, so opening a page reuses them rather than re-reading every song.
+  $effect(() => untrack(() => songsStore.retainViews()));
 
   // The Inbox badge adds the Duplicate tracks and AI flagged queues to Tag review, and those two
   // figures need requests of their own (nav-badges.svelte.ts). Whoever has an Inbox (admin and

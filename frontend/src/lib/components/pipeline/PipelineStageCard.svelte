@@ -1,10 +1,9 @@
 <script lang="ts">
-  // NOTE: this card is consumed by ImportPipelineDrawer.svelte (the in-app live-import drawer)
-  // and by the marketing landing page's PipelineConveyor.svelte (SSR, wrapped in a button there),
-  // so it stays prop-driven with no browser access. It sits on the drawer's card and on the
-  // landing page, so its fill is the sunken-well token rather than a translucent fill with an
-  // opacity modifier; an idle card is no longer dimmed with opacity (that sank its muted text
-  // below 4.5:1) — the tint tile, border and bar carry "active" instead.
+  // NOTE: this card is consumed by ImportPipelineDrawer.svelte (the in-app live-import drawer).
+  // It stays prop-driven with no browser access. It sits on the drawer's card, so its fill is the
+  // sunken-well token rather than a translucent fill with an opacity modifier; an idle card is no
+  // longer dimmed with opacity (that sank its muted text below 4.5:1) — the tint tile, border and
+  // bar carry "active" instead.
   import type { Component } from 'svelte';
   import { Loader2, Pause, Play } from '@lucide/svelte';
   import { Progress } from '$lib/components/ui/progress';

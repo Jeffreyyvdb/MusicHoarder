@@ -20,7 +20,7 @@ export function buildSoftwareApplicationSchema(version?: string | null) {
     softwareVersion: version ?? undefined,
     license: 'https://opensource.org/licenses/MIT',
     description:
-      'Self-hosted, open-source pipeline that identifies, enriches, and organizes a messy music library. It fingerprints every track with Chromaprint/AcoustID, reaches consensus across seven metadata providers, grades each match with a quality LLM, deduplicates by fingerprint, and writes clean files to your own disk.',
+      'Self-hosted, open-source pipeline that identifies, enriches, and organizes a messy music library. It fingerprints every track with Chromaprint/AcoustID, reaches consensus across seven metadata providers, grades each match with a quality LLM, deduplicates by fingerprint, and writes clean files to your own disk — then plays the result in an Apple Music-style app for iPhone, Android and desktop.',
     offers: {
       '@type': 'Offer',
       price: '0',
@@ -40,6 +40,10 @@ export function buildSoftwareApplicationSchema(version?: string | null) {
       'Non-destructive: source is mounted read-only, clean copies written elsewhere',
       'Plain files on disk — Artist / Year - Album / NN - Track, no proprietary database',
       'Human-review Inbox for uncertain matches',
+      'Apple Music-style player with synced lyrics, music videos and radio',
+      'Installable iPhone web app and a native Android app',
+      'Share links and invited listen-only member accounts',
+      'Discover playlists, Spotify sync and optional wishlist downloads',
       'Self-hosted via Docker Compose'
     ]
   };

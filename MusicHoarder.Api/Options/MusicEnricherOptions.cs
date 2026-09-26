@@ -788,6 +788,14 @@ public class MusicEnricherOptions
     /// <summary>Path to the ffmpeg binary yt-dlp uses for extraction/remux. Empty lets yt-dlp find it on PATH.</summary>
     public string FfmpegPath { get; set; } = string.Empty;
 
+    /// <summary>
+    /// How many ffmpeg decodes <c>?format=wav</c> streams may run at once, across every listener (a
+    /// playing song holds one or two). Beyond it a stream request gets 503, so a flood of range
+    /// requests on a public share link cannot start a process each.
+    /// </summary>
+    [Range(1, 256)]
+    public int StreamDecodeConcurrency { get; set; } = 16;
+
     /// <summary>Number of concurrent downloads.</summary>
     [Range(1, 16)]
     public int DownloadConcurrency { get; set; } = 2;
@@ -883,8 +891,8 @@ public class MusicEnricherOptions
 
     /// <summary>
     /// Directory music videos are written to. Empty resolves to
-    /// <c>&lt;DownloadDirectory&gt;/videos</c> — inside the staging root (one writable mount) but out
-    /// of the scanner's way (video extensions aren't indexed regardless).
+    /// <c>&lt;DownloadDirectory&gt;/videos</c> — inside the staging root (one writable mount); the
+    /// scanner skips it wherever it sits under a scan root, so nothing in it is indexed as a song.
     /// </summary>
     public string MusicVideoDirectory { get; set; } = string.Empty;
 

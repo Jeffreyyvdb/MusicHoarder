@@ -20,7 +20,7 @@ function abs(siteUrl: string, path: string): string {
 export function homeMarkdown(siteUrl: string): string {
   return `# MusicHoarder
 
-> Free, MIT-licensed, self-hosted pipeline that fingerprints, identifies, enriches and reorganizes a messy music library into clean, correctly tagged files on your own disk.
+> Free, MIT-licensed, self-hosted app that fingerprints, identifies, enriches and reorganizes a messy music library into clean, correctly tagged files on your own disk — and then plays it, in an Apple Music-style player for iPhone, Android and desktop.
 
 Point MusicHoarder at a folder of badly named audio files and a destination folder. It fingerprints
 every track with Chromaprint/AcoustID, reaches a consensus across several metadata providers, grades
@@ -38,12 +38,19 @@ library.
 - **Dedupe** — duplicates found by fingerprint; the highest-quality copy wins.
 - **Build** — clean tagged copies written to the destination, with cover art and synced lyrics.
 
+## Listening
+
+- **Player** — Apple Music-style: full-screen Now Playing with time-synced lyrics and music videos, likes, play history, and a radio that continues with similar songs when the queue runs out.
+- **Phone** — an iOS-style interface (tab bar, per-tab navigation, Dynamic Type), installable to the iPhone Home Screen; a native Android app mirrors it.
+- **Sharing** — revocable public links to a track or album, and invited listen-only member accounts over what you share.
+- **Growing the library** — Discover playlists, Spotify sync, and an optional wishlist that downloads missing songs.
+
 ## Facts
 
 - Price: free. MIT licensed. No hosted tier, no paid plan, no account required.
 - Deployment: Docker Compose (prebuilt images on GHCR) or build from source; PostgreSQL for state.
 - Stack: ASP.NET Core minimal API, SvelteKit 5 frontend, .NET Aspire orchestration, Chromaprint/fpcalc.
-- Clients: web UI, plus a native Android client that pairs by QR code.
+- Clients: web app (installable on iPhone and desktop), plus a native Android client that pairs by QR code, email sign-in or passkey.
 - Telemetry: none. Installed instances send nothing back to the maintainer.
 
 ## Links

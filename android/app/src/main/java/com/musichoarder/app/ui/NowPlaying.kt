@@ -114,15 +114,18 @@ fun MiniPlayer(
                     },
                 )
             }
-            .padding(start = 8.dp, end = 4.dp),
+            // The art sits in the capsule's end cap as on the web (and in Apple Music): a 36dp
+            // square with quarter-size 9dp corners, 14dp in, so its corners run roughly concentric
+            // with the cap instead of a hard square crowding the round end.
+            .padding(start = 14.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Artwork(
             url = coverUrl,
             artist = state.artist,
             title = state.album.ifBlank { state.title },
-            modifier = Modifier.size(40.dp),
-            shape = RoundedCornerShape(6.dp),
+            modifier = Modifier.size(36.dp),
+            shape = RoundedCornerShape(9.dp),
         )
         Spacer(Modifier.size(12.dp))
         // With a device line, the column gives its bottom padding to the line's own 28dp target

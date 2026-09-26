@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Artwork;
 using MusicHoarder.Api.Auth;
+using MusicHoarder.Api.Download;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 
@@ -113,6 +114,14 @@ public class IndexService(
             : (DateTime?)null;
         var unsettledCount = 0;
 
+        // The music-video directory defaults to <DownloadDirectory>/videos — inside this root. It holds
+        // clips and their thumbnails, never library audio, but relying on .mp4 not being an indexed
+        // extension is not enough: a clip fetch that dies between downloading its streams and merging
+        // them leaves the audio stream (<stem>.f140.m4a) behind, and indexing it adds a nameless song.
+        // Not counted as discovered either, so a row indexed from there by an older build is
+        // soft-deleted.
+        var videoDirectoryPrefix = NestedVideoDirectoryPrefix(rootPrefix, opts);
+
         foreach (var file in Directory.EnumerateFiles(directoryPath, "*.*", new EnumerationOptions
                  {
                      IgnoreInaccessible = true,
@@ -129,6 +138,10 @@ public class IndexService(
             // are library content, and a half-written upload indexed mid-stream would create a
             // corrupt-file row that immediately re-scans as changed.
             if (HasHiddenSegment(file, rootPrefix))
+                continue;
+
+            if (videoDirectoryPrefix is not null
+                && file.Replace('\\', '/').StartsWith(videoDirectoryPrefix, StringComparison.Ordinal))
                 continue;
 
             // Counted as discovered even when unsettled: this set drives deletion reconciliation, so
@@ -422,6 +435,21 @@ public class IndexService(
                 return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// The music-video directory's prefix when it sits strictly beneath <paramref name="rootPrefix"/>,
+    /// else null. A video directory equal to the root is not skipped — that would skip the root.
+    /// </summary>
+    internal static string? NestedVideoDirectoryPrefix(string rootPrefix, MusicEnricherOptions opts)
+    {
+        var videoDirectory = MusicVideoDownloader.ResolveVideoDirectory(opts);
+        if (string.IsNullOrWhiteSpace(videoDirectory))
+            return null;
+        var prefix = NormalizeRootPrefix(videoDirectory);
+        return prefix.Length > rootPrefix.Length && prefix.StartsWith(rootPrefix, StringComparison.Ordinal)
+            ? prefix
+            : null;
     }
 
     internal static bool DateTimeIsEqualMicroseconds(DateTime a, DateTime b)

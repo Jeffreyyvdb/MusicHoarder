@@ -8,6 +8,7 @@
   import * as GroupedList from '$lib/components/ui/grouped-list';
   import { Button } from '$lib/components/ui/button';
   import { Skeleton } from '$lib/components/ui/skeleton';
+  import { ScrollArea } from '$lib/components/ui/scroll-area';
   import {
     fetchAlbumQualityOverview,
     fetchAlbumQualityProgress,
@@ -144,7 +145,7 @@
 
 <!-- One scroller; the nav bar is its first child. -->
 <div class="bg-background-grouped flex min-h-0 flex-1 flex-col">
-  <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-(--mh-content-pad)">
+  <ScrollArea class="min-h-0 flex-1" viewportClass="overscroll-contain">
     <PageToolbarV2 title="Album matches" meta={headerMeta} grouped>
       {#snippet actions()}
         <!-- Sparkles is the grading glyph (AI quality's Re-grade uses it too); the circular arrow
@@ -295,7 +296,7 @@
         </GroupedList.Section>
       {/if}
     </div>
-  </div>
+  </ScrollArea>
 </div>
 
 <AlertDialog.Root bind:open={confirmGradeAll}>
