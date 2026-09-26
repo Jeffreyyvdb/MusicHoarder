@@ -302,6 +302,56 @@ Not ported from the web's ⋯ menu: sharing a song, the AI lyrics actions and ly
 video, and Hide player — owner-only mutations, or (Hide player) a mini player the phone has no
 way to dismiss.
 
+## Playing on another device (Connect)
+
+Every signed-in device of an account shares **one playback session**, the way Spotify Connect
+works: the phone shows what the Mac is playing and can take it over, and the Mac can pause or skip
+the phone. The server side is `/api/playback` (`MusicHoarder.Api/Playback/`); the web client is
+`$lib/stores/playback-sync.svelte.ts`. The two clients implement the same rules, and the pure ones
+live in `data/PlaybackSync.kt` next to their tests, the way the library's grouping rules do.
+
+- **One active device.** Any local play intent — a tap in the app, the notification, the lock
+  screen, a headset — makes this phone the device that holds the session (a *claim*). The device
+  that held it before pauses itself when it sees the session move, and says so in a snackbar.
+  While another device's session (or a remembered one) is shown, the notification's, lock
+  screen's and headset's Play, Next and Previous pick *that* session up here — as the web's media
+  keys do — rather than resuming the paused leftovers the player still holds.
+- **Three modes** (`PlaybackMode`). *Local*: this phone holds the session, or there is none.
+  *Remote*: another reachable device holds it; the mini player and Now Playing show its song with
+  "Playing on X" / "Paused on X", and the transport sends that device commands instead of touching
+  the local player. *Remembered*: nobody reachable holds it (the other device closed or went
+  offline); the session is shown paused as "Last played on X", and Play resumes it **here** at the
+  saved position, same queue, same station. The server keeps the session in the database, so it
+  survives restarts on both ends.
+- **Devices.** The Devices toggle in Now Playing's bottom row (shown whenever the feature is on,
+  as on the web — here, once the server has answered a playback call, since a self-hosted server
+  can be older than the app) and the "Playing on X" line in the mini player open `DevicePicker`:
+  "This device" first, then the other online devices. Picking this phone pulls playback here;
+  picking another asks it to take over (it claims only once it actually plays, so nothing goes
+  silent if it cannot). A session is picked up against every `/songs` row, built or not, as on the
+  web.
+- **`PlaybackConnect`** (application-scoped, in `AppGraph`) owns the event stream, the reports and
+  the commands. It drives the **service's own ExoPlayer**, not the app's `MediaController`, so a
+  phone playing in a pocket with the Activity gone still pauses when the Mac takes over. What it
+  does to the player (a yield, an incoming command) goes around the `LocalIntentPlayer` wrapper
+  the media session sees, so it is never mistaken for a claim — that is what keeps two devices
+  from taking the session back and forth. The stream stays open while the UI is started, while
+  the service plays, and for ten minutes after a pause while this phone still holds the session.
+  Once it has closed, nothing keeps what the phone knows current — the Mac may have taken the
+  session or played on for an hour — so a Play, Next or Previous from the notification, the lock
+  screen or a headset (and Play here) first asks the server where the session is
+  (`GET /api/playback`, waiting at most 3 s), then picks it up where it is now, or carries on with
+  this phone's own music if it is still here. Without an answer, it never picks up a session held
+  elsewhere from the old copy (its claim would make that copy the account's session).
+- **Not reported:** share queues (they are somebody else's songs, not this account's session), and
+  nothing at all for the demo account, which strangers share. A server that predates the feature
+  answers 404 and the app simply behaves as before: nothing of it shows, and it is asked again
+  every 15 minutes (shown only if it then answers).
+
+What the phone cannot do: be reached while its process is gone. There is no push service, so an
+idle phone that is not running is not listed, and a command to one that just froze times out with
+"Couldn't reach" and a Play here offer.
+
 ## Lyrics and music videos
 
 The two per-song extras behind the Lyrics and Video tabs.
