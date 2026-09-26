@@ -107,18 +107,22 @@ export function externalReferrer(referrer: string, origin: string): string | nul
 }
 
 /**
- * Fire-and-forget: tell the server this page was opened. A script beacon rather than a count in the
+ * Tell the server this page was opened; resolves once it has answered (never rejects). For a visitor
+ * signed in to this instance, that open also files the link in their chat with its owner. A script beacon rather than a count in the
  * payload load, because link-preview crawlers fetch the server-rendered page for its og-tags and run
  * no script. `keepalive` lets it finish if the visitor leaves at once. Failures are nobody's concern.
  */
-export function reportShareVisit(token: string, referrer: string | null): void {
-  void fetch(`${API_PREFIX}/api/share/${encodeURIComponent(token)}/visit`, {
+export function reportShareVisit(token: string, referrer: string | null): Promise<void> {
+  return fetch(`${API_PREFIX}/api/share/${encodeURIComponent(token)}/visit`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ referrer }),
     keepalive: true,
     cache: "no-store",
-  }).catch(() => {})
+  }).then(
+    () => {},
+    () => {},
+  )
 }
 
 /** Fire-and-forget: a shared track started playing. */

@@ -53,10 +53,11 @@ const APP_ROUTES: [path: string, group: NavGroupId][] = [
 ];
 
 describe('NAV_GROUPS', () => {
-  // The IA itself, pinned: results first, then the pile that needs you, then the doors music
-  // comes in through, then the machinery. Reordering or renaming a group is a deliberate act.
-  it('is Listen / Inbox / Add / Manage, in that order', () => {
-    expect(NAV_GROUPS.map((g) => g.label)).toEqual(['Listen', 'Inbox', 'Add', 'Manage']);
+  // The IA itself, pinned: results first, then the people you share them with, then the pile that
+  // needs you, then the doors music comes in through, then the machinery. Reordering or renaming a
+  // group is a deliberate act.
+  it('is Listen / Chats / Inbox / Add / Manage, in that order', () => {
+    expect(NAV_GROUPS.map((g) => g.label)).toEqual(['Listen', 'Chats', 'Inbox', 'Add', 'Manage']);
   });
 
   it('gives every item an id unique across all groups', () => {
@@ -93,7 +94,7 @@ describe('NAV_GROUPS', () => {
   });
 
   it('roots each group at its hub, and every hub resolves inside its own group', () => {
-    expect(NAV_GROUPS.map((g) => g.hub)).toEqual(['/overview', '/inbox', '/add', '/manage']);
+    expect(NAV_GROUPS.map((g) => g.hub)).toEqual(['/overview', '/chats', '/inbox', '/add', '/manage']);
     for (const group of NAV_GROUPS) {
       expect(at(group.hub)?.group.id, group.hub).toBe(group.id);
     }
@@ -231,8 +232,14 @@ describe('what each account may see', () => {
     }
   });
 
-  it('narrows a member to Listen', () => {
-    expect(navGroupsFor(member).map((g) => g.id)).toEqual(['listen']);
+  it('narrows a member to Listen and Chats', () => {
+    expect(navGroupsFor(member).map((g) => g.id)).toEqual(['listen', 'chats']);
+  });
+
+  it('lets a member reach their chats, and the page the share sheet opens', () => {
+    for (const path of ['/chats', '/chats/0b7c3f4e-1d2a-4c3b-9e8f-7a6b5c4d3e2f', '/chats/share']) {
+      expect(allowed(path, member)).toBe(true);
+    }
   });
 
   it('lets a member reach every Listen route plus their own settings', () => {
@@ -273,7 +280,7 @@ describe('what each account may see', () => {
   });
 
   it('treats an unknown or absent account as a member, not an admin', () => {
-    expect(navGroupsFor(null).map((g) => g.id)).toEqual(['listen']);
+    expect(navGroupsFor(null).map((g) => g.id)).toEqual(['listen', 'chats']);
     expect(allowed('/pipeline', null)).toBe(false);
   });
 
@@ -281,7 +288,10 @@ describe('what each account may see', () => {
     // The wire still says 'Friend' for a member and 'Owner' for an admin, but that vocabulary is
     // scheduled to change; nothing here may depend on it.
     expect(navGroupsFor({ role: 'Friend', isAdmin: true })).toHaveLength(NAV_GROUPS.length);
-    expect(navGroupsFor({ role: 'Owner', isAdmin: false }).map((g) => g.id)).toEqual(['listen']);
+    expect(navGroupsFor({ role: 'Owner', isAdmin: false }).map((g) => g.id)).toEqual([
+      'listen',
+      'chats'
+    ]);
   });
 });
 
@@ -308,23 +318,33 @@ describe('tabsFor', () => {
   it('gives the admin and the demo one tab per group, rooted at the hubs', () => {
     for (const user of [admin, demo]) {
       const tabs = tabsFor(user);
-      expect(tabs.map((t) => t.id)).toEqual(['listen', 'inbox', 'add', 'manage']);
-      expect(tabs.map((t) => t.label)).toEqual(['Listen', 'Inbox', 'Add', 'Manage']);
-      expect(tabs.map((t) => t.root)).toEqual(['/overview', '/inbox', '/add', '/manage']);
+      expect(tabs.map((t) => t.id)).toEqual(['listen', 'chats', 'inbox', 'add', 'manage']);
+      expect(tabs.map((t) => t.label)).toEqual(['Listen', 'Chats', 'Inbox', 'Add', 'Manage']);
+      expect(tabs.map((t) => t.root)).toEqual(['/overview', '/chats', '/inbox', '/add', '/manage']);
     }
   });
 
-  it('badges only the Inbox and pulses only Manage', () => {
+  it('badges only Chats and the Inbox, and pulses only Manage', () => {
     const tabs = tabsFor(admin);
-    expect(tabs.filter((t) => t.badge).map((t) => [t.id, t.badge])).toEqual([['inbox', 'inbox']]);
+    expect(tabs.filter((t) => t.badge).map((t) => [t.id, t.badge])).toEqual([
+      ['chats', 'chats'],
+      ['inbox', 'inbox']
+    ]);
     expect(tabs.filter((t) => t.live).map((t) => t.id)).toEqual(['manage']);
   });
 
-  it("gives a member Listen's own pages as tabs", () => {
+  it("gives a member Listen's own pages as tabs, then Chats", () => {
     const tabs = tabsFor(member);
-    expect(tabs.map((t) => t.id)).toEqual(['overview', 'albums', 'artists', 'tracks']);
-    expect(tabs.map((t) => t.root)).toEqual(['/overview', '/library', '/artists', '/tracks']);
-    expect(tabs.some((t) => t.badge || t.live)).toBe(false);
+    expect(tabs.map((t) => t.id)).toEqual(['overview', 'albums', 'artists', 'tracks', 'chats']);
+    expect(tabs.map((t) => t.root)).toEqual([
+      '/overview',
+      '/library',
+      '/artists',
+      '/tracks',
+      '/chats'
+    ]);
+    expect(tabs.filter((t) => t.badge).map((t) => t.badge)).toEqual(['chats']);
+    expect(tabs.some((t) => t.live)).toBe(false);
   });
 
   it('is stable per audience, so a keyed each block does not churn', () => {
@@ -425,6 +445,15 @@ describe('tabFor', () => {
     expect(tab('/login', admin, 'listen')).toBeNull();
   });
 
+  it('files a conversation under Chats wherever it was opened from', () => {
+    // A notification or Send to… can open a conversation from any tab; Back goes to the chat list.
+    const conversation = '/chats/0b7c3f4e-1d2a-4c3b-9e8f-7a6b5c4d3e2f';
+    expect(tab('/chats', admin, 'listen')).toBe('chats');
+    expect(tab(conversation, admin, 'inbox')).toBe('chats');
+    expect(tab(conversation, member, 'overview')).toBe('chats');
+    expect(tab('/chats/share?text=hi', member)).toBe('chats');
+  });
+
   it('ignores an active tab id the audience does not have', () => {
     expect(tab('/library?album=abc', admin, 'overview')).toBe('listen');
     expect(tab('/library?album=abc', member, 'listen')).toBe('albums');
@@ -441,6 +470,15 @@ describe('backFor', () => {
     for (const path of ['/overview', '/library', '/artists', '/tracks?f=mh-liked']) {
       expect(back(path, member), path).toBeNull();
     }
+  });
+
+  it('sends a conversation back to the list of chats, for every audience', () => {
+    const conversation = '/chats/0b7c3f4e-1d2a-4c3b-9e8f-7a6b5c4d3e2f';
+    expect(back('/chats', admin)).toBeNull();
+    expect(back('/chats', member)).toBeNull();
+    expect(back(conversation, admin)).toEqual({ label: 'Chats', href: '/chats' });
+    expect(back(conversation, member)).toEqual({ label: 'Chats', href: '/chats' });
+    expect(back('/chats/share?url=x', member)).toEqual({ label: 'Chats', href: '/chats' });
   });
 
   it('sends a group page back to its hub', () => {

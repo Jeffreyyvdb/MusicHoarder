@@ -62,6 +62,17 @@ public sealed partial class MemberWriteGuardMiddleware
         Exact("POST", "/api/playback/state"),
         Exact("POST", "/api/playback/command"),
 
+        // Chat and its notifications. Every chat route acts on the caller's own conversations —
+        // ChatService checks membership on each — and a push subscription is saved for the caller
+        // only. Exact shapes, so a future chat route is not member-writable by accident.
+        Exact("POST", "/api/chat/conversations"),
+        Exact("POST", "/api/chat/send"),
+        new("POST", ChatConversationRoute(@"messages"), Capability.None),
+        new("POST", ChatConversationRoute(@"read"), Capability.None),
+        Exact("POST", "/api/push/subscriptions"),
+        Exact("POST", "/api/push/unsubscribe"),
+        Exact("POST", "/api/push/test"),
+
         // NOTE: PATCH /api/auth/me (rename yourself) is deliberately NOT here, matching the
         // behaviour before this middleware was renamed. A member cannot set their own display
         // name. That is arguably wrong, but widening it is a product decision, not a refactor.
@@ -156,6 +167,10 @@ public sealed partial class MemberWriteGuardMiddleware
     /// <summary><c>/api/share/{token}/{leaf}</c>, with the token one path segment.</summary>
     private static Regex ShareBeacon(string leafPattern) =>
         new($@"^/api/share/[^/]+/{leafPattern}/?$", RegexOptions.IgnoreCase);
+
+    /// <summary><c>/api/chat/conversations/{guid}/{leaf}</c>.</summary>
+    private static Regex ChatConversationRoute(string leafPattern) =>
+        new($@"^/api/chat/conversations/[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}/{leafPattern}/?$", RegexOptions.IgnoreCase);
 
     private static WriteRule Shared(string method, string action, Capability required) =>
         new(method, new Regex($@"^/api/shared/songs/\d+/{Regex.Escape(action)}/?$", RegexOptions.IgnoreCase), required);

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { Loader2, Music, Pause, Play, Video, VideoOff } from '@lucide/svelte';
+  import { ChevronRight, Loader2, MessageCircle, Music, Pause, Play, Video, VideoOff } from '@lucide/svelte';
   import Cover from '$lib/components/file-browser/Cover.svelte';
   import SongTransport from '$lib/components/file-browser/SongTransport.svelte';
   import LyricsCard from '$lib/components/file-browser/LyricsCard.svelte';
@@ -12,6 +12,7 @@
   import { videoBackdropPrefs } from '$lib/stores/video-backdrop-prefs.svelte';
   import { formatDuration } from '$lib/formatters';
   import { trackUmamiEvent } from '$lib/analytics/umami';
+  import { fetchChatShareContext } from '$lib/api-client';
   import {
     externalReferrer,
     fetchShareLyrics,
@@ -51,12 +52,20 @@
   // The same two moments go to Umami (when the instance has it) as named events, so its dashboard
   // shows which song was opened rather than only a page view of an opaque token URL.
   let reportedVisitFor: string | null = null;
+  let chatContext = $state<{ conversationId: string; ownerName: string } | null>(null);
   const reportedPlays = new Set<number>();
   $effect(() => {
     if (!payload || reportedVisitFor === data.token) return;
     reportedVisitFor = data.token;
     reportedPlays.clear();
-    reportShareVisit(data.token, externalReferrer(document.referrer, location.origin));
+    const token = data.token;
+    // Signed in to this MusicHoarder? The open just put this in your chat with whoever shared it;
+    // say so, with the way there. An anonymous visitor's check is a quiet 401.
+    void reportShareVisit(token, externalReferrer(document.referrer, location.origin))
+      .then(() => fetchChatShareContext(token))
+      .then((context) => {
+        if (data.token === token) chatContext = context;
+      });
     trackUmamiEvent('share-open', shareOpenEventData(payload));
   });
   $effect(() => {
@@ -388,6 +397,17 @@
             speedAlways
           />
         </div>
+
+        {#if chatContext}
+          <a
+            href={`/chats/${chatContext.conversationId}`}
+            class="bg-secondary hover:bg-secondary-hover focus-visible:ring-ring text-subheadline mx-auto mt-5 flex w-full max-w-[340px] items-center gap-2 rounded-full py-2.5 pr-3 pl-4 outline-none focus-visible:ring-2 md:text-sm lg:mx-0"
+          >
+            <MessageCircle class="text-primary size-4 shrink-0" aria-hidden="true" />
+            <span class="min-w-0 flex-1 truncate">In your chat with {chatContext.ownerName}</span>
+            <ChevronRight class="text-muted-foreground size-4 shrink-0" aria-hidden="true" />
+          </a>
+        {/if}
 
         {#if isAlbumShare}
           <!-- Desktop tracklist lives inside the rail and scrolls on its own. -->

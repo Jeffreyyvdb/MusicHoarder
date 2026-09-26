@@ -11,6 +11,7 @@
     MessageSquareQuote,
     MicVocal,
     RefreshCw,
+    Send,
     Settings2,
     Share,
     Sparkles,
@@ -25,6 +26,7 @@
   import { playerStore } from '$lib/stores/player.svelte';
   import { videoBackdropPrefs } from '$lib/stores/video-backdrop-prefs.svelte';
   import { findShareLink, shareLink, type ShareLink } from '$lib/share-links';
+  import { sendTo, sendToSong } from '$lib/stores/send-to.svelte';
   import { cn } from '$lib/utils';
   import { videoProblem, type SongVideo } from './song-video.svelte';
 
@@ -33,7 +35,7 @@
    * anything unavailable is left out rather than disabled:
    *
    *   Go to album · Go to artist
-   *   Share link… · Share with a friend…                      (admin)
+   *   Share link… · Send to… · Share with a friend…           (admin)
    *   Lyrics › · Music video › · Playback speed › · Hide player
    *
    * Lyrics › gathers what used to be lg-only or buried in the compare split — the view, Synced /
@@ -157,6 +159,10 @@
         <DropdownMenu.Item onSelect={shareSong}>
           <Share />
           Share link…
+        </DropdownMenu.Item>
+        <DropdownMenu.Item onSelect={() => sendTo.show(sendToSong(song, { nested: true }))}>
+          <Send />
+          Send to…
         </DropdownMenu.Item>
         <DropdownMenu.Item onSelect={onShareWithFriend}>
           <UserPlus />

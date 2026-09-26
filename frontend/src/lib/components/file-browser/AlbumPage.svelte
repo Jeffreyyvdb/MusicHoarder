@@ -17,6 +17,7 @@
     Play,
     RefreshCw,
     Search,
+    Send,
     Share,
     Shuffle,
     Sparkles,
@@ -70,6 +71,7 @@
   import { PROVENANCE_ICON } from '$lib/provenance';
   import { VERDICT_DOT } from '$lib/quality-ui';
   import { findShareLink, shareLink, type ShareLink } from '$lib/share-links';
+  import { sendTo, sendToAlbum } from '$lib/stores/send-to.svelte';
   import { toast } from 'svelte-sonner';
   import { IsMobile } from '$lib/hooks/is-mobile.svelte';
   import { albumViewPrefs } from '$lib/stores/album-view-prefs.svelte';
@@ -381,6 +383,14 @@
     knownShare = null; // a link exists now; the next open finds it
   }
 
+  // Send to…: the album, to people on this MusicHoarder, in their chats — carried by the same kind
+  // of link as Share link…, keyed on the album's first track as that one is.
+  function sendAlbum() {
+    const first = album?.songs[0];
+    if (!album || !first) return;
+    sendTo.show(sendToAlbum(first, album.title, album.artist));
+  }
+
   const displayRows = $derived(buildDisplayRows(album?.songs, tracklist));
 
   /** Whether multiple discs are present, so we can show a disc prefix on track numbers. */
@@ -647,6 +657,9 @@
       <DropdownMenu.Group>
         <DropdownMenu.Item onSelect={shareAlbum}>
           <Share /> Share link…
+        </DropdownMenu.Item>
+        <DropdownMenu.Item onSelect={sendAlbum}>
+          <Send /> Send to…
         </DropdownMenu.Item>
         {#if canShareWithPeople}
           <DropdownMenu.Item onSelect={() => (shareWithFriendOpen = true)}>

@@ -1,10 +1,9 @@
-using System.Security.Cryptography;
-using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
 using MusicHoarder.Api.Artwork;
 using MusicHoarder.Api.Audio;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
+using MusicHoarder.Api.Chat;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Sharing;
 
@@ -73,9 +72,7 @@ public static class SharesEndpoints
         ICurrentUserAccessor currentUser,
         CancellationToken ct)
     {
-        var scope = string.Equals(body.Scope, "album", StringComparison.OrdinalIgnoreCase)
-            ? ShareScope.Album
-            : ShareScope.Song;
+        var scope = SongShareFactory.ParseScope(body.Scope);
 
         // Query filter scopes to the current user, so this doubles as the ownership check.
         var song = await db.Songs.AsNoTracking()
@@ -83,23 +80,7 @@ public static class SharesEndpoints
         if (song is null)
             return Results.NotFound(new { message = $"Song with id {body.SongId} not found." });
 
-        // Re-sharing the same thing hands back the same link instead of minting token sprawl.
-        var existing = await db.SongShares.AsNoTracking()
-            .FirstOrDefaultAsync(s => s.SongId == body.SongId && s.Scope == scope && s.RevokedAtUtc == null, ct);
-        if (existing is not null)
-            return Results.Ok(ToShareView(existing, song));
-
-        var share = new SongShare
-        {
-            OwnerUserId = currentUser.UserId,
-            SongId = body.SongId,
-            Token = WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(16)),
-            Scope = scope,
-            CreatedAtUtc = DateTime.UtcNow,
-        };
-        db.SongShares.Add(share);
-        await db.SaveChangesAsync(ct);
-
+        var share = await SongShareFactory.GetOrCreateAsync(db, currentUser.UserId, body.SongId, scope, DateTime.UtcNow, ct);
         return Results.Ok(ToShareView(share, song));
     }
 
@@ -477,6 +458,8 @@ public static class SharesEndpoints
         MusicHoarderDbContext db,
         ICurrentUserAccessor currentUser,
         ShareVisitTracker tracker,
+        ChatService chat,
+        ILogger<ChatService> logger,
         CancellationToken ct)
     {
         var share = await ResolveShareAsync(db, token, ct);
@@ -485,6 +468,21 @@ public static class SharesEndpoints
 
         var visitor = ShareVisitor.From(http, currentUser.User, body?.Referrer);
         await tracker.TryRecordAsync(db, share, ShareVisitKind.View, songId: null, visitor, ct);
+
+        // Opened by someone signed in to this instance: file it in their chat with the owner, the way
+        // Spotify, TikTok and YouTube do. Best effort — the beacon's answer never depends on it — and
+        // only for the visitor: the owner is not told who opened the link (see RecordShareOpenedAsync).
+        if (currentUser.User is { IsDemo: false } signedIn && signedIn.Id != share.OwnerUserId)
+        {
+            try
+            {
+                await chat.RecordShareOpenedAsync(share, signedIn.Id, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogWarning(ex, "Could not put share {ShareId} in the visitor's chats", share.Id);
+            }
+        }
         return Results.NoContent();
     }
 

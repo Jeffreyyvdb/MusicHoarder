@@ -23,6 +23,8 @@ using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Pipeline;
 using MusicHoarder.Api.Playback;
+using MusicHoarder.Api.Chat;
+using MusicHoarder.Api.Notifications;
 using MusicHoarder.Api.Quality;
 using MusicHoarder.Api.Scanner;
 using MusicHoarder.Api.Settings;
@@ -635,6 +637,34 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IPlaybackSessionStore, EfPlaybackSessionStore>();
         services.AddSingleton<PlaybackCoordinator>();
         services.AddHostedService<PlaybackSessionFlushService>();
+
+        // Chat between accounts, and the browser notifications that announce it. The hub (open
+        // streams) and the push queue are in-memory singletons, like playback sync; the VAPID key
+        // pair is generated and stored on first use unless WebPush:PublicKey/PrivateKey are set.
+        services
+            .AddOptions<WebPushOptions>()
+            .BindConfiguration(WebPushOptions.SectionName);
+        services.AddSingleton<IVapidKeyStore, VapidKeyStore>();
+        services.AddSingleton<IWebPushSender, WebPushSender>();
+        services.AddHttpClient(WebPushSender.HttpClientName, client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(15);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("MusicHoarder-WebPush");
+        });
+        services.AddHttpClient(LinkPreviewService.HttpClientName, client =>
+            {
+                client.Timeout = TimeSpan.FromSeconds(10);
+                client.DefaultRequestHeaders.UserAgent.ParseAdd("MusicHoarder-LinkPreview");
+            })
+            // A Spotify short link is resolved by reading its redirect, never by following it.
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+        services.AddSingleton<ILinkPreviewService, LinkPreviewService>();
+        services.AddSingleton<ChatHub>();
+        services.AddSingleton<ChatSendLimiter>();
+        services.AddSingleton<ChatNotificationQueue>();
+        services.AddSingleton<IChatNotificationQueue>(sp => sp.GetRequiredService<ChatNotificationQueue>());
+        services.AddHostedService<ChatPushService>();
+        services.AddScoped<ChatService>();
 
         // Export Spotify Liked Songs + playlists to on-disk .m3u8 files for Navidrome/Plex/Jellyfin.
         services.AddSingleton<IM3uPlaylistWriter, M3uPlaylistWriter>();

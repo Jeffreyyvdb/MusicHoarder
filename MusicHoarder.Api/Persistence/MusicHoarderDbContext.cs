@@ -64,6 +64,11 @@ public class MusicHoarderDbContext : DbContext
     public DbSet<LibraryShareGrant> LibraryShareGrants { get; set; } = null!;
     public DbSet<UserSongState> UserSongStates { get; set; } = null!;
     public DbSet<PlaybackSession> PlaybackSessions { get; set; } = null!;
+    public DbSet<ChatConversation> ChatConversations { get; set; } = null!;
+    public DbSet<ChatParticipant> ChatParticipants { get; set; } = null!;
+    public DbSet<ChatMessage> ChatMessages { get; set; } = null!;
+    public DbSet<WebPushSubscription> WebPushSubscriptions { get; set; } = null!;
+    public DbSet<WebPushKeys> WebPushKeys { get; set; } = null!;
     public DbSet<TrackSyncState> TrackSyncStates { get; set; } = null!;
     public DbSet<UpgradeRequest> UpgradeRequests { get; set; } = null!;
     public DbSet<User> Users { get; set; } = null!;
@@ -556,6 +561,71 @@ public class MusicHoarderDbContext : DbContext
             entity.HasIndex(e => e.OwnerUserId).IsUnique();
 
             entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+        });
+
+        // Chat. A message is visible to the accounts taking part in its conversation, unless it was
+        // addressed to one of them only (a share-link open is shown to the person who opened it,
+        // never to the link's owner). ChatService scopes every read explicitly — the conversations
+        // you take part in, the messages you may see — and the message filter is the backstop for
+        // the content itself. Conversations and participants carry none: a conversation must be
+        // able to name its other members, and a filter on the conversation alone would make it the
+        // filtered required end of its participants (the one fix for that, a participant filter,
+        // would have to reference participants inside itself, which EF cannot guard against
+        // looping). Push delivery runs outside any request and reads with IgnoreQueryFilters().
+        modelBuilder.Entity<ChatConversation>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.DirectKey).IsUnique();
+            entity.HasIndex(e => e.LastMessageAtUtc);
+        });
+
+        modelBuilder.Entity<ChatParticipant>(entity =>
+        {
+            entity.HasKey(e => new { e.ConversationId, e.UserId });
+            // "My conversations".
+            entity.HasIndex(e => e.UserId);
+
+            entity.HasOne(e => e.Conversation)
+                .WithMany(c => c.Participants)
+                .HasForeignKey(e => e.ConversationId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ChatMessage>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            // A conversation's messages, newest first, and the unread counts after a timestamp.
+            entity.HasIndex(e => new { e.ConversationId, e.CreatedAtUtc });
+            // "Has this share already been put in this person's chats?"
+            entity.HasIndex(e => new { e.ShareId, e.VisibleToUserId });
+
+            entity.HasOne(e => e.Conversation)
+                .WithMany(c => c.Messages)
+                .HasForeignKey(e => e.ConversationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Shares are revoked, never deleted; SetNull only guards the FK.
+            entity.HasOne(e => e.Share)
+                .WithMany()
+                .HasForeignKey(e => e.ShareId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasQueryFilter(e => !hasUser
+                || ((e.VisibleToUserId == null || e.VisibleToUserId == userId)
+                    && e.Conversation!.Participants.Any(p => p.UserId == userId)));
+        });
+
+        modelBuilder.Entity<WebPushSubscription>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.UserId, e.Endpoint }).IsUnique();
+
+            entity.HasQueryFilter(e => !hasUser || e.UserId == userId);
+        });
+
+        modelBuilder.Entity<WebPushKeys>(entity =>
+        {
+            entity.HasKey(e => e.Id);
         });
 
         modelBuilder.Entity<User>(entity =>

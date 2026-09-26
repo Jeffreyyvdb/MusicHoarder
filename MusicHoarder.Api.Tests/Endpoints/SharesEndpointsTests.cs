@@ -3,12 +3,15 @@ using System.Reflection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using MusicHoarder.Api.Auth;
+using MusicHoarder.Api.Chat;
 using MusicHoarder.Api.Endpoints;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Sharing;
 using MusicHoarder.Api.Tests.Auth;
 using MusicHoarder.Api.Tests.Audio;
+using MusicHoarder.Api.Tests.Chat;
 
 namespace MusicHoarder.Api.Tests.Endpoints;
 
@@ -391,7 +394,8 @@ public class SharesEndpointsTests
 
         var result = await SharesEndpoints.RecordShareVisit(
             "tok", new SharesEndpoints.ShareVisitRequest("https://www.tiktok.com/"),
-            Http(forwardedFor: "203.0.113.9, 10.0.0.2"), db, accessor, tracker, CancellationToken.None);
+            Http(forwardedFor: "203.0.113.9, 10.0.0.2"), db, accessor, tracker,
+            TestChat.Service(db), NullLogger<ChatService>.Instance, CancellationToken.None);
 
         Assert.IsType<NoContent>(result);
         var visit = Assert.Single(await db.ShareVisits.IgnoreQueryFilters().ToListAsync());
@@ -417,7 +421,8 @@ public class SharesEndpointsTests
         foreach (var token in new[] { "nope", "tok-revoked" })
         {
             var result = await SharesEndpoints.RecordShareVisit(
-                token, null, Http(), db, accessor, tracker, CancellationToken.None);
+                token, null, Http(), db, accessor, tracker,
+                TestChat.Service(db), NullLogger<ChatService>.Instance, CancellationToken.None);
             Assert.Equal(StatusCodes.Status404NotFound, ((IStatusCodeHttpResult)result).StatusCode);
         }
         Assert.Empty(await db.ShareVisits.IgnoreQueryFilters().ToListAsync());

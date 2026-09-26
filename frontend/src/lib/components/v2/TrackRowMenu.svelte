@@ -32,6 +32,7 @@
     Info,
     Mic2,
     Play,
+    Send,
     Share,
     UsersRound
   } from '@lucide/svelte';
@@ -43,6 +44,7 @@
   import { albumKeyForSong, type ApiSong } from '$lib/api-client';
   import { can, isAdmin } from '$lib/auth/capabilities';
   import { findShareLink, shareLink, type ShareLink } from '$lib/share-links';
+  import { sendTo, sendToSong } from '$lib/stores/send-to.svelte';
   import { songsStore } from '$lib/stores/songs.svelte';
   import { artistOf, titleOf } from '$lib/track-list-view.svelte';
   import { cn } from '$lib/utils';
@@ -53,7 +55,7 @@
   // three groups by frequency, unavailable items hidden rather than disabled, destructive last.
   //   1. Play (Play next is omitted: the player has no insert-into-queue API)
   //   2. Add to / Remove from favourites · Go to album · Go to artist
-  //   3. Song info · Share link… · Share with a friend… · View timeline
+  //   3. Song info · Share link… · Send to… · Share with a friend… · View timeline
   type Props = {
     song: ApiSong;
     /**
@@ -228,6 +230,9 @@
       {#if canShare}
         <DropdownMenu.Item onSelect={share}>
           <Share /> Share link…
+        </DropdownMenu.Item>
+        <DropdownMenu.Item onSelect={() => sendTo.show(sendToSong(song))}>
+          <Send /> Send to…
         </DropdownMenu.Item>
       {/if}
       {#if canShareWithPeople && song.album}
