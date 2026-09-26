@@ -47,6 +47,9 @@ public class DemoReadOnlyMiddlewareTests
     [InlineData("/api/auth/logout")]
     [InlineData("/api/auth/demo-login")]
     [InlineData("/api/auth/switch")] // back to an account parked in the demo tab's own browser
+    [InlineData("/api/auth/request-link")] // /login keeps its form for a demo tab
+    [InlineData("/api/auth/consume")] // the emailed link's callback forwards the demo cookie
+    [InlineData("/api/auth/token")] // the phone's exchange, with the demo account's bearer attached
     [InlineData("/api/auth/webauthn/authenticate/begin")]
     [InlineData("/api/auth/webauthn/authenticate/complete")]
     [InlineData("/api/invite/accept")]

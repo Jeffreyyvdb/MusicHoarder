@@ -98,6 +98,9 @@ public class MemberWriteGuardMiddlewareTests
     [InlineData("/api/auth/webauthn/register/begin")]
     [InlineData("/api/auth/webauthn/register/complete")]
     [InlineData("/api/invite/accept")]
+    [InlineData("/api/auth/request-link")] // "Add an account" by email, web and phone
+    [InlineData("/api/auth/consume")]
+    [InlineData("/api/auth/token")]
     public async Task Member_may_manage_their_own_session_without_any_capability(string path)
     {
         // These need no granted capability: they end the caller's own session, pair the caller's
