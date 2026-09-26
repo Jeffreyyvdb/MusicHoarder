@@ -13,12 +13,14 @@ public record ChatCompletionRequest(
 /// True when the message's <c>content</c> was empty and <paramref name="Content"/> is the model's
 /// reasoning channel instead — what a reasoning model leaves when it runs out of tokens mid-thought.
 /// </param>
+/// <param name="Provider">Which upstream served the request, when a router such as OpenRouter says so.</param>
 public record ChatCompletionResult(
     string Content,
     int? PromptTokens,
     int? CompletionTokens,
     string? FinishReason = null,
-    bool FromReasoning = false);
+    bool FromReasoning = false,
+    string? Provider = null);
 
 /// <summary>
 /// Minimal client for an OpenAI-compatible <c>/chat/completions</c> endpoint. One method, no

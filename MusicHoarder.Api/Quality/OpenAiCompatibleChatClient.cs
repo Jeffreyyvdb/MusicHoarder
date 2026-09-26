@@ -71,7 +71,8 @@ public class OpenAiCompatibleChatClient(
         }
 
         return new ChatCompletionResult(
-            content, parsed?.Usage?.PromptTokens, parsed?.Usage?.CompletionTokens, choice?.FinishReason, fromReasoning);
+            content, parsed?.Usage?.PromptTokens, parsed?.Usage?.CompletionTokens, choice?.FinishReason, fromReasoning,
+            parsed?.Provider);
     }
 
     /// <summary>
@@ -238,7 +239,9 @@ public class OpenAiCompatibleChatClient(
 
     private record ChatResponseBody(
         [property: JsonPropertyName("choices")] List<ChatResponseChoice>? Choices,
-        [property: JsonPropertyName("usage")] ChatUsage? Usage);
+        [property: JsonPropertyName("usage")] ChatUsage? Usage,
+        // OpenRouter names the upstream that served the request; other endpoints omit it.
+        [property: JsonPropertyName("provider")] string? Provider);
 
     private record ChatResponseChoice(
         [property: JsonPropertyName("message")] ChatResponseMessage? Message,

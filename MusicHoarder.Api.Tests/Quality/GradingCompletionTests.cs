@@ -1,14 +1,21 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using MusicHoarder.Api.Options;
-using SongQualityVerdict = MusicHoarder.Api.Persistence.SongQualityVerdict;
 using MusicHoarder.Api.Quality;
+using SongQualityVerdict = MusicHoarder.Api.Persistence.SongQualityVerdict;
 
 namespace MusicHoarder.Api.Tests.Quality;
 
 public class GradingCompletionTests
 {
     private const string Grade = """{"score": 82, "verdict": "good", "summary": "Consistent."}""";
+
+    // Replies gpt-oss gave in production (JSON mode, some OpenRouter providers): its reasoning cut
+    // off at the first quote inside it and closed, and a leaked "final" channel padded with whitespace.
+    private const string AnalysisCutAtQuote =
+        "{\"analysis\":\"We need to grade the enrichment result. The file has embedded tags: title \"\n\n}";
+
+    private static readonly string FinalPaddedWithWhitespace = "{\"final{\"" + new string(' ', 2000);
 
     // What the client hands back when a reasoning model ran out of tokens mid-thought: its
     // reasoning, whose quoted dossier fragments parse as objects without a grade.
@@ -30,21 +37,23 @@ public class GradingCompletionTests
     }
 
     [Fact]
-    public async Task A_reply_without_a_grade_is_asked_for_once_more_with_the_same_budget()
+    public async Task Replies_without_a_grade_are_asked_for_again_with_the_same_budget()
     {
         var client = new ScriptedChatClient(
-            new ChatCompletionResult("""{"analysis": "Looks right. Score 95."}""", 10, 10, "stop"),
+            new ChatCompletionResult(AnalysisCutAtQuote, 10, 30, "stop"),
+            new ChatCompletionResult(FinalPaddedWithWhitespace, 10, 4096, "length"),
             new ChatCompletionResult(Grade, 10, 10, "stop"));
 
         var (grade, raw) = await RequestAsync(client);
 
         Assert.Equal(SongQualityVerdict.Good, grade.Verdict);
         Assert.Equal(Grade, raw);
-        Assert.Equal([4096, 4096], client.Requests.Select(r => r.MaxTokens));
+        // The whitespace reply was cut off in its answer: more budget would only buy more whitespace.
+        Assert.Equal([4096, 4096, 4096], client.Requests.Select(r => r.MaxTokens));
     }
 
     [Fact]
-    public async Task A_reply_the_output_limit_cut_off_is_asked_for_again_with_twice_the_budget()
+    public async Task Reasoning_that_used_up_the_budget_is_asked_for_again_with_twice_the_budget()
     {
         var client = new ScriptedChatClient(
             new ChatCompletionResult(ReasoningCutOff, 10, 4096, "length", FromReasoning: true),
@@ -61,41 +70,45 @@ public class GradingCompletionTests
     {
         var client = new ScriptedChatClient(
             new ChatCompletionResult(ReasoningCutOff, 10, 12000, "length", FromReasoning: true),
+            new ChatCompletionResult(ReasoningCutOff, 10, 16384, "length", FromReasoning: true),
             new ChatCompletionResult(Grade, 10, 10, "stop"));
 
         await RequestAsync(client, maxOutputTokens: 12000);
 
-        Assert.Equal([12000, 16384], client.Requests.Select(r => r.MaxTokens));
+        Assert.Equal([12000, 16384, 16384], client.Requests.Select(r => r.MaxTokens));
     }
 
     [Fact]
-    public async Task Two_replies_cut_off_while_reasoning_fail_naming_the_budget()
+    public async Task Replies_that_keep_running_out_while_reasoning_fail_naming_the_budget()
     {
         var client = new ScriptedChatClient(
             new ChatCompletionResult(ReasoningCutOff, 10, 4096, "length", FromReasoning: true),
-            new ChatCompletionResult(ReasoningCutOff, 10, 8192, "length", FromReasoning: true));
+            new ChatCompletionResult(ReasoningCutOff, 10, 8192, "length", FromReasoning: true),
+            new ChatCompletionResult(ReasoningCutOff, 10, 16384, "length", FromReasoning: true));
 
         var ex = await Assert.ThrowsAsync<JsonException>(() => RequestAsync(client));
 
         Assert.Equal(
             "Model reply held no grade (no score or recognised verdict); "
-            + "the model spent its whole 8192-token output budget reasoning and never wrote an answer",
+            + "the model spent its whole 16384-token output budget reasoning and never wrote an answer",
             ex.Message);
         Assert.Equal(GradingCompletion.MaxAttempts, client.Requests.Count);
     }
 
     [Fact]
-    public async Task Two_complete_replies_without_a_grade_fail_with_the_finish_reason()
+    public async Task Replies_that_never_hold_a_grade_fail_with_the_finish_reason()
     {
         var client = new ScriptedChatClient(
+            new ChatCompletionResult(AnalysisCutAtQuote, 10, 30, "stop"),
             new ChatCompletionResult("{ }", 10, 10, "stop"),
             new ChatCompletionResult("{ }", 10, 10, "stop"));
 
         var ex = await Assert.ThrowsAsync<JsonException>(() => RequestAsync(client));
 
         Assert.Equal(
-            "Model reply held no grade (no score or recognised verdict); asked 2 times (finish_reason=stop)",
+            "Model reply held no grade (no score or recognised verdict); asked 3 times (finish_reason=stop)",
             ex.Message);
+        Assert.Equal(GradingCompletion.MaxAttempts, client.Requests.Count);
     }
 
     [Fact]
