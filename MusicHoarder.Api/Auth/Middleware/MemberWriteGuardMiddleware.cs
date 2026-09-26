@@ -55,6 +55,13 @@ public sealed partial class MemberWriteGuardMiddleware
         // is the credential — see AccountSwitchService.
         Prefix("POST", "/api/auth/switch"),
 
+        // Playback sync between the caller's own devices: report this device's player, and
+        // remote-control or hand over to another of the caller's devices. Keyed by the caller's
+        // user id throughout, so it can never reach another account's session. Exact on purpose:
+        // the rest of /api/playback is reads.
+        Exact("POST", "/api/playback/state"),
+        Exact("POST", "/api/playback/command"),
+
         // NOTE: PATCH /api/auth/me (rename yourself) is deliberately NOT here, matching the
         // behaviour before this middleware was renamed. A member cannot set their own display
         // name. That is arguably wrong, but widening it is a product decision, not a refactor.

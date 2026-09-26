@@ -51,7 +51,11 @@
   // Playback-speed presets (pitch-preserved — for singing/playing along, the slow end is
   // deliberately finer-grained than the fast end).
   const speedOptions = [0.5, 0.65, 0.75, 0.85, 1, 1.1, 1.25, 1.5];
-  const showSpeed = $derived(speedAlways || playerStore.playbackRate !== 1);
+  // Not while the music plays on another device: the speed is this device's own (see
+  // `playerStore.speedAdjustable`).
+  const showSpeed = $derived(
+    playerStore.speedAdjustable && (speedAlways || playerStore.playbackRate !== 1)
+  );
 
   const duration = $derived(
     isActive && playerStore.duration > 0 ? playerStore.duration : fallbackDuration

@@ -1,6 +1,10 @@
 package com.musichoarder.app.data
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
@@ -25,6 +29,14 @@ class NotPairedException : IOException("This device is not paired with a MusicHo
 class UnauthorizedException : IOException("The pairing was revoked. Scan a new code to sign in again.")
 
 class ApiException(val status: Int, message: String) : IOException(message)
+
+/** How `POST /api/playback/command` answered. */
+sealed interface PlaybackCommandResult {
+    data class Sent(val commandId: String) : PlaybackCommandResult
+
+    /** 409 `device_offline` / `not_active_device`, 404 `no_session`, 400, 403 … [error] may be null. */
+    data class Refused(val status: Int, val error: String?) : PlaybackCommandResult
+}
 
 /**
  * Attaches the bearer token — and only to the paired server.
@@ -261,6 +273,88 @@ class MusicHoarderApi(
     suspend fun reportPlayed(songId: Int) {
         runCatching { post(ApiRoutes.played(songId)) }
     }
+
+    // --- Playback sync ("Connect") -------------------------------------------------------------
+    // The account's one playback session and the devices that can hold it. The phone mostly learns
+    // about it from the event stream; the GET is the same snapshot, for a caller without one.
+
+    suspend fun fetchPlayback(): PlaybackSnapshot =
+        get(ApiRoutes.playback()) { PlaybackJson.decodeFromStream<PlaybackSnapshot>(it) }
+
+    /** This device's report. `accepted: false` in the answer means another device holds the session. */
+    suspend fun reportPlaybackState(report: PlaybackStateReport): PlaybackStateResponse =
+        withContext(Dispatchers.IO) {
+            val body = PlaybackJson.encodeToString(report).toRequestBody(JSON_MEDIA_TYPE)
+            val request = Request.Builder().url(url(ApiRoutes.playbackState())).post(body).build()
+            execute(request) { PlaybackJson.decodeFromStream<PlaybackStateResponse>(it) }
+        }
+
+    /**
+     * Asks the device holding the session (or, for a transfer, the named one) to do something.
+     *
+     * The refusals are answers rather than failures — "that device is offline", "nobody holds the
+     * session" — so they come back as [PlaybackCommandResult.Refused] with the server's error word
+     * instead of as an exception every caller would have to unpick.
+     */
+    suspend fun sendPlaybackCommand(body: PlaybackCommandBody): PlaybackCommandResult =
+        withContext(Dispatchers.IO) {
+            val request = Request.Builder()
+                .url(url(ApiRoutes.playbackCommand()))
+                .post(PlaybackJson.encodeToString(body).toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (response.code == 401) throw UnauthorizedException()
+                val text = response.body.string()
+                if (response.isSuccessful) {
+                    PlaybackCommandResult.Sent(PlaybackJson.decodeFromString<PlaybackCommandAccepted>(text).commandId)
+                } else {
+                    val error = runCatching { PlaybackJson.decodeFromString<PlaybackErrorBody>(text).error }.getOrNull()
+                    PlaybackCommandResult.Refused(response.code, error)
+                }
+            }
+        }
+
+    /**
+     * The session's event stream, as parsed events, for as long as the server keeps it open.
+     *
+     * Completes when the server ends the stream and fails on anything else — an HTTP status arrives
+     * as [ApiException] (403: the feature is off for this account; 404: the server predates it), a
+     * dropped connection as an [IOException]. Reconnecting is the caller's call. Cancelling the
+     * collector cancels the request, which is what unblocks the read.
+     *
+     * Rides the shared client, so the bearer comes from [AuthInterceptor] like any other call. Its 60 s
+     * read timeout doubles as the dead-connection check: the server pings every 15 s.
+     */
+    fun playbackStream(deviceId: String, installId: String?, name: String, kind: String, clientName: String): Flow<SseEvent> =
+        callbackFlow {
+            val request = Request.Builder()
+                .url(url(ApiRoutes.playbackStream(deviceId, installId, name, kind, clientName)))
+                .header("Accept", "text/event-stream")
+                .header("Cache-Control", "no-cache")
+                // OkHttp's transparent gzip would hold events back until a compressed block fills.
+                .header("Accept-Encoding", "identity")
+                .get()
+                .build()
+            val call = client.newCall(request)
+            launch(Dispatchers.IO) {
+                try {
+                    call.execute().use { response ->
+                        if (response.code == 401) throw UnauthorizedException()
+                        if (!response.isSuccessful) throw ApiException(response.code, "Stream failed: ${response.code}")
+                        val source = response.body.source()
+                        val parser = SseParser()
+                        while (true) {
+                            val line = source.readUtf8Line() ?: break
+                            parser.feed(line)?.let { send(it) }
+                        }
+                    }
+                    close()
+                } catch (e: Throwable) {
+                    close(e)
+                }
+            }
+            awaitClose { call.cancel() }
+        }
 
     // --- Anonymous share links (https://host/share/{token}) ---------------------------------
     // Addressed by the link's own origin, never baseUrl(): a share can point at any server and

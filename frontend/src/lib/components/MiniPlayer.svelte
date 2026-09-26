@@ -6,6 +6,7 @@
     HeartOff,
     Maximize2,
     Mic2,
+    MonitorSpeaker,
     Pause,
     Play,
     Quote,
@@ -21,7 +22,10 @@
   import { cubicOut } from 'svelte/easing';
   import { goto } from '$app/navigation';
   import { playerStore } from '$lib/stores/player.svelte';
+  import { playbackSync } from '$lib/stores/playback-sync.svelte';
   import { songsStore } from '$lib/stores/songs.svelte';
+  import DevicePicker from '$lib/components/playback-sync/DevicePicker.svelte';
+  import { DEVICE_ICONS } from '$lib/components/playback-sync/device-icons';
   import { seekTargetForKey } from '$lib/player-seek';
   import { songDetail } from '$lib/stores/song-detail.svelte';
   import { longpress, type LongPressPoint } from '$lib/actions/long-press';
@@ -89,6 +93,14 @@
     const id = playerStore.currentSong?.id;
     if (id != null) songDetail.open(id);
   }
+
+  // The account's session, when the bar shows it playing on another device ("Playing on iPhone")
+  // or remembered from one ("Last played on iPhone"). The line is its own target and opens the
+  // device picker; tinted only while the music is live somewhere. With the music here and no
+  // other device open, nothing about devices shows at all.
+  const deviceLine = $derived(playbackSync.line);
+  const DeviceIcon = $derived(DEVICE_ICONS[playbackSync.activeKind]);
+  const deviceTone = $derived(playbackSync.isRemote ? 'text-primary' : 'text-muted-foreground');
 
   // ── compact: long-press menu ──────────────────────────────────────────────
   // iOS never sends `contextmenu` for a touch-and-hold, so the menu opens from the longpress action
@@ -250,33 +262,83 @@
       class="mh-mini-enter mh-glass mh-chrome fixed right-[max(16px,env(safe-area-inset-right))] bottom-(--mh-player-bottom) left-[max(16px,env(safe-area-inset-left))] z-40 flex h-(--mh-player-h) touch-none items-center rounded-full pr-1 select-none"
       out:fly={miniExit()}
     >
-      <!-- The bar's main target: art + titles, stretching to the transport. It owns the leading
-           inset, so the capsule's rounded end opens Now Playing too.
-           The art sits in the capsule's end cap the way Apple Music's does: a 36px square with a
-           quarter-size 9px radius, 14px in from the leading edge. That puts its corner curves
-           roughly concentric with the cap's semicircle, with about the same gap there as above and
-           below the art. A 40px square with 6px corners at 8px came within ~3px of the capsule at
-           its corners and read as a hard square pushed into a round end. -->
-      <button
-        type="button"
-        onclick={openNowPlaying}
-        aria-label="Open now playing"
-        class="focus-visible:ring-ring flex h-full min-w-0 flex-1 items-center gap-3 rounded-full pl-3.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset"
-      >
-        <Cover
-          artist={song.artist}
-          title={song.title}
-          coverUrl={song.coverUrl ?? null}
-          size={36}
-          corner={9}
-          caption={false}
-          class="size-9 shrink-0"
-        />
-        <span class="flex min-w-0 flex-col">
-          <span class="text-subheadline truncate font-semibold">{song.title}</span>
-          <span class="text-footnote text-muted-foreground truncate">{song.artist}</span>
-        </span>
-      </button>
+      {#if deviceLine}
+        <!-- The music is on another device: the art and the title open Now Playing as usual, and
+             the line under the title ("Playing on iPhone") is a target of its own — the lower
+             half of the text column, 28pt at the smallest bar — that opens the device picker.
+             The art is a pointer target only; the title is the keyboard stop for the same place. -->
+        <div class="grid h-full min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] grid-rows-2 gap-x-3 pl-3.5">
+          <button
+            type="button"
+            tabindex="-1"
+            aria-hidden="true"
+            onclick={openNowPlaying}
+            class="row-span-2 self-center rounded-md outline-none"
+          >
+            <Cover
+              artist={song.artist}
+              title={song.title}
+              coverUrl={song.coverUrl ?? null}
+              size={36}
+              corner={9}
+              caption={false}
+              class="size-9 shrink-0"
+            />
+          </button>
+          <button
+            type="button"
+            onclick={openNowPlaying}
+            aria-label={`Open now playing: ${song.title} by ${song.artist}`}
+            class="text-subheadline focus-visible:ring-ring flex min-w-0 items-end rounded-md text-left font-semibold outline-none focus-visible:ring-2"
+          >
+            <span class="truncate">{song.title}</span>
+          </button>
+          <DevicePicker>
+            {#snippet trigger(props)}
+              <button
+                {...props}
+                type="button"
+                aria-label={`${deviceLine}. Choose a device`}
+                class={cn(
+                  'text-footnote focus-visible:ring-ring flex min-w-0 items-start gap-1 rounded-md text-left outline-none focus-visible:ring-2',
+                  deviceTone
+                )}
+              >
+                <DeviceIcon class="mt-0.5 size-3.5 shrink-0" />
+                <span class="truncate">{deviceLine}</span>
+              </button>
+            {/snippet}
+          </DevicePicker>
+        </div>
+      {:else}
+        <!-- The bar's main target: art + titles, stretching to the transport. It owns the leading
+             inset, so the capsule's rounded end opens Now Playing too.
+             The art sits in the capsule's end cap the way Apple Music's does: a 36px square with a
+             quarter-size 9px radius, 14px in from the leading edge. That puts its corner curves
+             roughly concentric with the cap's semicircle, with about the same gap there as above and
+             below the art. A 40px square with 6px corners at 8px came within ~3px of the capsule at
+             its corners and read as a hard square pushed into a round end. -->
+        <button
+          type="button"
+          onclick={openNowPlaying}
+          aria-label="Open now playing"
+          class="focus-visible:ring-ring flex h-full min-w-0 flex-1 items-center gap-3 rounded-full pl-3.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset"
+        >
+          <Cover
+            artist={song.artist}
+            title={song.title}
+            coverUrl={song.coverUrl ?? null}
+            size={36}
+            corner={9}
+            caption={false}
+            class="size-9 shrink-0"
+          />
+          <span class="flex min-w-0 flex-col">
+            <span class="text-subheadline truncate font-semibold">{song.title}</span>
+            <span class="text-footnote text-muted-foreground truncate">{song.artist}</span>
+          </span>
+        </button>
+      {/if}
       <Button
         variant="ghost"
         size="icon"
@@ -490,6 +552,40 @@
 
         <!-- RIGHT: actions -->
         <div class="flex shrink-0 items-center gap-1">
+          <!-- Where the music is when it is not here, or — quietly, as a glyph — the way to send
+               it somewhere else when another device is open. -->
+          {#if deviceLine}
+            <DevicePicker side="top" align="end">
+              {#snippet trigger(props)}
+                <button
+                  {...props}
+                  type="button"
+                  aria-label={`${deviceLine}. Choose a device`}
+                  class={cn(
+                    'focus-visible:ring-ring relative flex h-8 max-w-40 min-w-0 items-center gap-1.5 rounded-full px-2 text-xs outline-none focus-visible:ring-2 pointer-fine:hover:bg-accent',
+                    deviceTone
+                  )}
+                >
+                  <DeviceIcon class="size-4 shrink-0" />
+                  <span class="truncate">{deviceLine}</span>
+                </button>
+              {/snippet}
+            </DevicePicker>
+          {:else if playbackSync.hasOtherDevices}
+            <DevicePicker side="top" align="end">
+              {#snippet trigger(props)}
+                <button
+                  {...props}
+                  type="button"
+                  aria-label="Devices"
+                  title="Devices"
+                  class="text-muted-foreground hover:text-foreground focus-visible:ring-ring flex size-8 shrink-0 items-center justify-center rounded-md outline-none focus-visible:ring-2"
+                >
+                  <MonitorSpeaker class="size-4" />
+                </button>
+              {/snippet}
+            </DevicePicker>
+          {/if}
           {#if librarySong}
             <Button
               variant="ghost"
@@ -518,7 +614,13 @@
                touch, where the hardware buttons already do that job (Apple discourages an
                in-app volume slider on mobile). Gated on pointer precision, not viewport width, so
                a touch-first iPad in this width range hides it too. -->
-          <div class="hidden items-center gap-1.5 pointer-fine:flex">
+          <!-- This device's volume, which is not what anyone hears while another device plays. -->
+          <div
+            class={cn(
+              'hidden items-center gap-1.5',
+              !playbackSync.showsSession && 'pointer-fine:flex'
+            )}
+          >
             <Button
               variant="ghost"
               size="icon"

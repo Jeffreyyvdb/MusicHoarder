@@ -26,8 +26,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -70,7 +72,10 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
     val likes by viewModel.likes.collectAsStateWithLifecycle()
     val albumStatuses by viewModel.albumStatuses.collectAsStateWithLifecycle()
     val openAlbum by viewModel.openAlbum.collectAsStateWithLifecycle()
-    val playerState by viewModel.player.state.collectAsStateWithLifecycle()
+    // This phone's player, or the account's session while it plays on another device (or is only
+    // remembered) — the same shape either way, so every surface below renders both.
+    val playerState by viewModel.nowPlaying.collectAsStateWithLifecycle()
+    val devicePicker by viewModel.devicePicker.collectAsStateWithLifecycle()
     val pairError by viewModel.pairError.collectAsStateWithLifecycle()
     val lyricsState by viewModel.lyrics.collectAsStateWithLifecycle()
     val videoState by viewModel.video.state.collectAsStateWithLifecycle()
@@ -109,6 +114,20 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
     // A failed heart reverts itself; saying nothing would just look like the tap missed.
     LaunchedEffect(Unit) {
         viewModel.messages.collect { snackbarHost.showSnackbar(it) }
+    }
+
+    // Playback sync's news, the web's toasts word for word: "Now playing on MacBook" when another
+    // device took the music, "Couldn’t reach MacBook" when a command did not land — with Play here
+    // where picking it up on this phone is the obvious next step.
+    LaunchedEffect(Unit) {
+        viewModel.connectNotices.collect { notice ->
+            val result = snackbarHost.showSnackbar(
+                message = notice.message,
+                actionLabel = if (notice.offerPlayHere) "Play here" else null,
+                duration = if (notice.offerPlayHere) SnackbarDuration.Long else SnackbarDuration.Short,
+            )
+            if (result == SnackbarResult.ActionPerformed) viewModel.playHere()
+        }
     }
 
     // Re-read identity and capabilities whenever the app comes back to the foreground. Capabilities
@@ -280,6 +299,19 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
 
     val nowPlayingVisible = showNowPlaying && playerState.isActive
 
+    // The device picker, for the mini player's device line and Now Playing's Devices button. Only
+    // while the feature is on (`devicesAvailable`: signed in, not the demo), the web's rule.
+    val devices = if (playerState.devicesAvailable) {
+        DevicesControl(
+            picker = devicePicker,
+            thisDeviceName = viewModel.thisDeviceName,
+            thisDeviceKind = viewModel.thisDeviceKind,
+            onChoose = viewModel::chooseDevice,
+        )
+    } else {
+        null
+    }
+
     BoxWithConstraints(modifier = modifier.fillMaxSize().background(MhTheme.colors.background)) {
         // The share viewer and the invite are takeovers of their own, with Close rather than a
         // place in the library, so they get no tabs.
@@ -351,7 +383,7 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                             isPlayingNow = playerState.isPlaying,
                             // A share's ids belong to another server and can collide with this
                             // album's; its song is never "one of these".
-                            onPlayPause = if (isShareQueue) null else viewModel.player::togglePlayPause,
+                            onPlayPause = if (isShareQueue) null else viewModel::togglePlayPause,
                         )
                     } else {
                         LibraryShell(
@@ -417,8 +449,9 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                         // no route.
                         coverUrl = playerState.artworkUrl,
                         onExpand = { showNowPlaying = true },
-                        onPlayPause = viewModel.player::togglePlayPause,
-                        onNext = viewModel.player::next,
+                        onPlayPause = viewModel::togglePlayPause,
+                        onNext = viewModel::next,
+                        devices = devices,
                         modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
                     )
                 }
@@ -460,13 +493,12 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                     { leaveForLibrary(); viewModel.openAlbumKey(links.albumKey) }
                 },
                 onCollapse = { showNowPlaying = false },
-                onPlayPause = viewModel.player::togglePlayPause,
-                onNext = viewModel.player::next,
-                onPrevious = viewModel.player::previous,
-                onSeek = { positionMs ->
-                    viewModel.player.seekTo(positionMs)
-                    viewModel.video.onSeek(positionMs)
-                },
+                // Routed by the ViewModel: this phone's player, or commands to the device holding
+                // the session, or — for a remembered one — picking it up here.
+                onPlayPause = viewModel::togglePlayPause,
+                onNext = viewModel::next,
+                onPrevious = viewModel::previous,
+                onSeek = viewModel::seekTo,
                 onSetSpeed = viewModel::setPlaybackSpeed,
                 onToggleShuffle = viewModel.player::toggleShuffle,
                 onCycleRepeat = viewModel.player::cycleRepeatMode,
@@ -478,6 +510,7 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                 // failed from the player has to say so where the listener is looking. Never both at
                 // once — the library's comes back the moment the sheet starts down.
                 snackbarHost = { if (nowPlayingVisible) SnackbarHost(hostState = snackbarHost) },
+                devices = devices,
             )
         }
     }

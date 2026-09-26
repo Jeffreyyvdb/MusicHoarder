@@ -61,6 +61,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.musichoarder.app.data.PlaybackMode
 import com.musichoarder.app.player.PlayerUiState
 import com.musichoarder.app.ui.theme.LocalMhColors
 import com.musichoarder.app.ui.theme.MhColors
@@ -149,8 +150,10 @@ fun PlayerTransport(
                 color = colors.mutedForeground,
                 modifier = Modifier.weight(1f),
             )
-            // Only while it says something: at 1× the speed lives in the ⋮ menu, as on the web.
-            if (!isNormalRate(state.playbackRate)) {
+            // Only while it says something: at 1× the speed lives in the ⋮ menu, as on the web. And
+            // only for this phone's player — it would set a speed nobody is hearing while the music
+            // is on another device.
+            if (!isNormalRate(state.playbackRate) && state.mode == PlaybackMode.Local) {
                 PlayerSpeedCapsule(rate = state.playbackRate, onSetSpeed = onSetSpeed, menuColors = menuColors)
             }
             Text(

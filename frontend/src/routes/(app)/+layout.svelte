@@ -6,6 +6,7 @@
   import CommandPalette from '$lib/components/CommandPalette.svelte';
   import AppShellV2 from '$lib/components/v2/AppShellV2.svelte';
   import { initPlayer, playerStore } from '$lib/stores/player.svelte';
+  import { playbackSync } from '$lib/stores/playback-sync.svelte';
   import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
   import { commandPalette } from '$lib/stores/command-palette.svelte';
   import { songDetail } from '$lib/stores/song-detail.svelte';
@@ -146,7 +147,17 @@
   // the session — it then survives every re-render and navigation. Handing it the
   // account id also brings back the queue a reload interrupted; the store keys the
   // snapshot on it so an account switch (always a hard reload) starts clean.
-  $effect(() => initPlayer(page.data.user?.id));
+  //
+  // The account's playback session (one per account, shared by its devices) starts first, so the
+  // reload restore can wait for its first snapshot before resuming on its own. Both are idempotent
+  // per account; the session never starts for the demo account.
+  $effect(() => {
+    const user = page.data.user;
+    playbackSync.start(user);
+    initPlayer(user?.id);
+  });
+  // Leaving the app shell (signing out, the share page) closes the stream and unplugs the player.
+  $effect(() => () => playbackSync.stop());
 
   const drawerOpen = $derived(pipelineOverlay.isOpen);
 </script>

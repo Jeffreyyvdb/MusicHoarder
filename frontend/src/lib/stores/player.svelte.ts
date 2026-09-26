@@ -1,7 +1,13 @@
 import { untrack } from 'svelte';
 import { browser } from '$app/environment';
 import { toast } from 'svelte-sonner';
-import { coverThumbUrl, fetchRadio, reportSongPlayed, toPlayerSong } from '$lib/api-client';
+import {
+  coverThumbUrl,
+  fetchRadio,
+  reportSongPlayed,
+  toPlayerSong,
+  type ApiSong
+} from '$lib/api-client';
 import {
   convertedStreamUrl,
   createUnplayableFormats,
@@ -32,6 +38,11 @@ export interface PlayerSong {
    * file as it is or the server's decoded stream of it; unknown means the original is tried first.
    */
   format?: string | null;
+  /**
+   * A bare id kept from the account's session, picked up before the library's rows arrived; it
+   * becomes its row once they do (see `hydrateStandIns`).
+   */
+  standIn?: boolean;
 }
 
 let currentSong = $state<PlayerSong | null>(null);
@@ -95,6 +106,60 @@ let miniPlayerDismissed = $state(false);
  */
 let airPlayAvailable = $state(false);
 
+// ── The account's playback session ("Connect") ─────────────────────────────
+// One session per account, held by one device at a time (see $lib/stores/playback-sync). The app
+// layout plugs it in with `setPlaybackSync`; the anonymous share page and the demo account never
+// do, and without it every function below behaves exactly as it always has. With it:
+//  • a local play intent (a pick, Play, resume, Next/Previous, a media key) calls `playIntent()`,
+//    which makes this device the one holding the session;
+//  • any change to local playback calls `changed()`, reported while this device holds it;
+//  • while the session is held elsewhere (or only remembered), the store's getters show IT
+//    instead of the local element's leftovers, and the transport steers it — so every component
+//    reading `playerStore` follows without knowing the feature exists.
+
+/** The session as the player shows it while it lives on another device, or is only remembered. */
+export interface PlayerRemote {
+  /** True in remote/remembered mode: the getters and the transport route here. */
+  readonly active: boolean;
+  readonly song: PlayerSong | null;
+  readonly isPlaying: boolean;
+  /** Seconds, extrapolated from the last report. */
+  readonly currentTime: number;
+  readonly duration: number;
+  readonly hasNext: boolean;
+  pause(): void;
+  /** Resumes the other device; for a remembered session, picks it up here. */
+  resume(): void;
+  next(): void;
+  previous(): void;
+  seek(seconds: number): void;
+}
+
+export interface PlaybackSyncHooks {
+  readonly remote: PlayerRemote;
+  /** A local play intent happened on this device. */
+  playIntent(): void;
+  /** Local playback changed: play/pause, a seek, a new track or queue, the rate. */
+  changed(): void;
+  /** After a reload: resolves true when the restored queue may start playing on its own. */
+  restoreGate(): Promise<boolean>;
+  /** A media key while the session is shown from elsewhere: pick it up here (one on, one back). */
+  playHere(step: 'none' | 'next' | 'previous'): void;
+}
+
+let sync = $state.raw<PlaybackSyncHooks | null>(null);
+
+/** Plug the account's session in (the app layout), or take it out again (null). */
+export function setPlaybackSync(hooks: PlaybackSyncHooks | null): void {
+  sync = hooks;
+}
+
+/** The session being shown instead of the local element, or null in local mode. */
+function remoteView(): PlayerRemote | null {
+  const hooks = sync;
+  return hooks && hooks.remote.active ? hooks.remote : null;
+}
+
 let audioEl: HTMLAudioElement | null = null;
 /** Whether the loaded source is the server's decoded stream rather than the file as it is. */
 let sourceIsConverted = false;
@@ -131,11 +196,26 @@ let retriedFrom = 0;
 let skipsInARow = 0;
 /** Set once the player gave up on a stream, so the next Play reloads it instead of poking it. */
 let sourceNeedsReload = false;
+/**
+ * The loaded song played to its end (see `songFinished`) and the next one has not replaced it yet.
+ * The element loops, so `ended` never says so.
+ */
+let sourceFinished = false;
 let recoveryTimer: ReturnType<typeof setTimeout> | null = null;
 let stallTimer: ReturnType<typeof setTimeout> | null = null;
 /** Pre-mute level, restored on unmute so toggling mute is non-destructive. */
 let lastNonZeroVolume = 1;
 let loadGeneration = 0;
+/**
+ * The pick whose pre-flight is on its way (see `loadAndPlay`): the queue has moved to it, the
+ * element has not yet. Stale once another load bumps the generation.
+ */
+let pendingLoad: { gen: number; songId: number } | null = null;
+/**
+ * The generation of a song put on the element without playing it (see `dropPendingLoad`): its
+ * listen is counted when it first plays, not when it loaded. Stale once another load bumps it.
+ */
+let listenOwed: number | null = null;
 let rafHandle: number | null = null;
 let lastTimeWrite = 0;
 
@@ -230,18 +310,37 @@ function refreshActionHandlers() {
       // Action unsupported by this browser — ignore.
     }
   };
-  set('play', () => resume());
-  set('pause', () => pause());
+  // The OS controls are this device's own: a media key, the lock screen or a headset press is a
+  // local play intent even while the session plays elsewhere — there it picks the session up here
+  // (continuing what the account was listening to) rather than steering the other device.
+  set('play', () => mediaKey('none'));
+  set('pause', () => localPause());
   // Previous is live whenever a track is loaded: at the head of the queue it restarts the track
   // (see playPrevious), so greying it out there would hide a working control.
-  set('previoustrack', queueIndex >= 0 ? () => playPrevious() : null);
-  set('nexttrack', canAdvance() ? () => playNext() : null);
+  set('previoustrack', queueIndex >= 0 ? () => mediaKey('previous') : null);
+  set('nexttrack', canAdvance() ? () => mediaKey('next') : null);
   set('seekto', (details) => {
-    if (typeof details.seekTime === 'number') seek(details.seekTime);
+    if (typeof details.seekTime === 'number') mediaSeek(details.seekTime);
   });
   // No `seekbackward` / `seekforward`: iOS shows either the track pair or the seek pair, never
   // both, and picks the seek pair whenever it is registered, which puts ±10s buttons where
   // previous/next belong on the lock screen, Control Center and Dynamic Island.
+}
+
+function mediaKey(step: 'none' | 'next' | 'previous') {
+  if (sync && remoteView()) {
+    sync.playHere(step);
+    return;
+  }
+  if (step === 'next') playNext();
+  else if (step === 'previous') playPrevious();
+  else localResume();
+}
+
+/** A scrub on the lock screen moves this device's own track; the leftovers of a session that
+ *  moved on are not worth seeking. */
+function mediaSeek(time: number) {
+  if (!remoteView()) localSeek(time);
 }
 
 function setPlaybackState(state: MediaSessionPlaybackState) {
@@ -305,8 +404,9 @@ function cameRoundToStart(el: HTMLAudioElement): boolean {
 /** The song played to its end: what an `ended` event would have meant. */
 function songFinished(el: HTMLAudioElement) {
   lastPlayedPosition = 0; // where the element is now, so the jump is not seen twice
+  sourceFinished = true;
   el.pause(); // a paused element that has not ended keeps the audio session
-  playNext(); // with nothing to follow, the song stays loaded, paused at its start
+  nextTrack(); // with nothing to follow, the song stays loaded, paused at its start
 }
 
 // ── Recovering a stream ────────────────────────────────────────────────────
@@ -355,6 +455,7 @@ function afterDelay(delayMs: number, action: () => void): ReturnType<typeof setT
 
 /** Point the element at the stream it already had, at the second it last played. */
 function reloadSource(el: HTMLAudioElement, song: PlayerSong) {
+  sourceFinished = false;
   sourceHasPlayed = false;
   sourceNeedsReload = false;
   el.src = sourceIsConverted ? convertedStreamUrl(song.streamUrl) : song.streamUrl;
@@ -379,14 +480,14 @@ function recoverStream(): boolean {
     if (recoveryTimer !== null) clearTimeout(recoveryTimer);
     recoveryTimer = afterDelay(delay, () => {
       reloadSource(el, song);
-      playElement();
+      void playElement();
     });
     return true;
   }
   if (skipsInARow >= MAX_SKIPS_IN_A_ROW || !canAdvance()) return false;
   skipsInARow += 1;
   toast.error('Skipped a track', { description: `Could not play "${song.title}".` });
-  playNext();
+  nextTrack(); // the player moving on, not someone pressing Next: nothing to claim or steer
   return true;
 }
 
@@ -438,6 +539,7 @@ function streamSourceFor(song: PlayerSong): { url: string; converted: boolean } 
 
 /** Point the element at `song`'s source (see `streamSourceFor`) and start loading it. */
 function loadSource(el: HTMLAudioElement, song: PlayerSong) {
+  sourceFinished = false;
   const source = streamSourceFor(song);
   sourceIsConverted = source.converted;
   suspectedFormat = null;
@@ -488,7 +590,7 @@ function fallBackToConverted(): boolean {
   el.src = convertedStreamUrl(song.streamUrl);
   el.load();
   if (position > 0) el.currentTime = position;
-  if (wantsPlayback) playElement();
+  if (wantsPlayback) void playElement();
   return true;
 }
 
@@ -535,6 +637,7 @@ function ensureAudioEl(): HTMLAudioElement | null {
     duration = el.duration;
     updatePositionState();
     confirmSuspectedFormat();
+    sync?.changed(); // the session learns the track's length
   });
   el.addEventListener('seeking', () => {
     if (cameRoundToStart(el)) songFinished(el);
@@ -546,6 +649,8 @@ function ensureAudioEl(): HTMLAudioElement | null {
     if (fallBackToConverted()) return;
     if (recoverStream()) return;
     stopTrying();
+    // Its `play` event already told the session this track was playing: say once that it is not.
+    sync?.changed();
   });
   el.addEventListener('timeupdate', () => {
     // Before metadata the element reports the position it is resetting from, not a real one.
@@ -579,6 +684,7 @@ function ensureAudioEl(): HTMLAudioElement | null {
     isPlaying = true;
     setPlaybackState('playing');
     startRaf();
+    sync?.changed();
   });
   el.addEventListener('pause', () => {
     stopRaf();
@@ -587,6 +693,7 @@ function ensureAudioEl(): HTMLAudioElement | null {
     // The rAF stops here, so commit the exact paused position (the throttled
     // loop may have last written it up to TIME_WRITE_INTERVAL_MS ago).
     currentTime = el.currentTime;
+    sync?.changed();
   });
 
   audioEl = el;
@@ -597,30 +704,57 @@ function ensureAudioEl(): HTMLAudioElement | null {
 }
 
 /**
+ * Playing, or asked to: true from the `play()` call on, not only once audio flows. An element whose
+ * source failed is not — the media error steps fire `error` and reject the play, but never set
+ * `paused` back, so `!paused` alone would call a dead track playing until the next load.
+ */
+function elementPlaying(): boolean {
+  return audioEl !== null && !audioEl.paused && !audioEl.error;
+}
+
+/** How a `play()` went: an autoplay refusal (`blocked`) is the one a caller may explain itself. */
+export type PlayOutcome = 'played' | 'blocked' | 'failed';
+
+/**
  * Start/resume playback on the store-owned element. Surfaces an autoplay block
  * (the one failure the media `error` event does NOT cover); genuine media/
  * network failures still flow through the `error` listener, and `AbortError`
  * (a newer load/pause superseding this play) is intentionally ignored.
  */
-function attemptPlay() {
+function attemptPlay(options: { quietBlock?: boolean } = {}): Promise<PlayOutcome> {
   miniPlayerDismissed = false; // any play intent brings the mini player back
   wantsPlayback = true;
-  playElement();
+  return playElement(options);
 }
 
 /** The element half of `attemptPlay`, which leaves a hidden mini player hidden. */
-function playElement() {
+function playElement(options: { quietBlock?: boolean } = {}): Promise<PlayOutcome> {
   claimPlaybackAudioSession();
-  void audioEl
-    ?.play()
-    .then(() => (isPlaying = true))
-    .catch((err: unknown) => {
+  const el = audioEl;
+  if (!el) return Promise.resolve('failed');
+  return el
+    .play()
+    .then((): PlayOutcome => {
+      isPlaying = true;
+      if (listenOwed === loadGeneration && currentSong) {
+        listenOwed = null;
+        reportPlay(currentSong.id);
+      }
+      return 'played';
+    })
+    .catch((err: unknown): PlayOutcome => {
       isPlaying = false;
       if (err instanceof DOMException && err.name === 'NotAllowedError') {
-        toast.error('Playback blocked', {
-          description: 'Your browser blocked autoplay — press play to start.'
-        });
+        // `quietBlock`: the caller explains it itself (a session sent here by another device).
+        if (!options.quietBlock) {
+          toast.error('Playback blocked', {
+            description: 'Your browser blocked autoplay — press play to start.'
+          });
+        }
+        sync?.changed(); // a claim may have said "playing"; nothing started, so say so
+        return 'blocked';
       }
+      return 'failed';
     });
 }
 
@@ -629,6 +763,7 @@ async function loadAndPlay(song: PlayerSong) {
   if (!ensureAudioEl() || !audioEl) return;
 
   const gen = ++loadGeneration;
+  pendingLoad = { gen, songId: song.id };
 
   // The pre-flight turns a missing file into a clear toast while the old song keeps playing, but
   // it is an await between the decision to play and `play()`. In the background that gap is the
@@ -643,24 +778,80 @@ async function loadAndPlay(song: PlayerSong) {
         toast.error('Unable to play track', {
           description: 'The audio file could not be found on the server.'
         });
+        preflightFailed(gen);
         return;
       }
     } catch {
       toast.error('Unable to play track', { description: 'Could not connect to the server.' });
+      preflightFailed(gen);
       return;
     }
 
     if (gen !== loadGeneration) return;
   }
 
+  pendingLoad = null;
   currentSong = song;
   currentTime = 0;
   duration = 0;
   updateMediaMetadata(song);
   refreshActionHandlers(); // queue position may have changed (next/prev availability)
   loadSource(audioEl, song);
-  attemptPlay();
+  void attemptPlay();
   reportPlay(song.id);
+}
+
+/**
+ * The pick never reached the element: the queue points at it, but what is loaded (and playing, or
+ * not) is still the song before it — and that, not the pick, is what the session is told.
+ */
+function preflightFailed(gen: number) {
+  if (gen !== loadGeneration) return; // a newer load owns the queue now
+  pendingLoad = null;
+  sync?.changed();
+}
+
+/** The pick whose pre-flight is on its way, while it is still the queue's current item. */
+function pendingPick(): PlayerSong | null {
+  if (pendingLoad === null || pendingLoad.gen !== loadGeneration) return null;
+  const item = queue[queueIndex];
+  return item !== undefined && item.id === pendingLoad.songId ? item : null;
+}
+
+/**
+ * Drop the pick still in its pre-flight: its answer then finds a newer generation and goes no
+ * further. The element keeps the song it had, and the queue goes back to it, so Next and Previous
+ * step from the song that is here — the one the session is told about — not from one that never
+ * arrived.
+ *
+ * Unless that song has ended (the auto-advance to the next one): going back to it would leave Play
+ * replaying it from 0:00. The pick goes on the element instead, paused at its start — where
+ * Android's player waits after its own advance — so Resume plays it, and counts it then.
+ */
+function dropPendingLoad() {
+  untrack(() => {
+    if (pendingLoad === null || pendingLoad.gen !== loadGeneration) return;
+    const pick = pendingPick();
+    pendingLoad = null;
+    loadGeneration += 1;
+    const el = audioEl;
+    if (sourceFinished && pick && el) {
+      currentSong = pick;
+      currentTime = 0;
+      duration = 0;
+      updateMediaMetadata(pick);
+      refreshActionHandlers();
+      loadSource(el, pick);
+      listenOwed = loadGeneration;
+      return;
+    }
+    const ids = queue.map((s) => s.id);
+    const at = currentSong ? indexNear(ids, currentSong.id, queueIndex) : -1;
+    if (at >= 0 && at !== queueIndex) {
+      queueIndex = at;
+      refreshActionHandlers();
+    }
+  });
 }
 
 /**
@@ -700,15 +891,83 @@ function seedQueue(song: PlayerSong, contextQueue?: PlayerSong[], index?: number
  * in `contextQueue`.
  */
 async function playSong(song: PlayerSong, contextQueue?: PlayerSong[], index?: number) {
+  // The session's song on another device toggles THERE, like the glyph on screen promises.
+  const remote = remoteView();
+  if (remote && remote.song?.id === song.id) {
+    if (remote.isPlaying) remote.pause();
+    else remote.resume();
+    return;
+  }
   if (!ensureAudioEl() || !audioEl) return;
 
   seedQueue(song, contextQueue, index);
 
-  if (currentSong?.id === song.id) {
+  // A superseded device's paused leftovers are not "the loaded song": a pick starts it afresh.
+  if (!remote && currentSong?.id === song.id) {
     if (audioEl.paused) {
-      resume();
+      localResume();
     } else {
       pause();
+    }
+    return;
+  }
+
+  sync?.playIntent();
+  await loadAndPlay(song);
+}
+
+/** How {@link startQueue} treats the song it starts at. */
+export interface StartQueueOptions {
+  /**
+   * The caller means "carry on with this song" (an album's Play pill on the album's loaded track),
+   * so the account's session shown from another device counts as loaded too: it resumes there
+   * when that device is live, else is picked up here at its second — not a new listen, and its
+   * queue is left as it is.
+   */
+  resumeIfLoaded?: boolean;
+}
+
+/**
+ * Play `contextQueue` from `index`, and never pause. The queue is always re-seeded (Play from a
+ * list makes that list the queue); if the target song is the one already loaded here it keeps
+ * playing, or resumes when paused, rather than restarting. This is what every control labelled
+ * Play or Shuffle, a row menu's Play, and the phone's row-tap rule call — none of them may toggle.
+ *
+ * While the account's session is shown from another device (or only remembered), starting a list
+ * is a local play intent wherever its first song happens to be: the list becomes the queue and
+ * starts here, from the top, and takes the session — a Shuffle that lands on the song the phone is
+ * playing included, as Android's Play and Shuffle do. Only `resumeIfLoaded` resumes the session's
+ * song instead.
+ */
+async function startQueue(contextQueue: PlayerSong[], index = 0, options: StartQueueOptions = {}) {
+  const song = contextQueue[index];
+  if (!song) return;
+
+  const remote = remoteView();
+  if (options.resumeIfLoaded && remote && remote.song?.id === song.id) {
+    miniPlayerDismissed = false; // a play intent brings the bar back, as below
+    if (!remote.isPlaying) remote.resume();
+    return;
+  }
+  if (!ensureAudioEl() || !audioEl) return;
+
+  // Starting a list here while the session plays elsewhere takes the session (a local play
+  // intent); the paused leftovers of a superseded device are not "already loaded".
+  const leftovers = remote !== null;
+  seedQueue(song, contextQueue, index);
+  sync?.playIntent();
+
+  if (!leftovers && currentSong?.id === song.id) {
+    // A play intent even when nothing needs to start: after "Hide player", pressing Play on a
+    // list that begins with the playing song must bring the bar back. attemptPlay (the other
+    // place that clears this) only runs when paused.
+    miniPlayerDismissed = false;
+    refreshActionHandlers(); // the new queue decides whether Next is live
+    if (audioEl.paused) {
+      reloadIfGivenUp();
+      void attemptPlay();
+    } else {
+      sync?.changed(); // the new queue is news even though the song plays on
     }
     return;
   }
@@ -716,32 +975,19 @@ async function playSong(song: PlayerSong, contextQueue?: PlayerSong[], index?: n
   await loadAndPlay(song);
 }
 
-/**
- * Play `contextQueue` from `index`, and never pause. The queue is always re-seeded (Play from a
- * list makes that list the queue); if the target song is the one already loaded it keeps playing,
- * or resumes when paused, rather than restarting. This is what every control labelled Play or
- * Shuffle, a row menu's Play, and the phone's row-tap rule call — none of them may toggle.
- */
-async function startQueue(contextQueue: PlayerSong[], index = 0) {
-  const song = contextQueue[index];
-  if (!song || !ensureAudioEl() || !audioEl) return;
-
-  seedQueue(song, contextQueue, index);
-
-  if (currentSong?.id === song.id) {
-    // A play intent even when nothing needs to start: after "Hide player", pressing Play on a
-    // list that begins with the playing song must bring the bar back. attemptPlay (the other
-    // place that clears this) only runs when paused.
-    miniPlayerDismissed = false;
-    refreshActionHandlers(); // the new queue decides whether Next is live
-    if (audioEl.paused) resume();
+/** Next, pressed by someone: steers the session where it plays, else a local play intent. */
+function playNext() {
+  const remote = remoteView();
+  if (remote) {
+    remote.next();
     return;
   }
-
-  await loadAndPlay(song);
+  if (queueIndex >= 0) sync?.playIntent();
+  nextTrack();
 }
 
-function playNext() {
+/** Move one on in the local queue (or let the station supply the next track). */
+function nextTrack() {
   if (queueIndex < 0) return;
   if (queueIndex < queue.length - 1) {
     advance();
@@ -756,7 +1002,7 @@ function playNext() {
       // The station could not be asked (a redeploy, a dropped connection): ask again inside the
       // window a hidden page has before iOS suspends it, rather than ending on silence.
       if (recoveryTimer !== null) clearTimeout(recoveryTimer);
-      recoveryTimer = afterDelay(RETRY_DELAYS_MS[trackRetries++], playNext);
+      recoveryTimer = afterDelay(RETRY_DELAYS_MS[trackRetries++], nextTrack);
     }
   });
 }
@@ -821,6 +1067,7 @@ async function topUpRadio(): Promise<boolean> {
 
       queue = [...queue, ...additions];
       refreshActionHandlers(); // a next track exists now, so the OS control lights up
+      sync?.changed(); // "up next" moved on; another device picking the session up gets it too
       return true;
     } catch (err) {
       // A failed top-up is not worth a toast: the user asked to play a song, not to run a radio.
@@ -855,18 +1102,38 @@ function isRefusal(err: unknown): boolean {
  * what the displayed time says. Restarting keeps the play/pause state.
  */
 function playPrevious() {
+  const remote = remoteView();
+  if (remote) {
+    remote.previous();
+    return;
+  }
+  previousTrack(true);
+}
+
+/** `intent`: pressed by someone here (a claim when it starts a track), not a remote command. */
+function previousTrack(intent: boolean) {
   const position = audioEl?.currentTime ?? currentTime;
   const action = previousAction(position, queueIndex);
   if (action === 'none') return;
   if (action === 'restart') {
-    seek(0);
+    localSeek(0);
     return;
   }
+  if (intent) sync?.playIntent();
   queueIndex -= 1;
   void loadAndPlay(queue[queueIndex]);
 }
 
 function pause() {
+  const remote = remoteView();
+  if (remote) {
+    remote.pause();
+    return;
+  }
+  localPause();
+}
+
+function localPause() {
   wantsPlayback = false;
   clearRecovery();
   audioEl?.pause();
@@ -874,31 +1141,64 @@ function pause() {
 }
 
 function resume() {
-  const el = ensureAudioEl();
+  const remote = remoteView();
+  if (remote) {
+    remote.resume();
+    return;
+  }
+  localResume();
+}
+
+function localResume() {
+  ensureAudioEl();
+  if (currentSong) sync?.playIntent();
+  reloadIfGivenUp();
+  void attemptPlay();
+}
+
+/**
+ * A stream that failed for good cannot be played again as it is: load it afresh, from the second
+ * it reached, with its retries back.
+ */
+function reloadIfGivenUp() {
+  const el = audioEl;
   const song = currentSong;
-  // A stream that failed for good cannot be played again as it is: load it afresh, from the
-  // second it reached, with its retries back.
   if (el && song && (sourceNeedsReload || el.error)) {
     clearRecovery(); // this reload replaces any still pending
     trackRetries = 0;
     skipsInARow = 0;
     reloadSource(el, song);
   }
-  attemptPlay();
 }
 
 function togglePlay() {
-  if (isPlaying) pause();
-  else resume();
+  const remote = remoteView();
+  if (remote) {
+    if (remote.isPlaying) remote.pause();
+    else remote.resume();
+    return;
+  }
+  if (isPlaying) localPause();
+  else localResume();
 }
 
 function seek(time: number) {
+  const remote = remoteView();
+  if (remote) {
+    remote.seek(time);
+    return;
+  }
+  localSeek(time);
+}
+
+function localSeek(time: number) {
   if (audioEl) {
     audioEl.currentTime = time;
     currentTime = time;
     lastPlayedPosition = time;
     updatePositionState();
     persistPlayback(); // a seek while paused is the one position change the rAF loop never sees
+    sync?.changed();
   }
 }
 
@@ -917,6 +1217,7 @@ function setPlaybackRate(rate: number) {
     audioEl.playbackRate = clamped;
   }
   updatePositionState();
+  sync?.changed(); // other devices extrapolate the position at this rate
 }
 
 /** Open Safari's AirPlay route picker for the audio element (no-op where it does not exist). */
@@ -944,6 +1245,7 @@ function dismissMiniPlayer() {
 }
 
 function stop() {
+  loadGeneration += 1; // a pick in its pre-flight, or a reload's gated resume, must not land after this
   if (audioEl) {
     audioEl.pause();
     // Detach the source without assigning '' (an empty string resolves to the
@@ -1092,7 +1394,9 @@ function restorePlayback(userId: string) {
   updateMediaMetadata(song);
   refreshActionHandlers();
   const autoResume = canAutoResume(snapshot, Date.now());
-  wantsPlayback = autoResume;
+  // Wanted once it may start: with the session plugged in, only after the gate below agrees — a
+  // stream recovery must not start what the gate is about to keep silent.
+  wantsPlayback = autoResume && !sync;
   loadSource(el, song);
   // Before metadata arrives this sets the default playback start position, which the element
   // seeks to as soon as it can — so the paused bar shows the right second and a later play
@@ -1102,22 +1406,228 @@ function restorePlayback(userId: string) {
   // No `reportPlay` here: coming back to a track is not another listen of it.
 
   if (!autoResume) return;
-  claimPlaybackAudioSession();
-  void el
-    .play()
-    .then(() => (isPlaying = true))
-    .catch((err: unknown) => {
-      isPlaying = false;
-      if (err instanceof DOMException && err.name === 'NotAllowedError') {
-        // The browser wants a click before a fresh document may make sound; the toast's
-        // action is exactly that click, so playback continues from the same second.
-        toast('Playback paused by the reload', {
-          description: 'Your browser needs a click before audio can continue.',
-          action: { label: 'Resume', onClick: () => resume() }
-        });
-      }
-    });
+  const generation = loadGeneration;
+  const resumeRestored = () => {
+    // Something else was picked (or picked up) while the gate below was open; that wins.
+    if (generation !== loadGeneration || !el.paused) return;
+    wantsPlayback = true;
+    claimPlaybackAudioSession();
+    sync?.playIntent();
+    void el
+      .play()
+      .then(() => (isPlaying = true))
+      .catch((err: unknown) => {
+        isPlaying = false;
+        if (err instanceof DOMException && err.name === 'NotAllowedError') {
+          sync?.changed();
+          // The browser wants a click before a fresh document may make sound; the toast's
+          // action is exactly that click, so playback continues from the same second.
+          toast('Playback paused by the reload', {
+            description: 'Your browser needs a click before audio can continue.',
+            action: { label: 'Resume', onClick: () => resume() }
+          });
+        }
+      });
+  };
+  // With the account's session plugged in, a reload only carries on by itself when this tab
+  // still holds the session or nothing is live elsewhere — music restarting here while it plays
+  // on the phone would be the one thing worse than silence. The gate answers within a few seconds.
+  if (sync) void sync.restoreGate().then((ok) => ok && resumeRestored());
+  else resumeRestored();
 }
+
+/** What {@link localPlayback.adopt} starts: another device's session, resolved here. */
+export interface AdoptTarget {
+  queue: PlayerSong[];
+  index: number;
+  positionSec: number;
+  radioSeedId: number | null;
+  /**
+   * The start is a new listen: Next or Previous onto another song, which starts it from 0:00.
+   * Picking the session up at its own song carries on a listen already counted.
+   */
+  listen?: boolean;
+}
+
+/**
+ * Pick the account's session up on this device: its queue, positioned at its song and second,
+ * playing. The same shape as the reload restore — src, load, the start position, then `play()`
+ * with nothing awaited in between, so a tap's user activation (and, on iOS, the background audio
+ * session) reaches the element. Not a new listen of the track (no `reportPlay`) unless `listen`
+ * says it starts another one, and the station carries on from the session's own seed. Resolves
+ * with how `play()` went.
+ */
+function adoptQueue(target: AdoptTarget): Promise<PlayOutcome> {
+  const el = ensureAudioEl();
+  const song = target.queue[target.index];
+  if (!el || !song) return Promise.resolve('failed');
+
+  queue = target.queue;
+  queueIndex = target.index;
+  // A session without a station (an older client) still should not end in silence here.
+  radioSeedId = target.radioSeedId ?? song.id;
+  radioExhausted = false;
+
+  loadGeneration += 1; // a pick still in its pre-flight must not land over this
+  currentSong = song;
+  currentTime = target.positionSec;
+  duration = 0;
+  updateMediaMetadata(song);
+  refreshActionHandlers();
+  loadSource(el, song);
+  // As in the reload restore: the start position before metadata, and where the loop (see
+  // `songFinished`) measures from.
+  el.currentTime = target.positionSec;
+  lastPlayedPosition = target.positionSec;
+  const played = attemptPlay({ quietBlock: true });
+  if (target.listen) reportPlay(song.id);
+  maybePrefetchRadio();
+  return played;
+}
+
+/**
+ * Stand-ins become their rows once the library's rows are here: a session picked up before they
+ * arrived keeps every id of its queue (the claim must not cut the account's queue short), under a
+ * bare stand-in. One the library turns out not to hold leaves the queue — unless it is the song on
+ * the element, which plays on as it is.
+ */
+function hydrateStandIns(rows: ReadonlyMap<number, ApiSong>) {
+  untrack(() => {
+    if (rows.size === 0 || !(currentSong?.standIn || queue.some((s) => s.standIn))) return;
+    const next: PlayerSong[] = [];
+    let index = queueIndex;
+    queue.forEach((item, i) => {
+      const row = item.standIn ? rows.get(item.id) : undefined;
+      if (!item.standIn) next.push(item);
+      else if (row) next.push(toPlayerSong(row, artistOf(row)));
+      else if (i === queueIndex) next.push(item);
+      else if (i < queueIndex) index -= 1;
+    });
+    // Only the song on the element can stay a stand-in; that alone is no news to report.
+    if (next.some((song, i) => song !== queue[i]) || next.length !== queue.length) {
+      queue = next;
+      queueIndex = index;
+      refreshActionHandlers();
+      sync?.changed(); // "up next" is what this library holds now
+    }
+    const loaded = currentSong?.standIn ? rows.get(currentSong.id) : undefined;
+    if (loaded) {
+      currentSong = toPlayerSong(loaded, artistOf(loaded));
+      updateMediaMetadata(currentSong);
+    }
+  });
+}
+
+/** This device's own playback, as a report to the session describes it. */
+export interface LocalPlaybackState {
+  /**
+   * The song on the element — or, while a pick is in its pre-flight, the queue's item, which
+   * leads the element until it gets there.
+   */
+  song: PlayerSong;
+  queue: number[];
+  queueIndex: number;
+  positionMs: number;
+  durationMs: number | null;
+  /** Asked to play: true from the `play()` call on, not only once audio flows. */
+  isPlaying: boolean;
+  /** The current item is still in its pre-flight: not on the element yet, about to play. */
+  loading: boolean;
+  playbackRate: number;
+  radioSeedId: number | null;
+}
+
+function localState(): LocalPlaybackState | null {
+  return untrack(() => {
+    if (queueIndex < 0) return null;
+    const item = queue[queueIndex];
+    // The queue moves to a pick before its pre-flight: while that is on its way, the pick is what
+    // this device is about to play. Otherwise the element's own song is the truth — a pick whose
+    // pre-flight failed (or was dropped) leaves the queue on a song that never loaded.
+    const loading = pendingPick() !== null;
+    const song = loading || !currentSong ? item : currentSong;
+    if (!song) return null;
+    let ids = queue.map((s) => s.id);
+    let index = queueIndex;
+    if (song.id !== item?.id) {
+      index = indexNear(ids, song.id, queueIndex);
+      if (index < 0) {
+        ids = [song.id];
+        index = 0;
+      }
+    }
+    // Until the new track is on the element, its position is 0 and its length unknown.
+    const loaded = !loading && currentSong?.id === song.id;
+    const position = loaded ? (audioEl?.currentTime ?? currentTime) : 0;
+    return {
+      song,
+      queue: ids,
+      queueIndex: index,
+      positionMs: Math.round(Math.max(0, position) * 1000),
+      durationMs:
+        loaded && Number.isFinite(duration) && duration > 0 ? Math.round(duration * 1000) : null,
+      isPlaying: elementPlaying(),
+      loading,
+      playbackRate: playbackRateState,
+      radioSeedId
+    };
+  });
+}
+
+/** Where `id` sits in `ids`: the nearest occurrence at or before `from`, else the first after it. */
+function indexNear(ids: readonly number[], id: number, from: number): number {
+  for (let i = Math.min(from, ids.length - 1); i >= 0; i--) if (ids[i] === id) return i;
+  return ids.indexOf(id);
+}
+
+/**
+ * The local element itself, whatever the session is doing — for the playback-sync store only. It
+ * reports from here, carries out the commands another device sends, steps aside when superseded
+ * and picks a session up. Nothing here is a play intent: the store decides when to claim.
+ */
+export const localPlayback = {
+  /** The song on this device's element (not the session's). */
+  get song() {
+    return currentSong;
+  },
+  /** The reactive playing flag (follows the element's events). */
+  get isPlaying() {
+    return isPlaying;
+  },
+  /** Playing, or asked to — read straight off the element, so not reactive. */
+  playing: elementPlaying,
+  /**
+   * A pick still in its pre-flight: about to play here, though the element is not on it yet (and
+   * after an `ended`, is paused). Not reactive.
+   */
+  loading: (): PlayerSong | null => untrack(pendingPick),
+  state: localState,
+  /**
+   * Pause for the session's sake: another device took it, or sent Pause. A pick still in its
+   * pre-flight is dropped too — nothing else would stop it starting once the pre-flight answers,
+   * and this device would play beside the one that now holds the session. (After the song before
+   * it ended, the pick waits on the element, paused at 0:00: see `dropPendingLoad`.)
+   */
+  pause(): void {
+    dropPendingLoad();
+    localPause();
+  },
+  /** Resolves with how `play()` went; an autoplay refusal is left to the caller to explain. */
+  resume(): Promise<PlayOutcome> {
+    if (!ensureAudioEl() || !currentSong) return Promise.resolve('failed');
+    return attemptPlay({ quietBlock: true });
+  },
+  next: nextTrack,
+  previous: () => previousTrack(false),
+  seek: localSeek,
+  adopt: adoptQueue,
+  /** The library's rows arrived (or changed): stand-ins from a pick-up become their rows. */
+  hydrate: hydrateStandIns,
+  /** The session just moved to another device: show it, even if the bar was hidden. */
+  revealMiniPlayer(): void {
+    miniPlayerDismissed = false;
+  }
+};
 
 /**
  * Warm up the store-owned audio element for the session. Safe to call multiple
@@ -1138,18 +1648,24 @@ export function initPlayer(userId?: string): void {
   startPersistence();
 }
 
+// The song, state and position getters (and the transport above) follow the account's session
+// while it plays elsewhere — see PlayerRemote. Volume, speed and the panel/bar flags stay local.
 export const playerStore = {
   get currentSong() {
-    return currentSong;
+    const remote = remoteView();
+    return remote ? remote.song : currentSong;
   },
   get isPlaying() {
-    return isPlaying;
+    const remote = remoteView();
+    return remote ? remote.isPlaying : isPlaying;
   },
   get currentTime() {
-    return currentTime;
+    const remote = remoteView();
+    return remote ? remote.currentTime : currentTime;
   },
   get duration() {
-    return duration;
+    const remote = remoteView();
+    return remote ? remote.duration : duration;
   },
   get volume() {
     return volumeState;
@@ -1157,15 +1673,27 @@ export const playerStore = {
   get playbackRate() {
     return playbackRateState;
   },
+  /**
+   * Whether the speed controls change what is heard: not while the player shows the account's
+   * session from another device — the speed is this device's own, and the session has no command
+   * to set it there — so they step out of the way, as the volume does.
+   */
+  get speedAdjustable() {
+    return remoteView() === null;
+  },
   get hasNext() {
-    return canAdvance();
+    const remote = remoteView();
+    return remote ? remote.hasNext : canAdvance();
   },
   /** True whenever a track is loaded: Previous restarts the first item rather than going dark. */
   get hasPrevious() {
+    const remote = remoteView();
+    if (remote) return remote.song !== null;
     return currentSong !== null && queueIndex >= 0;
   },
+  /** AirPlay routes this device's element, which is not the one playing while another device is. */
   get airPlayAvailable() {
-    return airPlayAvailable;
+    return remoteView() ? false : airPlayAvailable;
   },
   get isPanelMounted() {
     return panelMountedCount > 0;

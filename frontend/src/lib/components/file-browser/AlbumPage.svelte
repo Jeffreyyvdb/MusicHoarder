@@ -73,7 +73,7 @@
   import { toast } from 'svelte-sonner';
   import { IsMobile } from '$lib/hooks/is-mobile.svelte';
   import { albumViewPrefs } from '$lib/stores/album-view-prefs.svelte';
-  import { playerStore } from '$lib/stores/player.svelte';
+  import { playerStore, type StartQueueOptions } from '$lib/stores/player.svelte';
   import { songsStore } from '$lib/stores/songs.svelte';
   import { songDetail } from '$lib/stores/song-detail.svelte';
   import { tabMemory } from '$lib/stores/tab-memory.svelte';
@@ -473,12 +473,13 @@
   }
 
   /** Plays the album from `target`; never pauses (a tap, a menu's Play, the Play pill). */
-  function playFrom(target: ApiSong) {
+  function playFrom(target: ApiSong, options?: StartQueueOptions) {
     if (!album) return;
     const queue = tracks.map((t) => toPlayerSong(t, album.artist));
     void playerStore.startQueue(
       queue,
-      tracks.findIndex((t) => t.id === target.id)
+      tracks.findIndex((t) => t.id === target.id),
+      options
     );
   }
 
@@ -489,11 +490,13 @@
   }
 
   // The pill reads Pause while one of this album's tracks is playing, so only then does it pause;
-  // as Play it resumes that track, else starts track 1.
+  // as Play it resumes that track — wherever it is loaded, the account's session on another device
+  // included — else starts track 1.
   function playAlbumStart() {
     if (!album || tracks.length === 0) return;
     if (playerStore.isPlaying && currentlyPlaying) playerStore.pause();
-    else playFrom(currentlyPlaying ?? tracks[0]);
+    else if (currentlyPlaying) playFrom(currentlyPlaying, { resumeIfLoaded: true });
+    else playFrom(tracks[0]);
   }
 
   // Shuffle never pauses, even when the shuffle happens to start on the song already playing.

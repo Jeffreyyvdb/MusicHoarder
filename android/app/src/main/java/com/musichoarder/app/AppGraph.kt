@@ -8,9 +8,11 @@ import coil3.SingletonImageLoader
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.crossfade
 import com.musichoarder.app.data.AuthInterceptor
+import com.musichoarder.app.data.DeviceIdentity
 import com.musichoarder.app.data.LibraryRepository
 import com.musichoarder.app.data.MusicHoarderApi
 import com.musichoarder.app.data.SessionStore
+import com.musichoarder.app.player.PlaybackConnect
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
@@ -34,6 +36,13 @@ class AppGraph(context: Context) {
     val api = MusicHoarderApi(httpClient, sessions)
 
     val library = LibraryRepository(api)
+
+    /**
+     * Playback sync ("Connect"). Here rather than in the ViewModel because it outlives the UI: the
+     * playback service lends it the player, and a phone playing in a pocket still has to stop when
+     * another device takes the session.
+     */
+    val playbackConnect = PlaybackConnect(api, sessions, library, DeviceIdentity(context))
 
     val imageLoader: ImageLoader = ImageLoader.Builder(context)
         .components { add(OkHttpNetworkFetcherFactory(callFactory = { httpClient })) }

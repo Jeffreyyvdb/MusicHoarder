@@ -2,6 +2,22 @@ import { createPasskey, getPasskeyAssertion } from "$lib/webauthn-client"
 import { formatOf } from "$lib/audio-formats"
 import type { PlayerSong } from "$lib/stores/player.svelte"
 import type { LyricsProvenance, LyricsSyncStatus } from "$lib/types"
+import {
+  parseCommandEvent,
+  parseDevicesEvent,
+  parseEventData,
+  parseOverview,
+  parseSessionEvent,
+  parseStateResponse,
+  type DeviceKind,
+  type PlaybackCommandEvent,
+  type PlaybackCommandRequest,
+  type PlaybackDevice,
+  type PlaybackOverview,
+  type PlaybackSession,
+  type PlaybackStateReport,
+  type PlaybackStateResponse,
+} from "$lib/playback-sync/wire"
 
 const API_PREFIX = "/api/mh"
 
@@ -1166,6 +1182,165 @@ export async function fetchRadio(
   if (exclude.length > 0) params.set("exclude", exclude.join(","))
   const result = await requestJson<{ songIds?: number[] }>(`/api/radio?${params}`)
   return result.songIds ?? []
+}
+
+// ── Playback sync ("Connect": one session per account, one active device) ──────
+// The wire types and their validation live in $lib/playback-sync/wire.ts (the rules the Android
+// client ports); these are just the four calls. Every one is refused for the demo account, and a
+// shipped API without the feature answers 404 — the store treats both as "feature off".
+
+/** The account's session and its reachable devices, as they stand now. */
+export async function fetchPlayback(): Promise<PlaybackOverview> {
+  const raw = await requestJson<unknown>("/api/playback")
+  return parseOverview(raw) ?? { session: null, devices: [] }
+}
+
+/** This device's report: a claim after a local play intent, else an update while it is active. */
+export async function reportPlaybackState(report: PlaybackStateReport): Promise<PlaybackStateResponse> {
+  const raw = await requestJson<unknown>("/api/playback/state", {
+    method: "POST",
+    body: JSON.stringify(report),
+  })
+  return parseStateResponse(raw)
+}
+
+/**
+ * Ask the device holding the session (or, for `transfer`, the named one) to do something. Resolves
+ * with the command id once the server has pushed it; whether it LANDED shows up later, as a session
+ * whose `lastCommandId` is this id. 409 `device_offline` / `not_active_device` and 404 `no_session`
+ * surface as an {@link ApiError} with that code.
+ */
+export async function sendPlaybackCommand(request: PlaybackCommandRequest): Promise<string> {
+  const raw = await requestJson<{ commandId?: unknown }>("/api/playback/command", {
+    method: "POST",
+    body: JSON.stringify(request),
+  })
+  if (typeof raw?.commandId !== "string" || raw.commandId.length === 0) {
+    throw new ApiError("The server did not return a command id.", null, 502)
+  }
+  return raw.commandId
+}
+
+/** Who is listening on a playback stream, as its query string carries it. */
+export interface PlaybackStreamDevice {
+  deviceId: string
+  installId: string | null
+  name: string
+  kind: DeviceKind
+}
+
+export interface PlaybackStreamHandlers {
+  /** The first message of every connection: it replaces everything the client knew. */
+  onSnapshot: (overview: PlaybackOverview) => void
+  onSession: (session: PlaybackSession) => void
+  onDevices: (devices: PlaybackDevice[]) => void
+  /** Only ever this device's own commands. */
+  onCommand: (command: PlaybackCommandEvent) => void
+  /** The browser gave up on the connection; it is opened again after `retryInMs`. */
+  onDown?: (retryInMs: number) => void
+}
+
+export const PLAYBACK_STREAM_MIN_BACKOFF_MS = 1_000
+export const PLAYBACK_STREAM_MAX_BACKOFF_MS = 30_000
+
+/** 1 s, 2 s, 4 s … 30 s: the wait before reopening a stream the browser closed. */
+export function nextStreamBackoff(previousMs: number): number {
+  if (previousMs <= 0) return PLAYBACK_STREAM_MIN_BACKOFF_MS
+  return Math.min(PLAYBACK_STREAM_MAX_BACKOFF_MS, previousMs * 2)
+}
+
+export function playbackStreamUrl(device: PlaybackStreamDevice): string {
+  const params = new URLSearchParams({
+    deviceId: device.deviceId,
+    name: device.name,
+    kind: device.kind,
+    client: "web",
+  })
+  if (device.installId) params.set("installId", device.installId)
+  return `${API_PREFIX}/api/playback/stream?${params}`
+}
+
+/** `EventSource.CLOSED`, spelled out so this module never needs the global at import time. */
+const EVENT_SOURCE_CLOSED = 2
+
+/**
+ * Open the account's playback stream through the same-origin proxy (no CORS, the session cookie
+ * rides along) and keep it open. Each server event has its own `event:` name, so each gets its own
+ * listener; a payload that fails validation is dropped rather than handed on.
+ *
+ * `EventSource` reconnects by itself after a dropped connection — and after the server's routine
+ * end of every stream (it closes each one after a few minutes, sending `retry:` ~1 s with the
+ * snapshot, so a vanished client does not stay listed): the `error` it fires then is still
+ * CONNECTING, so that is left to the browser, with no backoff and no `onDown`. What it does NOT
+ * do is retry an HTTP error (a proxy 504 while the API restarts, a 401 once the session is
+ * revoked): it closes for good. That case is retried here, backing off 1 s → 30 s, and the
+ * backoff resets once a snapshot proves the stream works.
+ * The server's 15 s `ping` exists to keep proxies and Node's fetch from timing the stream out;
+ * nothing listens for it. Returns the close function.
+ */
+export function openPlaybackStream(
+  device: PlaybackStreamDevice,
+  handlers: PlaybackStreamHandlers,
+  options: {
+    createEventSource?: (url: string) => EventSource
+    setTimer?: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>
+    clearTimer?: (timer: ReturnType<typeof setTimeout>) => void
+  } = {},
+): () => void {
+  const create = options.createEventSource ?? ((url: string) => new EventSource(url))
+  const setTimer = options.setTimer ?? ((fn: () => void, ms: number) => setTimeout(fn, ms))
+  const clearTimer = options.clearTimer ?? ((timer: ReturnType<typeof setTimeout>) => clearTimeout(timer))
+  const url = playbackStreamUrl(device)
+  let source: EventSource | null = null
+  let retryTimer: ReturnType<typeof setTimeout> | null = null
+  let backoff = 0
+  let closed = false
+
+  const data = (event: Event) => parseEventData((event as MessageEvent).data)
+
+  const connect = () => {
+    retryTimer = null
+    if (closed) return
+    const es = create(url)
+    source = es
+    es.addEventListener("snapshot", (event) => {
+      const overview = parseOverview(data(event))
+      if (!overview) return
+      backoff = 0
+      handlers.onSnapshot(overview)
+    })
+    es.addEventListener("session", (event) => {
+      const session = parseSessionEvent(data(event))
+      if (session) handlers.onSession(session)
+    })
+    es.addEventListener("devices", (event) => {
+      const devices = parseDevicesEvent(data(event))
+      if (devices) handlers.onDevices(devices)
+    })
+    es.addEventListener("command", (event) => {
+      const command = parseCommandEvent(data(event))
+      if (command) handlers.onCommand(command)
+    })
+    es.onerror = () => {
+      // Still CONNECTING: the browser is already retrying on its own.
+      if (es.readyState !== EVENT_SOURCE_CLOSED) return
+      es.close()
+      if (closed || source !== es) return
+      source = null
+      backoff = nextStreamBackoff(backoff)
+      handlers.onDown?.(backoff)
+      retryTimer = setTimer(connect, backoff)
+    }
+  }
+
+  connect()
+  return () => {
+    closed = true
+    if (retryTimer) clearTimer(retryTimer)
+    retryTimer = null
+    source?.close()
+    source = null
+  }
 }
 
 // ── Canonical album tracklist (multi-provider, reconciled; full-album view) ─────

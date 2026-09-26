@@ -14,6 +14,7 @@ import { resetGrantors, signOut } from '$lib/api-client';
 import { APP_HOME } from '$lib/app-home';
 import { songsStore } from '$lib/stores/songs.svelte';
 import { playerStore } from '$lib/stores/player.svelte';
+import { playbackSync } from '$lib/stores/playback-sync.svelte';
 
 export async function signOutAndReset(allSessions = false): Promise<void> {
   const { fallback } = await signOut(allSessions);
@@ -26,6 +27,7 @@ export async function signOutAndReset(allSessions = false): Promise<void> {
   // Drop cached user data so it can't leak into the next session — including who shared what,
   // or the next account would briefly see the previous one's "Shared by …" attribution.
   songsStore.reset();
+  playbackSync.stop(); // before the player stops, so stopping is not reported as this device's news
   playerStore.stop();
   resetGrantors();
   await goto('/login', { invalidateAll: true });

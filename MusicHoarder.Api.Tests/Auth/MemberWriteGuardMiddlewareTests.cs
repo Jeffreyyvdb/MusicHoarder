@@ -117,6 +117,38 @@ public class MemberWriteGuardMiddlewareTests
         Assert.True(nextCalled());
     }
 
+    // --- Playback sync between the member's own devices -----------------------------------------
+
+    [Theory]
+    [InlineData("/api/playback/state")]
+    [InlineData("/api/playback/command")]
+    public async Task Member_may_coordinate_their_own_devices_without_any_capability(string path)
+    {
+        // Keyed by the caller's own user id, like pairing a phone: nothing here reaches another
+        // account, so holding an account is the whole requirement.
+        var (_, nextCalled) = await InvokeAsync(NoCapabilities, "POST", path);
+
+        Assert.True(nextCalled());
+    }
+
+    [Theory]
+    [InlineData("POST", "/api/playback/state/x")]
+    [InlineData("POST", "/api/playback/command/extra")]
+    [InlineData("POST", "/api/playback/stateful")]
+    [InlineData("POST", "/api/playback")]
+    [InlineData("POST", "/api/playback/stream")]
+    [InlineData("DELETE", "/api/playback/state")]
+    [InlineData("PUT", "/api/playback/state")]
+    [InlineData("PATCH", "/api/playback/command")]
+    public async Task Playback_allowances_are_exact(string method, string path)
+    {
+        var (ctx, nextCalled) = await InvokeAsync(Listener, method, path);
+
+        Assert.False(nextCalled());
+        Assert.Equal(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);
+        Assert.Equal("member_write_denied", await ReadErrorAsync(ctx));
+    }
+
     // --- Capability-gated allowances -----------------------------------------------------------
 
     [Theory]

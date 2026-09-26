@@ -63,6 +63,7 @@ public class MusicHoarderDbContext : DbContext
     public DbSet<ShareVisit> ShareVisits { get; set; } = null!;
     public DbSet<LibraryShareGrant> LibraryShareGrants { get; set; } = null!;
     public DbSet<UserSongState> UserSongStates { get; set; } = null!;
+    public DbSet<PlaybackSession> PlaybackSessions { get; set; } = null!;
     public DbSet<TrackSyncState> TrackSyncStates { get; set; } = null!;
     public DbSet<UpgradeRequest> UpgradeRequests { get; set; } = null!;
     public DbSet<User> Users { get; set; } = null!;
@@ -536,6 +537,17 @@ public class MusicHoarderDbContext : DbContext
             // design (UserId is the grantee, Song.OwnerUserId the grantor), so the filter is on
             // the state's own UserId — writes additionally verify grant scope at the endpoint.
             entity.HasQueryFilter(e => !hasUser || e.UserId == userId);
+        });
+
+        // The account's remembered playback session: one row per user, private to that user like
+        // the other per-user tables. PlaybackCoordinator reads and writes it with
+        // IgnoreQueryFilters() and an explicit OwnerUserId, because it runs outside any request.
+        modelBuilder.Entity<PlaybackSession>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.OwnerUserId).IsUnique();
+
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
         });
 
         modelBuilder.Entity<User>(entity =>

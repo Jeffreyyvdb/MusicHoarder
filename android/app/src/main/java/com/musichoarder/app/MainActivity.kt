@@ -51,6 +51,20 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Playback sync keeps its event stream open while the app is on screen (and, without it, only
+     * while the service is playing) — so another device can see this one and control it.
+     */
+    override fun onStart() {
+        super.onStart()
+        (application as MusicHoarderApp).graph.playbackConnect.setUiStarted(true)
+    }
+
+    override fun onStop() {
+        (application as MusicHoarderApp).graph.playbackConnect.setUiStarted(false)
+        super.onStop()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)

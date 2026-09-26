@@ -4,17 +4,24 @@
   to the library, so it is excluded from cloud backup: restoring onto another phone would silently
   pair it with someone's whole library. Device transfer is excluded too — the token is cheap to
   re-issue by scanning a fresh code, and a device-to-device copy is not worth the blast radius of a
-  credential leaving the phone it was minted for.
+  credential leaving the phone it was minted for. The playback device id names this install, so it
+  stays behind as well: two phones sharing one would keep taking the session from each other.
 -->
 <data-extraction-rules>
     <cloud-backup>
         <exclude
             domain="file"
             path="datastore/" />
+        <exclude
+            domain="sharedpref"
+            path="playback_device.xml" />
     </cloud-backup>
     <device-transfer>
         <exclude
             domain="file"
             path="datastore/" />
+        <exclude
+            domain="sharedpref"
+            path="playback_device.xml" />
     </device-transfer>
 </data-extraction-rules>

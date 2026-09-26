@@ -25,10 +25,16 @@ private const val PREVIOUS_RESTART_AFTER_MS = 3_000L
  *
  * Both the audio stream and the notification's artwork are fetched through the app's authenticated
  * OkHttp client, since every MusicHoarder endpoint requires the bearer token.
+ *
+ * The player is lent to playback sync ([PlaybackConnect]) for as long as the service lives, and the
+ * session drives it through [PlaybackConnect.sessionPlayer] — so a play from the lock screen claims
+ * the account's session just as a tap in the app does, and the Mac taking the session over pauses
+ * this player even with the app swiped away.
  */
 @OptIn(UnstableApi::class)
 class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
+    private var player: ExoPlayer? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -54,8 +60,10 @@ class PlaybackService : MediaSessionService() {
             // default so the two clients cannot drift apart if that default ever moves.
             .setMaxSeekToPreviousPositionMs(PREVIOUS_RESTART_AFTER_MS)
             .build()
+        this.player = player
+        graph.playbackConnect.attach(player)
 
-        mediaSession = MediaSession.Builder(this, player)
+        mediaSession = MediaSession.Builder(this, graph.playbackConnect.sessionPlayer(player))
             .setBitmapLoader(
                 CacheBitmapLoader(
                     DataSourceBitmapLoader.Builder(this)
@@ -88,6 +96,8 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        player?.let { (application as MusicHoarderApp).graph.playbackConnect.detach(it) }
+        player = null
         mediaSession?.run {
             player.release()
             release()

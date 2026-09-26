@@ -42,6 +42,13 @@ data class LibraryState(
      * played from the album screen.
      */
     val trackListBase: List<Track> = emptyList(),
+    /**
+     * Every `/songs` row, built or not — the rows the web's `songsStore.songsById` holds. What an
+     * adopted playback session is resolved against ([LibraryRepository.songById]): the account's
+     * session can be playing anything its library holds (a matched track not yet built, streaming
+     * from the source), and the two clients must agree about what can be picked up.
+     */
+    val songsById: Map<Int, Track> = emptyMap(),
     /** Folder-keyed then merged by name. Never scoped by a filter: this is the drilldown resolver. */
     val albums: List<Album> = emptyList(),
     /**
@@ -139,29 +146,6 @@ class LibraryRepository(private val api: MusicHoarderApi) {
         }
     }
 
-    private fun fold(songs: List<ApiSong>, albums: List<AlbumSummaryDto>): LibraryState {
-        // Build state comes from ApiSong.isBuilt, which trusts the server's flag for rows shared
-        // with you and derives it locally for your own. That replaced a session-wide "shared
-        // library" mode this repository used to read — one rule, both row kinds, and the phone no
-        // longer needs to know what kind of account it holds.
-        val mapped = songs.map { song -> song.toTrack() to song.isBuilt }
-        val base = mapped
-            .filter { (track, isBuilt) -> isBuilt || (track.isLocalFile && track.needsReview) }
-            .map { it.first }
-            .sortedWith(BASE_ORDER)
-        val built = mapped.filter { it.second }.map { it.first }.sortedWith(BASE_ORDER)
-        // Joined against the whole base, not just the built rows: the cards name only built tracks
-        // anyway, and looking them up here keeps the join a lookup rather than a second filter.
-        val byId = base.associateBy { it.id }
-        return LibraryState(
-            builtTracks = built,
-            trackListBase = base,
-            albums = hydrateAlbums(albums, byId),
-            artistsPrimary = buildArtistGroups(built, primaryOnly = true),
-            artistsAll = buildArtistGroups(built, primaryOnly = false),
-        )
-    }
-
     /**
      * Loads the album grid's link-status dots, keyed on the identity set it is about to send so the
      * silent refetches never re-post the whole library.
@@ -223,6 +207,9 @@ class LibraryRepository(private val api: MusicHoarderApi) {
 
     fun trackById(id: Int): Track? = _state.value.trackListBase.firstOrNull { it.id == id }
 
+    /** Any `/songs` row by id, built or not — see [LibraryState.songsById]. */
+    fun songById(id: Int): Track? = _state.value.songsById[id]
+
     fun clear() {
         _state.value = LibraryState()
         _likes.value = emptyMap()
@@ -231,7 +218,33 @@ class LibraryRepository(private val api: MusicHoarderApi) {
         statusSignature = null
     }
 
-    private companion object {
+    internal companion object {
+        /** One `/songs` + `/api/albums` fetch as the state. Pure, so the tests run the real thing. */
+        internal fun fold(songs: List<ApiSong>, albums: List<AlbumSummaryDto>): LibraryState {
+            // Build state comes from ApiSong.isBuilt, which trusts the server's flag for rows
+            // shared with you and derives it locally for your own. That replaced a session-wide
+            // "shared library" mode this repository used to read — one rule, both row kinds, and
+            // the phone no longer needs to know what kind of account it holds.
+            val mapped = songs.map { song -> song.toTrack() to song.isBuilt }
+            val base = mapped
+                .filter { (track, isBuilt) -> isBuilt || (track.isLocalFile && track.needsReview) }
+                .map { it.first }
+                .sortedWith(BASE_ORDER)
+            val built = mapped.filter { it.second }.map { it.first }.sortedWith(BASE_ORDER)
+            // Joined against the whole base, not just the built rows: the cards name only built
+            // tracks anyway, and looking them up here keeps the join a lookup rather than a second
+            // filter.
+            val byId = base.associateBy { it.id }
+            return LibraryState(
+                builtTracks = built,
+                trackListBase = base,
+                songsById = mapped.associate { (track, _) -> track.id to track },
+                albums = hydrateAlbums(albums, byId),
+                artistsPrimary = buildArtistGroups(built, primaryOnly = true),
+                artistsAll = buildArtistGroups(built, primaryOnly = false),
+            )
+        }
+
         /**
          * The list's resting order, and the tie-break every explicit sort falls back to - the same
          * ordering `/songs` itself returns.

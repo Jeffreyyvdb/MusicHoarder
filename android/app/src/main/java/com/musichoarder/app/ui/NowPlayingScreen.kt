@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -43,6 +44,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Devices
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.Group
@@ -115,6 +117,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.media3.common.Player
+import com.musichoarder.app.data.PlaybackMode
 import com.musichoarder.app.player.PlayerUiState
 import com.musichoarder.app.player.VideoState
 import com.musichoarder.app.ui.theme.LocalMhColors
@@ -149,6 +152,13 @@ private enum class PlayerPane { Song, Lyrics, Video }
  * slaved to the audio clock. The Video toggle promotes it into the middle, letterboxed.
  *
  * Drag it down to dismiss — from the top bar or the artwork — as well as the chevron and Back.
+ *
+ * Playback sync ("Connect"): a Devices button joins the bottom row ([devices]; the web's
+ * `TrackPanel` puts it beside Lyrics too), and while the music plays on another device — or is only
+ * remembered — [state] describes that session: a line under the row says where ("Playing on
+ * MacBook", tappable for the picker), and the transport steers it. Shuffle, Repeat and playback
+ * speed act on this phone's own player, which is not what anyone is hearing then, so they step out
+ * of the way — as the web's volume does.
  *
  * Deliberately one-sided: the web's **Info** page (its bottom row's Info, and "Song info" in a
  * row's ⋯ menu) has no Android counterpart. It is mostly curation over the pipeline's data —
@@ -199,6 +209,8 @@ fun NowPlayingScreen(
      * own — so a like that failed from the heart up here is reported where the listener is looking.
      */
     snackbarHost: @Composable () -> Unit = {},
+    /** The device picker's rows and choices; null (or [PlayerUiState.devicesAvailable] off) hides it. */
+    devices: DevicesControl? = null,
 ) {
     // The media appearance: Material's dark scheme (so the menus open dark) and, over it, the
     // player's own white-on-cover tokens. The contrast palettes still apply underneath.
@@ -234,6 +246,7 @@ fun NowPlayingScreen(
                 onAttachVideoSurface = onAttachVideoSurface,
                 onDetachVideoSurface = onDetachVideoSurface,
                 snackbarHost = snackbarHost,
+                devices = devices,
                 modifier = modifier,
             )
         }
@@ -268,6 +281,7 @@ private fun PlayerLayout(
     onAttachVideoSurface: (TextureView) -> Unit,
     onDetachVideoSurface: () -> Unit,
     snackbarHost: @Composable () -> Unit,
+    devices: DevicesControl?,
     modifier: Modifier,
 ) {
     // Two different questions: is there still a clip to offer a toggle for, and is one running
@@ -312,6 +326,18 @@ private fun PlayerLayout(
     )
 
     LightSystemBarIcons()
+
+    // The picker opens in the player's menu palette (plain dark), as the web's nested sheet does.
+    var pickerOpen by rememberSaveable { mutableStateOf(false) }
+    val shownDevices = devices?.takeIf { state.devicesAvailable }
+    // Closed with its control, so it cannot reappear on its own when the control comes back.
+    LaunchedEffect(shownDevices == null) { if (shownDevices == null) pickerOpen = false }
+    if (pickerOpen && shownDevices != null) {
+        CompositionLocalProvider(LocalMhColors provides menuColors) {
+            DevicePickerSheet(control = shownDevices, onDismiss = { pickerOpen = false })
+        }
+    }
+    val local = state.mode == PlaybackMode.Local
 
     // ── Drag to dismiss ────────────────────────────────────────────────────────────────────────
     // From the top bar and the artwork, as on the web: the sheet follows the finger, and on
@@ -394,7 +420,8 @@ private fun PlayerLayout(
                 PlayerMoreMenu(
                     menuColors = menuColors,
                     rate = state.playbackRate,
-                    onSetSpeed = onSetSpeed,
+                    // This phone's speed; nothing to set while the music is elsewhere.
+                    onSetSpeed = onSetSpeed.takeIf { local },
                     onOpenAlbum = onOpenAlbum,
                     onOpenArtist = onOpenArtist,
                     // On the watch view the clip is the point, so there is nothing to switch off there.
@@ -467,7 +494,24 @@ private fun PlayerLayout(
                 onToggleVideo = { toggle(PlayerPane.Video) },
                 onToggleShuffle = onToggleShuffle,
                 onCycleRepeat = onCycleRepeat,
+                onOpenDevices = shownDevices?.let { { pickerOpen = true } },
             )
+
+            state.deviceLine?.let { line ->
+                // 32dp tall (above the 28dp floor) so the foot of the player does not grow by 48.
+                DeviceLine(
+                    text = line,
+                    kind = state.deviceKind,
+                    live = state.mode == PlaybackMode.Remote,
+                    style = MaterialTheme.typography.bodySmall,
+                    onClick = shownDevices?.let { { pickerOpen = true } },
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .padding(horizontal = 28.dp)
+                        .heightIn(min = 32.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp),
+                )
+            }
 
             state.error?.let {
                 Text(
@@ -850,10 +894,14 @@ private fun AnnotatedString.Builder.appendNavigable(
 }
 
 /**
- * Lyrics · Video · Shuffle · Repeat — the web's bottom row, where its Info and AirPlay slots hold
- * Android's queue modes instead. The web transport has no shuffle or repeat at all; they work on
- * the phone and must not regress, so they take the row's spare places rather than crowding the
- * transport. An active toggle is its glyph on a white capsule, never colour alone.
+ * Lyrics · Devices · Video · Shuffle · Repeat — the web's bottom row, where its Info and AirPlay
+ * slots hold Android's queue modes instead. The web transport has no shuffle or repeat at all; they
+ * work on the phone and must not regress, so they take the row's spare places rather than crowding
+ * the transport. An active toggle is its glyph on a white capsule, never colour alone.
+ *
+ * Devices ([onOpenDevices], null hides it) opens the picker, and is lit like a selected mode while
+ * the music is on another device. Shuffle and Repeat are this phone's, so they only show while the
+ * player is.
  */
 @Composable
 private fun PlayerBottomRow(
@@ -865,7 +913,9 @@ private fun PlayerBottomRow(
     onToggleVideo: () -> Unit,
     onToggleShuffle: () -> Unit,
     onCycleRepeat: () -> Unit,
+    onOpenDevices: (() -> Unit)?,
 ) {
+    val local = state.mode == PlaybackMode.Local
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceEvenly,
@@ -878,6 +928,20 @@ private fun PlayerBottomRow(
             fill = tokens.fill,
             onClick = onToggleLyrics,
         )
+        if (onOpenDevices != null) {
+            val line = state.deviceLine
+            PlayerRowButton(
+                icon = Icons.Rounded.Devices,
+                active = !local,
+                fill = tokens.fill,
+                modifier = Modifier
+                    .clickable(onClickLabel = "Choose a device", role = Role.Button, onClick = onOpenDevices)
+                    .semantics {
+                        contentDescription = "Devices"
+                        if (line != null) stateDescription = line
+                    },
+            )
+        }
         if (watchable) {
             PlayerToggle(
                 icon = Icons.Rounded.OndemandVideo,
@@ -887,6 +951,7 @@ private fun PlayerBottomRow(
                 onClick = onToggleVideo,
             )
         }
+        if (!local) return@Row
         PlayerToggle(
             icon = Icons.Rounded.Shuffle,
             label = "Shuffle",
@@ -973,13 +1038,16 @@ private fun PlayerRowButton(icon: ImageVector, active: Boolean, fill: Color, mod
 private fun PlayerMoreMenu(
     menuColors: MhColors,
     rate: Float,
-    onSetSpeed: (Float) -> Unit,
+    /** Null leaves Playback speed out: the music is on another device. */
+    onSetSpeed: ((Float) -> Unit)?,
     onOpenAlbum: (() -> Unit)?,
     onOpenArtist: (() -> Unit)?,
     showBackgroundToggle: Boolean,
     showVideoBackdrop: Boolean,
     onToggleVideoBackdrop: () -> Unit,
 ) {
+    // Another device's song this library cannot link, with no clip: nothing to offer, so no ⋮.
+    if (onSetSpeed == null && onOpenAlbum == null && onOpenArtist == null && !showBackgroundToggle) return
     var expanded by remember { mutableStateOf(false) }
     var speedPage by remember { mutableStateOf(false) }
     val close = { expanded = false }
@@ -998,7 +1066,7 @@ private fun PlayerMoreMenu(
                 shape = MhMenuShape,
                 containerColor = menuColors.popover,
             ) {
-                if (speedPage) {
+                if (speedPage && onSetSpeed != null) {
                     DropdownMenuItem(
                         text = { MenuLabel("Playback speed", FontWeight.SemiBold) },
                         leadingIcon = {
@@ -1028,22 +1096,26 @@ private fun PlayerMoreMenu(
                             },
                         )
                     }
-                    if (links.isNotEmpty()) HorizontalDivider(color = menuColors.separator)
-                    DropdownMenuItem(
-                        text = { MenuLabel("Playback speed") },
-                        leadingIcon = { MenuIcon(Icons.Rounded.Speed) },
-                        trailingIcon = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    speedLabel(rate),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = menuColors.mutedForeground,
-                                )
-                                MenuIcon(Icons.AutoMirrored.Rounded.KeyboardArrowRight)
-                            }
-                        },
-                        onClick = { speedPage = true },
-                    )
+                    if (links.isNotEmpty() && (onSetSpeed != null || showBackgroundToggle)) {
+                        HorizontalDivider(color = menuColors.separator)
+                    }
+                    if (onSetSpeed != null) {
+                        DropdownMenuItem(
+                            text = { MenuLabel("Playback speed") },
+                            leadingIcon = { MenuIcon(Icons.Rounded.Speed) },
+                            trailingIcon = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        speedLabel(rate),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = menuColors.mutedForeground,
+                                    )
+                                    MenuIcon(Icons.AutoMirrored.Rounded.KeyboardArrowRight)
+                                }
+                            },
+                            onClick = { speedPage = true },
+                        )
+                    }
                     if (showBackgroundToggle) {
                         // A switch, so it leaves the menu open to show the new state — the web's
                         // checkbox items do the same.

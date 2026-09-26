@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -23,8 +24,12 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,6 +41,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.musichoarder.app.data.PlaybackMode
 import com.musichoarder.app.player.PlayerUiState
 import com.musichoarder.app.ui.theme.MhTheme
 
@@ -50,6 +56,10 @@ import com.musichoarder.app.ui.theme.MhTheme
  * Opaque [MhColors.chromeSolid] rather than the web's blurred glass — Compose has no cheap
  * backdrop blur, and the solid chrome is exactly what the web itself falls back to under Reduce
  * Transparency. The half-pixel rim and the soft shadow are what lift it off the page.
+ *
+ * While the music is on another device (or only remembered) the artist line says where instead —
+ * "Playing on MacBook" — and a tap on it opens the device picker ([devices]), the web's compact
+ * bar; the transport then steers that device (see `AppViewModel`).
  */
 @Composable
 fun MiniPlayer(
@@ -59,9 +69,18 @@ fun MiniPlayer(
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
     modifier: Modifier = Modifier,
+    devices: DevicesControl? = null,
 ) {
     val colors = MhTheme.colors
     val expand by rememberUpdatedState(onExpand)
+    var pickerOpen by remember { mutableStateOf(false) }
+    // A sheet that left because the control did (the feature went off under it) is closed, not
+    // waiting to slide back up by itself the next time the control returns.
+    LaunchedEffect(devices == null) { if (devices == null) pickerOpen = false }
+    if (pickerOpen && devices != null) {
+        DevicePickerSheet(control = devices, onDismiss = { pickerOpen = false })
+    }
+    val deviceLine = state.deviceLine
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -109,7 +128,9 @@ fun MiniPlayer(
             shape = RoundedCornerShape(9.dp),
         )
         Spacer(Modifier.size(12.dp))
-        Column(modifier = Modifier.weight(1f).padding(vertical = 8.dp)) {
+        // With a device line, the column gives its bottom padding to the line's own 28dp target
+        // (Apple's floor), so the capsule keeps its 56dp.
+        Column(modifier = Modifier.weight(1f).padding(top = 8.dp, bottom = if (deviceLine != null) 0.dp else 8.dp)) {
             Text(
                 state.title,
                 style = MaterialTheme.typography.bodyMedium,
@@ -118,13 +139,25 @@ fun MiniPlayer(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(
-                state.artist,
-                style = MaterialTheme.typography.bodySmall,
-                color = colors.mutedForeground,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            if (deviceLine != null) {
+                DeviceLine(
+                    text = deviceLine,
+                    kind = state.deviceKind,
+                    live = state.mode == PlaybackMode.Remote,
+                    style = MaterialTheme.typography.bodySmall,
+                    onClick = devices?.let { { pickerOpen = true } },
+                    modifier = Modifier.heightIn(min = 28.dp),
+                    contentPadding = PaddingValues(bottom = 6.dp),
+                )
+            } else {
+                Text(
+                    state.artist,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.mutedForeground,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
         // Full 48dp Material targets, laid out at that size rather than squeezed to the glyph: the
         // text column ends where the buttons begin, so a tap meant to open the player can never
