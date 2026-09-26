@@ -84,8 +84,10 @@
     onDragStart?: (event: PointerEvent) => void;
     /** "Share with a friend…": the host closes this overlay and opens the album grant dialog. */
     onShareWithFriend?: () => void;
+    /** Out: Video mode is up, so the host blurs the backdrop's copy of the clip behind it. */
+    watching?: boolean;
   };
-  const {
+  let {
     album,
     song,
     trackIndex,
@@ -96,7 +98,8 @@
     onResetEnrichment,
     timelineHref,
     onDragStart,
-    onShareWithFriend
+    onShareWithFriend,
+    watching = $bindable(false)
   }: Props = $props();
 
   // Fingerprint + Enrichment, the AI actions, sharing and video management are owner vocabulary
@@ -190,6 +193,14 @@
   const content = $derived<DetailMode>(
     wide.current && mode === 'player' ? (ai.hasLyrics ? 'lyrics' : 'info') : mode
   );
+
+  // Behind the watch view the backdrop plays the same clip; sharp, it reads as the video twice.
+  $effect(() => {
+    watching = content === 'video' && video.playable;
+  });
+  $effect(() => () => {
+    watching = false;
+  });
 
   // Compact: each mode button toggles, and releasing it goes back to the artwork. At lg the art
   // never leaves the left column, so the row just picks what the right column shows; pressing the
@@ -566,6 +577,17 @@
   />
 {/snippet}
 
+{#snippet videoCaption()}
+  <p
+    class={cn(
+      'text-footnote text-center',
+      videoLine?.tone === 'destructive' ? 'text-destructive-text' : 'text-muted-foreground'
+    )}
+  >
+    {videoLine?.text}
+  </p>
+{/snippet}
+
 <!-- The swapping region: the compact middle, or the lg right column. Info stays mounted (hidden)
      so its lazy loads settle once per song however often the mode changes. -->
 {#snippet modeContent()}
@@ -581,9 +603,9 @@
       {lrclibUrl}
     />
   {:else if content === 'video' && video.playable}
-    <!-- The clip and its status line as one centred group, so the line sits under the picture
-         rather than at the bottom of the column. -->
-    <div class={cn('flex min-h-0 flex-1 flex-col items-center justify-center gap-3', !wide.current && 'px-4')}>
+    <!-- The whole middle (the whole column at lg) is the clip's stage: the watch view fits the
+         picture into it, with the status line right under the picture. -->
+    <div class={cn('flex min-h-0 flex-1 flex-col', !wide.current && 'px-4 py-3')}>
       <VideoWatchTab
         songId={song.id}
         offsetMs={video.offsetMs}
@@ -591,18 +613,9 @@
         title={trackTitle}
         artist={trackArtist}
         fallbackDuration={song.durationSeconds ?? 0}
+        caption={videoLine ? videoCaption : undefined}
         onPlayRequest={handlePlayToggle}
       />
-      {#if videoLine}
-        <p
-          class={cn(
-            'text-footnote shrink-0 text-center',
-            videoLine.tone === 'destructive' ? 'text-destructive-text' : 'text-muted-foreground'
-          )}
-        >
-          {videoLine.text}
-        </p>
-      {/if}
     </div>
   {/if}
   <div class={cn('flex min-h-0 flex-1 flex-col', content !== 'info' && 'hidden')}>
