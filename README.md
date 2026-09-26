@@ -53,6 +53,11 @@ a mock-up. The image above follows your GitHub light or dark theme.</sub>
   like history, Albums, Artists with an A–Z index, and one Tracks list sliced by filters (Spotify
   liked, favourites, local files, has video, with lyrics, unreleased). On a phone, tapping a row
   plays the list you're looking at.
+- **Playlists** — make your own and add to them from any track's, album's or Now Playing's ⋯ menu.
+  The Spotify, Deezer and YouTube playlists you collect show up beside them in their remote order,
+  and you can add tracks to those here too (they play after the playlist's own). Your playlists are
+  written as `.m3u8` files into the library's `Playlists` folder, so Navidrome, Plex and Jellyfin
+  pick them up.
 - **Likes & play history** — heart any track; plays are tracked (count + last played) to power
   most-played, recently-added and "never played" shelves.
 - **Install it** — add it to your iPhone or iPad home screen, or install it from Chrome/Edge; it
@@ -140,7 +145,8 @@ a mock-up. The image above follows your GitHub light or dark theme.</sub>
 - **Add from link** — paste a Spotify track or YouTube link to download it straight into the
   library.
 - **Playlist sync** *(optional)* — mirror your Spotify Liked Songs or any playlist as a static
-  `.m3u8` file in the destination library, in order, so Navidrome/Plex/Jellyfin auto-import it.
+  `.m3u8` file in the destination library, in order, so Navidrome/Plex/Jellyfin auto-import it —
+  without collecting it. (A collected playlist is already a playlist under Listen → Playlists.)
 
 ![The Discover page — Deezer-backed editorial and chart playlists with genre filters, a search box, a paste-a-link button, and one-click subscribe](frontend/static/screenshots/discover.webp)
 
@@ -152,8 +158,9 @@ a mock-up. The image above follows your GitHub light or dark theme.</sub>
   With the Android app installed, share and invite links open natively in the app.
 - **Member accounts** — invite people by email (Settings → People mints a one-time link) to create
   their own listen-only account, then share albums, artists, or your entire library with each of
-  them. Members get the same listening app — Overview, Albums, Artists and Tracks, Now Playing with
-  lyrics and music videos, and their own likes and play history — over exactly what you granted.
+  them. Members get the same listening app — Overview, Albums, Artists, Tracks and their own
+  Playlists, Now Playing with lyrics and music videos, and their own likes and play history — over
+  exactly what you granted.
   Every grant is revocable, and removing someone disables their account and signs them out
   everywhere.
 - **Several accounts on one device** — sign in to more than one account (say, your own and the
