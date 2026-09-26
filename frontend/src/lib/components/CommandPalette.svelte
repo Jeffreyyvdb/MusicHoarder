@@ -26,6 +26,7 @@
   import { holdAppInert } from '$lib/actions/inert-app';
   import { songDetail } from '$lib/stores/song-detail.svelte';
   import { songsStore } from '$lib/stores/songs.svelte';
+  import { indexForSearch, rankBySearch, searchTerms } from '$lib/search/match';
   import { cn } from '$lib/utils';
 
   // Cap each result group so typing stays snappy on large libraries.
@@ -118,48 +119,35 @@
   const albums = $derived<AlbumSummary[]>(songsStore.albums);
   const artists = $derived<GroupSummary[]>(buildArtistGroups(builtSongs));
 
-  // Per-entity lowercase haystacks, rebuilt only when the dataset changes. Without
-  // these every keystroke re-lowercased three fields per song across the library.
-  type Indexed<T> = { value: T; haystack: string };
-
-  const trackIndex = $derived<Indexed<ApiSong>[]>(
-    builtSongs.map((s) => ({
-      value: s,
-      haystack: [s.title ?? s.fileName, s.artist ?? s.albumArtist ?? '', s.album ?? '']
-        .join(' ')
-        .toLowerCase()
-    }))
+  // Per-entity folded haystacks, rebuilt only when the dataset changes — one normalization pass
+  // per row instead of three per keystroke. Fields are passed most-significant first, which is what
+  // ranks a title hit over an album hit (`$lib/search/match`).
+  const trackIndex = $derived(
+    indexForSearch(builtSongs, (s) => [
+      s.title ?? s.fileName,
+      s.artist ?? s.albumArtist ?? '',
+      s.album ?? ''
+    ])
   );
-  const albumIndex = $derived<Indexed<AlbumSummary>[]>(
-    albums.map((a) => ({ value: a, haystack: [a.title, a.artist].join(' ').toLowerCase() }))
-  );
-  const artistIndex = $derived<Indexed<GroupSummary>[]>(
-    artists.map((a) => ({ value: a, haystack: a.label.toLowerCase() }))
-  );
+  const albumIndex = $derived(indexForSearch(albums, (a) => [a.title, a.artist]));
+  const artistIndex = $derived(indexForSearch(artists, (a) => [a.label]));
+  const navIndex = $derived(indexForSearch(NAV_COMMANDS, (c) => [c.label, c.keywords]));
 
-  const q = $derived(query.trim().toLowerCase());
-  const hasQuery = $derived(q.length > 0);
+  // A query is its terms: every term has to be found, in any field and in any order, over text
+  // folded to letters and digits. That is what makes "best friend with fall out" find
+  // "Best Friend (with Fall Out Boy)" — the old contiguous-substring match was stopped by the
+  // bracket — and what lets "juice best friend" match a title plus its artist.
+  const terms = $derived(searchTerms(query));
+  const hasQuery = $derived(terms.length > 0);
 
-  const navMatches = $derived(
-    NAV_COMMANDS.filter(
-      (c) => !hasQuery || c.label.toLowerCase().includes(q) || c.keywords.includes(q)
-    )
-  );
+  // Each group is ranked before it is capped, so the eight results shown are the eight *best*
+  // ones. They used to be the first eight in library order, which is how a search for
+  // "best friend" filled up with other people's songs and dropped the one being looked for.
+  const navMatches = $derived(rankBySearch(navIndex, terms, MAX_PER_GROUP * 2));
 
-  /** First `MAX_PER_GROUP` hits, stopping early — the groups are capped anyway. */
-  function topMatches<T>(index: Indexed<T>[], needle: string): T[] {
-    const out: T[] = [];
-    for (const entry of index) {
-      if (!entry.haystack.includes(needle)) continue;
-      out.push(entry.value);
-      if (out.length >= MAX_PER_GROUP) break;
-    }
-    return out;
-  }
-
-  const libraryArtists = $derived(hasQuery ? topMatches(artistIndex, q) : []);
-  const libraryAlbums = $derived(hasQuery ? topMatches(albumIndex, q) : []);
-  const libraryTracks = $derived(hasQuery ? topMatches(trackIndex, q) : []);
+  const libraryArtists = $derived(rankBySearch(artistIndex, terms, MAX_PER_GROUP));
+  const libraryAlbums = $derived(rankBySearch(albumIndex, terms, MAX_PER_GROUP));
+  const libraryTracks = $derived(rankBySearch(trackIndex, terms, MAX_PER_GROUP));
 
   const hasLibraryResults = $derived(
     libraryArtists.length > 0 || libraryAlbums.length > 0 || libraryTracks.length > 0

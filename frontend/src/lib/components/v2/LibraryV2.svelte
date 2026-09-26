@@ -73,6 +73,7 @@
   import { toPlayerSong } from '$lib/api-client';
   import { IsMobile } from '$lib/hooks/is-mobile.svelte';
   import { playerStore } from '$lib/stores/player.svelte';
+  import { filterBySearch, indexForSearch, searchTerms } from '$lib/search/match';
   import { songsStore } from '$lib/stores/songs.svelte';
   import { songDetail } from '$lib/stores/song-detail.svelte';
   import { tabMemory } from '$lib/stores/tab-memory.svelte';
@@ -308,10 +309,6 @@
     };
   });
 
-  function albumMatchesQuery(a: AlbumSummary, q: string): boolean {
-    return a.title.toLowerCase().includes(q) || a.artist.toLowerCase().includes(q);
-  }
-
   // Grid order. Defaults to recently-added (what people expect on entry, and now trustworthy — it
   // reads the immutable acquisition stamp rather than the build time, which pipeline churn bumps).
   let albumSort = $state<AlbumSortKey>(
@@ -324,11 +321,13 @@
     sessionSet('mh-lib-album-sort', albumSort);
   });
 
-  const filteredAlbums = $derived.by(() => {
-    const q = query.trim().toLowerCase();
-    const matching = q ? scopedAlbums.filter((a) => albumMatchesQuery(a, q)) : scopedAlbums;
-    return sortAlbums(matching, albumSort);
-  });
+  // Album and artist search go through the same matcher as the tracks list and the command
+  // palette (`$lib/search/match`): every term, in any field, over folded text.
+  const albumSearchIndex = $derived(indexForSearch(scopedAlbums, (a) => [a.title, a.artist]));
+
+  const filteredAlbums = $derived.by(() =>
+    sortAlbums(filterBySearch(albumSearchIndex, searchTerms(query)), albumSort)
+  );
 
   // Artists view: default to lead/album artists only (the discrete multi-artist tagging would
   // otherwise flood the list with featured/guest performers). "Show featured artists" in the
@@ -346,11 +345,8 @@
       ? songsStore.leadArtistGroups
       : buildArtistGroups(releaseScoped, { primaryOnly: artistMode === 'primary' })
   );
-  const filteredArtists = $derived.by(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return artistGroups;
-    return artistGroups.filter((g) => g.label.toLowerCase().includes(q));
-  });
+  const artistSearchIndex = $derived(indexForSearch(artistGroups, (g) => [g.label]));
+  const filteredArtists = $derived.by(() => filterBySearch(artistSearchIndex, searchTerms(query)));
 
   // Tracks tab: scope by browse filter only. Search and the chips are applied inside the view, so
   // that one place owns both the visible list and every per-chip count.
@@ -1055,7 +1051,9 @@
 
       {#if artistSongs.length > 0}
         <section aria-labelledby="artist-songs-heading">
-          <h2 id="artist-songs-heading" class="text-title-2 mb-1 px-4 md:px-0 md:text-lg">Tracks</h2>
+          <h2 id="artist-songs-heading" class="text-title-2 mb-1 px-4 md:px-0 md:text-lg">
+            Tracks
+          </h2>
           <ul>
             {#each artistSongs as song, index (song.id)}
               {@render artistSongRow(song, index)}
