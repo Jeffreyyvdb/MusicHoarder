@@ -39,6 +39,85 @@ public class MusicBrainzResponseMapperTests
         Assert.Null(rec.AlbumArtistSort);
     }
 
+    [Theory]
+    [InlineData(" met ", "Hef", "Jayh")]
+    [InlineData(" + ", "2Pac", "Outlawz")]
+    [InlineData(" and ", "50 Cent", "Olivia")]
+    public void MapRecording_JoinPhraseTheSplitterDoesNotKnow_AlbumArtistIsTheLeadCredit(
+        string joinPhrase, string lead, string guest)
+    {
+        var dto = Recording(Credit(lead, "mbid-lead", joinPhrase), Credit(guest, "mbid-guest"));
+
+        var rec = MusicBrainzResponseMapper.MapRecording(dto);
+
+        // The album-artist name comes from the same entry as its id. Re-parsing the joined credit
+        // kept "Hef met Jayh" whole while pairing it with Hef's MBID, so the artist-dedup Inbox
+        // offered the collab as a spelling of Hef.
+        Assert.Equal(lead, rec.AlbumArtist);
+        Assert.Equal("mbid-lead", rec.AlbumArtistMusicBrainzId);
+        // The display credit and the discrete list are untouched.
+        Assert.Equal($"{lead}{joinPhrase}{guest}", rec.Artist);
+        Assert.Equal($"{lead}; {guest}", rec.Artists);
+        Assert.Equal("mbid-lead; mbid-guest", rec.ArtistMusicBrainzIds);
+    }
+
+    [Theory]
+    [InlineData("Simon & Garfunkel")]
+    [InlineData("Tyler, The Creator")]
+    [InlineData("Earth, Wind & Fire")]
+    public void MapRecording_SingleArtistWhoseNameHoldsADelimiter_IsNotTruncated(string name)
+    {
+        var dto = Recording(Credit(name, "mbid-1"));
+
+        var rec = MusicBrainzResponseMapper.MapRecording(dto);
+
+        Assert.Equal(name, rec.AlbumArtist);
+        Assert.Equal(name, rec.Artist);
+    }
+
+    [Fact]
+    public void MapRecording_FeaturingCredit_AlbumArtistIsStillTheLead()
+    {
+        var dto = Recording(Credit("Kanye West", "mbid-kanye", " feat. "), Credit("Kid Cudi", "mbid-cudi"));
+
+        var rec = MusicBrainzResponseMapper.MapRecording(dto);
+
+        Assert.Equal("Kanye West", rec.AlbumArtist);
+        Assert.Equal("Kanye West feat. Kid Cudi", rec.Artist);
+    }
+
+    [Fact]
+    public void MapRecording_CreditedAsName_WinsOverTheCanonicalName()
+    {
+        // The credited-as spelling is what the old parse of the display credit returned; the discrete
+        // Artists list keeps the canonical name, as before.
+        var dto = Recording(
+            Credit("Jay Z", "mbid-jay", " & ", canonical: "JAY-Z"),
+            Credit("Kanye West", "mbid-kanye"));
+
+        var rec = MusicBrainzResponseMapper.MapRecording(dto);
+
+        Assert.Equal("Jay Z", rec.AlbumArtist);
+        Assert.Equal("JAY-Z; Kanye West", rec.Artists);
+    }
+
+    [Fact]
+    public void MapRecording_BlankCreditedName_FallsBackToTheCanonicalName_AndCollapsesWhitespace()
+    {
+        var blank = Recording(Credit(" ", "mbid-1", canonical: "  Daft   Punk "));
+        var padded = Recording(Credit("  Daft   Punk ", "mbid-1"));
+
+        Assert.Equal("Daft Punk", MusicBrainzResponseMapper.MapRecording(blank).AlbumArtist);
+        Assert.Equal("Daft Punk", MusicBrainzResponseMapper.MapRecording(padded).AlbumArtist);
+    }
+
+    [Fact]
+    public void MapRecording_NoCredit_LeavesAlbumArtistNull()
+    {
+        Assert.Null(MusicBrainzResponseMapper.MapRecording(new MusicBrainzRecordingDto { Id = "rec-1" }).AlbumArtist);
+        Assert.Null(MusicBrainzResponseMapper.MapRecording(Recording()).AlbumArtist);
+    }
+
     [Fact]
     public void MapRecording_WithoutReleases_LeavesReleaseFieldsNull()
     {
@@ -85,9 +164,41 @@ public class MusicBrainzResponseMapperTests
     }
 
     [Fact]
+    public void MapRelease_AlbumArtistIsTheLeadCredit_NotAParseOfTheJoinedCredit()
+    {
+        var collab = new MusicBrainzReleaseDetailDto
+        {
+            Id = "rel-1",
+            ArtistCredit = [Credit("Hef", "mbid-hef", " met "), Credit("Jayh", "mbid-jayh")],
+        };
+        var single = new MusicBrainzReleaseDetailDto { Id = "rel-2", ArtistCredit = [Credit("Simon & Garfunkel", "mbid-sg")] };
+
+        Assert.Equal("Hef", MusicBrainzResponseMapper.MapRelease(collab).AlbumArtist);
+        Assert.Equal("Simon & Garfunkel", MusicBrainzResponseMapper.MapRelease(single).AlbumArtist);
+    }
+
+    [Fact]
+    public void MapRelease_NoCredit_LeavesAlbumArtistNull()
+    {
+        Assert.Null(MusicBrainzResponseMapper.MapRelease(new MusicBrainzReleaseDetailDto { Id = "rel-1" }).AlbumArtist);
+        Assert.Null(MusicBrainzResponseMapper.MapRelease(new MusicBrainzReleaseDetailDto { Id = "rel-1", ArtistCredit = [] }).AlbumArtist);
+    }
+
+    [Fact]
     public void MapReleaseSearchResults_NullOrEmpty_ReturnsEmpty()
     {
         Assert.Empty(MusicBrainzResponseMapper.MapReleaseSearchResults(null));
         Assert.Empty(MusicBrainzResponseMapper.MapReleaseSearchResults([]));
     }
+
+    private static MusicBrainzRecordingDto Recording(params MusicBrainzArtistCreditDto[] credits) =>
+        new() { Id = "rec-1", Title = "Song", ArtistCredit = [.. credits] };
+
+    private static MusicBrainzArtistCreditDto Credit(
+        string name, string id, string joinPhrase = "", string? canonical = null) => new()
+    {
+        Name = name,
+        JoinPhrase = joinPhrase,
+        Artist = new MusicBrainzArtistDto { Id = id, Name = canonical ?? name },
+    };
 }

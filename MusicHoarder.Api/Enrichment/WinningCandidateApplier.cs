@@ -1,4 +1,5 @@
 using System.Text.Json;
+using MusicHoarder.Api.Metadata;
 using MusicHoarder.Api.Persistence;
 
 namespace MusicHoarder.Api.Enrichment;
@@ -42,6 +43,12 @@ public static class WinningCandidateApplier
             return false;
         }
         if (candidate is null) return false;
+
+        // A candidate stored before the MusicBrainz mapping took the album artist from the first
+        // credit entry carries the joined collab ("Hef met Jayh") there; approving it would write
+        // that and lock it against the repair heal. Apply the lead, as a fresh match would.
+        if (ArtistCreditNormalizer.LeadOfJoinedCredit(candidate.AlbumArtist, MultiValue.Split(candidate.Artists)) is { } lead)
+            candidate = candidate with { AlbumArtist = lead };
 
         song.ApplyEnrichmentMatch(candidate.ToMatchData(EnrichmentStatus.Matched));
         return true;

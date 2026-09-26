@@ -703,6 +703,19 @@ public class MusicEnricherOptions
     public bool EnableArtistCreditSelfHeal { get; set; } = true;
 
     /// <summary>
+    /// Self-heal artist credits the first artist-dedup release damaged, from state the rows already
+    /// carry: a collab album artist the MusicBrainz mapping wrote in place of the lead ("Hef met
+    /// Jayh", which also filed its own artist folder) or a featuring album artist becomes the lead; a
+    /// display credit an artist merge or a merge alias cut down to its lead ("Nas (featuring AZ)" →
+    /// "Nas") gets its guest back; a credit split's phantom "feat." artist is dropped, and a split
+    /// that landed on a solo row is undone. Every write is audited under its own repair source and
+    /// happens at most once per value, so a user's revert is never fought. Runs with the same cadence
+    /// as the split-album heal (build-run start + idle sweeps), just before it. Reversible, never
+    /// bumps EnrichedAtUtc. Default on.
+    /// </summary>
+    public bool EnableArtistCreditRepairSelfHeal { get; set; } = true;
+
+    /// <summary>
     /// When re-tagging an album (POST /api/enrichment/rebuild/album), first consolidate it against the
     /// persisted multi-provider canonical tracklist: rewrite each owned song's album title/year and
     /// track/disc number from the canonical track it matches (by recording-MBID + fuzzy title, never by

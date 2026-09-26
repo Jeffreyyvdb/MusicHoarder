@@ -108,6 +108,11 @@ public class LibraryBuilderBackgroundService(
 
                 logger.LogInformation("Starting library build run {RunId}", jobId);
 
+                // Credit repair first: a repaired album artist moves the song into another logical
+                // album, so the split heal below must see it this pass or the moved row is corrected —
+                // and re-tagged — a second time next run.
+                await RepairArtistCreditsAsync(opts, ct);
+
                 // Split-album safeguard: converge every logical album on one persisted identity
                 // BEFORE any batch elects per-folder, so cross-folder splits are pulled into one
                 // folder and stale Done siblings are re-queued into this very run.
@@ -160,14 +165,18 @@ public class LibraryBuilderBackgroundService(
     private async Task<bool> TryIdleHealAsync(MusicEnricherOptions opts, CancellationToken ct)
     {
         var splitHealEnabled = opts.EnableAlbumIdentityReconciliation && opts.EnableAlbumSplitSelfHeal;
-        if (!splitHealEnabled && !opts.EnableArtistCreditSelfHeal)
+        if (!splitHealEnabled && !opts.EnableArtistCreditSelfHeal && !opts.EnableArtistCreditRepairSelfHeal)
             return false;
         if (DateTime.UtcNow - _lastHealUtc < TimeSpan.FromMinutes(opts.AlbumSplitHealIntervalMinutes))
             return false;
 
+        // Same order as a run start: the repair can move rows between logical albums.
+        var repairResult = await RepairArtistCreditsAsync(opts, ct);
         var result = await HealSplitAlbumsAsync(opts, ct);
         var creditResult = await HealArtistCreditsAsync(opts, ct);
-        return result is { SongsRequeued: > 0 } || creditResult is { SongsRequeued: > 0 };
+        return result is { SongsRequeued: > 0 }
+            || creditResult is { SongsRequeued: > 0 }
+            || repairResult is { SongsRequeued: > 0 };
     }
 
     // A heal failure must never take down a build run (or the idle loop) — the per-folder
@@ -224,6 +233,31 @@ public class LibraryBuilderBackgroundService(
         catch (Exception ex)
         {
             logger.LogError(ex, "Artist-credit self-heal failed; continuing without it");
+            return null;
+        }
+    }
+
+    // Same failure isolation again: an unrepaired credit is the state the library is already in —
+    // never block the build over it.
+    private async Task<ArtistCreditRepairResult?> RepairArtistCreditsAsync(MusicEnricherOptions opts, CancellationToken ct)
+    {
+        if (!opts.EnableArtistCreditRepairSelfHeal)
+            return null;
+
+        _lastHealUtc = DateTime.UtcNow;
+        try
+        {
+            using var scope = scopeFactory.CreateScope();
+            var healer = scope.ServiceProvider.GetRequiredService<IArtistCreditRepairHealer>();
+            return await healer.HealAsync(ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Artist-credit repair failed; continuing without it");
             return null;
         }
     }

@@ -3818,10 +3818,19 @@ export interface ArtistDuplicateCluster {
   evidence: string[]
 }
 
+/**
+ * A credit naming several artists that is registered as one: the track credit of songs with no
+ * discrete Artists list ("A & B"), or the album artist of songs ("Hef met Jayh").
+ */
 export interface CombinedCreditCandidate {
   credit: string
+  /** The artists it splits into; `parts[0]` is the lead. */
   parts: string[]
+  /** Distinct tracks a split changes. */
   songCount: number
+  /** Of those, the tracks whose album artist is the credit — a split files them under the lead.
+   *  Optional: an older server does not send it. */
+  albumArtistSongCount?: number
 }
 
 export interface ArtistDuplicateReport {
@@ -3848,7 +3857,10 @@ export async function mergeArtists(canonicalName: string, variantNames: string[]
   })
 }
 
-/** Backfill the discrete Artists list for songs whose display credit is a combined "A & B" string. */
+/**
+ * Split a combined credit ("A & B", "Hef met Jayh"): backfills blank discrete Artists lists with its
+ * artists and moves an album artist equal to the credit to the lead; built files are re-tagged.
+ */
 export async function splitArtistCredit(creditName: string): Promise<{ songsUpdated: number; songsRequeued: number }> {
   return requestJson("/api/library/artists/split-credit", {
     method: "POST",

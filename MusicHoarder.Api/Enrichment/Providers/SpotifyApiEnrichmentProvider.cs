@@ -138,7 +138,7 @@ public class SpotifyApiEnrichmentProvider(
         EnrichmentStatus status,
         SpotifyAlbumDetail? album = null)
     {
-        var (effectiveArtist, albumArtist) = CatalogResultArtists.Resolve(song, track.Artist);
+        var (effectiveArtist, albumArtist) = CatalogResultArtists.Resolve(song, track.Artist, track.Artists);
 
         return new EnrichmentProviderResult(
             Artist: effectiveArtist,

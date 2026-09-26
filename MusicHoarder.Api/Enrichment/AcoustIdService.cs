@@ -102,7 +102,13 @@ public sealed class AcoustIdService(
             var displayArtist = recording.Artists is { Count: > 0 }
                 ? string.Join("; ", recording.Artists.Select(a => a.Name))
                 : string.Empty;
-            var albumArtist = ArtistCreditNormalizer.GetPrimaryArtist(displayArtist) ?? string.Empty;
+            // The lead artist is the first structured entry, not a re-parse of the display join. The
+            // "; " join made that parse right for several artists, but a single artist whose own name
+            // holds a delimiter came back cut ("Simon & Garfunkel" → "Simon", "Tyler, The Creator" →
+            // "Tyler"). The parse survives only for a nameless first entry.
+            var albumArtist = ArtistCreditNormalizer.NormalizeDisplayCredit(recording.Artists?.FirstOrDefault()?.Name)
+                ?? ArtistCreditNormalizer.GetPrimaryArtist(displayArtist)
+                ?? string.Empty;
             var recordingDurationMs = recording.Duration > 0 ? (int)(recording.Duration * 1000) : (int?)null;
 
             // Keep the discrete artist list (and ids — AcoustID artist ids are MusicBrainz artist

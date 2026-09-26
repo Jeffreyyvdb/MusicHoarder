@@ -437,6 +437,42 @@ public class SpotifyApiEnrichmentProviderTests
         Assert.DoesNotContain("05", seenQuery);
     }
 
+    [Fact]
+    public async Task TryEnrichAsync_NoAlbumArtist_TakesTheLeadFromSpotifysArtistList()
+    {
+        // Spotify's display credit is its artists[] joined with ", ". Re-parsing it for a file with no
+        // album-artist cut "Tyler, The Creator" to "Tyler"; the provider hands the discrete list over.
+        await using var db = CreateDb();
+        db.SpotifySettings.Add(new SpotifySettings { OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId, ClientId = "id", ClientSecret = "secret" });
+        await db.SaveChangesAsync();
+
+        var track = new SpotifyCatalogTrack(
+            "spotifyTrackId", "EARFQUAKE", "Tyler, The Creator", "IGOR", 2019, 2, 190_000, null,
+            Artists: "Tyler, The Creator");
+        var catalog = new StubCatalogSearchService(_ => Task.FromResult<IReadOnlyList<SpotifyCatalogTrack>>([track]));
+        var provider = CreateProvider(db, catalog);
+
+        var song = new SongMetadata
+        {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
+            SourcePath = "/a.mp3",
+            FileName = "a.mp3",
+            Extension = ".mp3",
+            FileSizeBytes = 1,
+            LastModifiedUtc = DateTime.UtcNow,
+            IndexedAtUtc = DateTime.UtcNow,
+            Artist = "Tyler, The Creator",
+            AlbumArtist = null,
+            Title = "EARFQUAKE",
+            DurationSeconds = 190,
+            EnrichmentStatus = EnrichmentStatus.Pending,
+        };
+
+        var matched = Assert.IsType<ProviderMatched>(await provider.TryEnrichAsync(song));
+        Assert.Equal("Tyler, The Creator", matched.Result.AlbumArtist);
+        Assert.Equal("Tyler, The Creator", matched.Result.Artists);
+    }
+
     private static MusicHoarderDbContext CreateDb()
     {
         var options = new DbContextOptionsBuilder<MusicHoarderDbContext>()

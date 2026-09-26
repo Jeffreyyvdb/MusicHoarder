@@ -365,6 +365,20 @@ public static class EnrichmentEndpoints
             .WithSummary("Dry-run report of matched songs missing their discrete artist credit (Artists), with the credit the artist-credit self-heal would backfill from the stored MusicBrainz/Spotify attempt. Empty when the self-heal has converged everything.")
             .RequireAdmin();
 
+        group.MapGet("/artist-credit-repairs", async (IArtistCreditRepairHealer healer, CancellationToken ct) =>
+            {
+                var repairs = await healer.DetectAsync(ct);
+                return Results.Ok(new
+                {
+                    count = repairs.Count,
+                    songCount = repairs.Select(r => r.SongId).Distinct().Count(),
+                    repairs,
+                });
+            })
+            .WithName("ListArtistCreditRepairs")
+            .WithSummary("Dry-run report of the artist-credit repair: every field it would write — collab/featuring album artists back to the lead, display credits an artist merge or merge alias cut to the lead, phantom \"feat.\" artists and misplaced credit splits — with the current and repaired value and the repair (audit source) that writes it. Empty when the repair has converged everything.")
+            .RequireAdmin();
+
         group.MapPost("/cancel", (JobManager jobManager, EnrichmentPipelineChannel channel) =>
             {
                 var cancelled = jobManager.Cancel();

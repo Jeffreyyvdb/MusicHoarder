@@ -31,6 +31,24 @@ public static partial class TitleNormalizer
     }
 
     /// <summary>
+    /// Identity key for one artist NAME — the key artist merges and their aliases match on. Folds
+    /// case, diacritics, lookalikes and punctuation exactly like <see cref="NormalizeForSearch"/>, but
+    /// keeps parenthetical/bracketed text and featuring clauses: those name more artists, not another
+    /// spelling of this one. Under the search form "Nas (featuring AZ)" and "Nas feat. AZ" both key
+    /// as "nas", so an alias meant for "NAS" rewrote them to "Nas" and deleted the guest.
+    /// </summary>
+    public static string NormalizeArtistKey(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        var result = FoldDiacritics(value.ToLowerInvariant());
+        result = PunctuationPattern().Replace(result, "");
+        result = WhitespacePattern().Replace(result, " ");
+        return result.Trim();
+    }
+
+    /// <summary>
     /// Aggressive variant for duplicate DETECTION only — never for grouping keys or folder paths.
     /// <see cref="NormalizeForSearch"/> keys <c>AlbumGroupKey</c>, <c>CanonicalAlbum</c> and
     /// destination folders; changing it would re-key the whole library, so the extra folding lives
