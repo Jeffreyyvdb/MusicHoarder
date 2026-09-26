@@ -33,6 +33,8 @@ fun TracksTab(
     isPlayingNow: Boolean,
     coverUrl: (Track, Int) -> String?,
     onToggleLike: (Track) -> Unit,
+    /** A row's "Add to playlist…"; null leaves it out of the menu. */
+    onAddToPlaylist: ((Track) -> Unit)? = null,
     /** A row tap: the caller applies the tap rule (play from here, or bring the player up). */
     onActivateRow: (List<Track>, Int) -> Unit,
     contentPadding: PaddingValues,
@@ -83,6 +85,7 @@ fun TracksTab(
                 sharedBy = sharedByOf(track),
                 onOpenAlbum = links?.let { { onOpenAlbumKey(it.albumKey) } },
                 onOpenArtist = links?.let { { onOpenArtist(it.artist) } },
+                onAddToPlaylist = onAddToPlaylist?.let { add -> { add(track) } },
             )
             if (index < tracks.lastIndex) TrackRowSeparator()
         }
