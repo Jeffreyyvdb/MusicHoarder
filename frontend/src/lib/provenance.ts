@@ -1,4 +1,13 @@
-import { Download, HardDrive, Heart, Link, ListMusic, ListPlus, RefreshCw } from '@lucide/svelte';
+import {
+  Download,
+  HardDrive,
+  Heart,
+  Link,
+  ListMusic,
+  ListPlus,
+  ListVideo,
+  RefreshCw
+} from '@lucide/svelte';
 import type { ProvenanceGroup, ProvenanceReason, ProvenanceSeed } from '$lib/api-client';
 
 /** One glyph per reason a track is in the library — the album header's row and the sheet's rows. */
@@ -7,6 +16,7 @@ export const PROVENANCE_ICON: Record<ProvenanceReason, typeof HardDrive> = {
   SpotifyLiked: Heart,
   SpotifyPlaylist: ListMusic,
   DeezerPlaylist: ListMusic,
+  YouTubePlaylist: ListVideo,
   Link: Link,
   Synced: RefreshCw,
   Downloaded: Download,

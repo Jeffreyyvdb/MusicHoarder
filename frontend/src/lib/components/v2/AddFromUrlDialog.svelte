@@ -1,9 +1,26 @@
 <script lang="ts">
-  import { AlertTriangle, CircleCheck, Clapperboard, Loader2, Music } from '@lucide/svelte';
+  import {
+    AlertTriangle,
+    CircleCheck,
+    Clapperboard,
+    ListMusic,
+    ListVideo,
+    Loader2,
+    Music
+  } from '@lucide/svelte';
   import * as BottomSheet from '$lib/components/ui/bottom-sheet';
   import * as GroupedList from '$lib/components/ui/grouped-list';
   import { Switch } from '$lib/components/ui/switch';
-  import { importTrack, resolveImportUrl, type ImportResolveResult } from '$lib/api-client';
+  import {
+    ApiError,
+    importTrack,
+    playlistProviderLabel,
+    resolveDiscoverUrl,
+    resolveImportUrl,
+    subscribeToResolvedPlaylist,
+    type DiscoverResolveResult,
+    type ImportResolveResult
+  } from '$lib/api-client';
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
 
@@ -11,7 +28,8 @@
   // vertically-centred box used to end up under the iOS keyboard with nowhere to scroll), a centred
   // dialog above it. iOS sheet conventions: Cancel leading, the one prominent action — Add —
   // trailing, and the form as inset-grouped cells with 16px fields so iOS never zooms on focus.
-  const blurb = 'Paste a Spotify track or YouTube link to download it and add it to your library.';
+  const blurb =
+    'Paste a Spotify track or YouTube video to download it — or a playlist link to keep it in sync.';
 
   let url = $state('');
   let resolving = $state(false);
@@ -24,6 +42,9 @@
   let done = $state<string | null>(null);
   let downloadVideo = $state(false);
   let urlInput = $state<HTMLInputElement | null>(null);
+  // A pasted playlist link resolves to a playlist to subscribe to rather than a track to add.
+  let playlist = $state<DiscoverResolveResult | null>(null);
+  let subscribing = $state(false);
 
   // Clear transient state whenever the sheet closes so it reopens fresh. Depends only on `open`.
   $effect(() => {
@@ -37,6 +58,8 @@
       done = null;
       resolving = false;
       submitting = false;
+      playlist = null;
+      subscribing = false;
     }
   });
 
@@ -46,6 +69,7 @@
     resolving = true;
     error = null;
     resolved = null;
+    playlist = null;
     done = null;
     try {
       const r = await resolveImportUrl(u);
@@ -59,9 +83,37 @@
       // imports would fetch a video by search, so leave that an explicit opt-in.
       downloadVideo = r.source === 'youtube';
     } catch (err) {
-      error = err instanceof Error ? err.message : 'Could not resolve that link.';
+      if (err instanceof ApiError && err.code === 'playlist_link') {
+        // Not one track: offer to keep the playlist in sync, the way Discover's "Add link" does.
+        try {
+          playlist = await resolveDiscoverUrl(u);
+        } catch (inner) {
+          error = inner instanceof Error ? inner.message : 'Could not read that playlist.';
+        }
+      } else {
+        error = err instanceof Error ? err.message : 'Could not resolve that link.';
+      }
     } finally {
       resolving = false;
+    }
+  }
+
+  async function onSubscribe() {
+    const p = playlist;
+    if (!p || p.subscribed) return;
+    subscribing = true;
+    error = null;
+    try {
+      await subscribeToResolvedPlaylist(p);
+      playlist = { ...p, subscribed: true };
+      done =
+        p.provider === 'youtube'
+          ? `Subscribed to “${p.title}”. Its videos go on your wishlist as they are read.`
+          : `Subscribed to “${p.title}”. Its tracks go on your wishlist as they are read.`;
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Could not subscribe to the playlist.';
+    } finally {
+      subscribing = false;
     }
   }
 
@@ -157,13 +209,27 @@
     >
   {/snippet}
   {#snippet trailing()}
-    <BottomSheet.Action prominent onclick={onConfirm} disabled={!canAdd}>
-      {#if submitting}
-        <Loader2 class="size-4 animate-spin" /> Adding…
-      {:else}
-        Add
-      {/if}
-    </BottomSheet.Action>
+    {#if playlist}
+      <BottomSheet.Action
+        prominent
+        onclick={onSubscribe}
+        disabled={subscribing || playlist.subscribed}
+      >
+        {#if subscribing}
+          <Loader2 class="size-4 animate-spin" /> Subscribing…
+        {:else}
+          Subscribe
+        {/if}
+      </BottomSheet.Action>
+    {:else}
+      <BottomSheet.Action prominent onclick={onConfirm} disabled={!canAdd}>
+        {#if submitting}
+          <Loader2 class="size-4 animate-spin" /> Adding…
+        {:else}
+          Add
+        {/if}
+      </BottomSheet.Action>
+    {/if}
   {/snippet}
 
   <div class="flex flex-col gap-7 pt-1">
@@ -200,6 +266,51 @@
         </span>
       </GroupedList.Row>
     </GroupedList.Section>
+
+    {#if playlist}
+      {@const p = playlist}
+      <GroupedList.Section
+        header="Playlist"
+        footer={p.provider === 'youtube'
+          ? 'Every video on it — and each one you add to it later — goes on your wishlist, to download with its music video.'
+          : 'Every track on it — and each one added to it later — goes on your wishlist, to download.'}
+      >
+        <GroupedList.Row>
+          {#snippet leading()}
+            {#if p.coverUrl}
+              <img
+                src={p.coverUrl}
+                alt=""
+                class="size-14 shrink-0 rounded-md object-cover"
+                referrerpolicy="no-referrer"
+              />
+            {:else}
+              <span class="bg-muted flex size-14 shrink-0 items-center justify-center rounded-md">
+                {#if p.provider === 'youtube'}
+                  <ListVideo class="text-muted-foreground size-6" />
+                {:else}
+                  <ListMusic class="text-muted-foreground size-6" />
+                {/if}
+              </span>
+            {/if}
+          {/snippet}
+          <span class="flex min-w-0 flex-col">
+            <span class="text-headline truncate md:text-sm">{p.title}</span>
+            <span class="text-subheadline text-muted-foreground md:text-xs">
+              {playlistProviderLabel(p.provider)} · {p.trackCount.toLocaleString()}
+              {p.provider === 'youtube' ? 'video' : 'track'}{p.trackCount === 1 ? '' : 's'}
+            </span>
+          </span>
+          {#snippet trailing()}
+            {#if p.subscribed}
+              <span class="text-primary text-subheadline flex items-center gap-1.5 md:text-xs">
+                <CircleCheck class="size-5 md:size-4" aria-hidden="true" /> Subscribed
+              </span>
+            {/if}
+          {/snippet}
+        </GroupedList.Row>
+      </GroupedList.Section>
+    {/if}
 
     {#if resolved}
       <GroupedList.Section

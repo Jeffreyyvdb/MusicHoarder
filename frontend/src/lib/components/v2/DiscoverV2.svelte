@@ -29,6 +29,8 @@
     fetchDiscoverPlaylist,
     resolveDiscoverUrl,
     addWishlistSource,
+    subscribeToResolvedPlaylist,
+    playlistProviderLabel,
     removeWishlistSource,
     setWishlistSourceAutoSync,
     fetchSettings,
@@ -310,13 +312,7 @@
     if (!r) return;
     subscribingLink = true;
     try {
-      const res =
-        r.provider === 'deezer'
-          ? await addWishlistSource('DeezerPlaylist', {
-              deezerPlaylistId: r.playlistId,
-              autoSync: true
-            })
-          : await addWishlistSource('Playlist', { playlistId: r.playlistId, autoSync: true });
+      const res = await subscribeToResolvedPlaylist(r);
       resolveResult = { ...r, subscribed: true };
       // Reflect on the grid/detail if this playlist is also visible there.
       syncSubState(r.playlistId, { subscribed: true, sourceId: res.sourceId, autoSync: true });
@@ -688,7 +684,7 @@
 <BottomSheet.Root
   bind:open={linkOpen}
   title="Add playlist"
-  description="Paste a Spotify or Deezer playlist link to subscribe to it."
+  description="Paste a Spotify, Deezer or YouTube playlist link to subscribe to it."
   onOpenChange={(open) => {
     if (!open) clearLink();
   }}
@@ -758,7 +754,11 @@
     {@const r = resolveResult}
     <GroupedList.Section
       class="mt-6"
-      footer={downloadsEnabled ? 'New tracks added to it download automatically.' : undefined}
+      footer={downloadsEnabled
+        ? r.provider === 'youtube'
+          ? 'New videos added to it download automatically — the song and its music video.'
+          : 'New tracks added to it download automatically.'
+        : undefined}
     >
       <div class="flex items-center gap-3 px-4 py-3">
         <div class="bg-muted size-14 shrink-0 overflow-hidden rounded-sm">
@@ -773,10 +773,8 @@
         <div class="min-w-0 flex-1">
           <div class="text-headline truncate md:text-sm">{r.title}</div>
           <div class="text-subheadline text-muted-foreground md:text-xs">
-            {r.provider === 'deezer' ? 'Deezer' : 'Spotify'} · {r.trackCount.toLocaleString()} track{r.trackCount ===
-            1
-              ? ''
-              : 's'}
+            {playlistProviderLabel(r.provider)} · {r.trackCount.toLocaleString()}
+            {r.provider === 'youtube' ? 'video' : 'track'}{r.trackCount === 1 ? '' : 's'}
           </div>
         </div>
         {#if r.subscribed}

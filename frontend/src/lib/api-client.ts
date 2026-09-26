@@ -253,6 +253,7 @@ export type SongOriginSource =
   | "SpotifyLiked"
   | "SpotifyPlaylist"
   | "DeezerPlaylist"
+  | "YouTubePlaylist"
   | "DirectUrl"
   | "AlbumCompletion"
 
@@ -364,6 +365,8 @@ export function songOriginLabel(s: ApiSong): { label: string; title: string } | 
       }
     case "DeezerPlaylist":
       return { label: "Deezer", title: `From the Deezer playlist ${detail ?? "(unnamed)"}` }
+    case "YouTubePlaylist":
+      return { label: "YouTube", title: `From the YouTube playlist ${detail ?? "(unnamed)"}` }
     case "DirectUrl":
       return { label: "Link", title: `Added from a URL${detail ? ` (${detail})` : ""}` }
     case "AlbumCompletion":
@@ -967,6 +970,7 @@ export type StorageOriginKey =
   | "spotifyLiked"
   | "spotifyPlaylist"
   | "deezerPlaylist"
+  | "youtubePlaylist"
   | "directUrl"
   | "albumCompletion"
   | "otherDownload"
@@ -1517,6 +1521,7 @@ export type ProvenanceReason =
   | "SpotifyLiked"
   | "SpotifyPlaylist"
   | "DeezerPlaylist"
+  | "YouTubePlaylist"
   | "Link"
   | "Synced"
   | "Downloaded"
@@ -2890,7 +2895,7 @@ export type WishlistItemStatus =
   | "Failed"
   | "NotFound"
 
-export type WishlistSourceType = "LikedSongs" | "Playlist" | "DeezerPlaylist"
+export type WishlistSourceType = "LikedSongs" | "Playlist" | "DeezerPlaylist" | "YouTubePlaylist"
 
 export interface WishlistItem {
   id: number
@@ -2947,8 +2952,10 @@ export interface WishlistSource {
   spotifyPlaylistId?: string | null
   /** Set for Deezer-playlist sources; null for Spotify sources. */
   deezerPlaylistId?: string | null
+  /** Set for YouTube-playlist sources (the link's `list=` id). */
+  youTubePlaylistId?: string | null
   /** Which upstream this source syncs from. */
-  provider: "spotify" | "deezer"
+  provider: "spotify" | "deezer" | "youtube"
   name: string
   imageUrl?: string | null
   autoSync: boolean
@@ -3044,11 +3051,17 @@ export async function fetchWishlistSources(): Promise<{ sources: WishlistSource[
 
 export async function addWishlistSource(
   type: WishlistSourceType,
-  options: { playlistId?: string; deezerPlaylistId?: string; autoSync?: boolean } = {}
+  options: {
+    playlistId?: string
+    deezerPlaylistId?: string
+    youTubePlaylistId?: string
+    autoSync?: boolean
+  } = {}
 ): Promise<AddWishlistSourceResult> {
   // Send both `type`/`sourceType` and `playlistId`/`deezerPlaylistId` so the request satisfies the
   // established Spotify shape and the new Deezer contract regardless of which field names the API
-  // binds — a Deezer subscribe carries `deezerPlaylistId`, a Spotify one carries `playlistId`.
+  // binds — a Deezer subscribe carries `deezerPlaylistId`, a Spotify one carries `playlistId`, a
+  // YouTube one `youTubePlaylistId`.
   return requestJson<AddWishlistSourceResult>("/api/wishlist/sources", {
     method: "POST",
     body: JSON.stringify({
@@ -3056,9 +3069,37 @@ export async function addWishlistSource(
       sourceType: type,
       playlistId: options.playlistId,
       deezerPlaylistId: options.deezerPlaylistId,
+      youTubePlaylistId: options.youTubePlaylistId,
       autoSync: options.autoSync ?? false,
     }),
   })
+}
+
+/**
+ * Subscribe to a playlist a link resolved to ({@link resolveDiscoverUrl}), with auto-sync on: new
+ * tracks added to it later are wishlisted (and downloaded) on their own.
+ */
+export async function subscribeToResolvedPlaylist(r: DiscoverResolveResult): Promise<AddWishlistSourceResult> {
+  switch (r.provider) {
+    case "deezer":
+      return addWishlistSource("DeezerPlaylist", { deezerPlaylistId: r.playlistId, autoSync: true })
+    case "youtube":
+      return addWishlistSource("YouTubePlaylist", { youTubePlaylistId: r.playlistId, autoSync: true })
+    default:
+      return addWishlistSource("Playlist", { playlistId: r.playlistId, autoSync: true })
+  }
+}
+
+/** The name a playlist provider goes by in the UI. */
+export function playlistProviderLabel(provider: DiscoverResolveProvider): string {
+  switch (provider) {
+    case "deezer":
+      return "Deezer"
+    case "youtube":
+      return "YouTube"
+    default:
+      return "Spotify"
+  }
 }
 
 export async function setWishlistSourceAutoSync(id: number, autoSync: boolean): Promise<{ id: number; autoSync: boolean }> {
@@ -3185,13 +3226,14 @@ export interface DiscoverPlaylistDetail {
   tracks: DiscoverTrack[]
 }
 
-export type DiscoverResolveProvider = "deezer" | "spotify"
+export type DiscoverResolveProvider = "deezer" | "spotify" | "youtube"
 
 export interface DiscoverResolveResult {
   provider: DiscoverResolveProvider
   playlistId: string
   title: string
   coverUrl: string | null
+  /** For a YouTube playlist, the number of videos. */
   trackCount: number
   subscribed: boolean
 }
