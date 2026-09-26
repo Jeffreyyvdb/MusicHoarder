@@ -41,7 +41,9 @@ const APP_ROUTES: [path: string, group: NavGroupId][] = [
   ['/overview', 'listen'],
   ['/performance', 'manage'],
   ['/pipeline', 'manage'],
-  ['/playlists', 'add'],
+  ['/playlist-sync', 'add'],
+  ['/playlists', 'listen'],
+  ['/playlists/7', 'listen'],
   ['/quality', 'manage'],
   ['/settings', 'manage'],
   ['/shares', 'manage'],
@@ -76,11 +78,17 @@ describe('NAV_GROUPS', () => {
   });
 
   // Listen used to carry three flat track lists — /my-music, /tracks and /liked — that differed only
-  // by a predicate. They are one route sliced by chips now, so a fourth item appearing here should
-  // be a deliberate act, not a filter that grew a URL.
-  it('is Overview / Albums / Artists / Tracks, in that order', () => {
+  // by a predicate. They are one route sliced by chips now, so an item appearing here should be a
+  // deliberate act, not a filter that grew a URL. Playlists was one: a thing of its own, not a slice.
+  it('is Overview / Albums / Artists / Tracks / Playlists, in that order', () => {
     const listen = NAV_GROUPS.find((g) => g.id === 'listen');
-    expect(listen?.items.map((i) => i.id)).toEqual(['overview', 'albums', 'artists', 'tracks']);
+    expect(listen?.items.map((i) => i.id)).toEqual([
+      'overview',
+      'albums',
+      'artists',
+      'tracks',
+      'playlists'
+    ]);
   });
 
   // Renamed for the phone, where Inbox and Listen sit one tab apart: two rows both called "Artists"
@@ -94,7 +102,13 @@ describe('NAV_GROUPS', () => {
   });
 
   it('roots each group at its hub, and every hub resolves inside its own group', () => {
-    expect(NAV_GROUPS.map((g) => g.hub)).toEqual(['/overview', '/chats', '/inbox', '/add', '/manage']);
+    expect(NAV_GROUPS.map((g) => g.hub)).toEqual([
+      '/overview',
+      '/chats',
+      '/inbox',
+      '/add',
+      '/manage'
+    ]);
     for (const group of NAV_GROUPS) {
       expect(at(group.hub)?.group.id, group.hub).toBe(group.id);
     }
@@ -243,7 +257,15 @@ describe('what each account may see', () => {
   });
 
   it('lets a member reach every Listen route plus their own settings', () => {
-    for (const path of ['/overview', '/library', '/artists', '/tracks', '/settings']) {
+    for (const path of [
+      '/overview',
+      '/library',
+      '/artists',
+      '/tracks',
+      '/playlists',
+      '/playlists/7',
+      '/settings'
+    ]) {
       expect(allowed(path, member)).toBe(true);
     }
   });
@@ -261,7 +283,15 @@ describe('what each account may see', () => {
   });
 
   it('keeps a member out of every administration route', () => {
-    for (const path of ['/pipeline', '/inbox', '/wishlist', '/discover', '/album-quality', '/stats']) {
+    for (const path of [
+      '/pipeline',
+      '/inbox',
+      '/wishlist',
+      '/discover',
+      '/album-quality',
+      '/stats',
+      '/playlist-sync'
+    ]) {
       expect(allowed(path, member)).toBe(false);
     }
   });
@@ -347,6 +377,14 @@ describe('tabsFor', () => {
     expect(tabs.some((t) => t.live)).toBe(false);
   });
 
+  it('keeps Playlists out of the member tab bar, on the Overview that links to it', () => {
+    // Five tabs is the phone's limit; Playlists is a row on the Overview, as Albums is for an admin.
+    expect(tabsFor(member).some((t) => t.id === 'playlists')).toBe(false);
+    expect(tabFor(url('/playlists'), member)?.id).toBe('overview');
+    expect(tabFor(url('/playlists/7'), member, 'tracks')?.id).toBe('tracks');
+    expect(backFor(url('/playlists'), member)).toEqual({ label: 'Overview', href: '/overview' });
+  });
+
   it('is stable per audience, so a keyed each block does not churn', () => {
     expect(tabsFor(admin)).toBe(tabsFor(demo));
     expect(tabsFor(member)).toBe(tabsFor(null));
@@ -373,6 +411,9 @@ describe('isTabRoot', () => {
     ['/tracks', false, true],
     ['/tracks?f=mh-liked', false, true],
     ['/track/42', false, false],
+    // Not a member tab: five is all a phone tab bar holds, and a member's fifth is Chats.
+    ['/playlists', false, false],
+    ['/playlists/7', false, false],
     ['/discover', false, false],
     ['/pipeline', false, false],
     ['/settings', false, false],
@@ -496,7 +537,9 @@ describe('backFor', () => {
       expect(back('/library?album=abc', user)).toEqual({ label: 'Albums', href: '/library' });
       expect(back('/library?artist=Björk', user)).toEqual({ label: 'Artists', href: '/artists' });
       expect(back('/track/42', user)).toEqual({ label: 'Tracks', href: '/tracks' });
+      expect(back('/playlists/7', user)).toEqual({ label: 'Playlists', href: '/playlists' });
     }
+    expect(back('/playlists', admin)).toEqual({ label: 'Listen', href: '/overview' });
   });
 
   it('sends an album opened inside an artist view back to that artist', () => {
@@ -615,6 +658,8 @@ describe('surfaceFor', () => {
       '/discover',
       '/wishlist',
       '/playlists',
+      '/playlists/7',
+      '/playlist-sync',
       '/spotify',
       '/directories'
     ]) {

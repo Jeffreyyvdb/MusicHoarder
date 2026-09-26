@@ -84,6 +84,8 @@
     onDragStart?: (event: PointerEvent) => void;
     /** "Share with a friend…": the host closes this overlay and opens the album grant dialog. */
     onShareWithFriend?: () => void;
+    /** "Add to playlist…": the host opens the sheet over this overlay. */
+    onAddToPlaylist?: () => void;
     /** Out: Video mode is up, so the host blurs the backdrop's copy of the clip behind it. */
     watching?: boolean;
   };
@@ -99,6 +101,7 @@
     timelineHref,
     onDragStart,
     onShareWithFriend,
+    onAddToPlaylist,
     watching = $bindable(false)
   }: Props = $props();
 
@@ -317,7 +320,9 @@
 
   // The AI disclosure travels with the title too, as a chip that spells itself out on a tap.
   const aiProvenance = $derived(
-    ai.hasLyrics && viewerDoc.provenance && viewerDoc.provenance !== 'Human' ? viewerDoc.provenance : null
+    ai.hasLyrics && viewerDoc.provenance && viewerDoc.provenance !== 'Human'
+      ? viewerDoc.provenance
+      : null
   );
   let aiDetailOpen = $state(false);
 
@@ -354,7 +359,8 @@
   const videoLine = $derived.by(() => {
     const problem = videoProblem(video.info, video.infoUnavailable);
     if (problem) return problem;
-    if (isOwner && video.playable) return { text: videoSyncLabel(video.info), tone: 'muted' as const };
+    if (isOwner && video.playable)
+      return { text: videoSyncLabel(video.info), tone: 'muted' as const };
     return null;
   });
 </script>
@@ -412,6 +418,7 @@
     onEnhance={() => (aiConfirmOpen = true)}
     onManageVideo={() => (manageVideoOpen = true)}
     onShareWithFriend={() => onShareWithFriend?.()}
+    onAddToPlaylist={() => onAddToPlaylist?.()}
     onHidePlayer={hidePlayer}
     class="focus-visible:ring-ring relative z-10 focus-visible:ring-2"
   />
@@ -431,14 +438,14 @@
         <a
           href={artistHref}
           onclick={onClose}
-          class="focus-visible:ring-ring relative rounded-sm outline-none after:absolute after:inset-x-0 after:-inset-y-3 focus-visible:ring-2 pointer-fine:hover:text-foreground pointer-fine:hover:underline"
+          class="focus-visible:ring-ring pointer-fine:hover:text-foreground relative rounded-sm outline-none after:absolute after:inset-x-0 after:-inset-y-3 focus-visible:ring-2 pointer-fine:hover:underline"
           >{trackArtist}</a
         >
         <span aria-hidden="true"> — </span>
         <a
           href={albumHref}
           onclick={onClose}
-          class="focus-visible:ring-ring relative rounded-sm outline-none after:absolute after:inset-x-0 after:-inset-y-3 focus-visible:ring-2 pointer-fine:hover:text-foreground pointer-fine:hover:underline"
+          class="focus-visible:ring-ring pointer-fine:hover:text-foreground relative rounded-sm outline-none after:absolute after:inset-x-0 after:-inset-y-3 focus-visible:ring-2 pointer-fine:hover:underline"
           >{album.title}</a
         >
       </p>
@@ -474,7 +481,7 @@
   <button
     type="button"
     class={cn(
-      'focus-visible:ring-ring flex size-11 items-center justify-center rounded-full outline-none transition-colors focus-visible:ring-2',
+      'focus-visible:ring-ring flex size-11 items-center justify-center rounded-full transition-colors outline-none focus-visible:ring-2',
       active ? 'text-foreground' : 'text-muted-foreground pointer-fine:hover:text-foreground'
     )}
     aria-pressed={wide.current ? undefined : active}
@@ -518,8 +525,10 @@
             {...props}
             type="button"
             class={cn(
-              'focus-visible:ring-ring flex size-11 items-center justify-center rounded-full outline-none transition-colors focus-visible:ring-2',
-              elsewhere ? 'text-primary' : 'text-muted-foreground pointer-fine:hover:text-foreground'
+              'focus-visible:ring-ring flex size-11 items-center justify-center rounded-full transition-colors outline-none focus-visible:ring-2',
+              elsewhere
+                ? 'text-primary'
+                : 'text-muted-foreground pointer-fine:hover:text-foreground'
             )}
             aria-label={deviceLine ? `Devices. ${deviceLine}` : 'Devices'}
             title="Devices"
@@ -648,7 +657,7 @@
       type="button"
       tabindex="-1"
       aria-hidden="true"
-      class="np-grabber relative mx-auto flex h-3 w-24 justify-center outline-none transition-opacity duration-200 after:absolute after:inset-x-0 after:-top-4 after:-bottom-4"
+      class="np-grabber relative mx-auto flex h-3 w-24 justify-center transition-opacity duration-200 outline-none after:absolute after:inset-x-0 after:-top-4 after:-bottom-4"
       onclick={onClose}
     >
       <span class="bg-foreground/35 mt-1.5 block h-[5px] w-9 rounded-full"></span>
@@ -785,7 +794,9 @@
             role="presentation"
             onpointerdown={onDragStart}
           >
-            <div class="mx-auto flex w-full max-w-[min(100%,40svh,329px)] flex-col md:max-w-[min(100%,40svh,440px)]">
+            <div
+              class="mx-auto flex w-full max-w-[min(100%,40svh,329px)] flex-col md:max-w-[min(100%,40svh,440px)]"
+            >
               <NowPlayingArt
                 artist={trackArtist}
                 title={album.title}
@@ -824,7 +835,7 @@
     songId={song.id}
     {lrclibDoc}
     {aiDoc}
-    isCurrentlyLoaded={isCurrentlyLoaded}
+    {isCurrentlyLoaded}
     {lrclibUrl}
   />
 {/if}

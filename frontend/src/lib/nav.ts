@@ -9,6 +9,7 @@ import Copy from '@lucide/svelte/icons/copy';
 import Disc from '@lucide/svelte/icons/disc';
 import Disc3 from '@lucide/svelte/icons/disc-3';
 import Download from '@lucide/svelte/icons/download';
+import FileMusic from '@lucide/svelte/icons/file-music';
 import FolderTree from '@lucide/svelte/icons/folder-tree';
 import Gauge from '@lucide/svelte/icons/gauge';
 import Gift from '@lucide/svelte/icons/gift';
@@ -188,7 +189,17 @@ export const NAV_GROUPS: NavGroup[] = [
         label: 'Tracks',
         href: '/tracks',
         icon: ListMusic,
-        keywords: 'songs everything liked favourites favorites hearts loved my music mine local files spotify video lyrics unreleased'
+        keywords:
+          'songs everything liked favourites favorites hearts loved my music mine local files spotify video lyrics unreleased'
+      },
+      {
+        // Playlists made here, and one per Spotify / Deezer / YouTube playlist collected under Add —
+        // which you can add songs to here as well. A playlist's own page is /playlists/[id].
+        id: 'playlists',
+        label: 'Playlists',
+        href: '/playlists',
+        icon: ListVideo,
+        keywords: 'playlist playlists mix mixtape queue spotify youtube deezer'
       }
     ]
   },
@@ -296,13 +307,12 @@ export const NAV_GROUPS: NavGroup[] = [
         keywords: 'wanted missing acquire soulseek'
       },
       {
-        // Not a playlist feature — it mirrors Spotify collections as .m3u8 files for
-        // Navidrome / Plex / Jellyfin. The old "Playlists" label promised something the app
-        // does not do.
-        id: 'playlists',
+        // Not the Playlists you play (Listen's) — it mirrors Spotify collections as .m3u8 files
+        // for Navidrome / Plex / Jellyfin, whether or not they were collected.
+        id: 'playlist-sync',
         label: 'Playlist sync',
-        href: '/playlists',
-        icon: ListVideo,
+        href: '/playlist-sync',
+        icon: FileMusic,
         keywords: 'playlists m3u8 export mirror navidrome plex jellyfin'
       }
     ]
@@ -376,7 +386,8 @@ export const NAV_GROUPS: NavGroup[] = [
         label: 'Share links',
         href: '/shares',
         icon: Link2,
-        keywords: 'share links public shared url clicks opens views visitors analytics revoke tiktok'
+        keywords:
+          'share links public shared url clicks opens views visitors analytics revoke tiktok'
       },
       {
         id: 'settings',
@@ -541,7 +552,16 @@ const LISTEN = (() => {
 })();
 
 /** Listen's own pages as tabs, for an audience whose whole nav is Listen. */
-const ITEM_TABS: NavTab[] = LISTEN.items.map((item) => ({
+/**
+ * The Listen pages that are a member's tabs: all but Playlists. A phone tab bar holds five (the
+ * HIG's limit, and all the width the search circle beside it leaves), and a member's five are
+ * Overview · Albums · Artists · Tracks · Chats. Playlists is a row on the Overview instead, as
+ * Albums, Artists and Tracks are for an admin; the sidebar lists it at md+. Android, which has no
+ * Chats, gives Playlists the fifth tab.
+ */
+const MEMBER_LISTEN_TABS = LISTEN.items.filter((item) => item.id !== 'playlists');
+
+const ITEM_TABS: NavTab[] = MEMBER_LISTEN_TABS.map((item) => ({
   id: item.id,
   label: item.label,
   icon: item.icon,
@@ -568,9 +588,9 @@ function param(url: URL, name: string): string | null {
  * The tabs the compact tab bar shows.
  *
  * An audience that sees the whole nav (admin, demo) gets one tab per group, rooted at the hub. A
- * member sees Listen and Chats, and a Listen tab over a single hub would hide the four pages that
- * are the whole of their app — so their tabs are Listen's own pages (the same four the Android
- * client's library shell switches between) plus Chats. The arrays are module constants, so the
+ * member sees Listen and Chats, and a Listen tab over a single hub would hide the pages that are
+ * the whole of their app — so their tabs are Listen's own pages plus Chats. Playlists is the one
+ * Listen page that is not a tab (see MEMBER_LISTEN_TABS). The arrays are module constants, so the
  * result is referentially stable per audience.
  */
 export function tabsFor(user: NavAudience): NavTab[] {
@@ -656,7 +676,8 @@ export function tabFor(url: URL, user: NavAudience, activeTabId?: string | null)
       : under('/track')(url)
         ? 'tracks'
         : match.item?.id;
-  return tabs.find((t) => t.id === home) ?? null;
+  // A Listen page with no tab of its own (Playlists) sits on the Overview, which links to it.
+  return tabs.find((t) => t.id === home) ?? tabs.find((t) => t.id === 'overview') ?? null;
 }
 
 /** Pages every tab links to, which therefore stay on whichever tab pushed them (see tabFor). */
@@ -696,6 +717,8 @@ export function backFor(url: URL, user: NavAudience): NavBack | null {
   if (under('/track')(url)) return to(listenItem('tracks'));
   // A conversation, and the share-sheet page, go back to the list of chats — for every audience.
   if (match.group.id === CHATS_TAB.id) return { label: CHATS_TAB.label, href: CHATS_TAB.root };
+  // A playlist's page goes back to the Playlists list.
+  if (path !== '/playlists' && under('/playlists')(url)) return to(listenItem('playlists'));
 
   // A member has no hubs: everything that is not a tab root sits on top of their Overview. That
   // includes /settings, which is not in their nav at all.
