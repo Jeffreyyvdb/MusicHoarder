@@ -140,6 +140,12 @@ function stopRaf() {
 // so SSR and browsers without support (or partial support) are silent no-ops —
 // each `setActionHandler` is also try/caught since older WebKit throws on
 // actions it doesn't recognise.
+//
+// Deliberately NO `seekbackward` / `seekforward` handlers: iOS maps those to the
+// native skip-interval commands and its lock screen, Dynamic Island and CarPlay
+// show that ±10s pair *instead of* Previous/Next whenever both are registered,
+// leaving no way to change track from outside the app. `seekto` (the scrubber)
+// is a separate action and stays.
 
 function mediaSession(): MediaSession | null {
   if (!browser || !('mediaSession' in navigator)) return null;
@@ -191,8 +197,6 @@ function refreshActionHandlers() {
   set('seekto', (details) => {
     if (typeof details.seekTime === 'number') seek(details.seekTime);
   });
-  set('seekbackward', (details) => seek(currentTime - (details.seekOffset ?? 10)));
-  set('seekforward', (details) => seek(currentTime + (details.seekOffset ?? 10)));
 }
 
 function setPlaybackState(state: MediaSessionPlaybackState) {

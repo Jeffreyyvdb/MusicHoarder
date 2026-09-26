@@ -150,6 +150,17 @@ describe('playPrevious', () => {
   });
 });
 
+describe('Media Session seek actions', () => {
+  it('never registers seekbackward/seekforward, so iOS shows Previous/Next instead of ±10s', async () => {
+    const player = await freshStore();
+    await player.playSong(QUEUE[1], QUEUE, 1);
+    expect(handlers.has('seekbackward')).toBe(false);
+    expect(handlers.has('seekforward')).toBe(false);
+    expect(typeof handlers.get('seekto')).toBe('function');
+    expect(typeof handlers.get('nexttrack')).toBe('function');
+  });
+});
+
 describe('Media Session previoustrack', () => {
   it('stays registered at the head of the queue, where it restarts the track', async () => {
     const player = await freshStore();
