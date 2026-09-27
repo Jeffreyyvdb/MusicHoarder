@@ -66,14 +66,8 @@ public class QualityGradingService(
         var sw = Stopwatch.StartNew();
         try
         {
-            var result = await chatClient.CompleteAsync(
-                new ChatCompletionRequest(
-                    QualityGradingPrompt.BuildMessages(dossier),
-                    opts.Temperature,
-                    opts.MaxOutputTokens),
-                ct);
-            rawContent = result.Content;
-            parsed = QualityGradingPrompt.Parse(rawContent);
+            (parsed, rawContent) = await GradingCompletion.RequestGradeAsync(
+                chatClient, QualityGradingPrompt.BuildMessages(dossier), opts, logger, ct);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
