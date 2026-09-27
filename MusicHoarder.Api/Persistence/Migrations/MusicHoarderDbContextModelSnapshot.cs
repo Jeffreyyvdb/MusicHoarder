@@ -1176,6 +1176,86 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.ToTable("PlaybackSessions");
                 });
 
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.Playlist", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ExportFilePath")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<bool>("ExportToLibrary")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("ExportedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<Guid>("OwnerUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("WishlistSourceId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OwnerUserId");
+
+                    b.HasIndex("WishlistSourceId");
+
+                    b.HasIndex("OwnerUserId", "WishlistSourceId")
+                        .IsUnique()
+                        .HasFilter("\"WishlistSourceId\" IS NOT NULL");
+
+                    b.ToTable("Playlists");
+                });
+
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.PlaylistEntry", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("AddedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("PlaylistId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SongId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SongId");
+
+                    b.HasIndex("PlaylistId", "Position");
+
+                    b.HasIndex("PlaylistId", "SongId")
+                        .IsUnique();
+
+                    b.ToTable("PlaylistEntries");
+                });
+
             modelBuilder.Entity("MusicHoarder.Api.Persistence.RuntimeSettings", b =>
                 {
                     b.Property<int>("Id")
@@ -2495,6 +2575,9 @@ namespace MusicHoarder.Api.Persistence.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
+                    b.Property<DateTime?>("TracksRecordedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("YouTubePlaylistId")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
@@ -2513,6 +2596,32 @@ namespace MusicHoarder.Api.Persistence.Migrations
                         .HasFilter("\"YouTubePlaylistId\" IS NOT NULL");
 
                     b.ToTable("WishlistSources");
+                });
+
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.WishlistSourceTrack", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("Position")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("WishlistItemId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("WishlistSourceId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WishlistItemId");
+
+                    b.HasIndex("WishlistSourceId", "Position");
+
+                    b.ToTable("WishlistSourceTracks");
                 });
 
             modelBuilder.Entity("MusicHoarder.Api.Auth.MagicLinkToken", b =>
@@ -2627,6 +2736,35 @@ namespace MusicHoarder.Api.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("SongId")
                         .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Song");
+                });
+
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.Playlist", b =>
+                {
+                    b.HasOne("MusicHoarder.Api.Persistence.WishlistSource", "WishlistSource")
+                        .WithMany()
+                        .HasForeignKey("WishlistSourceId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("WishlistSource");
+                });
+
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.PlaylistEntry", b =>
+                {
+                    b.HasOne("MusicHoarder.Api.Persistence.Playlist", "Playlist")
+                        .WithMany("Entries")
+                        .HasForeignKey("PlaylistId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("MusicHoarder.Api.Persistence.SongMetadata", "Song")
+                        .WithMany()
+                        .HasForeignKey("SongId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Playlist");
 
                     b.Navigation("Song");
                 });
@@ -2779,6 +2917,25 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Navigation("WishlistSource");
                 });
 
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.WishlistSourceTrack", b =>
+                {
+                    b.HasOne("MusicHoarder.Api.Persistence.WishlistItem", "WishlistItem")
+                        .WithMany()
+                        .HasForeignKey("WishlistItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("MusicHoarder.Api.Persistence.WishlistSource", "WishlistSource")
+                        .WithMany()
+                        .HasForeignKey("WishlistSourceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("WishlistItem");
+
+                    b.Navigation("WishlistSource");
+                });
+
             modelBuilder.Entity("MusicHoarder.Api.Persistence.CanonicalAlbum", b =>
                 {
                     b.Navigation("Tracks");
@@ -2794,6 +2951,11 @@ namespace MusicHoarder.Api.Persistence.Migrations
             modelBuilder.Entity("MusicHoarder.Api.Persistence.EnrichmentSnapshot", b =>
                 {
                     b.Navigation("Songs");
+                });
+
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.Playlist", b =>
+                {
+                    b.Navigation("Entries");
                 });
 
             modelBuilder.Entity("MusicHoarder.Api.Persistence.SongMetadata", b =>

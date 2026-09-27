@@ -28,6 +28,8 @@ import com.musichoarder.app.data.PasskeySignIn
 import com.musichoarder.app.data.PasskeyUnavailableException
 import com.musichoarder.app.data.PlaybackCommand
 import com.musichoarder.app.data.PlaybackMode
+import com.musichoarder.app.data.Playlist
+import com.musichoarder.app.data.hydratePlaylists
 import com.musichoarder.app.data.RowTap
 import com.musichoarder.app.data.ShareLink
 import com.musichoarder.app.data.SortKey
@@ -127,6 +129,28 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val likes: Map<Int, String?>,
         val plays: Map<Int, com.musichoarder.app.data.PlayStat>,
     )
+
+    /** The account's playlists as last fetched (loading / unsupported / error included). */
+    val playlistsState = graph.library.playlists
+
+    /**
+     * The playlists joined against the library the phone holds — every `/songs` row, as the web's
+     * `songsById`, so a synced track that is matched but not built yet still plays.
+     */
+    val playlists: StateFlow<List<Playlist>> = combine(graph.library.state, graph.library.playlists) { state, lists ->
+        hydratePlaylists(lists.playlists, state.songsById)
+    }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** The playlist the drill-in is showing. */
+    val openPlaylist: StateFlow<Playlist?> = combine(playlists, _ui) { lists, ui ->
+        ui.openPlaylistId?.let { id -> lists.firstOrNull { it.id == id } }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** "Add to playlist…" waiting on a pick, or null while no sheet is up. */
+    private val _addToPlaylist = MutableStateFlow<AddToPlaylistRequest?>(null)
+    val addToPlaylist: StateFlow<AddToPlaylistRequest?> = _addToPlaylist.asStateFlow()
 
     /** The album the drilldown is showing, resolved against the unscoped list. */
     val openAlbum: StateFlow<Album?> = combine(graph.library.state, _ui) { state, ui ->
@@ -444,12 +468,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private fun start() {
         player.connect()
         viewModelScope.launch { graph.library.refresh() }
+        refreshPlaylists()
         refreshIdentity()
     }
 
     fun refresh() {
         viewModelScope.launch { graph.library.refresh(force = true) }
+        refreshPlaylists()
         refreshIdentity()
+    }
+
+    fun refreshPlaylists() {
+        viewModelScope.launch { graph.library.refreshPlaylists() }
     }
 
     /**
@@ -1012,7 +1042,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     // Every mutation goes through a named method so the state stays one object and the back handler
     // has a single place to read.
 
-    fun selectTab(tab: LibraryTab) = _ui.update { it.copy(tab = tab) }
+    fun selectTab(tab: LibraryTab) {
+        _ui.update { it.copy(tab = tab) }
+        // Changed from other devices too, and small: every visit asks again, over what is shown.
+        if (tab == LibraryTab.Playlists) refreshPlaylists()
+    }
 
     fun setQuery(query: String) = _ui.update { it.copy(query = query) }
 
@@ -1060,7 +1094,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * from the player it would mask the very page the tap asked for.
      */
     fun openArtist(name: String) = _ui.update {
-        it.copy(artistFilter = name, tab = LibraryTab.Albums, openAlbumKey = null)
+        it.copy(artistFilter = name, tab = LibraryTab.Albums, openAlbumKey = null, openPlaylistId = null)
     }
 
     fun clearArtistFilter() = _ui.update { it.copy(artistFilter = null) }
@@ -1075,6 +1109,109 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun openAlbumKey(key: String) = _ui.update { it.copy(openAlbumKey = key) }
 
     fun closeAlbum() = _ui.update { it.copy(openAlbumKey = null) }
+
+    // --- Playlists -------------------------------------------------------------------------------
+
+    fun openPlaylist(playlist: Playlist) = _ui.update { it.copy(openPlaylistId = playlist.id, openAlbumKey = null) }
+
+    fun closePlaylist() = _ui.update { it.copy(openPlaylistId = null) }
+
+    /** A row's (or an album's) "Add to playlist…": brings the sheet up with a fresh list. */
+    fun requestAddToPlaylist(tracks: List<Track>, label: String) {
+        if (tracks.isEmpty()) return
+        _addToPlaylist.value = AddToPlaylistRequest(tracks.map { it.id }, label)
+        refreshPlaylists()
+    }
+
+    fun dismissAddToPlaylist() {
+        _addToPlaylist.value = null
+    }
+
+    /** The sheet's pick: adds, and says what happened (a track already on it is not added twice). */
+    fun addToPlaylist(playlist: Playlist) {
+        val request = _addToPlaylist.value ?: return
+        _addToPlaylist.value = null
+        viewModelScope.launch {
+            try {
+                val result = graph.library.addToPlaylist(playlist.id, request.songIds)
+                val name = result.playlist.name
+                _localMessages.tryEmit(
+                    when {
+                        result.added == 0 -> "Already in $name"
+                        result.alreadyPresent > 0 -> "Added ${result.added} to $name (${result.alreadyPresent} already on it)"
+                        else -> "Added to $name"
+                    },
+                )
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                _localMessages.tryEmit("Could not add to the playlist")
+            }
+        }
+    }
+
+    /** The sheet's "New playlist…": makes one that starts with the requested tracks. */
+    fun createPlaylistWithRequest(name: String) {
+        val request = _addToPlaylist.value ?: return
+        _addToPlaylist.value = null
+        viewModelScope.launch {
+            try {
+                val playlist = graph.library.createPlaylist(name, request.songIds)
+                _localMessages.tryEmit("Added to ${playlist.name}")
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                _localMessages.tryEmit("Could not make the playlist")
+            }
+        }
+    }
+
+    /** The Playlists tab's +: an empty playlist, opened. */
+    fun createPlaylist(name: String) {
+        viewModelScope.launch {
+            try {
+                val playlist = graph.library.createPlaylist(name, emptyList())
+                _ui.update { it.copy(openPlaylistId = playlist.id, openAlbumKey = null) }
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                _localMessages.tryEmit("Could not make the playlist")
+            }
+        }
+    }
+
+    fun removeFromPlaylist(playlist: Playlist, track: Track) {
+        viewModelScope.launch {
+            try {
+                graph.library.removeFromPlaylist(playlist.id, track.id)
+                _localMessages.tryEmit("Removed from ${playlist.name}")
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                _localMessages.tryEmit("Could not remove the track")
+            }
+        }
+    }
+
+    fun renamePlaylist(playlist: Playlist, name: String) {
+        viewModelScope.launch {
+            try {
+                graph.library.renamePlaylist(playlist.id, name)
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                _localMessages.tryEmit("Could not rename the playlist")
+            }
+        }
+    }
+
+    fun deletePlaylist(playlist: Playlist) {
+        viewModelScope.launch {
+            try {
+                graph.library.deletePlaylist(playlist.id)
+                closePlaylist()
+                _localMessages.tryEmit("Deleted ${playlist.name}")
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                _localMessages.tryEmit("Could not delete the playlist")
+            }
+        }
+    }
 
     /** Loads the album grid's link-status dots for what is currently on screen. */
     fun ensureAlbumStatuses(albums: List<Album>) =

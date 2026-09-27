@@ -1,7 +1,7 @@
 package com.musichoarder.app.data
 
-/** Which of the four library pages is showing. */
-enum class LibraryTab { Overview, Albums, Artists, Tracks }
+/** Which of the library pages is showing — the web's member tabs, Playlists included. */
+enum class LibraryTab { Overview, Albums, Artists, Tracks, Playlists }
 
 /** `Primary` shows lead/album artists only; `All` shows every credited artist, features included. */
 enum class ArtistMode { Primary, All }
@@ -30,6 +30,8 @@ data class LibraryUiState(
     /** The artist drilldown, which narrows the Albums tab in place rather than opening a screen. */
     val artistFilter: String? = null,
     val openAlbumKey: String? = null,
+    /** The playlist drill-in. An album opened from it ("Go to album") stacks over it. */
+    val openPlaylistId: Int? = null,
     /**
      * Seeds the Overview's random shelves. Held here, not in `remember`: a per-composition seed would
      * reshuffle the page on every rotation.

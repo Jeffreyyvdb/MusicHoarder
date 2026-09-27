@@ -4,6 +4,7 @@ using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Library;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Playlists;
 
 namespace MusicHoarder.Api.Spotify;
 
@@ -70,7 +71,16 @@ public sealed class PlaylistExportService(
 
         try
         {
-            return await RunExportCoreAsync(ct);
+            // The playlists folder is shared with MusicHoarder's own playlists; see PlaylistFolder.
+            await PlaylistFolder.Lock.WaitAsync(ct);
+            try
+            {
+                return await RunExportCoreAsync(ct);
+            }
+            finally
+            {
+                PlaylistFolder.Lock.Release();
+            }
         }
         finally
         {
@@ -107,7 +117,7 @@ public sealed class PlaylistExportService(
         }
 
         var summaries = new List<ExportedPlaylistSummary>();
-        var usedFileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var usedFileNames = await LoadLibraryPlaylistFileNamesAsync(ct);
         var totalTracks = 0;
         var matchedTracks = 0;
 
@@ -269,6 +279,21 @@ public sealed class PlaylistExportService(
             "Removed subscription for playlist Spotify reports as not found: {Name} ({PlaylistId})",
             sub.Name, sub.SpotifyPlaylistId);
         return null;
+    }
+
+    /// <summary>The file names MusicHoarder's own playlists hold in the shared folder, so this run never takes one.</summary>
+    private async Task<HashSet<string>> LoadLibraryPlaylistFileNamesAsync(CancellationToken ct)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+        var ownerId = ownerLookup.OwnerUserId;
+        var paths = await db.Playlists
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(p => p.OwnerUserId == ownerId && p.ExportFilePath != null)
+            .Select(p => p.ExportFilePath!)
+            .ToListAsync(ct);
+        return new HashSet<string>(paths.Select(Path.GetFileName).OfType<string>(), StringComparer.OrdinalIgnoreCase);
     }
 
     private async Task<List<Subscription>> LoadSubscriptionsAsync(CancellationToken ct)

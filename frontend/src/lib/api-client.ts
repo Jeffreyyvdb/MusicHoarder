@@ -3683,7 +3683,7 @@ export interface PlaylistCollectionsResponse {
 }
 
 export async function fetchPlaylistCollections(): Promise<PlaylistCollectionsResponse> {
-  return requestJson<PlaylistCollectionsResponse>("/api/playlists")
+  return requestJson<PlaylistCollectionsResponse>("/api/playlist-sync")
 }
 
 export async function subscribePlaylist(input: {
@@ -3691,18 +3691,111 @@ export async function subscribePlaylist(input: {
   spotifyPlaylistId?: string | null
   name: string
 }): Promise<{ id: number; subscribed: boolean; queued: boolean }> {
-  return requestJson("/api/playlists/subscribe", {
+  return requestJson("/api/playlist-sync/subscribe", {
     method: "POST",
     body: JSON.stringify(input)
   })
 }
 
 export async function unsubscribePlaylist(id: number): Promise<{ message: string }> {
-  return requestJson(`/api/playlists/${id}`, { method: "DELETE" })
+  return requestJson(`/api/playlist-sync/${id}`, { method: "DELETE" })
 }
 
 export async function regenerateExportedPlaylists(): Promise<{ queued: boolean }> {
-  return requestJson<{ queued: boolean }>("/api/playlists/regenerate", { method: "POST" })
+  return requestJson<{ queued: boolean }>("/api/playlist-sync/regenerate", { method: "POST" })
+}
+
+// ---------------------------------------------------------------------------
+// Playlists API (MusicHoarder's own playlists, and one per collected Spotify/Deezer/YouTube playlist)
+// ---------------------------------------------------------------------------
+
+export type PlaylistSourceType = "spotifyLiked" | "spotifyPlaylist" | "deezer" | "youtube"
+
+// The collected remote playlist a playlist follows. Its tracks play first, in the remote order.
+export interface PlaylistSource {
+  id: number
+  type: PlaylistSourceType
+  name: string
+  imageUrl?: string | null
+  url?: string | null
+  autoSync: boolean
+  lastSyncedAtUtc?: string | null
+}
+
+// A playlist carries song ids, joined against the /songs list like an album's trackIds.
+export interface LibraryPlaylist {
+  id: number
+  name: string
+  source: PlaylistSource | null
+  // What plays, in order: the synced tracks, then the ones added in MusicHoarder.
+  songIds: number[]
+  // The songs added in MusicHoarder — the only ones that can be removed or reordered here.
+  addedSongIds: number[]
+  // Synced tracks not in the library yet.
+  missingCount: number
+  exportToLibrary: boolean
+  exportedAtUtc?: string | null
+  createdAtUtc: string
+  updatedAtUtc: string
+}
+
+export interface PlaylistsResponse {
+  playlists: LibraryPlaylist[]
+  // Whether this account's playlists can be written into the library (the library owner's only).
+  canExport: boolean
+}
+
+export interface PlaylistSongsResult {
+  added: number
+  alreadyPresent: number
+  playlist: LibraryPlaylist
+}
+
+export async function fetchPlaylists(): Promise<PlaylistsResponse> {
+  return requestJson<PlaylistsResponse>("/api/playlists")
+}
+
+export async function fetchPlaylist(id: number): Promise<LibraryPlaylist> {
+  return requestJson<LibraryPlaylist>(`/api/playlists/${id}`)
+}
+
+export async function createPlaylist(name: string, songIds: number[] = []): Promise<LibraryPlaylist> {
+  return requestJson<LibraryPlaylist>("/api/playlists", {
+    method: "POST",
+    body: JSON.stringify({ name, songIds })
+  })
+}
+
+export async function updatePlaylist(
+  id: number,
+  patch: { name?: string; exportToLibrary?: boolean }
+): Promise<LibraryPlaylist> {
+  return requestJson<LibraryPlaylist>(`/api/playlists/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch)
+  })
+}
+
+export async function deletePlaylist(id: number): Promise<{ message: string }> {
+  return requestJson(`/api/playlists/${id}`, { method: "DELETE" })
+}
+
+export async function addPlaylistSongs(id: number, songIds: number[]): Promise<PlaylistSongsResult> {
+  return requestJson<PlaylistSongsResult>(`/api/playlists/${id}/songs`, {
+    method: "POST",
+    body: JSON.stringify({ songIds })
+  })
+}
+
+export async function reorderPlaylistSongs(id: number, songIds: number[]): Promise<LibraryPlaylist> {
+  return requestJson<LibraryPlaylist>(`/api/playlists/${id}/songs`, {
+    method: "PUT",
+    body: JSON.stringify({ songIds })
+  })
+}
+
+export async function removePlaylistSong(id: number, songId: number): Promise<LibraryPlaylist> {
+  return requestJson<LibraryPlaylist>(`/api/playlists/${id}/songs/${songId}`, { method: "DELETE" })
 }
 
 // ---------------------------------------------------------------------------

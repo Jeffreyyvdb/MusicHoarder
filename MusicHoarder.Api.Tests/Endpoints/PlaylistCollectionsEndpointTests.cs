@@ -16,7 +16,7 @@ public class PlaylistCollectionsEndpointTests
 
     private static async Task<PlaylistCollectionsResponse> Get(MusicHoarderDbContext db, ISpotifyApiService api)
     {
-        var result = await PlaylistsEndpoints.GetCollections(api, db, NullLoggerFactory.Instance, default);
+        var result = await PlaylistSyncEndpoints.GetCollections(api, db, NullLoggerFactory.Instance, default);
         return (PlaylistCollectionsResponse)((IValueHttpResult)result).Value!;
     }
 

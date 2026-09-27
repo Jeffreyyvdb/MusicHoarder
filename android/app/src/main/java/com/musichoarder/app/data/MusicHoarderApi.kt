@@ -212,6 +212,44 @@ class MusicHoarderApi(
         }
 
     /**
+     * The account's playlists, each with its playable song ids in order.
+     *
+     * Null when the server predates playlists (404): a phone from the Play Store can be newer than
+     * the self-hosted server it talks to, and the tab then says so instead of looking empty.
+     */
+    suspend fun fetchPlaylists(): List<PlaylistDto>? =
+        try {
+            get(ApiRoutes.playlists()) { json.decodeFromStream<PlaylistsResponse>(it).playlists }
+        } catch (e: ApiException) {
+            if (e.status == 404) null else throw e
+        }
+
+    /** Makes a playlist, optionally with its first songs. */
+    suspend fun createPlaylist(name: String, songIds: List<Int>): PlaylistDto =
+        send(ApiRoutes.playlists(), "POST", json.encodeToString(CreatePlaylistBody(name, songIds))) {
+            json.decodeFromStream<PlaylistDto>(it)
+        }
+
+    /** Appends songs; ones already on the playlist are skipped and counted in the result. */
+    suspend fun addToPlaylist(id: Int, songIds: List<Int>): PlaylistSongsResult =
+        send(ApiRoutes.playlistSongs(id), "POST", json.encodeToString(PlaylistSongsBody(songIds))) {
+            json.decodeFromStream<PlaylistSongsResult>(it)
+        }
+
+    /** Removes a song added in MusicHoarder (a synced playlist's own tracks are the remote list's). */
+    suspend fun removeFromPlaylist(id: Int, songId: Int): PlaylistDto =
+        send(ApiRoutes.playlistSong(id, songId), "DELETE", null) { json.decodeFromStream<PlaylistDto>(it) }
+
+    suspend fun renamePlaylist(id: Int, name: String): PlaylistDto =
+        send(ApiRoutes.playlist(id), "PATCH", json.encodeToString(RenamePlaylistBody(name))) {
+            json.decodeFromStream<PlaylistDto>(it)
+        }
+
+    suspend fun deletePlaylist(id: Int) {
+        send(ApiRoutes.playlist(id), "DELETE", null) { }
+    }
+
+    /**
      * Lyrics are fetched per song rather than shipped with the library dump — the AI transcription
      * text in particular is large, and most songs never have their lyrics opened.
      */
@@ -430,6 +468,13 @@ class MusicHoarderApi(
     private suspend fun <T> get(path: String, parse: (InputStream) -> T): T = withContext(Dispatchers.IO) {
         execute(Request.Builder().url(url(path)).get().build()) { parse(it) }
     }
+
+    /** A write with an optional JSON body (a DELETE carries none). */
+    private suspend fun <T> send(path: String, method: String, jsonBody: String?, parse: (InputStream) -> T): T =
+        withContext(Dispatchers.IO) {
+            val body = jsonBody?.toRequestBody(JSON_MEDIA_TYPE)
+            execute(Request.Builder().url(url(path)).method(method, body).build()) { parse(it) }
+        }
 
     private suspend fun post(path: String) = withContext(Dispatchers.IO) {
         execute(Request.Builder().url(url(path)).post(EMPTY_BODY).build()) { }

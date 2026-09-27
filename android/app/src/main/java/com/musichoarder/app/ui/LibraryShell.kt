@@ -30,6 +30,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ListAlt
 import androidx.compose.material.icons.automirrored.rounded.ListAlt
+import androidx.compose.material.icons.automirrored.outlined.PlaylistPlay
+import androidx.compose.material.icons.automirrored.rounded.PlaylistPlay
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.outlined.Album
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Group
@@ -43,6 +46,7 @@ import androidx.compose.material.icons.rounded.SwapVert
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -57,8 +61,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -81,6 +88,8 @@ import com.musichoarder.app.data.LibraryState
 import com.musichoarder.app.data.LibraryTab
 import com.musichoarder.app.data.LibraryUiState
 import com.musichoarder.app.data.NowPlayingLinks
+import com.musichoarder.app.data.Playlist
+import com.musichoarder.app.data.PlaylistsState
 import com.musichoarder.app.data.SORT_LABELS
 import com.musichoarder.app.data.SortKey
 import com.musichoarder.app.data.Track
@@ -94,7 +103,7 @@ import com.musichoarder.app.ui.theme.MhTheme
 import java.util.Calendar
 import kotlinx.coroutines.launch
 
-/** Everything the shell needs to drive the four tabs, so the parameter list stays readable. */
+/** Everything the shell needs to drive the tabs, so the parameter list stays readable. */
 class LibraryActions(
     val onSelectTab: (LibraryTab) -> Unit,
     val onQueryChange: (String) -> Unit,
@@ -117,6 +126,11 @@ class LibraryActions(
     /** A row's "Go to artist", which knows the lead artist's name rather than the group. */
     val onOpenArtistName: (String) -> Unit,
     val onToggleLike: (Track) -> Unit,
+    /** A row's "Add to playlist…". */
+    val onAddToPlaylist: (Track) -> Unit,
+    val onOpenPlaylist: (Playlist) -> Unit,
+    /** The Playlists tab's +, once named. */
+    val onCreatePlaylist: (String) -> Unit,
     /** The Play / Shuffle pills: always from the top. */
     val onPlay: (List<Track>, Int) -> Unit,
     /** A tap on a track row, which follows the row tap rule instead (see `RowTap`). */
@@ -129,7 +143,7 @@ class LibraryActions(
 )
 
 /**
- * The four tabs' scroll positions, one per tab.
+ * The tabs' scroll positions, one per tab.
  *
  * Held by the root rather than by each tab, for two reasons. A tab switch takes the old tab out of
  * composition, and the album drill-in takes the whole shell out — both used to throw the position
@@ -143,6 +157,7 @@ class LibraryListStates(
     val albums: LazyGridState,
     val artists: LazyGridState,
     val tracks: LazyListState,
+    val playlists: LazyGridState,
 ) {
     /**
      * Whether [tab]'s large title has scrolled out of sight — the header is always item 0, so that
@@ -154,6 +169,7 @@ class LibraryListStates(
             LibraryTab.Albums -> albums.firstVisibleItemIndex to albums.firstVisibleItemScrollOffset
             LibraryTab.Artists -> artists.firstVisibleItemIndex to artists.firstVisibleItemScrollOffset
             LibraryTab.Tracks -> tracks.firstVisibleItemIndex to tracks.firstVisibleItemScrollOffset
+            LibraryTab.Playlists -> playlists.firstVisibleItemIndex to playlists.firstVisibleItemScrollOffset
         }
         return index > 0 || offset > titlePx
     }
@@ -168,6 +184,7 @@ class LibraryListStates(
             LibraryTab.Albums -> albums.toTop()
             LibraryTab.Artists -> artists.toTop()
             LibraryTab.Tracks -> tracks.toTop()
+            LibraryTab.Playlists -> playlists.toTop()
         }
     }
 }
@@ -186,8 +203,9 @@ fun rememberLibraryListStates(): LibraryListStates {
     val albums = rememberLazyGridState()
     val artists = rememberLazyGridState()
     val tracks = rememberLazyListState()
-    return remember(overview, albums, artists, tracks) {
-        LibraryListStates(overview, albums, artists, tracks)
+    val playlists = rememberLazyGridState()
+    return remember(overview, albums, artists, tracks, playlists) {
+        LibraryListStates(overview, albums, artists, tracks, playlists)
     }
 }
 
@@ -219,6 +237,8 @@ fun LibraryShell(
     contentPadding: PaddingValues,
     modifier: Modifier = Modifier,
     listStates: LibraryListStates = rememberLibraryListStates(),
+    playlists: List<Playlist> = emptyList(),
+    playlistsState: PlaylistsState = PlaylistsState(),
 ) {
     val colors = MhTheme.colors
     val scope = rememberCoroutineScope()
@@ -231,7 +251,17 @@ fun LibraryShell(
     val title = if (ui.tab == LibraryTab.Overview) greeting else tabTitle(ui.tab)
     // Summed once per list rather than on every recomposition; a library is thousands of rows.
     val trackSeconds = remember(content.tracks) { content.tracks.sumOf { it.durationSeconds.toLong() } }
-    val meta = headerMeta(ui, content, trackSeconds)
+    // The search box narrows the Playlists tab by name, as the web's does.
+    val shownPlaylists = remember(playlists, ui.query) {
+        val query = ui.query.trim()
+        if (query.isEmpty()) playlists else playlists.filter { it.name.contains(query, ignoreCase = true) }
+    }
+    val meta = if (ui.tab == LibraryTab.Playlists) {
+        if (playlistsState.loaded) narrowed(shownPlaylists.size, playlists.size, "playlist") else null
+    } else {
+        headerMeta(ui, content, trackSeconds)
+    }
+    var namingPlaylist by rememberSaveable { mutableStateOf(false) }
 
     val accountButton: @Composable () -> Unit = {
         AccountMenu(
@@ -250,6 +280,9 @@ fun LibraryShell(
             LibraryTab.Albums -> AlbumsMenu(ui, content, actions)
             LibraryTab.Artists -> ArtistsMenu(ui, content, actions)
             LibraryTab.Tracks -> TracksMenu(ui, content, actions, isAdmin)
+            LibraryTab.Playlists -> IconButton(onClick = { namingPlaylist = true }) {
+                Icon(Icons.Rounded.Add, contentDescription = "New playlist", tint = colors.foreground)
+            }
         }
         accountButton()
     }
@@ -324,6 +357,8 @@ fun LibraryShell(
                 header = header,
                 contentPadding = contentPadding,
                 isAdmin = isAdmin,
+                playlists = shownPlaylists,
+                playlistsEmptyMessage = playlistsEmptyMessage(playlistsState, playlists, shownPlaylists, ui),
             )
 
             PinnedTitleBar(
@@ -334,6 +369,35 @@ fun LibraryShell(
             )
         }
     }
+
+    if (namingPlaylist) {
+        PlaylistNameDialog(
+            title = "New playlist",
+            confirmLabel = "Create",
+            onConfirm = { name ->
+                namingPlaylist = false
+                actions.onCreatePlaylist(name)
+            },
+            onDismiss = { namingPlaylist = false },
+        )
+    }
+}
+
+/** What the Playlists tab says instead of cards, or null when it has cards to show. */
+private fun playlistsEmptyMessage(
+    state: PlaylistsState,
+    all: List<Playlist>,
+    shown: List<Playlist>,
+    ui: LibraryUiState,
+): String? = when {
+    shown.isNotEmpty() -> null
+    state.unsupported -> "Playlists need a newer server. Everything else still works."
+    !state.loaded && state.error != null -> state.error
+    !state.loaded -> "Loading playlists…"
+    all.isEmpty() ->
+        "No playlists yet.\n\nMake one with +, or pick Add to playlist… from any track's ⋮ menu. " +
+            "Spotify, Deezer and YouTube playlists collected on the web show up here too."
+    else -> noMatchMessage(ui, "playlists")
 }
 
 /** How far into the header the list has to scroll before the pinned title takes over. */
@@ -355,6 +419,8 @@ private fun TabBody(
     header: @Composable () -> Unit,
     contentPadding: PaddingValues,
     isAdmin: Boolean,
+    playlists: List<Playlist>,
+    playlistsEmptyMessage: String?,
 ) {
     when (ui.tab) {
         LibraryTab.Overview -> OverviewTab(
@@ -365,6 +431,7 @@ private fun TabBody(
             isPlayingNow = isPlayingNow,
             onActivateRow = actions.onActivateRow,
             onToggleLike = actions.onToggleLike,
+            onAddToPlaylist = actions.onAddToPlaylist,
             linksOf = linksOf,
             onOpenAlbumKey = actions.onOpenAlbumKey,
             onOpenArtistName = actions.onOpenArtistName,
@@ -419,6 +486,7 @@ private fun TabBody(
             isPlayingNow = isPlayingNow,
             coverUrl = coverUrl,
             onToggleLike = actions.onToggleLike,
+            onAddToPlaylist = actions.onAddToPlaylist,
             onActivateRow = actions.onActivateRow,
             contentPadding = contentPadding,
             sharedByOf = content::rowSharedByLabelFor,
@@ -432,6 +500,16 @@ private fun TabBody(
             onPlay = { actions.onPlay(content.tracks, 0) },
             onShuffle = { actions.onShuffle(content.tracks) },
             emptyMessage = if (ui.chips.isEmpty()) noMatchMessage(ui, "tracks") else CHIPS_EMPTY_MESSAGE,
+        )
+
+        LibraryTab.Playlists -> PlaylistsTab(
+            playlists = playlists,
+            coverUrl = coverUrl,
+            onOpenPlaylist = actions.onOpenPlaylist,
+            contentPadding = contentPadding,
+            header = header,
+            gridState = listStates.playlists,
+            emptyMessage = playlistsEmptyMessage,
         )
     }
 }
@@ -669,8 +747,8 @@ private fun PinnedTitleBar(
 }
 
 /**
- * The four tabs as a Material 3 navigation bar docked at the bottom — the Android form of the
- * web's floating tab bar (a member's tabs there are these same four). Material's shape and motion
+ * The tabs as a Material 3 navigation bar docked at the bottom — the Android form of the
+ * web's floating tab bar (a member's tabs there are these same five). Material's shape and motion
  * (the indicator pill, the filled glyph when active, the label always shown), the web's colours:
  * the tint marks the active tab on a gray lozenge, the rest read in the foreground colour.
  *
@@ -713,7 +791,7 @@ fun LibraryNavigationBar(
 }
 
 /**
- * The same four tabs as a navigation rail, for a window at least 600dp wide — a tablet, a foldable
+ * The same tabs as a navigation rail, for a window at least 600dp wide — a tablet, a foldable
  * open, a phone on its side — where a bottom bar would spend scarce height and stretch four items
  * across a wide screen.
  */
@@ -760,6 +838,7 @@ private fun tabTitle(tab: LibraryTab): String = when (tab) {
     LibraryTab.Albums -> "Albums"
     LibraryTab.Artists -> "Artists"
     LibraryTab.Tracks -> "Tracks"
+    LibraryTab.Playlists -> "Playlists"
 }
 
 /** Material's convention: the filled glyph for the active destination, the outline for the rest. */
@@ -768,11 +847,14 @@ private fun tabIcon(tab: LibraryTab, selected: Boolean): ImageVector = when (tab
     LibraryTab.Albums -> if (selected) Icons.Rounded.Album else Icons.Outlined.Album
     LibraryTab.Artists -> if (selected) Icons.Rounded.Group else Icons.Outlined.Group
     LibraryTab.Tracks -> if (selected) Icons.AutoMirrored.Rounded.ListAlt else Icons.AutoMirrored.Outlined.ListAlt
+    // The web's list-with-a-play-triangle (lucide `list-video`).
+    LibraryTab.Playlists -> if (selected) Icons.AutoMirrored.Rounded.PlaylistPlay else Icons.AutoMirrored.Outlined.PlaylistPlay
 }
 
 private fun searchPlaceholder(tab: LibraryTab): String = when (tab) {
     LibraryTab.Albums -> "Search albums"
     LibraryTab.Artists -> "Search artists"
+    LibraryTab.Playlists -> "Search playlists"
     else -> "Search tracks"
 }
 
@@ -794,6 +876,8 @@ private fun headerMeta(ui: LibraryUiState, content: LibraryContent, trackSeconds
             // Nothing to total when the list is empty — the empty state explains itself.
             if (content.tracks.isEmpty()) head else "$head · ${formatTotalDuration(trackSeconds)}"
         }
+        // Drawn by the shell from the playlists themselves (see LibraryShell); never reached.
+        LibraryTab.Playlists -> ""
     }
     // Names whoever actually shared the rows on screen. Absent when it is all your own music, so
     // an admin's header reads exactly as it did before.

@@ -220,6 +220,7 @@ public class WishlistServiceTests
             DeezerPlaylistId = "pl1",
             Name = "RapCaviar",
             RemoteChecksum = "chk-1",
+            TracksRecordedAtUtc = DateTime.UtcNow,
             CreatedAtUtc = DateTime.UtcNow,
         };
         db.WishlistSources.Add(source);
@@ -599,6 +600,164 @@ public class WishlistServiceTests
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.CreateOrUpdateSourceAsync(Owner, WishlistSourceType.YouTubePlaylist, " ", false, default));
     }
+
+    // --- The source's own tracklist (for its playlist) ------------------------------------------
+
+    [Fact]
+    public async Task SyncSource_Playlist_RecordsItsTracksInOrder_IncludingOnesAnotherSourceWishlistedFirst()
+    {
+        // Items are deduplicated across sources: "a" is Liked Songs' item. The playlist must still
+        // list it, in its own place — which is why the tracklist is recorded separately.
+        await using var db = CreateDbContext();
+        var liked = new WishlistItem
+        {
+            OwnerUserId = Owner,
+            SpotifyTrackId = "a",
+            Title = "Song A",
+            Artist = "Artist",
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow,
+        };
+        db.WishlistItems.Add(liked);
+        var source = new WishlistSource
+        {
+            OwnerUserId = Owner,
+            SourceType = WishlistSourceType.Playlist,
+            SpotifyPlaylistId = "pl",
+            Name = "Road trip",
+            CreatedAtUtc = DateTime.UtcNow,
+        };
+        db.WishlistSources.Add(source);
+        await db.SaveChangesAsync();
+
+        var api = new FakeSpotifyApi { PlaylistTracks = [Track("c", "Song C"), Track("a", "Song A"), Track("b", "Song B"), Track("c", "Song C")] };
+        await CreateService(db, api).SyncSourceAsync(Owner, source, default);
+
+        Assert.Equal(["c", "a", "b"], await RecordedSpotifyIdsAsync(db, source.Id));
+        Assert.NotNull(source.TracksRecordedAtUtc);
+        var tracks = await db.WishlistSourceTracks.IgnoreQueryFilters().Where(t => t.WishlistSourceId == source.Id).ToListAsync();
+        Assert.Contains(tracks, t => t.WishlistItemId == liked.Id);
+    }
+
+    [Fact]
+    public async Task SyncSource_Playlist_FollowsTheRemoteListWhenTracksMoveOrLeave()
+    {
+        await using var db = CreateDbContext();
+        var source = new WishlistSource
+        {
+            OwnerUserId = Owner,
+            SourceType = WishlistSourceType.Playlist,
+            SpotifyPlaylistId = "pl",
+            Name = "Road trip",
+            CreatedAtUtc = DateTime.UtcNow,
+        };
+        db.WishlistSources.Add(source);
+        await db.SaveChangesAsync();
+        var api = new FakeSpotifyApi { PlaylistTracks = [Track("a", "A"), Track("b", "B"), Track("c", "C")] };
+        var service = CreateService(db, api);
+        await service.SyncSourceAsync(Owner, source, default);
+
+        api.PlaylistTracks = [Track("c", "C"), Track("a", "A")];
+        await service.SyncSourceAsync(Owner, source, default);
+
+        Assert.Equal(["c", "a"], await RecordedSpotifyIdsAsync(db, source.Id));
+        // The wishlist itself stays append-only: "b" left the playlist, not the wishlist.
+        Assert.Equal(3, await db.WishlistItems.IgnoreQueryFilters().CountAsync());
+    }
+
+    [Fact]
+    public async Task SyncSource_FastPoll_DoesNotRecordAPartialTracklist()
+    {
+        await using var db = CreateDbContext();
+        var source = new WishlistSource
+        {
+            OwnerUserId = Owner,
+            SourceType = WishlistSourceType.LikedSongs,
+            Name = "Liked Songs",
+            CreatedAtUtc = DateTime.UtcNow,
+        };
+        db.WishlistSources.Add(source);
+        await db.SaveChangesAsync();
+        var api = new FakeSpotifyApi { LikedSongs = Enumerable.Range(0, 60).Select(i => Track($"t{i}", $"T{i}")).ToList() };
+
+        await CreateService(db, api).SyncSourceAsync(Owner, source, default, maxPages: 1);
+
+        Assert.Null(source.TracksRecordedAtUtc);
+        Assert.Empty(await db.WishlistSourceTracks.IgnoreQueryFilters().ToListAsync());
+    }
+
+    [Fact]
+    public async Task SyncSource_DeezerPlaylist_UnchangedChecksum_StillReadsOnceToRecordTheTracklist()
+    {
+        // A source synced before tracklists were recorded has a checksum but no tracklist; skipping
+        // it would leave its playlist on the fallback forever.
+        await using var db = CreateDbContext();
+        db.WishlistItems.Add(new WishlistItem
+        {
+            OwnerUserId = Owner,
+            DeezerTrackId = "d1",
+            Title = "Song One",
+            Artist = "Artist A",
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow,
+        });
+        var source = new WishlistSource
+        {
+            OwnerUserId = Owner,
+            SourceType = WishlistSourceType.DeezerPlaylist,
+            DeezerPlaylistId = "pl1",
+            Name = "RapCaviar",
+            RemoteChecksum = "chk-1",
+            CreatedAtUtc = DateTime.UtcNow,
+        };
+        db.WishlistSources.Add(source);
+        await db.SaveChangesAsync();
+
+        var deezer = new FakeDeezerCatalogService();
+        deezer.Playlists["pl1"] = new DeezerPlaylistSummary("pl1", "RapCaviar", null, null, 2, null, "chk-1");
+        deezer.PlaylistTracks["pl1"] =
+        [
+            new DeezerPlaylistTrack("d2", "Song Two", "Artist B", null, 200_000, null),
+            new DeezerPlaylistTrack("d1", "Song One", "Artist A", null, 200_000, null),
+        ];
+
+        await CreateService(db, new FakeSpotifyApi(), deezer).SyncSourceAsync(Owner, source, default);
+
+        var recorded = await db.WishlistSourceTracks.IgnoreQueryFilters()
+            .Where(t => t.WishlistSourceId == source.Id)
+            .OrderBy(t => t.Position)
+            .Select(t => t.WishlistItem.DeezerTrackId)
+            .ToListAsync();
+        Assert.Equal(["d2", "d1"], recorded);
+        Assert.NotNull(source.TracksRecordedAtUtc);
+    }
+
+    [Fact]
+    public async Task SyncSource_YouTubePlaylist_RecordsTheListInOrder()
+    {
+        await using var db = CreateDbContext();
+        var source = await AddYouTubeSourceAsync(db);
+        var reader = new FakeYouTubePlaylistReader();
+        reader.Playlists[YouTubeListId] = FakeYouTubePlaylistReader.Playlist(YouTubeListId, "Cool music",
+            new YouTubePlaylistEntry("vid00000002", "Artist - Two", 200_000),
+            new YouTubePlaylistEntry("vid00000001", "Artist - One", 200_000));
+
+        await CreateService(db, new FakeSpotifyApi(), youTubePlaylists: reader).SyncSourceAsync(Owner, source, default);
+
+        var recorded = await db.WishlistSourceTracks.IgnoreQueryFilters()
+            .Where(t => t.WishlistSourceId == source.Id)
+            .OrderBy(t => t.Position)
+            .Select(t => t.WishlistItem.YouTubeVideoId)
+            .ToListAsync();
+        Assert.Equal(["vid00000002", "vid00000001"], recorded);
+    }
+
+    private static Task<List<string?>> RecordedSpotifyIdsAsync(MusicHoarderDbContext db, int sourceId) =>
+        db.WishlistSourceTracks.IgnoreQueryFilters()
+            .Where(t => t.WishlistSourceId == sourceId)
+            .OrderBy(t => t.Position)
+            .Select(t => t.WishlistItem.SpotifyTrackId)
+            .ToListAsync();
 
     private static async Task<WishlistSource> AddYouTubeSourceAsync(MusicHoarderDbContext db, string name = "Cool music")
     {

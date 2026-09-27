@@ -223,15 +223,23 @@ public static class WishlistEndpoints
             .WithName("UpdateWishlistSource")
             .WithSummary("Toggle a wishlist source's auto-sync.");
 
-        group.MapDelete("/sources/{id:int}", async (int id, MusicHoarderDbContext db, CancellationToken ct) =>
+        group.MapDelete("/sources/{id:int}", async (
+                int id,
+                MusicHoarderDbContext db,
+                Playlists.ILibraryPlaylistExporter playlistExporter,
+                CancellationToken ct) =>
             {
                 var source = await db.WishlistSources.FirstOrDefaultAsync(s => s.Id == id, ct);
                 if (source is null)
                     return Results.NotFound(new { message = $"Wishlist source {id} not found." });
 
+                // Its playlist goes too, unless songs were added to it here (see PlaylistSources).
+                var playlistFile = await Playlists.PlaylistSources.DetachAsync(db, source, ct);
+
                 // Items survive (their FK nulls out via OnDelete.SetNull) so already-acquired tracks remain.
                 db.WishlistSources.Remove(source);
                 await db.SaveChangesAsync(ct);
+                await playlistExporter.RemoveFileAsync(playlistFile, ct);
                 return Results.Ok(new { message = "Source removed." });
             })
             .WithName("DeleteWishlistSource")

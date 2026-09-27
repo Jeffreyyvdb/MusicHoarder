@@ -753,6 +753,15 @@ public class MusicEnricherOptions
     /// </summary>
     public string PlaylistsFolderName { get; set; } = "Playlists";
 
+    /// <summary>
+    /// Minutes between background re-exports of MusicHoarder's own playlists (the ones marked
+    /// "Export to library"). An edit exports within seconds regardless; this sweep picks up tracks
+    /// that were built since, which a synced playlist gains as its downloads land. 0 leaves only the
+    /// on-edit export. Shares <see cref="EnablePlaylistExport"/> and <see cref="PlaylistsFolderName"/>.
+    /// </summary>
+    [Range(0, 10080)]
+    public int LibraryPlaylistExportIntervalMinutes { get; set; } = 15;
+
     // --- Wishlist downloads (Spotify wishlist → downloader → source directory) ---
 
     /// <summary>

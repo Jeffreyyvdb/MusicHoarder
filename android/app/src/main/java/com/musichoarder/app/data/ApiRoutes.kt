@@ -31,6 +31,17 @@ internal object ApiRoutes {
         return "/api/radio?seedSongId=$seedSongId&limit=$limit$excludeParam"
     }
 
+    /** The account's playlists — made here, and one per collected Spotify/Deezer/YouTube playlist. */
+    fun playlists() = "/api/playlists"
+
+    fun playlist(id: Int) = "/api/playlists/$id"
+
+    /** POST appends songs to a playlist. */
+    fun playlistSongs(id: Int) = "${playlist(id)}/songs"
+
+    /** DELETE removes one song added in MusicHoarder. */
+    fun playlistSong(id: Int, songId: Int) = "${playlistSongs(id)}/$songId"
+
     fun stream(id: Int) = "${song(id)}/stream"
 
     fun cover(id: Int, size: Int) = "${song(id)}/cover?size=$size"

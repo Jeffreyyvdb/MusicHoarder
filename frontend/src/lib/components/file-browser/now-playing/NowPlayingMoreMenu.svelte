@@ -7,6 +7,7 @@
     Film,
     Gauge,
     GitCompareArrows,
+    ListPlus,
     Loader2,
     MessageSquareQuote,
     MicVocal,
@@ -34,7 +35,7 @@
    * Now Playing's one ⋯ menu, top-right in every mode. Three groups, one level of submenus, and
    * anything unavailable is left out rather than disabled:
    *
-   *   Go to album · Go to artist
+   *   Add to playlist… · Go to album · Go to artist
    *   Share link… · Send to… · Share with a friend…           (admin)
    *   Lyrics › · Music video › · Playback speed › · Hide player
    *
@@ -64,6 +65,8 @@
     onEnhance: () => void;
     onManageVideo: () => void;
     onShareWithFriend: () => void;
+    /** "Add to playlist…": the host opens the sheet over Now Playing. */
+    onAddToPlaylist: () => void;
     onHidePlayer: () => void;
     class?: string;
   };
@@ -84,6 +87,7 @@
     onEnhance,
     onManageVideo,
     onShareWithFriend,
+    onAddToPlaylist,
     onHidePlayer,
     class: className
   }: Props = $props();
@@ -143,6 +147,10 @@
        above the overlay's z-60. -->
   <DropdownMenu.Content align="end" class="dark z-[70] min-w-56">
     <DropdownMenu.Group>
+      <DropdownMenu.Item onSelect={onAddToPlaylist}>
+        <ListPlus />
+        Add to playlist…
+      </DropdownMenu.Item>
       <DropdownMenu.Item onSelect={() => onGo(albumHref)}>
         <Disc3 />
         Go to album

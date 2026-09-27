@@ -141,6 +141,10 @@ public class WishlistService(
         var alreadyPresent = 0;
         var offset = 0;
         var pagesFetched = 0;
+        // The remote list in order, for the source's playlist. Only a read that reached the end is
+        // recorded: the fast poll's first pages are not the whole playlist.
+        var remoteOrder = new List<string>();
+        var complete = false;
 
         // Page through Spotify and persist each page as we go. A large library (thousands of liked
         // songs) is dozens of sequential Spotify calls — far longer than an HTTP request should run,
@@ -149,12 +153,17 @@ public class WishlistService(
         while (true)
         {
             var (items, total) = await FetchSpotifyPageAsync(source, offset, ct);
-            if (items.Count == 0) break;
+            if (items.Count == 0)
+            {
+                complete = true;
+                break;
+            }
 
             var now = DateTime.UtcNow;
             foreach (var track in items)
             {
                 if (string.IsNullOrEmpty(track.SpotifyId)) continue;
+                remoteOrder.Add(track.SpotifyId);
                 if (!seen.Add(track.SpotifyId))
                 {
                     alreadyPresent++;
@@ -183,11 +192,25 @@ public class WishlistService(
             await db.SaveChangesAsync(ct);
 
             offset += items.Count;
-            if (offset >= total) break;
+            if (offset >= total)
+            {
+                complete = true;
+                break;
+            }
 
             // Fast poll: stop after the bounded number of newest-first pages. The next full sweep
             // (no cap) reconciles anything older this shallow window didn't reach.
             if (maxPages is { } cap && ++pagesFetched >= cap) break;
+        }
+
+        if (complete)
+        {
+            var itemIdBySpotifyId = await db.WishlistItems
+                .IgnoreQueryFilters()
+                .Where(w => w.OwnerUserId == ownerId && w.SpotifyTrackId != null && remoteOrder.Contains(w.SpotifyTrackId))
+                .Select(w => new { w.Id, w.SpotifyTrackId })
+                .ToDictionaryAsync(w => w.SpotifyTrackId!, w => w.Id, StringComparer.Ordinal, ct);
+            await RecordSourceTracksAsync(source, OrderedItemIds(remoteOrder, itemIdBySpotifyId), ct);
         }
 
         source.LastSyncedAtUtc = DateTime.UtcNow;
@@ -208,8 +231,10 @@ public class WishlistService(
         var playlist = await deezer.GetPlaylistAsync(source.DeezerPlaylistId, ct);
 
         // Skip-if-unchanged: Deezer's tracklist checksum is stable while the playlist's tracks are, so a
-        // matching stored checksum means there's nothing new to page.
+        // matching stored checksum means there's nothing new to page — unless the tracklist was never
+        // recorded for the source's playlist, which needs one complete read.
         if (playlist is not null
+            && source.TracksRecordedAtUtc is not null
             && !string.IsNullOrEmpty(playlist.Checksum)
             && string.Equals(playlist.Checksum, source.RemoteChecksum, StringComparison.Ordinal))
         {
@@ -236,6 +261,9 @@ public class WishlistService(
         var added = 0;
         var alreadyPresent = 0;
         var now = DateTime.UtcNow;
+        // Each remote track's key, in order: its Deezer id, plus the Spotify id when that is what an
+        // existing item was deduplicated on.
+        var remoteOrder = new List<(string DeezerId, string? SpotifyId)>();
 
         foreach (var track in tracks)
         {
@@ -244,6 +272,7 @@ public class WishlistService(
 
             if (!seenDeezer.Add(track.Id))
             {
+                remoteOrder.Add((track.Id, null));
                 alreadyPresent++;
                 continue;
             }
@@ -253,6 +282,7 @@ public class WishlistService(
             var detail = await deezer.LookupByIdAsync(track.Id, ct);
             var isrc = detail?.Isrc;
             var spotifyId = await isrcResolver.ResolveTrackIdByIsrcAsync(isrc, ct);
+            remoteOrder.Add((track.Id, spotifyId));
 
             if (spotifyId is not null && !seenSpotify.Add(spotifyId))
             {
@@ -288,7 +318,10 @@ public class WishlistService(
         // page failure leaves the inserted items persisted but the checksum unset, so the next sync
         // retries the missing tail instead of the checksum-skip permanently hiding it.
         if (tracksResult.IsComplete)
+        {
             source.RemoteChecksum = playlist?.Checksum;
+            await RecordDeezerSourceTracksAsync(ownerId, source, remoteOrder, ct);
+        }
         source.LastSyncedAtUtc = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
 
@@ -394,6 +427,8 @@ public class WishlistService(
             }
         }
 
+        await RecordYouTubeSourceTracksAsync(ownerId, source, playlist.Entries.Select(e => e.VideoId).ToList(), ct);
+
         // The listing names the playlist, so a rename on YouTube (or a source created while YouTube
         // could not be read, and named after its id) catches up here.
         source.Name = playlist.Title;
@@ -405,6 +440,112 @@ public class WishlistService(
             logger.LogInformation("Wishlist source {SourceId} ({Name}): added {Added} new YouTube videos", source.Id, LogSanitizer.ForLog(source.Name), added);
 
         return new WishlistSyncResult(source.Id, added, alreadyPresent);
+    }
+
+    private async Task RecordDeezerSourceTracksAsync(
+        Guid ownerId, WishlistSource source, IReadOnlyList<(string DeezerId, string? SpotifyId)> remoteOrder, CancellationToken ct)
+    {
+        var deezerIds = remoteOrder.Select(t => t.DeezerId).Distinct().ToList();
+        var spotifyIds = remoteOrder.Where(t => t.SpotifyId != null).Select(t => t.SpotifyId!).Distinct().ToList();
+        var items = await db.WishlistItems
+            .IgnoreQueryFilters()
+            .Where(w => w.OwnerUserId == ownerId
+                && ((w.DeezerTrackId != null && deezerIds.Contains(w.DeezerTrackId))
+                    || (w.SpotifyTrackId != null && spotifyIds.Contains(w.SpotifyTrackId))))
+            .Select(w => new { w.Id, w.DeezerTrackId, w.SpotifyTrackId })
+            .ToListAsync(ct);
+        var byDeezer = items.Where(i => i.DeezerTrackId != null)
+            .GroupBy(i => i.DeezerTrackId!, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Min(i => i.Id), StringComparer.Ordinal);
+        var bySpotify = items.Where(i => i.SpotifyTrackId != null)
+            .GroupBy(i => i.SpotifyTrackId!, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Min(i => i.Id), StringComparer.Ordinal);
+
+        var ordered = new List<int>(remoteOrder.Count);
+        foreach (var (deezerId, spotifyId) in remoteOrder)
+        {
+            if (byDeezer.TryGetValue(deezerId, out var id)
+                || (spotifyId is not null && bySpotify.TryGetValue(spotifyId, out id)))
+                ordered.Add(id);
+        }
+        await RecordSourceTracksAsync(source, ordered, ct);
+    }
+
+    private async Task RecordYouTubeSourceTracksAsync(
+        Guid ownerId, WishlistSource source, IReadOnlyList<string> videoIds, CancellationToken ct)
+    {
+        var itemIdByVideo = await db.WishlistItems
+            .IgnoreQueryFilters()
+            .Where(w => w.OwnerUserId == ownerId && w.YouTubeVideoId != null && videoIds.Contains(w.YouTubeVideoId))
+            .Select(w => new { w.Id, w.YouTubeVideoId })
+            .ToDictionaryAsync(w => w.YouTubeVideoId!, w => w.Id, StringComparer.Ordinal, ct);
+
+        // A video pasted by hand before YouTubeVideoId existed carries its id only inside its SourceUrl.
+        if (videoIds.Any(v => !itemIdByVideo.ContainsKey(v)))
+        {
+            var legacy = await db.WishlistItems
+                .IgnoreQueryFilters()
+                .Where(w => w.OwnerUserId == ownerId && w.YouTubeVideoId == null && w.SourceUrl != null)
+                .Select(w => new { w.Id, w.SourceUrl })
+                .ToListAsync(ct);
+            foreach (var row in legacy)
+            {
+                if (ImportUrlParser.TryParse(row.SourceUrl, out var kind, out var videoId)
+                    && kind == ImportUrlKind.YouTube)
+                    itemIdByVideo.TryAdd(videoId, row.Id);
+            }
+        }
+
+        await RecordSourceTracksAsync(source, OrderedItemIds(videoIds, itemIdByVideo), ct);
+    }
+
+    private static List<int> OrderedItemIds(IReadOnlyList<string> remoteOrder, IReadOnlyDictionary<string, int> itemIdByKey)
+    {
+        var ordered = new List<int>(remoteOrder.Count);
+        foreach (var key in remoteOrder)
+        {
+            if (itemIdByKey.TryGetValue(key, out var id))
+                ordered.Add(id);
+        }
+        return ordered;
+    }
+
+    /// <summary>
+    /// Records the remote list's tracks, in order, as the source's <see cref="WishlistSourceTrack"/>
+    /// rows (a track listed twice keeps its first place). Rows are reused by position, so an unchanged
+    /// list writes nothing and a track appended at the end is one insert.
+    /// </summary>
+    private async Task RecordSourceTracksAsync(WishlistSource source, IReadOnlyList<int> itemIds, CancellationToken ct)
+    {
+        var ordered = itemIds.Distinct().ToList();
+        var rows = await db.WishlistSourceTracks
+            .IgnoreQueryFilters()
+            .Where(t => t.WishlistSourceId == source.Id)
+            .OrderBy(t => t.Position)
+            .ToListAsync(ct);
+
+        for (var i = 0; i < ordered.Count; i++)
+        {
+            if (i < rows.Count)
+            {
+                rows[i].Position = i;
+                rows[i].WishlistItemId = ordered[i];
+            }
+            else
+            {
+                db.WishlistSourceTracks.Add(new WishlistSourceTrack
+                {
+                    WishlistSourceId = source.Id,
+                    Position = i,
+                    WishlistItemId = ordered[i],
+                });
+            }
+        }
+        if (rows.Count > ordered.Count)
+            db.WishlistSourceTracks.RemoveRange(rows.Skip(ordered.Count));
+
+        source.TracksRecordedAtUtc = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
     }
 
     private sealed record YouTubeVideoIdentity(string Title, string Artist, string? Album, int DurationMs, string? CoverUrl);

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -28,6 +29,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.HorizontalDivider
@@ -44,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
@@ -90,6 +93,11 @@ fun AlbumScreen(
      * album Play. Null keeps Play as "from the top" always.
      */
     onPlayPause: (() -> Unit)? = null,
+    /**
+     * "Add to playlist…" for [tracks] under [label] — a row's track, or the whole album from the
+     * bar's ⋮ (the web album page's menu). Null leaves both out.
+     */
+    onAddToPlaylist: ((tracks: List<Track>, label: String) -> Unit)? = null,
 ) {
     val colors = MhTheme.colors
     val cover = album.tracks.firstOrNull { it.hasCover }?.let { coverUrl(it, 640) }
@@ -104,6 +112,16 @@ fun AlbumScreen(
             navigationIcon = Icons.AutoMirrored.Rounded.ArrowBack,
             navigationLabel = "Back",
             onNavigate = onBack,
+            actions = {
+                if (onAddToPlaylist != null && album.tracks.isNotEmpty()) {
+                    MhMenuButton(Icons.Rounded.MoreVert, "More options for ${album.name}") { close ->
+                        MhMenuActionItem("Add to playlist…") {
+                            close()
+                            onAddToPlaylist(album.tracks, album.name)
+                        }
+                    }
+                }
+            },
         )
 
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = contentPadding) {
@@ -146,6 +164,7 @@ fun AlbumScreen(
                     // No "Go to album": this is it. The artist link is the lead artist, the name the
                     // Artists page files the album under.
                     onOpenArtist = onOpenArtist?.let { open -> { open(track.albumArtist) } },
+                    onAddToPlaylist = onAddToPlaylist?.let { add -> { add(listOf(track), track.title) } },
                 )
                 if (index < album.tracks.lastIndex) TrackRowSeparator(showArtwork = false)
             }
@@ -172,6 +191,8 @@ fun DrillInTopBar(
     alwaysShowTitle: Boolean = false,
     /** How far into the first item the hero's own title sits — past it, the bar takes over. */
     titleAfter: Dp = 290.dp,
+    /** Trailing buttons (a playlist's ⋮); none on an album or a share. */
+    actions: @Composable RowScope.() -> Unit = {},
 ) {
     val colors = MhTheme.colors
     val titlePx = with(LocalDensity.current) { titleAfter.roundToPx() }
@@ -188,21 +209,26 @@ fun DrillInTopBar(
             IconButton(onClick = onNavigate) {
                 Icon(navigationIcon, contentDescription = navigationLabel, tint = colors.foreground)
             }
-            AnimatedVisibility(
-                visible = alwaysShowTitle || scrolled,
-                enter = fadeIn(tween(150)),
-                exit = fadeOut(tween(150)),
-                modifier = Modifier.weight(1f),
-            ) {
-                Text(
-                    title,
-                    style = MaterialTheme.typography.titleLarge,
-                    color = colors.foreground,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(start = 12.dp, end = 16.dp),
-                )
+            // The title's slot keeps its width while the title is hidden, so trailing actions stay
+            // at the end rather than sliding up against the back button.
+            Box(modifier = Modifier.weight(1f)) {
+                // The plain overload: inside the Box, the Row's scoped one would be picked up.
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = alwaysShowTitle || scrolled,
+                    enter = fadeIn(tween(150)),
+                    exit = fadeOut(tween(150)),
+                ) {
+                    Text(
+                        title,
+                        style = MaterialTheme.typography.titleLarge,
+                        color = colors.foreground,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(start = 12.dp, end = 16.dp),
+                    )
+                }
             }
+            actions()
         }
         val hairline = with(LocalDensity.current) { 1f.toDp() }
         HorizontalDivider(
@@ -228,6 +254,10 @@ fun AlbumHero(
     onShuffle: (() -> Unit)?,
     playLabel: String = "Play",
     playIcon: ImageVector = Icons.Rounded.PlayArrow,
+    /** Draws the cover instead of [coverUrl] (a playlist's mosaic). Given the hero's size and shape. */
+    artwork: (@Composable (Modifier, Shape) -> Unit)? = null,
+    /** Hides Play / Shuffle (an empty playlist has nothing to play). */
+    showPlayButtons: Boolean = true,
 ) {
     val colors = MhTheme.colors
     Column(
@@ -247,13 +277,17 @@ fun AlbumHero(
                         spotColor = Color.Black.copy(alpha = 0.28f),
                     ),
             ) {
-                Artwork(
-                    url = coverUrl,
-                    artist = artist,
-                    title = title,
-                    modifier = Modifier.fillMaxSize(),
-                    shape = HeroShape,
-                )
+                if (artwork != null) {
+                    artwork(Modifier.fillMaxSize(), HeroShape)
+                } else {
+                    Artwork(
+                        url = coverUrl,
+                        artist = artist,
+                        title = title,
+                        modifier = Modifier.fillMaxSize(),
+                        shape = HeroShape,
+                    )
+                }
             }
         }
         Spacer(Modifier.height(16.dp))
@@ -295,8 +329,10 @@ fun AlbumHero(
                 modifier = Modifier.padding(horizontal = 24.dp),
             )
         }
-        Spacer(Modifier.height(20.dp))
-        MhPlayShufflePills(onPlay = onPlay, onShuffle = onShuffle, playLabel = playLabel, playIcon = playIcon)
+        if (showPlayButtons) {
+            Spacer(Modifier.height(20.dp))
+            MhPlayShufflePills(onPlay = onPlay, onShuffle = onShuffle, playLabel = playLabel, playIcon = playIcon)
+        }
     }
 }
 

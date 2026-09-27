@@ -54,6 +54,7 @@ import com.musichoarder.app.data.LibraryTab
 import com.musichoarder.app.data.PairingUri
 import com.musichoarder.app.data.RowTap
 import com.musichoarder.app.data.Track
+import com.musichoarder.app.data.resolveNowPlayingLinks
 import com.musichoarder.app.data.sharedByLabelFor
 import com.musichoarder.app.ui.theme.MhTheme
 import kotlinx.coroutines.launch
@@ -72,6 +73,10 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
     val likes by viewModel.likes.collectAsStateWithLifecycle()
     val albumStatuses by viewModel.albumStatuses.collectAsStateWithLifecycle()
     val openAlbum by viewModel.openAlbum.collectAsStateWithLifecycle()
+    val playlists by viewModel.playlists.collectAsStateWithLifecycle()
+    val playlistsState by viewModel.playlistsState.collectAsStateWithLifecycle()
+    val openPlaylist by viewModel.openPlaylist.collectAsStateWithLifecycle()
+    val addToPlaylist by viewModel.addToPlaylist.collectAsStateWithLifecycle()
     // This phone's player, or the account's session while it plays on another device (or is only
     // remembered) — the same shape either way, so every surface below renders both.
     val playerState by viewModel.nowPlaying.collectAsStateWithLifecycle()
@@ -235,6 +240,7 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
         (invite != null) to viewModel::dismissInvite,
         (share != null) to viewModel::closeShare,
         (openAlbum != null) to viewModel::closeAlbum,
+        (openPlaylist != null) to viewModel::closePlaylist,
         (ui.artistFilter != null) to viewModel::clearArtistFilter,
         (ui.tab != LibraryTab.Overview) to { viewModel.selectTab(LibraryTab.Overview) },
     )
@@ -286,8 +292,9 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
     // Material and the web tab bar's re-tap alike.
     val onTabBar: (LibraryTab) -> Unit = { tab ->
         when {
-            openAlbum != null -> {
+            openAlbum != null || openPlaylist != null -> {
                 viewModel.closeAlbum()
+                viewModel.closePlaylist()
                 if (tab != ui.tab) selectTab(tab)
             }
 
@@ -337,6 +344,7 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
             ) {
                 Box(modifier = Modifier.weight(1f)) {
                     val album = openAlbum
+                    val playlist = openPlaylist
                     val inviteState = invite
                     val shareState = share
                     if (inviteState != null) {
@@ -384,6 +392,28 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                             // A share's ids belong to another server and can collide with this
                             // album's; its song is never "one of these".
                             onPlayPause = if (isShareQueue) null else viewModel::togglePlayPause,
+                            onAddToPlaylist = viewModel::requestAddToPlaylist,
+                        )
+                    } else if (playlist != null) {
+                        PlaylistScreen(
+                            playlist = playlist,
+                            coverUrl = { track, size -> viewModel.coverUrl(track.id, track.hasCover, size) },
+                            playingTrackId = libraryPlayingId,
+                            isPlayingNow = playerState.isPlaying,
+                            likes = likes,
+                            onToggleLike = viewModel::toggleLike,
+                            onPlay = playFromTop,
+                            onShuffle = shuffle,
+                            onActivateRow = activateRow,
+                            linksOf = { track -> resolveNowPlayingLinks(library, track.id) },
+                            onOpenAlbumKey = viewModel::openAlbumKey,
+                            onOpenArtist = viewModel::openArtist,
+                            onAddToPlaylist = { track -> viewModel.requestAddToPlaylist(listOf(track), track.title) },
+                            onRemove = { track -> viewModel.removeFromPlaylist(playlist, track) },
+                            onRename = { name -> viewModel.renamePlaylist(playlist, name) },
+                            onDelete = { viewModel.deletePlaylist(playlist) },
+                            onBack = viewModel::closePlaylist,
+                            contentPadding = PaddingValues(bottom = 12.dp),
                         )
                     } else {
                         LibraryShell(
@@ -415,6 +445,11 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                                 onOpenAlbumKey = viewModel::openAlbumKey,
                                 onOpenArtistName = viewModel::openArtist,
                                 onToggleLike = viewModel::toggleLike,
+                                onAddToPlaylist = { track ->
+                                    viewModel.requestAddToPlaylist(listOf(track), track.title)
+                                },
+                                onOpenPlaylist = viewModel::openPlaylist,
+                                onCreatePlaylist = viewModel::createPlaylist,
                                 onPlay = playFromTop,
                                 onActivateRow = activateRow,
                                 onShuffle = shuffle,
@@ -425,6 +460,8 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                             ),
                             contentPadding = PaddingValues(bottom = 12.dp),
                             listStates = listStates,
+                            playlists = playlists,
+                            playlistsState = playlistsState,
                         )
                     }
 
@@ -462,6 +499,18 @@ fun MusicHoarderRoot(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                     Spacer(Modifier.navigationBarsPadding())
                 }
             }
+        }
+
+        addToPlaylist?.let { request ->
+            AddToPlaylistSheet(
+                request = request,
+                playlists = playlists,
+                state = playlistsState,
+                coverUrl = { track, size -> viewModel.coverUrl(track.id, track.hasCover, size) },
+                onPick = viewModel::addToPlaylist,
+                onCreate = viewModel::createPlaylistWithRequest,
+                onDismiss = viewModel::dismissAddToPlaylist,
+            )
         }
 
         AnimatedVisibility(
