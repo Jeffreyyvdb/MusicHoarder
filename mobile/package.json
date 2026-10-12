@@ -1,0 +1,24 @@
+{
+  "name": "musichoarder-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "plugin"
+  ],
+  "scripts": {
+    "sync": "node scripts/prepare-www.mjs && cap sync",
+    "open:ios": "cap open ios",
+    "open:android": "cap open android"
+  },
+  "dependencies": {
+    "@capacitor/core": "^8.0.0",
+    "@capacitor/ios": "^8.0.0",
+    "musichoarder-native-audio": "workspace:*",
+    "@capacitor/android": "^8.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.0.0",
+    "typescript": "^5.7.0"
+  }
+}

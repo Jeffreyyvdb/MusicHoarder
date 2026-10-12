@@ -6,6 +6,7 @@
   import { requestMagicLink, signInAsDemo, loginWithPasskey } from '$lib/api-client';
   import { isPasskeySupported } from '$lib/webauthn-client';
   import { isInstalledApp } from '$lib/hooks/viewport-insets.svelte';
+  import { isNativeShell } from '$lib/native/shell';
   import { isIosDevice } from '$lib/ios-safari';
   import { APP_HOME } from '$lib/app-home';
   import {
@@ -54,7 +55,9 @@
   let isPasskeyLogin = $state(false);
   let passkeySupported = $state(false);
   // An iOS Home Screen app has its own cookie jar and never receives links — an emailed sign-in
-  // link always opens in Safari — so inside it a passkey is the way in.
+  // link always opens in Safari — so inside it a passkey is the way in. The native app shell does
+  // receive them (the link's page hands the token over through `musichoarder://auth`), so there
+  // email leads as it does in a browser.
   let inIosHomeScreenApp = $state(false);
   // The server render cannot know either of those. Everywhere but the installed iOS app the
   // order is the server's (email first), so the form and the demo show from the first paint —
@@ -67,7 +70,7 @@
 
   $effect(() => {
     passkeySupported = isPasskeySupported();
-    inIosHomeScreenApp = isInstalledApp() && isIosDevice();
+    inIosHomeScreenApp = isInstalledApp() && isIosDevice() && !isNativeShell();
     ready = true;
   });
 
@@ -117,7 +120,7 @@
     isSending = true;
     result = null;
     try {
-      const r = await requestMagicLink(value);
+      const r = await requestMagicLink(value, { fromApp: isNativeShell() });
       if (r.ok) {
         result = {
           ok: true,

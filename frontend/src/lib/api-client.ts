@@ -3834,11 +3834,16 @@ export async function updateDisplayName(displayName: string | null): Promise<Aut
   })
 }
 
-export async function requestMagicLink(email: string): Promise<RequestLinkResult> {
+export async function requestMagicLink(
+  email: string,
+  options: { fromApp?: boolean } = {},
+): Promise<RequestLinkResult> {
   const response = await fetch(`${API_PREFIX}/api/auth/request-link`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ email }),
+    // `client: "app"` makes the emailed link open a page that hands the token to the app
+    // (`musichoarder://auth`) instead of signing in the browser the mail app opened.
+    body: JSON.stringify(options.fromApp ? { email, client: "app" } : { email }),
     cache: "no-store",
   })
   if (response.status === 503) return { ok: false }

@@ -1,0 +1,79 @@
+apply plugin: 'com.android.application'
+
+// The same knobs as the native client in /android, so a release workflow can drive either:
+// -PmhVersionName / -PmhVersionCode, and a keystore through the MH_KEYSTORE_* variables. Without
+// a keystore `assembleRelease` yields an unsigned APK.
+def mhVersionName = (findProperty('mhVersionName') ?: '').toString().trim() ?: '1.0'
+def mhVersionCode = ((findProperty('mhVersionCode') ?: '1').toString().trim() ?: '1') as Integer
+def keystorePath = System.getenv('MH_KEYSTORE_PATH')?.trim()
+
+android {
+    namespace = "com.musichoarder.app"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "com.musichoarder.app"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode mhVersionCode
+        versionName mhVersionName
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    signingConfigs {
+        if (keystorePath) {
+            release {
+                storeFile file(keystorePath)
+                storePassword System.getenv('MH_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('MH_KEY_ALIAS')
+                keyPassword System.getenv('MH_KEY_PASSWORD')
+            }
+        }
+    }
+    buildTypes {
+        debug {
+            // Its own id, so a debug build installs next to the native client from Google Play
+            // (which owns com.musichoarder.app) instead of being refused for its signature.
+            applicationIdSuffix '.shell'
+        }
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (keystorePath) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

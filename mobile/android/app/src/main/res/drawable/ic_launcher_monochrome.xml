@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Disc with the centre label punched out, so a flat tint still reads as a record -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M26,54a28,28 0 1,0 56,0a28,28 0 1,0 -56,0zM45.2,54a8.8,8.8 0 1,0 17.6,0a8.8,8.8 0 1,0 -17.6,0z" />
+    <!-- Spindle hole -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M50.8,54a3.2,3.2 0 1,0 6.4,0a3.2,3.2 0 1,0 -6.4,0z" />
+</vector>

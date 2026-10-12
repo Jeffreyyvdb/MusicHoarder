@@ -1,0 +1,103 @@
+# Builds the app shell in mobile/ (a Capacitor web view plus the native audio plugin) for the iOS
+# simulator and as an Android debug APK. This is the only place its Swift and Java are compiled
+# outside a developer's machine: nothing here signs, archives or uploads, so it needs no Apple or
+# Google account and no secrets.
+#
+# Path-filtered like android.yml, and for the same reason not one of main's required status
+# checks: a skipped run must not leave a PR waiting on a check that will never report.
+name: Mobile
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "mobile/**"
+      - ".github/workflows/mobile.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "mobile/**"
+      - ".github/workflows/mobile.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # A placeholder: `sync` writes it into the generated config, and nothing is loaded from it.
+  MH_SERVER_URL: https://music.example.com
+
+jobs:
+  ios:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install --frozen-lockfile
+
+      # Writes the generated, untracked parts of the native projects (the bundled page, the
+      # Capacitor config, the plugin list).
+      - run: bun run sync
+
+      - name: Build for the simulator
+        run: |
+          xcodebuild build \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO
+
+  android:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup JDK
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - run: bun install --frozen-lockfile
+
+      - run: bun run sync
+
+      - name: Build the debug APK
+        working-directory: mobile/android
+        run: ./gradlew :app:assembleDebug
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: musichoarder-shell-debug-apk
+          path: mobile/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error

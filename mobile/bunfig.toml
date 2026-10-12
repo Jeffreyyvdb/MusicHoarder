@@ -1,0 +1,3 @@
+# Hoisted, so the generated native projects point at stable node_modules paths.
+[install]
+linker = "hoisted"

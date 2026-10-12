@@ -15,6 +15,13 @@ import {
   type UnplayableFormats
 } from '$lib/audio-formats';
 import {
+  createNativeAudio,
+  type NativeAudio,
+  type NativeTrack,
+  type PlayerAudio,
+  type RemoteCommand
+} from '$lib/native/native-audio';
+import {
   canAutoResume,
   readPlaybackSnapshot,
   writePlaybackSnapshot,
@@ -160,7 +167,12 @@ function remoteView(): PlayerRemote | null {
   return hooks && hooks.remote.active ? hooks.remote : null;
 }
 
-let audioEl: HTMLAudioElement | null = null;
+let audioEl: PlayerAudio | null = null;
+/**
+ * The same object as `audioEl` inside the native app shell, where the device's own player stands
+ * in for the audio element (see `$lib/native/native-audio`); null in a browser.
+ */
+let nativeEl: NativeAudio | null = null;
 /** Whether the loaded source is the server's decoded stream rather than the file as it is. */
 let sourceIsConverted = false;
 /**
@@ -275,6 +287,7 @@ function mediaSession(): MediaSession | null {
 }
 
 function updateMediaMetadata(song: PlayerSong) {
+  nativeEl?.setMetadata(nativeTrack(song));
   const ms = mediaSession();
   if (!ms) return;
   // Size our own cover endpoint to the 512px WebP bucket; external URLs (Spotify
@@ -301,6 +314,7 @@ function updatePositionState() {
 
 /** (Re)register action handlers, nulling prev/next at the queue ends so the OS greys them out. */
 function refreshActionHandlers() {
+  syncNativeQueue();
   const ms = mediaSession();
   if (!ms) return;
   const set = (action: MediaSessionAction, handler: MediaSessionActionHandler | null) => {
@@ -325,6 +339,47 @@ function refreshActionHandlers() {
   // No `seekbackward` / `seekforward`: iOS shows either the track pair or the seek pair, never
   // both, and picks the seek pair whenever it is registered, which puts ±10s buttons where
   // previous/next belong on the lock screen, Control Center and Dynamic Island.
+}
+
+// ── The native app shell ───────────────────────────────────────────────────
+// There the device's player holds the loaded track and the ones that follow it, so a song's end
+// needs nothing from the page (see `$lib/native/native-audio`). The store's part is to keep the
+// device told what follows, and to take the lock screen's commands from it: the page's own Media
+// Session describes an audio element, and in the shell there is none.
+
+/** How many tracks ahead the device is given: what plays on while the page sleeps. */
+const NATIVE_UPCOMING = 20;
+
+function nativeTrack(song: PlayerSong): NativeTrack {
+  return {
+    url: streamSourceFor(song).url,
+    title: song.title,
+    artist: song.artist,
+    album: song.album ?? '',
+    artwork: coverThumbUrl(song.coverUrl, 512) ?? null
+  };
+}
+
+/** Tell the device what follows the loaded track, and which of Next and Previous can work. */
+function syncNativeQueue() {
+  const native = nativeEl;
+  if (!native) return;
+  untrack(() => {
+    native.setCommands(canAdvance(), queueIndex >= 0);
+    const upcoming = queueIndex >= 0 ? queue.slice(queueIndex + 1) : [];
+    native.setUpcoming(upcoming.slice(0, NATIVE_UPCOMING).map(nativeTrack));
+  });
+}
+
+/** A press on the lock screen or a headset, handled as the Media Session's handlers would. */
+function nativeRemote(command: RemoteCommand, time?: number) {
+  if (command === 'pause' || (command === 'toggle' && isPlaying)) localPause();
+  else if (command === 'play' || command === 'toggle') mediaKey('none');
+  else if (command === 'next') {
+    if (canAdvance()) mediaKey('next');
+  } else if (command === 'previous') {
+    if (queueIndex >= 0) mediaKey('previous');
+  } else if (typeof time === 'number') mediaSeek(time);
 }
 
 function mediaKey(step: 'none' | 'next' | 'previous') {
@@ -361,7 +416,8 @@ function setPlaybackState(state: MediaSessionPlaybackState) {
 type AudioSessionNavigator = Navigator & { audioSession?: { type: string } };
 
 function claimPlaybackAudioSession() {
-  if (!browser) return;
+  // The native shell's player holds the device's audio session itself.
+  if (!browser || nativeEl) return;
   const session = (navigator as AudioSessionNavigator).audioSession;
   if (!session || session.type === 'playback') return;
   try {
@@ -393,7 +449,7 @@ const LOOP_START_WINDOW_S = 0.5;
  * moments, on a source that has played. `seek` moves `lastPlayedPosition` along with it, so a seek
  * to the start, like Previous restarting the song, is never taken for the end.
  */
-function cameRoundToStart(el: HTMLAudioElement): boolean {
+function cameRoundToStart(el: PlayerAudio): boolean {
   return (
     sourceHasPlayed &&
     el.currentTime < LOOP_START_WINDOW_S &&
@@ -402,7 +458,7 @@ function cameRoundToStart(el: HTMLAudioElement): boolean {
 }
 
 /** The song played to its end: what an `ended` event would have meant. */
-function songFinished(el: HTMLAudioElement) {
+function songFinished(el: PlayerAudio) {
   lastPlayedPosition = 0; // where the element is now, so the jump is not seen twice
   sourceFinished = true;
   el.pause(); // a paused element that has not ended keeps the audio session
@@ -454,7 +510,7 @@ function afterDelay(delayMs: number, action: () => void): ReturnType<typeof setT
 }
 
 /** Point the element at the stream it already had, at the second it last played. */
-function reloadSource(el: HTMLAudioElement, song: PlayerSong) {
+function reloadSource(el: PlayerAudio, song: PlayerSong) {
   sourceFinished = false;
   sourceHasPlayed = false;
   sourceNeedsReload = false;
@@ -538,7 +594,7 @@ function streamSourceFor(song: PlayerSong): { url: string; converted: boolean } 
 }
 
 /** Point the element at `song`'s source (see `streamSourceFor`) and start loading it. */
-function loadSource(el: HTMLAudioElement, song: PlayerSong) {
+function loadSource(el: PlayerAudio, song: PlayerSong) {
   sourceFinished = false;
   const source = streamSourceFor(song);
   sourceIsConverted = source.converted;
@@ -612,11 +668,12 @@ function confirmSuspectedFormat() {
  * audible as a re-buffer/stutter mid-playback. An element from `new Audio()`
  * never enters the rendered tree, so no re-render can disturb playback.
  */
-function ensureAudioEl(): HTMLAudioElement | null {
+function ensureAudioEl(): PlayerAudio | null {
   if (!browser) return null;
   if (audioEl) return audioEl;
 
-  const el = new Audio();
+  const native = createNativeAudio();
+  const el: PlayerAudio = native ?? new Audio();
   el.preload = 'metadata';
   el.loop = true; // a song's end is the jump back to its start (see `songFinished`)
   el.volume = volumeState;
@@ -626,7 +683,11 @@ function ensureAudioEl(): HTMLAudioElement | null {
   el.playbackRate = playbackRateState;
   el.preservesPitch = true;
 
-  if (typeof window !== 'undefined' && 'WebKitPlaybackTargetAvailabilityEvent' in window) {
+  if (native) {
+    native.onRemote = nativeRemote;
+    nativeEl = native;
+    airPlayAvailable = native.hasRoutePicker; // iOS's route sheet is always there to open
+  } else if (typeof window !== 'undefined' && 'WebKitPlaybackTargetAvailabilityEvent' in window) {
     el.setAttribute('x-webkit-airplay', 'allow');
     el.addEventListener('webkitplaybacktargetavailabilitychanged', (event) => {
       airPlayAvailable = (event as Event & { availability?: string }).availability === 'available';
@@ -770,8 +831,10 @@ async function loadAndPlay(song: PlayerSong) {
   // one place a hand-off can die: once a song finishes nothing is audible, and a slow round trip
   // to the server lets iOS stop treating the app as a player before the next song starts. So the
   // swap is synchronous while the page is hidden (Home Screen, another app, the lock screen), and
-  // a missing file is reported by the element's own `error` event instead.
-  if (!document.hidden) {
+  // a missing file is reported by the element's own `error` event instead. The native shell always
+  // swaps synchronously: the device may already be playing this track (it moves on by itself when
+  // a song ends), and a failed pre-flight would leave the store on the song before it.
+  if (!document.hidden && !nativeEl) {
     try {
       const res = await fetch(song.streamUrl, { headers: { Range: 'bytes=0-0' } });
       if (!res.ok) {
@@ -1222,6 +1285,10 @@ function setPlaybackRate(rate: number) {
 
 /** Open Safari's AirPlay route picker for the audio element (no-op where it does not exist). */
 function showAirPlayPicker() {
+  if (nativeEl) {
+    nativeEl.showRoutePicker();
+    return;
+  }
   const el = audioEl as (HTMLAudioElement & { webkitShowPlaybackTargetPicker?: () => void }) | null;
   el?.webkitShowPlaybackTargetPicker?.();
 }
