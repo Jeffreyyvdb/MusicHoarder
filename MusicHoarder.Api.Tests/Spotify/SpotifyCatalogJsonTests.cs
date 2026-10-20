@@ -61,7 +61,7 @@ public class SpotifyCatalogJsonTests
     }
 
     [Fact]
-    public void FirstAlbumId_SkipsRowsTheCandidatesSkip()
+    public void FirstAlbumId_SkipsTheObjectRowsTheCandidatesSkip()
     {
         const string body = """{"albums":{"items":[{"id":5},{"name":"no id"},{"id":"a2"},{"id":"a3"}]}}""";
 
@@ -92,5 +92,18 @@ public class SpotifyCatalogJsonTests
 
         Assert.NotNull(album);
         Assert.Empty(album!.Tracks);
+    }
+
+    [Fact]
+    public void WrongShapedBodies_ThrowToday_InsteadOfReadingAsEmpty()
+    {
+        // Only JsonException is caught, so a valid body of the wrong shape escapes to the caller.
+        Assert.Throws<InvalidOperationException>(() => SpotifyCatalogJson.ParseTrackAlbumId("[]"));
+        Assert.Throws<InvalidOperationException>(() => SpotifyCatalogJson.ParseFirstAlbumId("[]"));
+        Assert.Throws<InvalidOperationException>(() => SpotifyCatalogJson.ParseAlbumCandidates("[]"));
+        Assert.Throws<InvalidOperationException>(() => SpotifyCatalogJson.ParseArtistCandidates("[]"));
+        Assert.Throws<InvalidOperationException>(() => SpotifyCatalogJson.ParseFirstTrackId("[]"));
+        Assert.Throws<InvalidOperationException>(() => SpotifyCatalogJson.ParseFirstTrackId("""{"tracks":{"items":["x"]}}"""));
+        Assert.Throws<InvalidOperationException>(() => SpotifyCatalogJson.ParseTrackDetail("""{"id":"t1","duration_ms":"1"}"""));
     }
 }
