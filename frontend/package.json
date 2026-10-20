@@ -21,8 +21,8 @@
     "release:dry": "semantic-release --dry-run --no-ci"
   },
   "dependencies": {
-    "@lucide/svelte": "^1.54.0",
-    "@opentelemetry/auto-instrumentations-node": "^0.81.0",
+    "@lucide/svelte": "^1.57.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.81.2",
     "@opentelemetry/exporter-trace-otlp-grpc": "^0.223.0",
     "@opentelemetry/sdk-node": "^0.223.0",
     "bits-ui": "^2.19.5",
