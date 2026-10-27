@@ -17,10 +17,12 @@
     </ItemGroup>
 
     <ItemGroup>
-      <PackageReference Include="Aspire.Hosting.Docker" Version="13.5.4" />
-      <PackageReference Include="Aspire.Hosting.JavaScript" Version="13.5.4" />
-      <PackageReference Include="Aspire.Hosting.PostgreSQL" Version="13.5.4" />
-      <PackageReference Include="MessagePack" Version="3.1.9" />
+      <PackageReference Include="Aspire.Hosting.Docker" Version="13.6.3" />
+      <PackageReference Include="Aspire.Hosting.JavaScript" Version="13.6.3" />
+      <PackageReference Include="Aspire.Hosting.PostgreSQL" Version="13.6.3" />
+      <PackageReference Include="MessagePack" Version="3.1.12" />
+      <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.20.1" />
+      <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.20.1" />
     </ItemGroup>
 
 </Project>
