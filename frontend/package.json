@@ -21,16 +21,16 @@
     "release:dry": "semantic-release --dry-run --no-ci"
   },
   "dependencies": {
-    "@lucide/svelte": "^1.64.0",
+    "@lucide/svelte": "^1.69.0",
     "@opentelemetry/auto-instrumentations-node": "^0.82.0",
     "@opentelemetry/exporter-trace-otlp-grpc": "^0.300.0",
     "@opentelemetry/sdk-node": "^0.300.0",
-    "bits-ui": "^2.20.2",
+    "bits-ui": "^2.20.6",
     "clsx": "^2.1.1",
     "import-in-the-middle": "^3.5.3",
     "mode-watcher": "^1.1.0",
     "qrcode": "^1.5.4",
-    "svelte-sonner": "^1.2.2",
+    "svelte-sonner": "^1.2.3",
     "tailwind-merge": "^3.7.0",
     "tailwind-variants": "^3.3.1"
   },
