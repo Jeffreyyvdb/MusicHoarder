@@ -17,7 +17,7 @@ import type { PlayerSong } from './player.svelte';
  *    slept through gives up rather than starting music whenever the app is next opened.
  */
 
-vi.mock('$app/environment', () => ({ browser: true }));
+vi.mock('$app/env', () => ({ browser: true }));
 vi.mock('svelte-sonner', () => ({ toast: Object.assign(vi.fn(), { error: vi.fn() }) }));
 vi.mock('#lib/api-client.ts', () => ({
   coverThumbUrl: () => null,

@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  * imports are mocked; each test gets a fresh store (vi.resetModules + a dynamic import).
  */
 
-vi.mock('$app/environment', () => ({ browser: true }));
+vi.mock('$app/env', () => ({ browser: true }));
 vi.mock('svelte-sonner', () => ({
   toast: Object.assign(vi.fn(), { error: vi.fn(), success: vi.fn(), info: vi.fn() })
 }));

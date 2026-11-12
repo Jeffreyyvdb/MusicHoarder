@@ -25,7 +25,7 @@ const api = vi.hoisted(() => ({
 /** The library's rows; a test that needs them reactive swaps in a `SvelteMap`. */
 const library = vi.hoisted(() => ({ rows: new Map<number, unknown>() }));
 
-vi.mock('$app/environment', () => ({ browser: true }));
+vi.mock('$app/env', () => ({ browser: true }));
 vi.mock('svelte-sonner', () => ({ toast }));
 vi.mock('#lib/hooks/viewport-insets.svelte.ts', () => ({ isInstalledApp: () => false }));
 vi.mock('#lib/track-list-view.svelte', () => ({ artistOf: () => 'Artist' }));

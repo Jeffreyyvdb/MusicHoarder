@@ -10,7 +10,7 @@ import type { PlaybackSyncHooks, PlayerRemote, PlayerSong } from './player.svelt
  * player suites pin that nothing changed.
  */
 
-vi.mock('$app/environment', () => ({ browser: true }));
+vi.mock('$app/env', () => ({ browser: true }));
 vi.mock('svelte-sonner', () => ({
   toast: Object.assign(vi.fn(), { error: vi.fn(), success: vi.fn(), info: vi.fn() })
 }));
