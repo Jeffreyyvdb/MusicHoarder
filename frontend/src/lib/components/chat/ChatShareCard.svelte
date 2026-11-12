@@ -1,12 +1,12 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { Disc3, ExternalLink, Music, Pause, Play } from '@lucide/svelte';
-  import Cover from '$lib/components/file-browser/Cover.svelte';
-  import { getSongCoverUrl, type ChatShare } from '$lib/api-client';
-  import { playChatShare } from '$lib/chat/play-shared';
-  import { shareCoverUrl } from '$lib/share-client';
-  import { playerStore } from '$lib/stores/player.svelte';
-  import { cn } from '$lib/utils';
+  import Cover from '#lib/components/file-browser/Cover.svelte';
+  import { getSongCoverUrl, type ChatShare } from '#lib/api-client.ts';
+  import { playChatShare } from '#lib/chat/play-shared.ts';
+  import { shareCoverUrl } from '#lib/share-client.ts';
+  import { playerStore } from '#lib/stores/player.svelte.ts';
+  import { cn } from '#lib/utils.ts';
 
   // A song or album sent in a chat: its cover, what it is, and Play — which plays it here, in the
   // app's own player, through the share link it travels as. Open shows the share page (lyrics, the

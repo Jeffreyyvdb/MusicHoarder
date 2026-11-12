@@ -1,7 +1,7 @@
-import { createPasskey, getPasskeyAssertion } from "$lib/webauthn-client"
-import { formatOf } from "$lib/audio-formats"
-import type { PlayerSong } from "$lib/stores/player.svelte"
-import type { LyricsProvenance, LyricsSyncStatus } from "$lib/types"
+import { createPasskey, getPasskeyAssertion } from "#lib/webauthn-client.ts"
+import { formatOf } from "#lib/audio-formats.ts"
+import type { PlayerSong } from "#lib/stores/player.svelte.ts"
+import type { LyricsProvenance, LyricsSyncStatus } from "#lib/types.ts"
 import {
   parseCommandEvent,
   parseDevicesEvent,
@@ -17,7 +17,7 @@ import {
   type PlaybackSession,
   type PlaybackStateReport,
   type PlaybackStateResponse,
-} from "$lib/playback-sync/wire"
+} from "#lib/playback-sync/wire.ts"
 
 const API_PREFIX = "/api/mh"
 

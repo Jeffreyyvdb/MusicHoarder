@@ -75,18 +75,18 @@
 </script>
 
 <script lang="ts">
-  import { Button } from '$lib/components/ui/button';
-  import { Badge } from '$lib/components/ui/badge';
-  import FilterChip from '$lib/components/v2/FilterChip.svelte';
-  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
-  import { Switch } from '$lib/components/ui/switch';
-  import * as AlertDialog from '$lib/components/ui/alert-dialog';
-  import * as BottomSheet from '$lib/components/ui/bottom-sheet';
-  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-  import { cn } from '$lib/utils';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import { Badge } from '#lib/components/ui/badge/index.ts';
+  import FilterChip from '#lib/components/v2/FilterChip.svelte';
+  import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
+  import { Switch } from '#lib/components/ui/switch/index.ts';
+  import * as AlertDialog from '#lib/components/ui/alert-dialog/index.ts';
+  import * as BottomSheet from '#lib/components/ui/bottom-sheet/index.ts';
+  import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
+  import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
+  import { cn } from '#lib/utils.ts';
   import { toast } from 'svelte-sonner';
   import {
     Heart,
@@ -125,9 +125,9 @@
     type WishlistSource,
     type WishlistItemStatus,
     type ProgressSnapshot
-  } from '$lib/api-client';
-  import { songDetail } from '$lib/stores/song-detail.svelte';
-  import { formatRelativeFuture, formatRelativeTime } from '$lib/formatters';
+  } from '#lib/api-client.ts';
+  import { songDetail } from '#lib/stores/song-detail.svelte.ts';
+  import { formatRelativeFuture, formatRelativeTime } from '#lib/formatters.ts';
 
   type Filter = WishlistItemStatus | 'All';
 

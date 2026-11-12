@@ -1,10 +1,10 @@
 <script lang="ts">
   import { FastForward, Pause, Play, Rewind } from '@lucide/svelte';
-  import { Button } from '$lib/components/ui/button';
-  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
   import Scrubber from './Scrubber.svelte';
-  import { playerStore } from '$lib/stores/player.svelte';
-  import { blurAfterPointerClick, cn, transportGlyphClass } from '$lib/utils';
+  import { playerStore } from '#lib/stores/player.svelte.ts';
+  import { blurAfterPointerClick, cn, transportGlyphClass } from '#lib/utils.ts';
 
   /**
    * The iOS Now Playing transport: the scrubber, the times UNDER it (elapsed at leading, time

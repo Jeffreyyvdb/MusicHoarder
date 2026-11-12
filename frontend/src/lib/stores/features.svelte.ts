@@ -1,4 +1,4 @@
-import { fetchSettings } from '$lib/api-client';
+import { fetchSettings } from '#lib/api-client.ts';
 
 /**
  * Server feature flags, fetched once from /api/settings. Used to hide experimental UI when the backing

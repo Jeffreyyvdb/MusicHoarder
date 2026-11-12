@@ -10,7 +10,7 @@ declare global {
      * the role could only be 'Owner' | 'Demo', silently mishandling every invited account.
      */
     interface PageData {
-      user?: import('$lib/auth/session-types').SessionUser;
+      user?: import('#lib/auth/session-types.ts').SessionUser;
     }
     // interface PageState {}
     // interface Platform {}

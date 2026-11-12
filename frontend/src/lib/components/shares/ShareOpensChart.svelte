@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { ShareDailyPoint } from '$lib/api-client';
-  import { countLabel, dayLabel, niceMax, peakDay, sumDaily } from '$lib/share-stats';
-  import { cn } from '$lib/utils';
+  import type { ShareDailyPoint } from '#lib/api-client.ts';
+  import { countLabel, dayLabel, niceMax, peakDay, sumDaily } from '#lib/share-stats.ts';
+  import { cn } from '#lib/utils.ts';
 
   // Opens per day, as columns: one series, so no legend — the section header names it. The marks
   // follow the chart rules the Stats bars do: the accent for the data and nothing else, bars capped

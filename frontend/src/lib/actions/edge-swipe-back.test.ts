@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { navBack } from '$lib/stores/nav-back.svelte';
+import { navBack } from '#lib/stores/nav-back.svelte.ts';
 import { edgeSwipeBack } from './edge-swipe-back';
 
 /**

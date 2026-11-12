@@ -1,7 +1,7 @@
 import { untrack } from 'svelte';
 import { goto } from '$app/navigation';
 import { page } from '$app/state';
-import { replaceUrl } from '$lib/navigation/replace-url';
+import { replaceUrl } from '#lib/navigation/replace-url.ts';
 import { neighbours, parseQueueId, queueHref, resolveSelection } from './queue-selection';
 
 type Options = {
@@ -54,7 +54,7 @@ export class QueueSelection {
       const known = this.#opts.ids().includes(id);
       untrack(() => {
         if (!known && this.#pending === undefined) {
-          void replaceUrl(this.href(null), { noScroll: false });
+          void replaceUrl(this.href(null), { reset: true });
           this.#opts.onmissing?.(id);
         }
       });
@@ -65,7 +65,7 @@ export class QueueSelection {
     $effect(() => {
       const raw = page.url.searchParams.get(this.#opts.param);
       if (raw == null || parseQueueId(raw) != null) return;
-      untrack(() => void replaceUrl(this.href(null), { noScroll: false }));
+      untrack(() => void replaceUrl(this.href(null), { reset: true }));
     });
   }
 

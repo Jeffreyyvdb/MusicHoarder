@@ -9,18 +9,18 @@
     type ArtistDuplicateReport,
     type ArtistDuplicateCluster,
     type CombinedCreditCandidate
-  } from '$lib/api-client';
-  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
-  import { Badge } from '$lib/components/ui/badge';
-  import { Button } from '$lib/components/ui/button';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
+  } from '#lib/api-client.ts';
+  import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
+  import { Badge } from '#lib/components/ui/badge/index.ts';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
   import { toast } from 'svelte-sonner';
-  import { cn } from '$lib/utils';
+  import { cn } from '#lib/utils.ts';
   import InboxDedupHistoryV2 from './InboxDedupHistoryV2.svelte';
   import InboxQueueStates from './InboxQueueStates.svelte';
   import { snapshotDedupKeys, toastWithUndo } from './dedup-undo';
-  import { radioGroup, radioTabIndex } from '$lib/components/review/radio-group';
+  import { radioGroup, radioTabIndex } from '#lib/components/review/radio-group.ts';
 
   type Props = { oncount?: (n: number | null) => void };
   const { oncount }: Props = $props();

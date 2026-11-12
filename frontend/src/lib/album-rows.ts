@@ -1,4 +1,4 @@
-import type { AlbumTracklist, ApiSong } from '$lib/api-client';
+import type { AlbumTracklist, ApiSong } from '#lib/api-client.ts';
 
 /**
  * A single row in the album track list: either a song the user owns, or a canonical track they're

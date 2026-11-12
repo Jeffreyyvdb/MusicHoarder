@@ -18,7 +18,7 @@ import {
   resumeStep,
   type ApiOverview,
   type ProgressSnapshot
-} from '$lib/api-client';
+} from '#lib/api-client.ts';
 
 const STORAGE_KEY = 'mh:pipeline-open';
 const POLL_INTERVAL_MS = 5_000;

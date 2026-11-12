@@ -1,46 +1,46 @@
 <script lang="ts">
-  import { invalidateAll } from '$app/navigation';
-  import { replaceUrl } from '$lib/navigation/replace-url';
+  import { refreshAll } from '$app/navigation';
+  import { replaceUrl } from '#lib/navigation/replace-url.ts';
   import { page } from '$app/state';
-  import { tabMemory } from '$lib/stores/tab-memory.svelte';
-  import { Button } from '$lib/components/ui/button';
-  import { Input } from '$lib/components/ui/input';
-  import { Label } from '$lib/components/ui/label';
-  import { Badge } from '$lib/components/ui/badge';
-  import * as AlertDialog from '$lib/components/ui/alert-dialog';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
+  import { tabMemory } from '#lib/stores/tab-memory.svelte.ts';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import { Input } from '#lib/components/ui/input/index.ts';
+  import { Label } from '#lib/components/ui/label/index.ts';
+  import { Badge } from '#lib/components/ui/badge/index.ts';
+  import * as AlertDialog from '#lib/components/ui/alert-dialog/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
   import PurgeStatusBanner, {
     purgeAnnouncement
-  } from '$lib/components/settings/PurgeStatusBanner.svelte';
-  import MusicVideoAuditCard from '$lib/components/settings/MusicVideoAuditCard.svelte';
+  } from '#lib/components/settings/PurgeStatusBanner.svelte';
+  import MusicVideoAuditCard from '#lib/components/settings/MusicVideoAuditCard.svelte';
   import StagedSourceReleaseBanner, {
     releaseAnnouncement
-  } from '$lib/components/settings/StagedSourceReleaseBanner.svelte';
-  import PairDeviceCard from '$lib/components/settings/PairDeviceCard.svelte';
-  import InstallAppCard from '$lib/components/settings/InstallAppCard.svelte';
-  import PeopleCard from '$lib/components/settings/PeopleCard.svelte';
-  import SwitchRow from '$lib/components/settings/SwitchRow.svelte';
-  import FieldRow from '$lib/components/settings/FieldRow.svelte';
-  import StatusLine from '$lib/components/settings/StatusLine.svelte';
-  import { createOptimisticCommitter } from '$lib/components/settings/optimistic';
-  import { COPY_FAILED_MESSAGE, copyText } from '$lib/components/settings/copy-text';
+  } from '#lib/components/settings/StagedSourceReleaseBanner.svelte';
+  import PairDeviceCard from '#lib/components/settings/PairDeviceCard.svelte';
+  import InstallAppCard from '#lib/components/settings/InstallAppCard.svelte';
+  import PeopleCard from '#lib/components/settings/PeopleCard.svelte';
+  import SwitchRow from '#lib/components/settings/SwitchRow.svelte';
+  import FieldRow from '#lib/components/settings/FieldRow.svelte';
+  import StatusLine from '#lib/components/settings/StatusLine.svelte';
+  import { createOptimisticCommitter } from '#lib/components/settings/optimistic.ts';
+  import { COPY_FAILED_MESSAGE, copyText } from '#lib/components/settings/copy-text.ts';
   import {
     resolveSettingsView,
     sectionHref,
     visibleSections,
     type SectionId
-  } from '$lib/components/settings/sections';
+  } from '#lib/components/settings/sections.ts';
   import {
     defaultPasskeyName,
     passkeyPlatform,
     passkeyUnlockPhrase,
     type PasskeyPlatform
-  } from '$lib/components/settings/passkey-copy';
-  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
-  import { avatar } from '$lib/components/v2/AccountPanel.svelte';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-  import { isPasskeySupported } from '$lib/webauthn-client';
+  } from '#lib/components/settings/passkey-copy.ts';
+  import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
+  import { avatar } from '#lib/components/v2/AccountPanel.svelte';
+  import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
+  import { isPasskeySupported } from '#lib/webauthn-client.ts';
   import {
     fetchSpotifyCredentials,
     saveSpotifyCredentials,
@@ -75,11 +75,11 @@
     type SettingsQualityGradingView,
     type SpotifyCredentialsResponse,
     type SpotifyStatusResponse
-  } from '$lib/api-client';
-  import { signOutAndReset } from '$lib/auth/sign-out';
-  import { switchAccountAndReload } from '$lib/auth/switch-account';
-  import { isAdmin, isDemo, roleLabel } from '$lib/auth/capabilities';
-  import { formatDate, formatFileSize } from '$lib/formatters';
+  } from '#lib/api-client.ts';
+  import { signOutAndReset } from '#lib/auth/sign-out.ts';
+  import { switchAccountAndReload } from '#lib/auth/switch-account.ts';
+  import { isAdmin, isDemo, roleLabel } from '#lib/auth/capabilities.ts';
+  import { formatDate, formatFileSize } from '#lib/formatters.ts';
   import { toast } from 'svelte-sonner';
   import {
     Check,
@@ -133,7 +133,7 @@
   // does not return to it): to the root on a phone, the first section on a desktop.
   $effect(() => {
     const target = view.redirect;
-    if (target) void replaceUrl(target, { noScroll: false, keepFocus: false });
+    if (target) void replaceUrl(target, { reset: true });
   });
 
   // A member has one section, so the desktop gets no pane list for them (a list of one row is
@@ -264,7 +264,7 @@
       isEditingName = false;
       // Session user lives in page.data — re-run the layout load so the account button and
       // this page pick up the new name.
-      await invalidateAll();
+      await refreshAll();
     } catch (err) {
       nameError = err instanceof Error ? err.message : 'Could not update the account name.';
     } finally {

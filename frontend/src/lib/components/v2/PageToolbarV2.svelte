@@ -14,16 +14,16 @@
   import type { Component, Snippet } from 'svelte';
   import { page } from '$app/state';
   import { ChevronLeft, Ellipsis } from '@lucide/svelte';
-  import { Button } from '$lib/components/ui/button';
-  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
-  import { SegmentedControl } from '$lib/components/ui/segmented-control';
-  import SectionTabsV2 from '$lib/components/v2/SectionTabsV2.svelte';
-  import AccountButton from '$lib/components/v2/AccountButton.svelte';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-  import { isTabRoot, surfaceFor, type NavBack } from '$lib/nav';
-  import { tabMemory } from '$lib/stores/tab-memory.svelte';
-  import { navBack } from '$lib/stores/nav-back.svelte';
-  import { cn } from '$lib/utils';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
+  import { SegmentedControl } from '#lib/components/ui/segmented-control/index.ts';
+  import SectionTabsV2 from '#lib/components/v2/SectionTabsV2.svelte';
+  import AccountButton from '#lib/components/v2/AccountButton.svelte';
+  import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
+  import { isTabRoot, surfaceFor, type NavBack } from '#lib/nav.ts';
+  import { tabMemory } from '#lib/stores/tab-memory.svelte.ts';
+  import { navBack } from '#lib/stores/nav-back.svelte.ts';
+  import { cn } from '#lib/utils.ts';
 
   // The page's navigation bar — the one page-header idiom, now shaped like UIKit's.
   //

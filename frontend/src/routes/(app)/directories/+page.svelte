@@ -1,21 +1,21 @@
 <script lang="ts">
-  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
-  import FilterChip from '$lib/components/v2/FilterChip.svelte';
+  import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
+  import FilterChip from '#lib/components/v2/FilterChip.svelte';
   import {
     fetchDirectoryMatchTree,
     setDirectoryExpectedLow,
     openProgressStream,
     type DirectoryMatchNode,
     type ProgressSnapshot
-  } from '$lib/api-client';
-  import DirectoryTreeRow from '$lib/components/directories/DirectoryTreeRow.svelte';
-  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
-  import { Button } from '$lib/components/ui/button';
-  import { SearchField } from '$lib/components/ui/search-field';
-  import { EmptyState } from '$lib/components/ui/empty-state';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-  import { cn } from '$lib/utils';
+  } from '#lib/api-client.ts';
+  import DirectoryTreeRow from '#lib/components/directories/DirectoryTreeRow.svelte';
+  import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import { SearchField } from '#lib/components/ui/search-field/index.ts';
+  import { EmptyState } from '#lib/components/ui/empty-state/index.ts';
+  import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
+  import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
+  import { cn } from '#lib/utils.ts';
   import { Loader2, AlertTriangle, ChevronRight, ArrowUpDown, FolderSearch, FolderOpen } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
   import { SvelteSet } from 'svelte/reactivity';

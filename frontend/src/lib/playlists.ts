@@ -1,4 +1,4 @@
-import type { LibraryPlaylist, PlaylistSourceType } from '$lib/api-client';
+import type { LibraryPlaylist, PlaylistSourceType } from '#lib/api-client.ts';
 
 // Wording for playlists, shared by the Playlists page, a playlist's page and the Add to Playlist
 // sheet so all three describe a playlist the same way. Android's data/Playlists.kt says the same.

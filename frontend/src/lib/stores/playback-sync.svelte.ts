@@ -21,11 +21,11 @@
  * It plugs into the player (`setPlaybackSync`) so every component that reads `playerStore` shows
  * the session wherever it plays. It never starts for the demo account (strangers share it) and is
  * never started by the anonymous share page; there the player is exactly what it always was. The
- * rules themselves are in `$lib/playback-sync/*`, pure and tested, and ported by the Android client.
+ * rules themselves are in `#lib/playback-sync/*`, pure and tested, and ported by the Android client.
  */
 
 import { toast } from 'svelte-sonner';
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 import {
   ApiError,
   fetchPlayback,
@@ -34,10 +34,10 @@ import {
   reportPlaybackState,
   sendPlaybackCommand,
   toPlayerSong
-} from '$lib/api-client';
-import { isDemo } from '$lib/auth/capabilities';
-import type { SessionUser } from '$lib/auth/session-types';
-import { isInstalledApp } from '$lib/hooks/viewport-insets.svelte';
+} from '#lib/api-client.ts';
+import { isDemo } from '#lib/auth/capabilities.ts';
+import type { SessionUser } from '#lib/auth/session-types.ts';
+import { isInstalledApp } from '#lib/hooks/viewport-insets.svelte.ts';
 import {
   claimTabDeviceId,
   describeDevice,
@@ -46,7 +46,7 @@ import {
   INSTALL_ID_KEY,
   type ChannelLike,
   type TabIdentity
-} from '$lib/playback-sync/device';
+} from '#lib/playback-sync/device.ts';
 import {
   adoptStart,
   deriveMode,
@@ -66,7 +66,7 @@ import {
   withLocalClaim,
   type PendingCommand,
   type PlaybackMode
-} from '$lib/playback-sync/session';
+} from '#lib/playback-sync/session.ts';
 import type {
   DeviceKind,
   PlaybackCommandEvent,
@@ -76,7 +76,7 @@ import type {
   PlaybackSession,
   PlaybackStateReport,
   PlaybackStateResponse
-} from '$lib/playback-sync/wire';
+} from '#lib/playback-sync/wire.ts';
 import {
   localPlayback,
   setPlaybackSync,
@@ -85,9 +85,9 @@ import {
   type PlayerRemote,
   type PlayerSong,
   type PlayOutcome
-} from '$lib/stores/player.svelte';
-import { songsStore } from '$lib/stores/songs.svelte';
-import { artistOf } from '$lib/track-list-view.svelte';
+} from '#lib/stores/player.svelte.ts';
+import { songsStore } from '#lib/stores/songs.svelte.ts';
+import { artistOf } from '#lib/track-list-view.svelte.ts';
 
 /** While this device holds the session, it reports at least this often (the contract's 20 s). */
 export const HEARTBEAT_MS = 20_000;
@@ -220,10 +220,20 @@ const view = $derived.by(() => {
   const s = effective;
   if (!s) return null;
   if (mode !== 'remote') {
-    return { ...s, isPlaying: false, positionMs: rememberedSeekMs ?? s.positionMs, base: receivedAt };
+    return {
+      ...s,
+      isPlaying: false,
+      positionMs: rememberedSeekMs ?? s.positionMs,
+      base: receivedAt
+    };
   }
   if (optimistic) {
-    return { ...s, isPlaying: optimistic.isPlaying, positionMs: optimistic.positionMs, base: optimistic.at };
+    return {
+      ...s,
+      isPlaying: optimistic.isPlaying,
+      positionMs: optimistic.positionMs,
+      base: optimistic.at
+    };
   }
   return { ...s, base: receivedAt };
 });
@@ -263,7 +273,8 @@ const entries = $derived.by((): DeviceEntry[] => {
     kind: deviceKind,
     isThis: true,
     current: here,
-    status: holdsHere && localPlayback.song ? (localPlayback.isPlaying ? 'playing' : 'paused') : null
+    status:
+      holdsHere && localPlayback.song ? (localPlayback.isPlaying ? 'playing' : 'paused') : null
   };
   const others = devices
     .filter((d) => d.deviceId !== deviceId && d.online)
@@ -308,12 +319,15 @@ function standInSong(id: number): PlayerSong {
 function nameOf(id: string | null): string {
   const device = devices.find((d) => d.deviceId === id);
   if (device) return isSameBrowser(device, deviceId, installId) ? 'the other tab' : device.name;
-  if (id && session?.activeDeviceId === id && session.activeDeviceName) return session.activeDeviceName;
+  if (id && session?.activeDeviceId === id && session.activeDeviceName)
+    return session.activeDeviceName;
   return 'the other device';
 }
 
 function holdsSessionHere(): boolean {
-  return claimPending || (session !== null && deviceId !== null && session.activeDeviceId === deviceId);
+  return (
+    claimPending || (session !== null && deviceId !== null && session.activeDeviceId === deviceId)
+  );
 }
 
 /** An account-library track, streamed by its id — not a share link's, which is nobody's session. */
@@ -692,7 +706,10 @@ function adoptHere(s: PlaybackSession, step: StepAction): Promise<PlayOutcome> |
     toast.error('This song isn’t available here');
     return null;
   }
-  const at = view && view.songId === s.songId ? extrapolatePositionMs(view, view.base, monotonic()) : s.positionMs;
+  const at =
+    view && view.songId === s.songId
+      ? extrapolatePositionMs(view, view.base, monotonic())
+      : s.positionMs;
   const start = adoptStart(resolved.index, resolved.queue.length, at, step);
   return localPlayback.adopt({
     queue: resolved.queue,
@@ -800,7 +817,10 @@ function couldNotReach(command: PlaybackCommandName, name: string): void {
   );
 }
 
-function command(name: 'pause' | 'resume' | 'next' | 'previous' | 'seek', positionMs?: number): void {
+function command(
+  name: 'pause' | 'resume' | 'next' | 'previous' | 'seek',
+  positionMs?: number
+): void {
   const target = effective?.activeDeviceId;
   if (!target || mode !== 'remote') return;
   if (name === 'pause' || name === 'resume') {
@@ -964,7 +984,9 @@ function storage(kind: 'localStorage' | 'sessionStorage'): Storage | null {
 
 function openChannel(): ChannelLike | null {
   try {
-    return typeof BroadcastChannel === 'function' ? new BroadcastChannel(DEVICE_CHANNEL_NAME) : null;
+    return typeof BroadcastChannel === 'function'
+      ? new BroadcastChannel(DEVICE_CHANNEL_NAME)
+      : null;
   } catch {
     return null;
   }

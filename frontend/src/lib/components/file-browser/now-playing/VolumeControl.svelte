@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Volume1, Volume2, VolumeX } from '@lucide/svelte';
-  import { playerStore } from '$lib/stores/player.svelte';
-  import { cn } from '$lib/utils';
+  import { playerStore } from '#lib/stores/player.svelte.ts';
+  import { cn } from '#lib/utils.ts';
 
   /**
    * Volume inside Now Playing: under the lg column's transport, and in the footer from md with a

@@ -1,23 +1,23 @@
 <script lang="ts">
   import { Check, ChevronRight, ListFilter, Loader2, TriangleAlert } from '@lucide/svelte';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
-  import { Button } from '$lib/components/ui/button';
-  import { Skeleton } from '$lib/components/ui/skeleton';
-  import { Switch } from '$lib/components/ui/switch';
-  import { SegmentedControl } from '$lib/components/ui/segmented-control';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import * as BottomSheet from '$lib/components/ui/bottom-sheet';
-  import FilterChip from '$lib/components/v2/FilterChip.svelte';
-  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
+  import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import { Skeleton } from '#lib/components/ui/skeleton/index.ts';
+  import { Switch } from '#lib/components/ui/switch/index.ts';
+  import { SegmentedControl } from '#lib/components/ui/segmented-control/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import * as BottomSheet from '#lib/components/ui/bottom-sheet/index.ts';
+  import FilterChip from '#lib/components/v2/FilterChip.svelte';
+  import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
+  import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
   import {
     ApiError,
     fetchHistory,
     type HistoryCategory,
     type HistoryRawChange,
     type HistorySummary
-  } from '$lib/api-client';
-  import { formatDayLabel, formatRelativeTime, localDayKey } from '$lib/formatters';
+  } from '#lib/api-client.ts';
+  import { formatDayLabel, formatRelativeTime, localDayKey } from '#lib/formatters.ts';
   import {
     HISTORY_CATEGORIES,
     HISTORY_RANGES,
@@ -27,8 +27,8 @@
     historyIcon,
     isDefaultHistoryFilter,
     type HistoryRangeKey
-  } from '$lib/history';
-  import { cn } from '$lib/utils';
+  } from '#lib/history.ts';
+  import { cn } from '#lib/utils.ts';
 
   // The History feed. A desktop keeps its chip bands in the toolbar (range, Problems, the ten
   // categories — one click each). A phone cannot fit three sideways-scrolling rows of chips

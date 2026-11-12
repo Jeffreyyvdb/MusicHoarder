@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ApiSong, PlaybackStreamHandlers } from '$lib/api-client';
-import { createPlaybackSnapshotStore } from '$lib/player-snapshot';
-import type { PlaybackSession, PlaybackStateReport } from '$lib/playback-sync/wire';
+import type { ApiSong, PlaybackStreamHandlers } from '#lib/api-client.ts';
+import { createPlaybackSnapshotStore } from '#lib/player-snapshot.ts';
+import type { PlaybackSession, PlaybackStateReport } from '#lib/playback-sync/wire.ts';
 
 /**
  * The sync store driven end to end: the real player on a fake `<audio>`, a hand-driven stream in
@@ -25,11 +25,11 @@ const api = vi.hoisted(() => ({
 /** The library's rows; a test that needs them reactive swaps in a `SvelteMap`. */
 const library = vi.hoisted(() => ({ rows: new Map<number, unknown>() }));
 
-vi.mock('$app/environment', () => ({ browser: true }));
+vi.mock('$app/env', () => ({ browser: true }));
 vi.mock('svelte-sonner', () => ({ toast }));
-vi.mock('$lib/hooks/viewport-insets.svelte', () => ({ isInstalledApp: () => false }));
-vi.mock('$lib/track-list-view.svelte', () => ({ artistOf: () => 'Artist' }));
-vi.mock('$lib/stores/songs.svelte', () => ({
+vi.mock('#lib/hooks/viewport-insets.svelte.ts', () => ({ isInstalledApp: () => false }));
+vi.mock('#lib/track-list-view.svelte', () => ({ artistOf: () => 'Artist' }));
+vi.mock('#lib/stores/songs.svelte.ts', () => ({
   songsStore: {
     notePlayed: vi.fn(),
     get songsById() {
@@ -37,8 +37,8 @@ vi.mock('$lib/stores/songs.svelte', () => ({
     }
   }
 }));
-vi.mock('$lib/api-client', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('$lib/api-client')>();
+vi.mock('#lib/api-client.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('#lib/api-client.ts')>();
   return {
     ...actual,
     fetchRadio: vi.fn(async () => []),

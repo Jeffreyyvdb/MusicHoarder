@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { SpotifyApiTrack, SpotifyLibraryMatchStatus } from '$lib/api-client';
-  import { Button } from '$lib/components/ui/button';
-  import { songDetail } from '$lib/stores/song-detail.svelte';
-  import { formatDate } from '$lib/formatters';
+  import type { SpotifyApiTrack, SpotifyLibraryMatchStatus } from '#lib/api-client.ts';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import { songDetail } from '#lib/stores/song-detail.svelte.ts';
+  import { formatDate } from '#lib/formatters.ts';
   import {
     Music,
     CircleCheck,

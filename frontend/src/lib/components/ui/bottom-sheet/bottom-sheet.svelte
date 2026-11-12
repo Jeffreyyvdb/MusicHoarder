@@ -1,13 +1,13 @@
 <script lang="ts">
-	import { holdAppInert } from "$lib/actions/inert-app";
+	import { holdAppInert } from "#lib/actions/inert-app.ts";
 	import { Dialog as DialogPrimitive } from "bits-ui";
 	import type { Snippet } from "svelte";
 	import XIcon from "@lucide/svelte/icons/x";
-	import { Button } from "$lib/components/ui/button/index.js";
-	import { ScrollArea } from "$lib/components/ui/scroll-area/index.js";
-	import { IsMobile } from "$lib/hooks/is-mobile.svelte.js";
-	import { DISMISS_VELOCITY, EASE_PRESENT, prefersReducedMotion } from "$lib/motion.js";
-	import { cn, type WithoutChildrenOrChild } from "$lib/utils.js";
+	import { Button } from "#lib/components/ui/button/index.js";
+	import { ScrollArea } from "#lib/components/ui/scroll-area/index.js";
+	import { IsMobile } from "#lib/hooks/is-mobile.svelte.js";
+	import { DISMISS_VELOCITY, EASE_PRESENT, prefersReducedMotion } from "#lib/motion.js";
+	import { cn, type WithoutChildrenOrChild } from "#lib/utils.js";
 
 	type Props = WithoutChildrenOrChild<DialogPrimitive.ContentProps> & {
 		open?: boolean;

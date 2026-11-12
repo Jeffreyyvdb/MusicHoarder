@@ -7,9 +7,9 @@ import {
   type TrackLyricsResponse,
   type TranscribeLyricsResponse,
   type TranslateLyricsResponse
-} from '$lib/api-client';
-import { computeLyricsProvenance } from '$lib/lyrics/provenance';
-import type { LyricsProvenance, LyricsStatus } from '$lib/types';
+} from '#lib/api-client.ts';
+import { computeLyricsProvenance } from '#lib/lyrics/provenance.ts';
+import type { LyricsProvenance, LyricsStatus } from '#lib/types.ts';
 
 export type LyricsSource = 'lrclib' | 'transcribed';
 export type LyricsViewMode = 'original' | 'pronunciation' | 'translation';

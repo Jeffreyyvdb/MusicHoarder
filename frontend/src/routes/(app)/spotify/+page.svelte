@@ -1,14 +1,14 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { page } from '$app/state';
-  import { replaceUrl } from '$lib/navigation/replace-url';
-  import { Button } from '$lib/components/ui/button';
-  import { SearchField } from '$lib/components/ui/search-field';
-  import { EmptyState } from '$lib/components/ui/empty-state';
-  import * as AlertDialog from '$lib/components/ui/alert-dialog';
-  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
+  import { replaceUrl } from '#lib/navigation/replace-url.ts';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import { SearchField } from '#lib/components/ui/search-field/index.ts';
+  import { EmptyState } from '#lib/components/ui/empty-state/index.ts';
+  import * as AlertDialog from '#lib/components/ui/alert-dialog/index.ts';
+  import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
   import {
     fetchSpotifyStatus,
     fetchSpotifyConnectUrl,
@@ -21,7 +21,7 @@
     type SpotifyApiTrack,
     type SpotifyApiPlaylist,
     type SpotifyCredentialsResponse
-  } from '$lib/api-client';
+  } from '#lib/api-client.ts';
   import {
     Music2,
     Heart,
@@ -38,14 +38,14 @@
     X
   } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
-  import SpotifyTrackRow from '$lib/components/spotify/SpotifyTrackRow.svelte';
-  import PlaylistCard from '$lib/components/spotify/PlaylistCard.svelte';
-  import PaginationControls from '$lib/components/spotify/PaginationControls.svelte';
-  import TrackListSkeleton from '$lib/components/spotify/TrackListSkeleton.svelte';
-  import PlaylistGridSkeleton from '$lib/components/spotify/PlaylistGridSkeleton.svelte';
-  import PlaylistDetailView from '$lib/components/spotify/PlaylistDetailView.svelte';
-  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
+  import SpotifyTrackRow from '#lib/components/spotify/SpotifyTrackRow.svelte';
+  import PlaylistCard from '#lib/components/spotify/PlaylistCard.svelte';
+  import PaginationControls from '#lib/components/spotify/PaginationControls.svelte';
+  import TrackListSkeleton from '#lib/components/spotify/TrackListSkeleton.svelte';
+  import PlaylistGridSkeleton from '#lib/components/spotify/PlaylistGridSkeleton.svelte';
+  import PlaylistDetailView from '#lib/components/spotify/PlaylistDetailView.svelte';
+  import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
+  import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
 
   let status = $state<SpotifyStatusResponse | null>(null);
   let credentials = $state<SpotifyCredentialsResponse | null>(null);
@@ -105,7 +105,7 @@
   // A link to a playlist this account doesn't have (or no longer has): back to the grid.
   $effect(() => {
     if (playlistParam && playlistsLoaded && !selectedPlaylist) {
-      untrack(() => void replaceUrl(PLAYLISTS_HREF, { noScroll: false }));
+      untrack(() => void replaceUrl(PLAYLISTS_HREF, { reset: true }));
     }
   });
 
@@ -199,7 +199,7 @@
     } else if (oauthErr != null) {
       oauthBanner = { type: 'error', message: oauthErr };
     }
-    void replaceUrl('/spotify', { keepFocus: false });
+    void replaceUrl('/spotify', { reset: true });
     void loadStatus();
   });
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import * as Pagination from '$lib/components/ui/pagination/index.js';
+  import * as Pagination from '#lib/components/ui/pagination/index.js';
 
   type Props = {
     offset: number;

@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import Cover from '$lib/components/file-browser/Cover.svelte';
-  import { cn } from '$lib/utils';
+  import Cover from '#lib/components/file-browser/Cover.svelte';
+  import { cn } from '#lib/utils.ts';
 
   // One row of an Inbox queue list (Tag review, Duplicates, AI flagged).
   //

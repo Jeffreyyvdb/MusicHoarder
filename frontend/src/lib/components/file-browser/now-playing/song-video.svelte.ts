@@ -7,7 +7,7 @@ import {
   resetSongVideoOffset,
   setSongVideoOffset,
   type SongVideoInfo
-} from '$lib/api-client';
+} from '#lib/api-client.ts';
 
 /** How often a server-side fetch is polled until it settles (they take ~30–60s). */
 const POLL_MS = 3000;

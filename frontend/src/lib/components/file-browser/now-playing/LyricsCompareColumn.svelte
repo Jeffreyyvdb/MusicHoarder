@@ -1,11 +1,11 @@
 <script lang="ts">
   import { Check } from '@lucide/svelte';
-  import { Button } from '$lib/components/ui/button';
-  import LyricsPanel from '$lib/components/file-browser/LyricsPanel.svelte';
-  import type { AiLyrics, LyricsSource } from '$lib/lyrics/ai-lyrics.svelte';
-  import type { LyricsDoc } from '$lib/lyrics/lyrics-doc.svelte';
-  import { playerStore } from '$lib/stores/player.svelte';
-  import { cn } from '$lib/utils';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import LyricsPanel from '#lib/components/file-browser/LyricsPanel.svelte';
+  import type { AiLyrics, LyricsSource } from '#lib/lyrics/ai-lyrics.svelte.ts';
+  import type { LyricsDoc } from '#lib/lyrics/lyrics-doc.svelte.ts';
+  import { playerStore } from '#lib/stores/player.svelte.ts';
+  import { cn } from '#lib/utils.ts';
 
   /**
    * One version in "Compare versions": its name, the "Use as player default" choice (or a

@@ -38,7 +38,7 @@ import {
   Users,
   Wrench
 } from '@lucide/svelte';
-import type { HistoryCategory, HistoryTint } from '$lib/api-client';
+import type { HistoryCategory, HistoryTint } from '#lib/api-client.ts';
 
 /**
  * The History feed's presentation layer, in one place.

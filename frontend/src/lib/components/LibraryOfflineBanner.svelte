@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { fetchLibraryAvailability, type LibraryAvailability } from '$lib/api-client';
+  import { fetchLibraryAvailability, type LibraryAvailability } from '#lib/api-client.ts';
 
   const POLL_INTERVAL_MS = 15_000;
 

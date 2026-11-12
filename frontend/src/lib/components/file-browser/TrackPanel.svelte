@@ -13,46 +13,46 @@
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import { toast } from 'svelte-sonner';
-  import { Button } from '$lib/components/ui/button';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
-  import SongTransport from '$lib/components/file-browser/SongTransport.svelte';
-  import VideoWatchTab from '$lib/components/file-browser/VideoWatchTab.svelte';
-  import AiLyricsBadge, { AI_LYRICS_COPY } from '$lib/components/file-browser/AiLyricsBadge.svelte';
-  import NowPlayingArt from '$lib/components/file-browser/now-playing/NowPlayingArt.svelte';
-  import NowPlayingInfo from '$lib/components/file-browser/now-playing/NowPlayingInfo.svelte';
-  import NowPlayingLyrics from '$lib/components/file-browser/now-playing/NowPlayingLyrics.svelte';
-  import NowPlayingMoreMenu from '$lib/components/file-browser/now-playing/NowPlayingMoreMenu.svelte';
-  import ManageVideoSheet from '$lib/components/file-browser/now-playing/ManageVideoSheet.svelte';
-  import LyricsCompareSheet from '$lib/components/file-browser/now-playing/LyricsCompareSheet.svelte';
-  import ActionSheet from '$lib/components/file-browser/now-playing/ActionSheet.svelte';
-  import VolumeControl from '$lib/components/file-browser/now-playing/VolumeControl.svelte';
-  import DevicePicker from '$lib/components/playback-sync/DevicePicker.svelte';
-  import { DEVICE_ICONS } from '$lib/components/playback-sync/device-icons';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
+  import SongTransport from '#lib/components/file-browser/SongTransport.svelte';
+  import VideoWatchTab from '#lib/components/file-browser/VideoWatchTab.svelte';
+  import AiLyricsBadge, { AI_LYRICS_COPY } from '#lib/components/file-browser/AiLyricsBadge.svelte';
+  import NowPlayingArt from '#lib/components/file-browser/now-playing/NowPlayingArt.svelte';
+  import NowPlayingInfo from '#lib/components/file-browser/now-playing/NowPlayingInfo.svelte';
+  import NowPlayingLyrics from '#lib/components/file-browser/now-playing/NowPlayingLyrics.svelte';
+  import NowPlayingMoreMenu from '#lib/components/file-browser/now-playing/NowPlayingMoreMenu.svelte';
+  import ManageVideoSheet from '#lib/components/file-browser/now-playing/ManageVideoSheet.svelte';
+  import LyricsCompareSheet from '#lib/components/file-browser/now-playing/LyricsCompareSheet.svelte';
+  import ActionSheet from '#lib/components/file-browser/now-playing/ActionSheet.svelte';
+  import VolumeControl from '#lib/components/file-browser/now-playing/VolumeControl.svelte';
+  import DevicePicker from '#lib/components/playback-sync/DevicePicker.svelte';
+  import { DEVICE_ICONS } from '#lib/components/playback-sync/device-icons.ts';
   import {
     videoProblem,
     videoSyncLabel,
     type SongVideo
-  } from '$lib/components/file-browser/now-playing/song-video.svelte';
-  import SharedByBadge from '$lib/components/v2/SharedByBadge.svelte';
+  } from '#lib/components/file-browser/now-playing/song-video.svelte.ts';
+  import SharedByBadge from '#lib/components/v2/SharedByBadge.svelte';
   import {
     artistLabelForSong,
     coverUrlForSong,
     toPlayerSong,
     type ApiSong,
     type AlbumSummary
-  } from '$lib/api-client';
-  import { formatDuration, formatFileSize } from '$lib/formatters';
-  import { createAiLyrics } from '$lib/lyrics/ai-lyrics.svelte';
-  import { createLyricsDoc } from '$lib/lyrics/lyrics-doc.svelte';
-  import { lrclibWebUrl } from '$lib/lrclib-url';
-  import { playerStore } from '$lib/stores/player.svelte';
-  import { playbackSync } from '$lib/stores/playback-sync.svelte';
-  import { songsStore } from '$lib/stores/songs.svelte';
-  import { featuresStore } from '$lib/stores/features.svelte';
-  import type { DetailMode } from '$lib/stores/song-detail.svelte';
-  import { isAdmin } from '$lib/auth/capabilities';
-  import { cn } from '$lib/utils';
-  import { DYNAMIC_TYPE_CHANGE, dynamicTypeScale } from '$lib/dynamic-type';
+  } from '#lib/api-client.ts';
+  import { formatDuration, formatFileSize } from '#lib/formatters.ts';
+  import { createAiLyrics } from '#lib/lyrics/ai-lyrics.svelte.ts';
+  import { createLyricsDoc } from '#lib/lyrics/lyrics-doc.svelte.ts';
+  import { lrclibWebUrl } from '#lib/lrclib-url.ts';
+  import { playerStore } from '#lib/stores/player.svelte.ts';
+  import { playbackSync } from '#lib/stores/playback-sync.svelte.ts';
+  import { songsStore } from '#lib/stores/songs.svelte.ts';
+  import { featuresStore } from '#lib/stores/features.svelte.ts';
+  import type { DetailMode } from '#lib/stores/song-detail.svelte.ts';
+  import { isAdmin } from '#lib/auth/capabilities.ts';
+  import { cn } from '#lib/utils.ts';
+  import { DYNAMIC_TYPE_CHANGE, dynamicTypeScale } from '#lib/dynamic-type.ts';
 
   /**
    * Now Playing's content. One fixed frame whose MIDDLE swaps between modes — `player` (the art

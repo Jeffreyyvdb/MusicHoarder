@@ -9,8 +9,8 @@
  * resets / SSE-driven rebuilds replace the dataset.
  */
 
-import { playerStore } from '$lib/stores/player.svelte';
-import { songsStore } from '$lib/stores/songs.svelte';
+import { playerStore } from '#lib/stores/player.svelte.ts';
+import { songsStore } from '#lib/stores/songs.svelte.ts';
 
 /**
  * What the middle of the player shows. `player` is the artwork, `lyrics` the karaoke view,

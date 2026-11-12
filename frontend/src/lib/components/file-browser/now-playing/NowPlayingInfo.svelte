@@ -10,10 +10,10 @@
     Sparkles
   } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import { Badge, type BadgeVariant } from '$lib/components/ui/badge';
-  import { SegmentedControl } from '$lib/components/ui/segmented-control';
-  import SourceRow from '$lib/components/file-browser/SourceRow.svelte';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import { Badge, type BadgeVariant } from '#lib/components/ui/badge/index.ts';
+  import { SegmentedControl } from '#lib/components/ui/segmented-control/index.ts';
+  import SourceRow from '#lib/components/file-browser/SourceRow.svelte';
   import ActionSheet from './ActionSheet.svelte';
   import {
     enrichSong,
@@ -33,21 +33,21 @@
     type SongQualityGradeView,
     type QualityVerdict,
     type NormalizedEnrichmentStatus
-  } from '$lib/api-client';
-  import { fingerprintBars, fingerprintHash, providerAttemptRows } from '$lib/review-helpers';
+  } from '#lib/api-client.ts';
+  import { fingerprintBars, fingerprintHash, providerAttemptRows } from '#lib/review-helpers.ts';
   import {
     formatDate,
     formatDateTime,
     formatDuration,
     formatFileSize,
     formatReleaseDate
-  } from '$lib/formatters';
-  import { lrclibWebUrl, lrclibWebSearchUrl } from '$lib/lrclib-url';
-  import { acoustIdSourceConnected, lrclibSourceConnected } from '$lib/source-connection';
-  import { cn } from '$lib/utils';
-  import { PROVENANCE_ICON, seedSublabel } from '$lib/provenance';
-  import { songsStore } from '$lib/stores/songs.svelte';
-  import type { LyricsStatus } from '$lib/types';
+  } from '#lib/formatters.ts';
+  import { lrclibWebUrl, lrclibWebSearchUrl } from '#lib/lrclib-url.ts';
+  import { acoustIdSourceConnected, lrclibSourceConnected } from '#lib/source-connection.ts';
+  import { cn } from '#lib/utils.ts';
+  import { PROVENANCE_ICON, seedSublabel } from '#lib/provenance.ts';
+  import { songsStore } from '#lib/stores/songs.svelte.ts';
+  import type { LyricsStatus } from '#lib/types.ts';
 
   /**
    * Now Playing's Info mode: Details for everyone, plus Fingerprint and Enrichment for admins

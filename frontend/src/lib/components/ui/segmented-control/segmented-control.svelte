@@ -9,7 +9,7 @@
 </script>
 
 <script lang="ts" generics="T extends string">
-	import { cn } from "$lib/utils.js";
+	import { cn } from "#lib/utils.js";
 
 	type Props = {
 		items: SegmentedControlItem<T>[];

@@ -1,3 +1,4 @@
+import type { ReadonlyURLSearchParams } from '$app/state';
 /**
  * What the share sheet handed the installed app (the manifest's `share_target`), kept until it has
  * been sent or dismissed. It lands on the public `/share-target` page, which stores it here before
@@ -17,7 +18,7 @@ function clean(value: string | null | undefined): string | null {
   return trimmed ? trimmed.slice(0, 4000) : null;
 }
 
-export function pendingShareFrom(params: URLSearchParams): PendingShare | null {
+export function pendingShareFrom(params: ReadonlyURLSearchParams): PendingShare | null {
   const share = { title: clean(params.get('title')), text: clean(params.get('text')), url: clean(params.get('url')) };
   return share.title || share.text || share.url ? share : null;
 }

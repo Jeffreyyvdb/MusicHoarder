@@ -13,8 +13,8 @@
     CheckCheck,
     SkipForward
   } from '@lucide/svelte';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-  import type { ApiSong, EnrichmentDetail } from '$lib/api-client';
+  import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
+  import type { ApiSong, EnrichmentDetail } from '#lib/api-client.ts';
   import {
     fetchReviewQueue,
     fetchEnrichmentDetail,
@@ -23,7 +23,7 @@
     copyQualitySongDossier,
     bulkApprove,
     coverUrlForSong
-  } from '$lib/api-client';
+  } from '#lib/api-client.ts';
   import {
     reasonFor,
     candidatesFromDetail,
@@ -35,26 +35,26 @@
     EDITABLE_FIELDS,
     type ReviewCandidate,
     type EditableFieldKey
-  } from '$lib/review-helpers';
-  import { formatFileSize } from '$lib/formatters';
-  import Cover from '$lib/components/file-browser/Cover.svelte';
-  import CandidateGrid from '$lib/components/review/CandidateGrid.svelte';
-  import BeforeAfterView from '$lib/components/review/BeforeAfterView.svelte';
-  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
-  import { Button } from '$lib/components/ui/button';
-  import * as BottomSheet from '$lib/components/ui/bottom-sheet';
-  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import * as Tooltip from '$lib/components/ui/tooltip';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
+  } from '#lib/review-helpers.ts';
+  import { formatFileSize } from '#lib/formatters.ts';
+  import Cover from '#lib/components/file-browser/Cover.svelte';
+  import CandidateGrid from '#lib/components/review/CandidateGrid.svelte';
+  import BeforeAfterView from '#lib/components/review/BeforeAfterView.svelte';
+  import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import * as BottomSheet from '#lib/components/ui/bottom-sheet/index.ts';
+  import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import * as Tooltip from '#lib/components/ui/tooltip/index.ts';
+  import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
   import { toast } from 'svelte-sonner';
-  import { cn } from '$lib/utils';
+  import { cn } from '#lib/utils.ts';
   import InboxDecisionBar from './InboxDecisionBar.svelte';
   import InboxQueueRow from './InboxQueueRow.svelte';
   import InboxQueueStates from './InboxQueueStates.svelte';
   import { QueueSelection } from './queue-selection.svelte';
   import { nextAfterDecision } from './queue-selection';
-  import { radioGroup, radioTabIndex } from '$lib/components/review/radio-group';
+  import { radioGroup, radioTabIndex } from '#lib/components/review/radio-group.ts';
 
   // Reports its live remaining count up to the Inbox header (for the subtab pill).
   type Props = { oncount?: (n: number | null) => void };

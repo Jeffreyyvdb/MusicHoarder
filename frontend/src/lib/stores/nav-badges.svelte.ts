@@ -4,7 +4,7 @@
  * The tab bar's Inbox badge, the sidebar's Inbox group badge and item counts, the Inbox hub's
  * rows and the Pipeline page's "Awaiting you" all read {@link inboxCounts} rather than each
  * keeping a predicate of its own, so no two screens can disagree about the same queue. It doesn't
- * live in `$lib/nav` because that module is deliberately store-free (plain data, so nav.test.ts can
+ * live in `#lib/nav.ts` because that module is deliberately store-free (plain data, so nav.test.ts can
  * import it without pulling in the songs store) — see its own header comment.
  *
  * The badge is the sum of the queues that hold per-item decisions — Tag review, Duplicate tracks
@@ -23,8 +23,8 @@ import {
   fetchInboxNameCounts,
   fetchQualityOverview,
   mapEnrichmentStatus
-} from '$lib/api-client';
-import { songsStore } from '$lib/stores/songs.svelte';
+} from '#lib/api-client.ts';
+import { songsStore } from '#lib/stores/songs.svelte.ts';
 
 /** Queues whose count comes from a request of its own (Tag review's comes from the songs list). */
 export type FetchedInboxQueue = 'dupes' | 'ai' | 'artists' | 'albums';

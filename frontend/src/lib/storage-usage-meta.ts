@@ -9,8 +9,8 @@ import type {
   StorageCategoryKey,
   StorageOriginKey,
   StorageUsageSnapshot
-} from '$lib/api-client';
-import { formatBytesShort } from '$lib/formatters';
+} from '#lib/api-client.ts';
+import { formatBytesShort } from '#lib/formatters.ts';
 
 export type StorageCategoryMeta = { label: string; description: string; color: string };
 export type StorageOriginMeta = { label: string; color: string };

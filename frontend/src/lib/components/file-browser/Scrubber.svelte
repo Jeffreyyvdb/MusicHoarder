@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { playerStore } from '$lib/stores/player.svelte';
-  import { seekTargetForKey } from '$lib/player-seek';
-  import { formatDuration } from '$lib/formatters';
-  import { cn } from '$lib/utils';
+  import { playerStore } from '#lib/stores/player.svelte.ts';
+  import { seekTargetForKey } from '#lib/player-seek.ts';
+  import { formatDuration } from '#lib/formatters.ts';
+  import { cn } from '#lib/utils.ts';
 
   type Props = {
     /** Whether this is the currently-loaded track. When false, the fill locks at 0%. */

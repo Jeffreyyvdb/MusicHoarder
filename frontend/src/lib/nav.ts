@@ -2,6 +2,7 @@
 // re-exports ~1600 .svelte files, and nav.test.ts imports this module — pulling all of them
 // through the Svelte compiler took the unit suite from 0.7s to 19s. These paths cost
 // nothing. The type import is erased, so it can stay on the barrel.
+import type { ReadonlyURL } from '$app/state';
 import type { LucideIcon } from '@lucide/svelte';
 import ChartColumnBig from '@lucide/svelte/icons/chart-column-big';
 import Compass from '@lucide/svelte/icons/compass';
@@ -29,9 +30,9 @@ import Tags from '@lucide/svelte/icons/tags';
 import TrendingUp from '@lucide/svelte/icons/trending-up';
 import Users from '@lucide/svelte/icons/users';
 import Workflow from '@lucide/svelte/icons/workflow';
-import { APP_HOME } from '$lib/app-home';
-import { isAdmin, isDemo } from '$lib/auth/capabilities';
-import type { SessionUser } from '$lib/auth/session-types';
+import { APP_HOME } from '#lib/app-home.ts';
+import { isAdmin, isDemo } from '#lib/auth/capabilities.ts';
+import type { SessionUser } from '#lib/auth/session-types.ts';
 
 /**
  * THE nav source of truth.
@@ -67,7 +68,7 @@ function pathOf(href: string): string {
  * Exact path or any child of it. Slash-guarded on purpose: the previous matchers used raw
  * `startsWith`, under which '/tracks' would also claim a hypothetical '/tracksomething'.
  */
-function under(base: string): (url: URL) => boolean {
+function under(base: string): (url: ReadonlyURL) => boolean {
   return (url) => {
     const path = strip(url.pathname);
     return path === base || path.startsWith(base + '/');
@@ -75,7 +76,7 @@ function under(base: string): (url: URL) => boolean {
 }
 
 /** Exact path only — used where a child route must NOT inherit the match. */
-function exact(base: string): (url: URL) => boolean {
+function exact(base: string): (url: ReadonlyURL) => boolean {
   return (url) => strip(url.pathname) === base;
 }
 
@@ -83,7 +84,7 @@ function exact(base: string): (url: URL) => boolean {
 const INBOX_TABS: readonly string[] = ['review', 'dupes', 'artists', 'albums', 'ai'];
 
 /** An Inbox queue, selected by ?tab=. Mirrors InboxV2's own fallback exactly. */
-function inboxTab(tab: string): (url: URL) => boolean {
+function inboxTab(tab: string): (url: ReadonlyURL) => boolean {
   return (url) => {
     if (!under('/inbox')(url)) return false;
     const raw = url.searchParams.get('tab');
@@ -95,7 +96,7 @@ function inboxTab(tab: string): (url: URL) => boolean {
  * An artist view: `/library?artist=` with no album. It shares Albums' path but is the Artists
  * list's drill-in, so it lights Artists (an album opened from it, `&album=`, is Albums' again).
  */
-function isArtistView(url: URL): boolean {
+function isArtistView(url: ReadonlyURL): boolean {
   return (
     strip(url.pathname) === '/library' &&
     param(url, 'artist') !== null &&
@@ -117,7 +118,7 @@ export type NavItem = {
   /** Extra lowercase search terms for the command palette. */
   keywords?: string;
   /** Defaults to `under(pathOf(href))`. Override for exact/query-param matching. */
-  match?: (url: URL) => boolean;
+  match?: (url: ReadonlyURL) => boolean;
 };
 
 export type NavGroup = {
@@ -139,7 +140,7 @@ export type NavGroup = {
    * A group already claims every path one of its items lives on, so this is only for routes
    * that have no tab of their own.
    */
-  match?: (url: URL) => boolean;
+  match?: (url: ReadonlyURL) => boolean;
   items: NavItem[];
 };
 
@@ -457,7 +458,7 @@ export function isPathAllowed(pathname: string, prefixes: string[]): boolean {
 /** Where a URL sits in the nav. `item` is null when only a group-level fallback matched. */
 export type NavMatch = { group: NavGroup; item: NavItem | null };
 
-function matcherFor(item: NavItem): (url: URL) => boolean {
+function matcherFor(item: NavItem): (url: ReadonlyURL) => boolean {
   return item.match ?? under(pathOf(item.href));
 }
 
@@ -466,7 +467,7 @@ function matcherFor(item: NavItem): (url: URL) => boolean {
  * own `match` adds. The query is dropped on purpose: '/library?view=source' is still a Listen
  * route even though no tab represents it, and the sidebar and mobile bar should stay lit there.
  */
-function groupOwns(group: NavGroup, url: URL): boolean {
+function groupOwns(group: NavGroup, url: ReadonlyURL): boolean {
   if (group.match?.(url)) return true;
   return group.items.some((item) => under(pathOf(item.href))(url));
 }
@@ -479,7 +480,7 @@ function groupOwns(group: NavGroup, url: URL): boolean {
  * the route belongs to the group but has no tab of its own: a track page, or the library's
  * source view. Returns null entirely for routes outside the app shell (/login, /share/…).
  */
-export function resolveNav(url: URL): NavMatch | null {
+export function resolveNav(url: ReadonlyURL): NavMatch | null {
   for (const group of NAV_GROUPS) {
     for (const item of group.items) {
       if (matcherFor(item)(url)) return { group, item };
@@ -500,7 +501,7 @@ export function resolveNav(url: URL): NavMatch | null {
  * Desktop semantics are unchanged — resolveNav still reads a bare /inbox as Tag review, because a
  * desktop has room to open on the first queue itself.
  */
-export function isInboxHub(url: URL): boolean {
+export function isInboxHub(url: ReadonlyURL): boolean {
   return (
     strip(url.pathname) === '/inbox' &&
     !url.searchParams.has('tab') &&
@@ -579,7 +580,7 @@ function listenItem(id: string): NavItem {
 }
 
 /** A non-blank query parameter, trimmed — the same test LibraryV2 applies before acting on one. */
-function param(url: URL, name: string): string | null {
+function param(url: ReadonlyURL, name: string): string | null {
   const raw = url.searchParams.get(name)?.trim();
   return raw ? raw : null;
 }
@@ -607,7 +608,7 @@ export function findTab(id: string): NavTab | null {
 }
 
 /** The tab whose root this URL is, or null when the URL is somewhere inside a tab. */
-function rootTabOf(url: URL, user: NavAudience): NavTab | null {
+function rootTabOf(url: ReadonlyURL, user: NavAudience): NavTab | null {
   const path = strip(url.pathname);
   if (tabsFor(user) === GROUP_TABS) {
     if (path === '/inbox') return isInboxHub(url) ? INBOX_TAB : null;
@@ -629,7 +630,7 @@ function rootTabOf(url: URL, user: NavAudience): NavTab | null {
  * The query is ignored — a filtered Tracks list is still the Tracks tab — except where it names
  * something pushed on top (an Inbox queue, an album, an artist).
  */
-export function isTabRoot(url: URL, user: NavAudience): boolean {
+export function isTabRoot(url: ReadonlyURL, user: NavAudience): boolean {
   return rootTabOf(url, user) !== null;
 }
 
@@ -651,7 +652,7 @@ export function isTabRoot(url: URL, user: NavAudience): boolean {
  * Null when no tab can own the URL (a member on /settings, a route outside the shell): the tab
  * bar keeps the last active tab lit, and tab-memory records nothing.
  */
-export function tabFor(url: URL, user: NavAudience, activeTabId?: string | null): NavTab | null {
+export function tabFor(url: ReadonlyURL, user: NavAudience, activeTabId?: string | null): NavTab | null {
   const root = rootTabOf(url, user);
   if (root) return root;
 
@@ -681,7 +682,7 @@ export function tabFor(url: URL, user: NavAudience, activeTabId?: string | null)
 }
 
 /** Pages every tab links to, which therefore stay on whichever tab pushed them (see tabFor). */
-function isSharedDestination(url: URL): boolean {
+function isSharedDestination(url: ReadonlyURL): boolean {
   return under('/track')(url) || under('/settings')(url);
 }
 
@@ -695,7 +696,7 @@ export type NavBack = { label: string; href: string };
  *
  * Null on a tab root (nothing above it) and outside the shell.
  */
-export function backFor(url: URL, user: NavAudience): NavBack | null {
+export function backFor(url: ReadonlyURL, user: NavAudience): NavBack | null {
   if (rootTabOf(url, user)) return null;
   const match = resolveNav(url);
   if (!match) return null;
@@ -771,7 +772,7 @@ const GROUPED_PAGES: readonly string[] = [
  * what each page actually paints, in both directions. Now Playing's media appearance is not a URL
  * property; theme-surface holds that override.
  */
-export function surfaceFor(url: URL, isCompact: boolean): 'plain' | 'grouped' {
+export function surfaceFor(url: ReadonlyURL, isCompact: boolean): 'plain' | 'grouped' {
   if (GROUPED_PAGES.some((base) => under(base)(url))) return 'grouped';
   if (!under('/inbox')(url)) return 'plain';
 

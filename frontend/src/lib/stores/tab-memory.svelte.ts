@@ -3,7 +3,7 @@
  * you to where you were in that tab, and Back returns to where you actually came from rather than
  * wherever the shared browser history happens to point.
  *
- * The rules live in `$lib/navigation/tab-stacks` (pure, unit-tested); this store feeds them from
+ * The rules live in `#lib/navigation/tab-stacks.ts` (pure, unit-tested); this store feeds them from
  * `afterNavigate`, persists them to sessionStorage and executes Back and tab switches.
  *
  * Wiring (the (app) layout):
@@ -16,9 +16,10 @@
  * is a hard reload in the same tab, and the next account must never inherit the previous one's
  * album keys or admin routes.
  */
+import type { ReadonlyURL } from '$app/state';
 import { untrack } from 'svelte';
-import { findTab, isTabRoot, tabFor, type NavAudience, type NavBack, type NavTab } from '$lib/nav';
-import { prefersReducedMotion } from '$lib/motion';
+import { findTab, isTabRoot, tabFor, type NavAudience, type NavBack, type NavTab } from '#lib/nav.ts';
+import { prefersReducedMotion } from '#lib/motion.ts';
 import {
   EMPTY_TAB_MEMORY,
   backTargetFor,
@@ -32,7 +33,7 @@ import {
   resetTabStack,
   serializeTabMemory,
   type TabMemoryState
-} from '$lib/navigation/tab-stacks';
+} from '#lib/navigation/tab-stacks.ts';
 
 export {
   reduceTabStacks,
@@ -40,7 +41,7 @@ export {
   backTargetFor,
   normUrl,
   type TabMemoryState
-} from '$lib/navigation/tab-stacks';
+} from '#lib/navigation/tab-stacks.ts';
 
 const KEY_PREFIX = 'mh:tab-memory:';
 
@@ -119,11 +120,12 @@ function init(userId: string | null | undefined): void {
   memory = restored ?? EMPTY_TAB_MEMORY;
 }
 
-type UrlLike = URL | { url: URL } | null | undefined;
+type UrlLike = ReadonlyURL | { url: ReadonlyURL } | null | undefined;
 
-function urlOf(value: UrlLike): URL | null {
+function urlOf(value: UrlLike): ReadonlyURL | null {
   if (!value) return null;
-  return value instanceof URL ? value : value.url;
+  // `page.url` is a ReadonlyURL in SvelteKit 3, not necessarily a URL instance.
+  return 'url' in value ? value.url : value;
 }
 
 function userIdOf(user: NavAudience): string | undefined {
@@ -173,7 +175,7 @@ function record(nav: { type: string; from: UrlLike; to: UrlLike }, user: NavAudi
 
 /**
  * Flag the next navigation to `url` as a replace. `replaceUrl` calls this; anything else that
- * navigates with `replaceState: true` should too, or the stacks will read it as a push. Pass the
+ * navigates with `replace: true` should too, or the stacks will read it as a push. Pass the
  * URL whenever it is known: without one the flag applies to whatever navigation comes next, so a
  * replace that never happens would turn the following push into one.
  */
@@ -252,13 +254,13 @@ function scrollPageToTop(): void {
   findPageScroller()?.scrollTo({ top: 0, behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
 }
 
-function saveScroll(url: URL | string, scrollTop: number): void {
+function saveScroll(url: ReadonlyURL | string, scrollTop: number): void {
   if (!Number.isFinite(scrollTop)) return;
   untrack(() => commit(patchEntry(memory, url, { scrollTop: Math.max(0, Math.round(scrollTop)) })));
 }
 
 /** Remember the page scroller's position for `url`. Call from `beforeNavigate` with `from.url`. */
-function captureScroll(url: URL | string): void {
+function captureScroll(url: ReadonlyURL | string): void {
   const el = findPageScroller();
   if (el) saveScroll(url, el.scrollTop);
 }
@@ -267,7 +269,7 @@ function captureScroll(url: URL | string): void {
  * Give the entry for `url` a better Back label than the generic one — the album's name rather
  * than "Album". Safe to call from an effect: an unchanged title is a no-op.
  */
-function setTitle(url: URL | string, title: string): void {
+function setTitle(url: ReadonlyURL | string, title: string): void {
   const clean = title.trim();
   if (!clean) return;
   untrack(() => commit(patchEntry(memory, url, { title: clean })));
@@ -278,7 +280,7 @@ function setTitle(url: URL | string, title: string): void {
  * browser-tab title reads it too, so the route announcer names the album that opened rather than
  * "Albums".
  */
-function titleOf(url: URL | string): string | null {
+function titleOf(url: ReadonlyURL | string): string | null {
   return findEntry(memory, url)?.title ?? null;
 }
 
@@ -312,7 +314,7 @@ async function goBack(target: NavBack): Promise<void> {
   const { goto } = await import('$app/navigation');
   pendingReplace = key;
   try {
-    await goto(target.href, { replaceState: true });
+    await goto(target.href, { replace: true });
   } finally {
     clearPending(key);
   }
@@ -327,7 +329,7 @@ async function goBack(target: NavBack): Promise<void> {
  *   that an installed web app does not get).
  * Pass the current page URL and the signed-in user.
  */
-async function select(tab: NavTab, url: URL, user: NavAudience): Promise<void> {
+async function select(tab: NavTab, url: ReadonlyURL, user: NavAudience): Promise<void> {
   const active = untrack(() => memory.activeTabId) ?? tabFor(url, user)?.id ?? null;
   // A page no tab owns (a member's /settings) keeps the last tab lit, but tapping that tab
   // should take you back into it, not pop it.
@@ -366,7 +368,7 @@ function hrefFor(tab: NavTab): string {
   return hrefForTab(memory, tab);
 }
 
-function backTarget(url: URL, user: NavAudience): NavBack | null {
+function backTarget(url: ReadonlyURL, user: NavAudience): NavBack | null {
   return backTargetFor(memory, url, user);
 }
 

@@ -2,16 +2,16 @@
   import { page } from '$app/state';
   import { Link2, Loader2, MessageCircle } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
-  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
-  import { Button } from '$lib/components/ui/button';
-  import { EmptyState } from '$lib/components/ui/empty-state';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import { fetchChatPeople, sendChatToPeople, type ChatPerson } from '$lib/api-client';
-  import { isDemo } from '$lib/auth/capabilities';
-  import { linkCaption, sharedLink } from '$lib/chat/chat-text';
-  import { clearPendingShare, pendingShareFrom, readPendingShare, type PendingShare } from '$lib/chat/pending-share';
-  import { replaceUrl } from '$lib/navigation/replace-url';
-  import { chatStore } from '$lib/stores/chat.svelte';
+  import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import { EmptyState } from '#lib/components/ui/empty-state/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import { fetchChatPeople, sendChatToPeople, type ChatPerson } from '#lib/api-client.ts';
+  import { isDemo } from '#lib/auth/capabilities.ts';
+  import { linkCaption, sharedLink } from '#lib/chat/chat-text.ts';
+  import { clearPendingShare, pendingShareFrom, readPendingShare, type PendingShare } from '#lib/chat/pending-share.ts';
+  import { replaceUrl } from '#lib/navigation/replace-url.ts';
+  import { chatStore } from '#lib/stores/chat.svelte.ts';
   import PeoplePicker from './PeoplePicker.svelte';
 
   // Where the phone's share sheet lands: "Share" in Spotify or YouTube, then MusicHoarder (the
@@ -69,10 +69,7 @@
       void chatStore.refresh();
       toast.success(selected.length === 1 ? 'Sent' : `Sent to ${selected.length} people`);
       // A replace: Back from the conversation goes to the chat list, not to this page again.
-      await replaceUrl(messages.length === 1 ? `/chats/${messages[0].conversationId}` : '/chats', {
-        keepFocus: false,
-        noScroll: false
-      });
+      await replaceUrl(messages.length === 1 ? `/chats/${messages[0].conversationId}` : '/chats', { reset: true });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not send it.');
     } finally {
@@ -82,7 +79,7 @@
 
   function cancel() {
     clearPendingShare();
-    void replaceUrl('/chats', { keepFocus: false, noScroll: false });
+    void replaceUrl('/chats', { reset: true });
   }
 </script>
 

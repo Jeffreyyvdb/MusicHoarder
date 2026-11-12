@@ -19,16 +19,16 @@
     Timer,
     UserPlus
   } from '@lucide/svelte';
-  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
-  import { Button } from '$lib/components/ui/button';
-  import type { ApiSong } from '$lib/api-client';
-  import type { AiLyrics, LyricsViewMode } from '$lib/lyrics/ai-lyrics.svelte';
-  import type { LyricsDoc } from '$lib/lyrics/lyrics-doc.svelte';
-  import { playerStore } from '$lib/stores/player.svelte';
-  import { videoBackdropPrefs } from '$lib/stores/video-backdrop-prefs.svelte';
-  import { findShareLink, shareLink, type ShareLink } from '$lib/share-links';
-  import { sendTo, sendToSong } from '$lib/stores/send-to.svelte';
-  import { cn } from '$lib/utils';
+  import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import type { ApiSong } from '#lib/api-client.ts';
+  import type { AiLyrics, LyricsViewMode } from '#lib/lyrics/ai-lyrics.svelte.ts';
+  import type { LyricsDoc } from '#lib/lyrics/lyrics-doc.svelte.ts';
+  import { playerStore } from '#lib/stores/player.svelte.ts';
+  import { videoBackdropPrefs } from '#lib/stores/video-backdrop-prefs.svelte.ts';
+  import { findShareLink, shareLink, type ShareLink } from '#lib/share-links.ts';
+  import { sendTo, sendToSong } from '#lib/stores/send-to.svelte.ts';
+  import { cn } from '#lib/utils.ts';
   import { videoProblem, type SongVideo } from './song-video.svelte';
 
   /**

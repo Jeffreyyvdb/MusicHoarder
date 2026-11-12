@@ -1,5 +1,5 @@
 import { untrack } from 'svelte';
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 import { toast } from 'svelte-sonner';
 import {
   coverThumbUrl,
@@ -7,22 +7,22 @@ import {
   reportSongPlayed,
   toPlayerSong,
   type ApiSong
-} from '$lib/api-client';
+} from '#lib/api-client.ts';
 import {
   convertedStreamUrl,
   createUnplayableFormats,
   needsConversion,
   type UnplayableFormats
-} from '$lib/audio-formats';
+} from '#lib/audio-formats.ts';
 import {
   canAutoResume,
   createPlaybackSnapshotStore,
   type PlaybackSnapshot,
   type PlaybackSnapshotStore
-} from '$lib/player-snapshot';
-import { previousAction } from '$lib/player-seek';
-import { songsStore } from '$lib/stores/songs.svelte';
-import { artistOf } from '$lib/track-list-view.svelte';
+} from '#lib/player-snapshot.ts';
+import { previousAction } from '#lib/player-seek.ts';
+import { songsStore } from '#lib/stores/songs.svelte.ts';
+import { artistOf } from '#lib/track-list-view.svelte.ts';
 
 export interface PlayerSong {
   id: number;
@@ -537,7 +537,7 @@ function stopTrying() {
 
 // ── Formats this browser cannot play ───────────────────────────────────────
 // A song whose file this browser cannot play as it is (Ogg Opus in Safari) streams decoded by the
-// server instead; see `$lib/audio-formats`. Every other song, and every song in a browser
+// server instead; see `#lib/audio-formats.ts`. Every other song, and every song in a browser
 // that can play it, streams as the original file.
 
 /** `MediaError` codes, spelled out because the global is absent outside a browser. */
@@ -1126,6 +1126,7 @@ async function topUpRadio(): Promise<boolean> {
 /** A 4xx answer, which asking again will not change — unless it was a timeout or a rate limit. */
 function isRefusal(err: unknown): boolean {
   const status = (err as { status?: unknown } | null)?.status;
+
   return (
     typeof status === 'number' && status >= 400 && status < 500 && status !== 408 && status !== 429
   );
@@ -1528,6 +1529,7 @@ function restorePlayback(userId: string) {
     wantsPlayback = true;
     claimPlaybackAudioSession();
     sync?.playIntent();
+
     void el
       .play()
       .then(() => (isPlaying = true))

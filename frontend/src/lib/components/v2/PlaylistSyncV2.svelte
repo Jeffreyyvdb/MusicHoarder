@@ -1,9 +1,9 @@
 <script lang="ts">
-  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
-  import { Button } from '$lib/components/ui/button';
-  import { Switch } from '$lib/components/ui/switch';
-  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
+  import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import { Switch } from '#lib/components/ui/switch/index.ts';
+  import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
+  import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
   import {
     Heart,
     ListVideo,
@@ -14,14 +14,14 @@
     CircleCheck,
     X
   } from '@lucide/svelte';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
+  import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
   import {
     fetchPlaylistCollections,
     subscribePlaylist,
     unsubscribePlaylist,
     regenerateExportedPlaylists,
     type PlaylistCollection
-  } from '$lib/api-client';
+  } from '#lib/api-client.ts';
   import { toast } from 'svelte-sonner';
 
   const isMobile = new IsMobile();

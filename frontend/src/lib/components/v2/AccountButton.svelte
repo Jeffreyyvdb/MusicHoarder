@@ -1,11 +1,11 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import * as BottomSheet from '$lib/components/ui/bottom-sheet';
-  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-  import { storageUsage } from '$lib/stores/storage-usage.svelte';
-  import { cn } from '$lib/utils';
-  import AccountPanel, { avatar } from '$lib/components/v2/AccountPanel.svelte';
+  import * as BottomSheet from '#lib/components/ui/bottom-sheet/index.ts';
+  import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
+  import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
+  import { storageUsage } from '#lib/stores/storage-usage.svelte.ts';
+  import { cn } from '#lib/utils.ts';
+  import AccountPanel, { avatar } from '#lib/components/v2/AccountPanel.svelte';
 
   // The account entry point — the App Store / Music pattern: an initials avatar that opens
   // everything about "you": the accounts this browser remembers, Appearance, Settings, the

@@ -5,7 +5,7 @@ import type {
   EnrichmentCandidate,
   EnrichmentDetail,
   ProviderAttempt
-} from '$lib/api-client';
+} from '#lib/api-client.ts';
 
 export type ReviewReasonKey = 'low_confidence' | 'multiple_matches' | 'no_fingerprint' | 'below_threshold';
 

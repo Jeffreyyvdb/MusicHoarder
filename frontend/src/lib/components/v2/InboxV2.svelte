@@ -1,14 +1,14 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-  import { isInboxHub } from '$lib/nav';
+  import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
+  import { isInboxHub } from '#lib/nav.ts';
   import GroupHubV2 from './GroupHubV2.svelte';
   import InboxTagReviewV2 from './inbox/InboxTagReviewV2.svelte';
   import InboxDuplicatesV2 from './inbox/InboxDuplicatesV2.svelte';
   import InboxArtistsV2 from './inbox/InboxArtistsV2.svelte';
   import InboxAlbumsV2 from './inbox/InboxAlbumsV2.svelte';
   import InboxAiFlaggedV2 from './inbox/InboxAiFlaggedV2.svelte';
-  import { publishInboxQueueCount } from '$lib/stores/nav-badges.svelte';
+  import { publishInboxQueueCount } from '#lib/stores/nav-badges.svelte.ts';
 
   type TabId = 'review' | 'dupes' | 'artists' | 'albums' | 'ai';
 

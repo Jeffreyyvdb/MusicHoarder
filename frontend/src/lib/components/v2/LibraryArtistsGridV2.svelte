@@ -1,12 +1,12 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { Users } from '@lucide/svelte';
-  import { EmptyState } from '$lib/components/ui/empty-state';
-  import Cover from '$lib/components/file-browser/Cover.svelte';
-  import { Skeleton } from '$lib/components/ui/skeleton';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-  import { cn } from '$lib/utils';
-  import { getArtistImageUrl, type GroupSummary } from '$lib/api-client';
+  import { EmptyState } from '#lib/components/ui/empty-state/index.ts';
+  import Cover from '#lib/components/file-browser/Cover.svelte';
+  import { Skeleton } from '#lib/components/ui/skeleton/index.ts';
+  import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
+  import { cn } from '#lib/utils.ts';
+  import { getArtistImageUrl, type GroupSummary } from '#lib/api-client.ts';
 
   // Two presentations of one list. A phone gets the iOS indexed list (Contacts, Music's Artists):
   // round portraits, sticky letter headers, and a vertical A–Z index down the trailing edge that

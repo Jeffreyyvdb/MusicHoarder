@@ -1,5 +1,5 @@
 <script module lang="ts">
-  import type { FriendInviteView, FriendView } from '$lib/api-client';
+  import type { FriendInviteView, FriendView } from '#lib/api-client.ts';
 
   // The last lists this component loaded. The People list and each person are separate pages (a
   // push remounts it), so a page opens on what was just shown and refreshes behind it instead of
@@ -16,19 +16,19 @@
 <script lang="ts">
   import { toast } from 'svelte-sonner';
   import { Check, Copy, Ellipsis, Loader2, Mail, RefreshCw, Trash2, X } from '@lucide/svelte';
-  import { Button } from '$lib/components/ui/button';
-  import { Input } from '$lib/components/ui/input';
-  import { Badge } from '$lib/components/ui/badge';
-  import * as AlertDialog from '$lib/components/ui/alert-dialog';
-  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import FieldRow from '$lib/components/settings/FieldRow.svelte';
-  import SwitchRow from '$lib/components/settings/SwitchRow.svelte';
-  import { COPY_FAILED_MESSAGE, copyText } from '$lib/components/settings/copy-text';
-  import { createOptimisticCommitter, sameSet } from '$lib/components/settings/optimistic';
-  import { personHref } from '$lib/components/settings/sections';
-  import { avatar } from '$lib/components/v2/AccountPanel.svelte';
-  import { formatDate } from '$lib/formatters';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import { Input } from '#lib/components/ui/input/index.ts';
+  import { Badge } from '#lib/components/ui/badge/index.ts';
+  import * as AlertDialog from '#lib/components/ui/alert-dialog/index.ts';
+  import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import FieldRow from '#lib/components/settings/FieldRow.svelte';
+  import SwitchRow from '#lib/components/settings/SwitchRow.svelte';
+  import { COPY_FAILED_MESSAGE, copyText } from '#lib/components/settings/copy-text.ts';
+  import { createOptimisticCommitter, sameSet } from '#lib/components/settings/optimistic.ts';
+  import { personHref } from '#lib/components/settings/sections.ts';
+  import { avatar } from '#lib/components/v2/AccountPanel.svelte';
+  import { formatDate } from '#lib/formatters.ts';
   import {
     createFriendGrant,
     createFriendInvite,
@@ -40,7 +40,7 @@
     updatePersonCapabilities,
     type Capability,
     type FriendGrantView
-  } from '$lib/api-client';
+  } from '#lib/api-client.ts';
 
   /**
    * Admin-side management of people: mint/rotate/revoke invite links, and manage what each

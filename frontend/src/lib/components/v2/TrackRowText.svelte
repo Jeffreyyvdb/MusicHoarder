@@ -1,11 +1,11 @@
 <script lang="ts">
   import { Heart } from '@lucide/svelte';
-  import { Badge } from '$lib/components/ui/badge';
-  import SharedByBadge from '$lib/components/v2/SharedByBadge.svelte';
-  import { mapEnrichmentStatus, type ApiSong } from '$lib/api-client';
-  import { artistOf, titleOf } from '$lib/track-list-view.svelte';
-  import { songsStore } from '$lib/stores/songs.svelte';
-  import { cn } from '$lib/utils';
+  import { Badge } from '#lib/components/ui/badge/index.ts';
+  import SharedByBadge from '#lib/components/v2/SharedByBadge.svelte';
+  import { mapEnrichmentStatus, type ApiSong } from '#lib/api-client.ts';
+  import { artistOf, titleOf } from '#lib/track-list-view.svelte.ts';
+  import { songsStore } from '#lib/stores/songs.svelte.ts';
+  import { cn } from '#lib/utils.ts';
 
   /**
    * The text column of a track row — title over the secondary line — shared by every list that

@@ -1,4 +1,5 @@
-import type { ShareDailyPoint, ShareStatsRow } from '$lib/api-client';
+import type { ReadonlyURL } from '$app/state';
+import type { ShareDailyPoint, ShareStatsRow } from '#lib/api-client.ts';
 
 /**
  * The pure half of the Share links page (`/shares`): which list a URL shows, which link it has
@@ -9,12 +10,12 @@ import type { ShareDailyPoint, ShareStatsRow } from '$lib/api-client';
 export type ShareListView = 'active' | 'revoked';
 
 /** `/shares?view=revoked` lists the revoked links; anything else, the live ones. */
-export function shareListView(url: URL): ShareListView {
+export function shareListView(url: ReadonlyURL): ShareListView {
   return url.searchParams.get('view') === 'revoked' ? 'revoked' : 'active';
 }
 
 /** The pushed link's id (`/shares?link=12`), or null for the list. */
-export function shareDetailId(url: URL): number | null {
+export function shareDetailId(url: ReadonlyURL): number | null {
   const raw = url.searchParams.get('link');
   if (!raw) return null;
   const n = Number(raw);

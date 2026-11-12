@@ -1,10 +1,10 @@
 <script lang="ts">
   import { AlertTriangle, Loader2 } from '@lucide/svelte';
-  import * as BottomSheet from '$lib/components/ui/bottom-sheet';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import type { SongProvenance } from '$lib/api-client';
-  import { formatDate } from '$lib/formatters';
-  import { PROVENANCE_ICON, seedSublabel, visibleProvenanceGroups } from '$lib/provenance';
+  import * as BottomSheet from '#lib/components/ui/bottom-sheet/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import type { SongProvenance } from '#lib/api-client.ts';
+  import { formatDate } from '#lib/formatters.ts';
+  import { PROVENANCE_ICON, seedSublabel, visibleProvenanceGroups } from '#lib/provenance.ts';
 
   /**
    * "How this album got here": the tracks grouped by why they are in the library. An album fill

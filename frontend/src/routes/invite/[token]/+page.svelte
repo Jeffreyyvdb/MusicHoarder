@@ -1,8 +1,8 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { UserRoundPlus } from '@lucide/svelte';
-  import { Button } from '$lib/components/ui/button';
-  import BrandMark from '$lib/components/BrandMark.svelte';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import BrandMark from '#lib/components/BrandMark.svelte';
   import type { PageData } from './$types';
 
   const { data }: { data: PageData } = $props();

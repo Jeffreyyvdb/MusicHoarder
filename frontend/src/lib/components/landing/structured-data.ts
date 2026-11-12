@@ -1,6 +1,6 @@
-import { env } from '$env/dynamic/public';
+import { PUBLIC_SITE_URL } from '$app/env/public';
 
-const SITE_URL = env.PUBLIC_SITE_URL ?? 'https://musichoarder.app';
+const SITE_URL = PUBLIC_SITE_URL ?? 'https://musichoarder.app';
 const REPO_URL = 'https://github.com/Jeffreyyvdb/MusicHoarder';
 
 /**

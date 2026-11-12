@@ -10,10 +10,10 @@ import {
   songLikedTime,
   spotifyAddedTime,
   type ApiSong
-} from '$lib/api-client';
-import { isBuiltSong } from '$lib/album-sections';
-import { filterBySearch, normalizeFields, searchTerms, type SearchEntry } from '$lib/search/match';
-import { isAnyUnreleasedSong } from '$lib/release-status';
+} from '#lib/api-client.ts';
+import { isBuiltSong } from '#lib/album-sections.ts';
+import { filterBySearch, normalizeFields, searchTerms, type SearchEntry } from '#lib/search/match.ts';
+import { isAnyUnreleasedSong } from '#lib/release-status.ts';
 
 export type SortKey =
   'added' | 'liked' | 'spotify' | 'title' | 'artist' | 'album' | 'year' | 'size' | 'match' | 'dur';
@@ -235,7 +235,7 @@ function applyChips(songs: ApiSong[], keys: readonly ChipKey[]): ApiSong[] {
 /**
  * Per-row caches, keyed by row object identity rather than id. `songsStore` only ever replaces a
  * row wholesale (`patchSong` swaps in a new object; a full refetch swaps in a new array of new
- * objects — see `$lib/stores/songs.svelte.ts`), never mutates one in place, so a cache entry can
+ * objects — see `#lib/stores/songs.svelte.ts`), never mutates one in place, so a cache entry can
  * never go stale while its key is still reachable: a changed row is simply a miss under its new
  * identity, same as a row from a fresh load.
  *
@@ -344,7 +344,7 @@ export function createTrackListView(opts: {
   const searchQuery = $derived(opts.searchQuery());
   const chips = $derived(opts.chips?.() ?? []);
 
-  // Folded once per row rather than per keystroke — see `$lib/search/match` for what a query means
+  // Folded once per row rather than per keystroke — see `#lib/search/match.ts` for what a query means
   // (every term, any field, punctuation and order ignored). Built from `cachedFields` rather than
   // `indexForSearch` directly, so a row that was already folded (by a previous search, or by
   // `warmSearchCache` before typing started) is reused instead of refolded.

@@ -1,5 +1,5 @@
-import type { LyricsStatus } from "$lib/types"
-import { lrclibWebSearchUrl } from "$lib/lrclib-url"
+import type { LyricsStatus } from "#lib/types.ts"
+import { lrclibWebSearchUrl } from "#lib/lrclib-url.ts"
 
 /** True when enrichment was attributed to AcoustID (provider name from API). */
 export function matchedViaAcoustId(matchedBy?: string): boolean {

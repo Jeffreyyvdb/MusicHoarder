@@ -1,4 +1,4 @@
-import { env } from '$env/dynamic/public';
+import { PUBLIC_UMAMI_WEBSITE_ID, PUBLIC_UMAMI_SRC } from '$app/env/public';
 
 /**
  * Custom events for the self-hosted Umami tracker that `Analytics.svelte` loads. Umami records page
@@ -15,7 +15,7 @@ type UmamiTracker = { track: (event: string, data?: UmamiEventData) => unknown }
 
 /** The same test `Analytics.svelte` applies before it loads the tracker. */
 export function umamiEnabled(): boolean {
-  return Boolean(env.PUBLIC_UMAMI_WEBSITE_ID && env.PUBLIC_UMAMI_SRC);
+  return Boolean(PUBLIC_UMAMI_WEBSITE_ID && PUBLIC_UMAMI_SRC);
 }
 
 // The tracker script is `defer`red, so an event fired from a page's first effect can arrive before

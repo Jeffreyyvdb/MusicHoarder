@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { QualityCategory } from '$lib/api-client';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import { QUALITY_BUCKETS } from '$lib/quality-ui';
-  import { cn } from '$lib/utils';
+  import type { QualityCategory } from '#lib/api-client.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import { QUALITY_BUCKETS } from '#lib/quality-ui.ts';
+  import { cn } from '#lib/utils.ts';
   import { TriangleAlert, Check, EarOff } from '@lucide/svelte';
 
   // The three workbench buckets — a category selector as much as three stats, so they stay

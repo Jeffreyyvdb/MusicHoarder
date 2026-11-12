@@ -1,18 +1,18 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { ChevronRight, Loader2, MessageCircle, Music, Pause, Play, Video, VideoOff } from '@lucide/svelte';
-  import Cover from '$lib/components/file-browser/Cover.svelte';
-  import SongTransport from '$lib/components/file-browser/SongTransport.svelte';
-  import LyricsCard from '$lib/components/file-browser/LyricsCard.svelte';
-  import LyricsFullscreen from '$lib/components/file-browser/LyricsFullscreen.svelte';
-  import LyricsPanel from '$lib/components/file-browser/LyricsPanel.svelte';
-  import { Button } from '$lib/components/ui/button';
-  import { SegmentedControl } from '$lib/components/ui/segmented-control';
-  import { playerStore, type PlayerSong } from '$lib/stores/player.svelte';
-  import { videoBackdropPrefs } from '$lib/stores/video-backdrop-prefs.svelte';
-  import { formatDuration } from '$lib/formatters';
-  import { trackUmamiEvent } from '$lib/analytics/umami';
-  import { fetchChatShareContext } from '$lib/api-client';
+  import Cover from '#lib/components/file-browser/Cover.svelte';
+  import SongTransport from '#lib/components/file-browser/SongTransport.svelte';
+  import LyricsCard from '#lib/components/file-browser/LyricsCard.svelte';
+  import LyricsFullscreen from '#lib/components/file-browser/LyricsFullscreen.svelte';
+  import LyricsPanel from '#lib/components/file-browser/LyricsPanel.svelte';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import { SegmentedControl } from '#lib/components/ui/segmented-control/index.ts';
+  import { playerStore, type PlayerSong } from '#lib/stores/player.svelte.ts';
+  import { videoBackdropPrefs } from '#lib/stores/video-backdrop-prefs.svelte.ts';
+  import { formatDuration } from '#lib/formatters.ts';
+  import { trackUmamiEvent } from '#lib/analytics/umami.ts';
+  import { fetchChatShareContext } from '#lib/api-client.ts';
   import {
     externalReferrer,
     fetchShareLyrics,
@@ -25,7 +25,7 @@
     shareVideoStreamUrl,
     type ShareLyrics,
     type ShareTrack
-  } from '$lib/share-client';
+  } from '#lib/share-client.ts';
   import ShareVideoBackdrop from './ShareVideoBackdrop.svelte';
   import type { PageProps } from './$types';
 

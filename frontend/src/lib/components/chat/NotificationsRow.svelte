@@ -1,9 +1,9 @@
 <script lang="ts">
   import { Bell, BellOff, Share } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
-  import { Button } from '$lib/components/ui/button';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import { enablePush, pushState, type PushState } from '$lib/push/web-push';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import { enablePush, pushState, type PushState } from '#lib/push/web-push.ts';
 
   // The ask for chat notifications, at the top of the chat list until they are on (or cannot be).
   // Asked from a button, never on load: iOS shows the permission prompt only inside a tap, and an

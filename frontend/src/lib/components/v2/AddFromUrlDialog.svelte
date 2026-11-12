@@ -9,9 +9,9 @@
     Loader2,
     Music
   } from '@lucide/svelte';
-  import * as BottomSheet from '$lib/components/ui/bottom-sheet';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import { Switch } from '$lib/components/ui/switch';
+  import * as BottomSheet from '#lib/components/ui/bottom-sheet/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import { Switch } from '#lib/components/ui/switch/index.ts';
   import {
     ApiError,
     importTrack,
@@ -21,7 +21,7 @@
     subscribeToResolvedPlaylist,
     type DiscoverResolveResult,
     type ImportResolveResult
-  } from '$lib/api-client';
+  } from '#lib/api-client.ts';
 
   let {
     open = $bindable(false),

@@ -8,13 +8,13 @@
     Rewind
   } from '@lucide/svelte';
   import type { Snippet } from 'svelte';
-  import { Button } from '$lib/components/ui/button';
+  import { Button } from '#lib/components/ui/button/index.ts';
   import Scrubber from './Scrubber.svelte';
-  import { getSongVideoStreamUrl } from '$lib/api-client';
-  import { playerStore } from '$lib/stores/player.svelte';
-  import { seekTargetForKey } from '$lib/player-seek';
-  import { formatDuration } from '$lib/formatters';
-  import { blurAfterPointerClick, cn, transportGlyphClass } from '$lib/utils';
+  import { getSongVideoStreamUrl } from '#lib/api-client.ts';
+  import { playerStore } from '#lib/stores/player.svelte.ts';
+  import { seekTargetForKey } from '#lib/player-seek.ts';
+  import { formatDuration } from '#lib/formatters.ts';
+  import { blurAfterPointerClick, cn, transportGlyphClass } from '#lib/utils.ts';
 
   // Watch mode for the music video: the clip fitted into all of Now Playing's middle (a phone) or
   // right column (lg) — as large as its shape allows, like Android's `fitClip` — and expandable to

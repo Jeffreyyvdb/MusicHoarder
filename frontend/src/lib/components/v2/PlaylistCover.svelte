@@ -1,14 +1,14 @@
 <script lang="ts">
-  import Cover from '$lib/components/file-browser/Cover.svelte';
+  import Cover from '#lib/components/file-browser/Cover.svelte';
   import {
     albumKeyForSong,
     coverUrlForSong,
     type ApiSong,
     type LibraryPlaylist
-  } from '$lib/api-client';
-  import { playlistSongs } from '$lib/stores/playlists.svelte';
-  import { songsStore } from '$lib/stores/songs.svelte';
-  import { cn } from '$lib/utils';
+  } from '#lib/api-client.ts';
+  import { playlistSongs } from '#lib/stores/playlists.svelte.ts';
+  import { songsStore } from '#lib/stores/songs.svelte.ts';
+  import { cn } from '#lib/utils.ts';
 
   // A playlist's artwork: the remote playlist's own image when it follows one, else Apple Music's
   // mosaic of the first four albums on it, else the first song's cover, else a tinted tile with the

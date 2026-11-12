@@ -9,12 +9,12 @@
     dismissAlbumDuplicates,
     type AlbumSplitGroup,
     type AlbumDuplicatePair
-  } from '$lib/api-client';
-  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
-  import { Button } from '$lib/components/ui/button';
-  import * as AlertDialog from '$lib/components/ui/alert-dialog';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
+  } from '#lib/api-client.ts';
+  import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import * as AlertDialog from '#lib/components/ui/alert-dialog/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
   import { toast } from 'svelte-sonner';
   import InboxDedupHistoryV2 from './InboxDedupHistoryV2.svelte';
   import InboxQueueStates from './InboxQueueStates.svelte';

@@ -1,6 +1,6 @@
 <script lang="ts">
-  import PipelineHomeV2 from '$lib/components/v2/PipelineHomeV2.svelte';
-  import { isDemo } from '$lib/auth/capabilities';
+  import PipelineHomeV2 from '#lib/components/v2/PipelineHomeV2.svelte';
+  import { isDemo } from '#lib/auth/capabilities.ts';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();

@@ -1,12 +1,12 @@
 <script lang="ts">
   import { Check, Users } from '@lucide/svelte';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import { EmptyState } from '$lib/components/ui/empty-state';
-  import { SearchField } from '$lib/components/ui/search-field';
-  import { Skeleton } from '$lib/components/ui/skeleton';
-  import type { ChatPerson } from '$lib/api-client';
-  import { chatStore } from '$lib/stores/chat.svelte';
-  import { cn } from '$lib/utils';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import { EmptyState } from '#lib/components/ui/empty-state/index.ts';
+  import { SearchField } from '#lib/components/ui/search-field/index.ts';
+  import { Skeleton } from '#lib/components/ui/skeleton/index.ts';
+  import type { ChatPerson } from '#lib/api-client.ts';
+  import { chatStore } from '#lib/stores/chat.svelte.ts';
+  import { cn } from '#lib/utils.ts';
   import ChatAvatar from './ChatAvatar.svelte';
 
   // Who to send something to: the people you can reach, those you talk to most recently first,

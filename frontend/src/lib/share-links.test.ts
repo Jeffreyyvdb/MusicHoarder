@@ -8,7 +8,7 @@ const api = vi.hoisted(() => ({
   listSongShares: vi.fn(),
   shareUrl: (token: string) => `https://mh.test/share/${token}`
 }));
-vi.mock('$lib/api-client', () => api);
+vi.mock('#lib/api-client.ts', () => api);
 vi.mock('svelte-sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), loading: vi.fn(() => 'pending') }
 }));

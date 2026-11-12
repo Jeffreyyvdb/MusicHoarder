@@ -1,4 +1,4 @@
-import { getApiBaseUrl } from '$lib/server/api-target';
+import { getApiBaseUrl } from '#lib/server/api-target.ts';
 import type { RequestHandler } from './$types';
 
 /**

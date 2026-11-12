@@ -1,12 +1,12 @@
 <script lang="ts">
   import QRCode from 'qrcode';
   import { toast } from 'svelte-sonner';
-  import { Button } from '$lib/components/ui/button';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import FieldRow from '$lib/components/settings/FieldRow.svelte';
-  import StatusLine from '$lib/components/settings/StatusLine.svelte';
-  import { COPY_FAILED_MESSAGE, copyText } from '$lib/components/settings/copy-text';
-  import { createDeviceToken } from '$lib/api-client';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import FieldRow from '#lib/components/settings/FieldRow.svelte';
+  import StatusLine from '#lib/components/settings/StatusLine.svelte';
+  import { COPY_FAILED_MESSAGE, copyText } from '#lib/components/settings/copy-text.ts';
+  import { createDeviceToken } from '#lib/api-client.ts';
   import { Check, ChevronDown, Copy, Loader2, Smartphone, TriangleAlert } from '@lucide/svelte';
 
   /**

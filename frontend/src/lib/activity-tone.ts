@@ -1,4 +1,4 @@
-import type { ApiOverviewActivity } from '$lib/api-client';
+import type { ApiOverviewActivity } from '#lib/api-client.ts';
 
 /**
  * Shared colour mapping for `ApiOverviewActivity.type`, used by both

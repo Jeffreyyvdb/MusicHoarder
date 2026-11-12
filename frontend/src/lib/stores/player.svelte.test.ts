@@ -17,18 +17,18 @@ import type { PlayerSong } from './player.svelte';
  *    slept through gives up rather than starting music whenever the app is next opened.
  */
 
-vi.mock('$app/environment', () => ({ browser: true }));
+vi.mock('$app/env', () => ({ browser: true }));
 vi.mock('svelte-sonner', () => ({ toast: Object.assign(vi.fn(), { error: vi.fn() }) }));
-vi.mock('$lib/api-client', () => ({
+vi.mock('#lib/api-client.ts', () => ({
   coverThumbUrl: () => null,
   fetchRadio: vi.fn(async () => []),
   reportSongPlayed: vi.fn(async () => {}),
   toPlayerSong: vi.fn()
 }));
-vi.mock('$lib/stores/songs.svelte', () => ({
+vi.mock('#lib/stores/songs.svelte.ts', () => ({
   songsStore: { notePlayed: vi.fn(), songsById: new Map() }
 }));
-vi.mock('$lib/track-list-view.svelte', () => ({ artistOf: vi.fn() }));
+vi.mock('#lib/track-list-view.svelte.ts', () => ({ artistOf: vi.fn() }));
 
 class FakeAudio extends EventTarget {
   static instances: FakeAudio[] = [];
@@ -279,7 +279,7 @@ describe('the end of a song', () => {
   });
 
   it('leaves a song with nothing after it loaded, paused at its start', async () => {
-    const api = await import('$lib/api-client');
+    const api = await import('#lib/api-client.ts');
     vi.mocked(api.fetchRadio).mockRejectedValueOnce(
       Object.assign(new Error('Not found'), { status: 404 })
     );
@@ -963,8 +963,8 @@ describe('the station', () => {
   afterEach(() => vi.useRealTimers());
 
   async function stationFixture() {
-    const api = await import('$lib/api-client');
-    const { songsStore } = await import('$lib/stores/songs.svelte');
+    const api = await import('#lib/api-client.ts');
+    const { songsStore } = await import('#lib/stores/songs.svelte.ts');
     vi.mocked(api.toPlayerSong).mockImplementation((row) => song((row as { id: number }).id));
     (songsStore.songsById as Map<number, unknown>).set(7, { id: 7 });
     return vi.mocked(api.fetchRadio);

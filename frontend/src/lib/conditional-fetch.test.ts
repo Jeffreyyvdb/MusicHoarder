@@ -6,7 +6,7 @@ import {
   fetchSongs,
   fetchSongsIfChanged,
   resetGrantors
-} from '$lib/api-client';
+} from '#lib/api-client.ts';
 
 /**
  * The two library lists can be asked for conditionally: "send it only if it is not the copy I

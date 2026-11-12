@@ -1,9 +1,9 @@
 <script lang="ts">
   import { MediaQuery } from 'svelte/reactivity';
-  import { playerStore } from '$lib/stores/player.svelte';
-  import { videoBackdropPrefs } from '$lib/stores/video-backdrop-prefs.svelte';
-  import { cropMatte } from '$lib/actions/crop-matte';
-  import { cn } from '$lib/utils';
+  import { playerStore } from '#lib/stores/player.svelte.ts';
+  import { videoBackdropPrefs } from '#lib/stores/video-backdrop-prefs.svelte.ts';
+  import { cropMatte } from '#lib/actions/crop-matte.ts';
+  import { cn } from '#lib/utils.ts';
 
   // Read-only cousin of the in-app VideoBackdrop for the anonymous share page: the song's muted
   // music video, cross-faded in over the page's fixed ambient-artwork backdrop once the first

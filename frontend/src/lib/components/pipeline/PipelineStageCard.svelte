@@ -6,8 +6,8 @@
   // bar carry "active" instead.
   import type { Component } from 'svelte';
   import { Loader2, Pause, Play } from '@lucide/svelte';
-  import { Progress } from '$lib/components/ui/progress';
-  import { cn } from '$lib/utils';
+  import { Progress } from '#lib/components/ui/progress/index.ts';
+  import { cn } from '#lib/utils.ts';
 
   type Props = {
     icon: Component<{ class?: string }>;

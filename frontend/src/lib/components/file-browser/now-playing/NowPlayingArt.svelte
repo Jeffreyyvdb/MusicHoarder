@@ -1,6 +1,6 @@
 <script lang="ts">
-  import Cover from '$lib/components/file-browser/Cover.svelte';
-  import { cn } from '$lib/utils';
+  import Cover from '#lib/components/file-browser/Cover.svelte';
+  import { cn } from '#lib/utils.ts';
 
   /**
    * Now Playing's artwork. Given `playing`, it is the hero: it fills its box, and settles back to

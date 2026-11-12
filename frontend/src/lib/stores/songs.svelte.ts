@@ -26,9 +26,9 @@ import {
   type Grantor,
   type ProgressSnapshot,
   type Revalidated
-} from '$lib/api-client';
-import { isBuiltSong } from '$lib/album-sections';
-import { isTrackListSong } from '$lib/track-list-view.svelte';
+} from '#lib/api-client.ts';
+import { isBuiltSong } from '#lib/album-sections.ts';
+import { isTrackListSong } from '#lib/track-list-view.svelte.ts';
 
 /**
  * Every row the caller may see. `$state.raw`: the rows are plain objects and the array is replaced,

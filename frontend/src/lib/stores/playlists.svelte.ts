@@ -18,7 +18,7 @@ import {
   type ApiSong,
   type LibraryPlaylist,
   type PlaylistSongsResult
-} from '$lib/api-client';
+} from '#lib/api-client.ts';
 
 let playlists = $state<LibraryPlaylist[]>([]);
 let canExport = $state(false);

@@ -1,5 +1,5 @@
 /**
- * Shape of `GET /api/auth/me`. Lives outside `$lib/server` so client-side code (landing-page CTAs,
+ * Shape of `GET /api/auth/me`. Lives outside `#lib/server` so client-side code (landing-page CTAs,
  * components reading `page.data`) can use the types without pulling in a server-only module.
  */
 
@@ -8,7 +8,7 @@
  * vocabulary. Server-side the roles are Admin / Demo / Member; the API keeps emitting the old
  * names because shipped Android builds branch on `role === 'Friend'` to pick their API routes.
  *
- * Prefer `isAdmin` and `capabilities` over this field — see `$lib/auth/capabilities`. This union
+ * Prefer `isAdmin` and `capabilities` over this field — see `#lib/auth/capabilities.ts`. This union
  * exists so the legacy value is still typed, not so new code branches on it.
  */
 export type SessionRole = 'Owner' | 'Demo' | 'Friend';

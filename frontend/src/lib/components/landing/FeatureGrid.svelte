@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { cn } from '$lib/utils';
-  import type { Feature } from '$lib/components/landing/landing-content';
+  import { cn } from '#lib/utils.ts';
+  import type { Feature } from '#lib/components/landing/landing-content.ts';
 
   /**
    * Feature tiles from `sm` up; on a phone, one inset grouped list (the app's own phone idiom), so a

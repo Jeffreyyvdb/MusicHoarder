@@ -7,8 +7,8 @@
  * non-admin off any administration path.
  */
 
-import { switchAccount } from '$lib/api-client';
-import { APP_HOME } from '$lib/app-home';
+import { switchAccount } from '#lib/api-client.ts';
+import { APP_HOME } from '#lib/app-home.ts';
 
 export async function switchAccountAndReload(userId: string): Promise<void> {
   const switched = await switchAccount(userId);

@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { ChatMessage } from '$lib/api-client';
-  import { linkSegments, timeLabel } from '$lib/chat/chat-text';
-  import { cn } from '$lib/utils';
+  import type { ChatMessage } from '#lib/api-client.ts';
+  import { linkSegments, timeLabel } from '#lib/chat/chat-text.ts';
+  import { cn } from '#lib/utils.ts';
   import ChatLinkCard from './ChatLinkCard.svelte';
   import ChatShareCard from './ChatShareCard.svelte';
 

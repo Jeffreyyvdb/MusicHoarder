@@ -1,9 +1,9 @@
 <script lang="ts">
   import { Check, Monitor, Moon, Sun } from '@lucide/svelte';
   import { mode, userPrefersMode, setMode } from 'mode-watcher';
-  import { Button } from '$lib/components/ui/button';
-  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
-  import { cn } from '$lib/utils';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
+  import { cn } from '#lib/utils.ts';
 
   type Props = {
     class?: string;

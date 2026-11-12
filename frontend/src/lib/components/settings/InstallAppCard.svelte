@@ -1,9 +1,9 @@
 <script lang="ts">
   import { HousePlus, Share, X } from '@lucide/svelte';
-  import { Button } from '$lib/components/ui/button';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import { isInstalledApp } from '$lib/hooks/viewport-insets.svelte';
-  import { isIosSafari } from '$lib/ios-safari';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import { isInstalledApp } from '#lib/hooks/viewport-insets.svelte.ts';
+  import { isIosSafari } from '#lib/ios-safari.ts';
 
   /**
    * The iPhone/iPad half of "use it like an app" — PairDeviceCard is the Android half. Safari

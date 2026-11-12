@@ -1,13 +1,13 @@
 <script lang="ts">
   import { ChevronRight, Disc3, Heart, ListMusic, ListVideo, Mic2, Music2 } from '@lucide/svelte';
   import { page } from '$app/state';
-  import Cover from '$lib/components/file-browser/Cover.svelte';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
-  import LibraryAlbumsGridV2 from '$lib/components/v2/LibraryAlbumsGridV2.svelte';
-  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
-  import TrackRowMenu, { activateTrack } from '$lib/components/v2/TrackRowMenu.svelte';
-  import TrackRowText from '$lib/components/v2/TrackRowText.svelte';
-  import { longpress, type LongPressPoint } from '$lib/actions/long-press';
+  import Cover from '#lib/components/file-browser/Cover.svelte';
+  import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
+  import LibraryAlbumsGridV2 from '#lib/components/v2/LibraryAlbumsGridV2.svelte';
+  import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
+  import TrackRowMenu, { activateTrack } from '#lib/components/v2/TrackRowMenu.svelte';
+  import TrackRowText from '#lib/components/v2/TrackRowText.svelte';
+  import { longpress, type LongPressPoint } from '#lib/actions/long-press.ts';
   import {
     isSpotifyLiked,
     rowCoverFallbackForSong,
@@ -20,15 +20,15 @@
     type AlbumSummary,
     type ApiSong,
     type GroupSummary
-  } from '$lib/api-client';
-  import { isAdmin } from '$lib/auth/capabilities';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-  import { NAV_GROUPS, navGroupsFor } from '$lib/nav';
-  import { playerStore } from '$lib/stores/player.svelte';
-  import { playlistsStore } from '$lib/stores/playlists.svelte';
-  import { songsStore } from '$lib/stores/songs.svelte';
-  import { titleOf } from '$lib/track-list-view.svelte';
-  import { cn } from '$lib/utils';
+  } from '#lib/api-client.ts';
+  import { isAdmin } from '#lib/auth/capabilities.ts';
+  import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
+  import { NAV_GROUPS, navGroupsFor } from '#lib/nav.ts';
+  import { playerStore } from '#lib/stores/player.svelte.ts';
+  import { playlistsStore } from '#lib/stores/playlists.svelte.ts';
+  import { songsStore } from '#lib/stores/songs.svelte.ts';
+  import { titleOf } from '#lib/track-list-view.svelte.ts';
+  import { cn } from '#lib/utils.ts';
 
   // The Listen tab's root on a phone, and a member's Overview tab — Apple Music's Library page:
   // the greeting as the large title, a short list into Albums / Artists / Tracks / Favourites,

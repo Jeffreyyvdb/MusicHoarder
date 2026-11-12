@@ -1,18 +1,18 @@
 <script lang="ts">
   import { AlertTriangle, Loader2 } from '@lucide/svelte';
-  import * as BottomSheet from '$lib/components/ui/bottom-sheet';
-  import TimelineList from '$lib/components/v2/TimelineList.svelte';
+  import * as BottomSheet from '#lib/components/ui/bottom-sheet/index.ts';
+  import TimelineList from '#lib/components/v2/TimelineList.svelte';
   import {
     fetchAlbumTimeline,
     type AlbumTimelineApiEvent,
     type AlbumTimelineResponse
-  } from '$lib/api-client';
+  } from '#lib/api-client.ts';
   import {
     providerColor,
     providerLabel,
     type TimelineEvent,
     type TimelineTint
-  } from '$lib/review-helpers';
+  } from '#lib/review-helpers.ts';
 
   type Props = {
     open?: boolean;

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createPlaybackSnapshotStore } from '$lib/player-snapshot';
+import { createPlaybackSnapshotStore } from '#lib/player-snapshot.ts';
 import type { PlaybackSyncHooks, PlayerRemote, PlayerSong } from './player.svelte';
 
 /**
@@ -10,22 +10,22 @@ import type { PlaybackSyncHooks, PlayerRemote, PlayerSong } from './player.svelt
  * player suites pin that nothing changed.
  */
 
-vi.mock('$app/environment', () => ({ browser: true }));
+vi.mock('$app/env', () => ({ browser: true }));
 vi.mock('svelte-sonner', () => ({
   toast: Object.assign(vi.fn(), { error: vi.fn(), success: vi.fn(), info: vi.fn() })
 }));
 const reportSongPlayed = vi.fn(async () => {});
-vi.mock('$lib/api-client', () => ({
+vi.mock('#lib/api-client.ts', () => ({
   coverThumbUrl: (url: string | null | undefined) => url ?? null,
   fetchRadio: vi.fn(async () => []),
   reportSongPlayed: (...args: unknown[]) => reportSongPlayed(...(args as [])),
   toPlayerSong: vi.fn()
 }));
 const notePlayed = vi.fn();
-vi.mock('$lib/stores/songs.svelte', () => ({
+vi.mock('#lib/stores/songs.svelte.ts', () => ({
   songsStore: { notePlayed: (id: number) => notePlayed(id), songsById: new Map() }
 }));
-vi.mock('$lib/track-list-view.svelte', () => ({ artistOf: () => '' }));
+vi.mock('#lib/track-list-view.svelte', () => ({ artistOf: () => '' }));
 
 class FakeAudio {
   src = '';
@@ -522,7 +522,7 @@ describe('localPlayback.adopt', () => {
       positionSec: 10,
       radioSeedId: 1
     });
-    const { toPlayerSong } = await import('$lib/api-client');
+    const { toPlayerSong } = await import('#lib/api-client.ts');
     vi.mocked(toPlayerSong).mockImplementation((row) => song(row.id));
     const rows = new Map([1, 2, 3].map((id) => [id, { id } as never]));
     localPlayback.hydrate(rows);

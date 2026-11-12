@@ -1,6 +1,6 @@
 import { redirect } from '@sveltejs/kit';
-import { APP_HOME } from '$lib/app-home';
-import { allowedPathPrefixesFor, isPathAllowed } from '$lib/nav';
+import { APP_HOME } from '#lib/app-home.ts';
+import { allowedPathPrefixesFor, isPathAllowed } from '#lib/nav.ts';
 import type { LayoutLoad } from './$types';
 
 // The (app) shell uses module-scoped $state that reads browser-only APIs

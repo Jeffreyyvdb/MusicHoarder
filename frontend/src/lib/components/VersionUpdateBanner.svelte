@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { X } from '@lucide/svelte';
-  import { fetchLatestVersion, type LatestVersionInfo } from '$lib/api-client';
+  import { fetchLatestVersion, type LatestVersionInfo } from '#lib/api-client.ts';
 
   // Shell banner policy: the AppShellV2 suppresses this notice while a
   // higher-priority banner (library offline / grading error) is visible, so at

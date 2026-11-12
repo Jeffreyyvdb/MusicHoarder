@@ -1,4 +1,4 @@
-import type { PlayerSong } from '$lib/stores/player.svelte';
+import type { PlayerSong } from '#lib/stores/player.svelte.ts';
 
 /**
  * What the audio player remembers across a page reload.

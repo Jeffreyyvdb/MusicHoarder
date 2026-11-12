@@ -1,6 +1,6 @@
 import type { RequestHandler } from './$types';
-import { getApiBaseUrl } from '$lib/server/api-target';
-import { compressBody, pickProxyEncoding } from '$lib/server/proxy-compression';
+import { getApiBaseUrl } from '#lib/server/api-target.ts';
+import { compressBody, pickProxyEncoding } from '#lib/server/proxy-compression.ts';
 
 function buildTargetUrl(pathSegments: string, search: string): string {
   const base = getApiBaseUrl().replace(/\/$/, '');

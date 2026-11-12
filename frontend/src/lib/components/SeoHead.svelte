@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { env } from '$env/dynamic/public';
+  import { PUBLIC_SITE_URL } from '$app/env/public';
 
   type Props = {
     title: string;
@@ -21,7 +21,7 @@
     noindex = false
   }: Props = $props();
 
-  const SITE = env.PUBLIC_SITE_URL ?? 'https://musichoarder.app';
+  const SITE = PUBLIC_SITE_URL ?? 'https://musichoarder.app';
   const canonical = $derived(`${SITE}${path}`);
   const ogUrl = $derived(`${SITE}${ogImage}`);
 </script>
@@ -49,6 +49,9 @@
   {#if noindex}
     <meta name="robots" content="noindex,nofollow" />
   {:else}
-    <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1" />
+    <meta
+      name="robots"
+      content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1"
+    />
   {/if}
 </svelte:head>

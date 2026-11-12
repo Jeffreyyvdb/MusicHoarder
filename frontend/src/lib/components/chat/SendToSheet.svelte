@@ -2,12 +2,12 @@
   import { goto } from '$app/navigation';
   import { Disc3, Loader2, Music } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
-  import Cover from '$lib/components/file-browser/Cover.svelte';
-  import * as BottomSheet from '$lib/components/ui/bottom-sheet';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import { fetchChatPeople, sendChatToPeople, type ChatPerson } from '$lib/api-client';
-  import { chatStore } from '$lib/stores/chat.svelte';
-  import { sendTo } from '$lib/stores/send-to.svelte';
+  import Cover from '#lib/components/file-browser/Cover.svelte';
+  import * as BottomSheet from '#lib/components/ui/bottom-sheet/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import { fetchChatPeople, sendChatToPeople, type ChatPerson } from '#lib/api-client.ts';
+  import { chatStore } from '#lib/stores/chat.svelte.ts';
+  import { sendTo } from '#lib/stores/send-to.svelte.ts';
   import PeoplePicker from './PeoplePicker.svelte';
 
   // "Send to…" — a song or album of yours, to one or more people on this MusicHoarder, each in their

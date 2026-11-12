@@ -2,10 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // The module imports the API client and the toaster for its toast helper; both are mocked so the
 // toast's Undo can be pressed and the revert it sends inspected.
-vi.mock('$lib/api-client', () => ({ fetchDedupActions: vi.fn(), revertDedupAction: vi.fn() }));
+vi.mock('#lib/api-client.ts', () => ({ fetchDedupActions: vi.fn(), revertDedupAction: vi.fn() }));
 vi.mock('svelte-sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-const api = await import('$lib/api-client');
+const api = await import('#lib/api-client.ts');
 const { toast } = await import('svelte-sonner');
 const { dedupKey, findNewAction, snapshotDedupKeys, toastWithUndo } = await import('./dedup-undo');
 

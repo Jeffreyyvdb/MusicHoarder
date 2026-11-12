@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { CircleAlert } from '@lucide/svelte';
-  import { fetchQualityProgress, type QualityProgress } from '$lib/api-client';
-  import * as Alert from '$lib/components/ui/alert/index.js';
+  import { fetchQualityProgress, type QualityProgress } from '#lib/api-client.ts';
+  import * as Alert from '#lib/components/ui/alert/index.js';
 
   const POLL_INTERVAL_MS = 15_000;
 

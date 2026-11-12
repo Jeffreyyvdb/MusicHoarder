@@ -45,7 +45,7 @@ updates:
     # `ts.Extension.Cjs` off that stub ("Cannot read properties of undefined
     # (reading 'Cjs')", PR #348), and its peer range is `<6.1.0`, so no
     # released typescript-eslint accepts TS 7 at all. svelte-check /
-    # svelte2tsx are in the same boat. Hold at 5.x until typescript-eslint
+    # svelte2tsx are in the same boat. Hold at 6.x (SvelteKit 3's minimum, still the JS compiler) until typescript-eslint
     # ships a TS 7-compatible major and svelte-check follows; then drop this
     # entry and take the bump deliberately.
     ignore:

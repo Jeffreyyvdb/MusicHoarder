@@ -3,20 +3,20 @@
   import { MediaQuery } from 'svelte/reactivity';
   import { goto } from '$app/navigation';
   import { Disc3, Mic2, Play, Shuffle } from '@lucide/svelte';
-  import { EmptyState } from '$lib/components/ui/empty-state';
-  import Cover from '$lib/components/file-browser/Cover.svelte';
-  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
-  import { Skeleton } from '$lib/components/ui/skeleton';
-  import { longpress, type LongPressPoint } from '$lib/actions/long-press';
+  import { EmptyState } from '#lib/components/ui/empty-state/index.ts';
+  import Cover from '#lib/components/file-browser/Cover.svelte';
+  import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
+  import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
+  import { Skeleton } from '#lib/components/ui/skeleton/index.ts';
+  import { longpress, type LongPressPoint } from '#lib/actions/long-press.ts';
   import {
     toPlayerSong,
     type AlbumStatusInfo,
     type AlbumSummary
-  } from '$lib/api-client';
-  import { playerStore } from '$lib/stores/player.svelte';
-  import { cn, shuffle } from '$lib/utils';
-  import { carryBuiltTiles, watchNearViewport } from '$lib/viewport-fill';
+  } from '#lib/api-client.ts';
+  import { playerStore } from '#lib/stores/player.svelte.ts';
+  import { cn, shuffle } from '#lib/utils.ts';
+  import { carryBuiltTiles, watchNearViewport } from '#lib/viewport-fill.ts';
 
   // Safe to server-render: everything interactive is opt-in and browser-only — the menu is off
   // unless asked for, and the long-press action and the menu's DOM only exist in the browser.
@@ -162,7 +162,7 @@
   });
 
   // The albums whose tile has been built there: the first screenful, and each one that came
-  // within two screens of the viewport or took focus (see `$lib/viewport-fill`). By key, and never
+  // within two screens of the viewport or took focus (see `#lib/viewport-fill.ts`). By key, and never
   // taken back while the album stays in the list, so a re-sort moves built tiles instead of tearing
   // them down. `$state.raw`, replaced per batch: one set read by every tile is cheaper than a
   // signal per album.
