@@ -1891,6 +1891,7 @@ public class LibraryBuilderServiceTests
         public IFile File { get; }
         public IFileInfoFactory FileInfo => inner.FileInfo;
         public IFileVersionInfoFactory FileVersionInfo => inner.FileVersionInfo;
+        public IRandomAccess RandomAccess => inner.RandomAccess;
         public IPath Path => inner.Path;
         public IDirectoryInfoFactory DirectoryInfo => inner.DirectoryInfo;
         public IDriveInfoFactory DriveInfo => inner.DriveInfo;
@@ -1982,6 +1983,7 @@ public class LibraryBuilderServiceTests
         public IFile File { get; }
         public IFileInfoFactory FileInfo => inner.FileInfo;
         public IFileVersionInfoFactory FileVersionInfo => inner.FileVersionInfo;
+        public IRandomAccess RandomAccess => inner.RandomAccess;
         public IPath Path => inner.Path;
         public IDirectoryInfoFactory DirectoryInfo => inner.DirectoryInfo;
         public IDriveInfoFactory DriveInfo => inner.DriveInfo;
