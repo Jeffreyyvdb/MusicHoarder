@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { ApiOverviewActivity } from '$lib/api-client';
-  import { activityTone } from '$lib/activity-tone';
-  import { cn } from '$lib/utils';
+  import type { ApiOverviewActivity } from '#lib/api-client.ts';
+  import { activityTone } from '#lib/activity-tone.ts';
+  import { cn } from '#lib/utils.ts';
 
   type Props = {
     activity: ApiOverviewActivity;

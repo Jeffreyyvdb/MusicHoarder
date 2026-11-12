@@ -21,7 +21,7 @@
  * It plugs into the player (`setPlaybackSync`) so every component that reads `playerStore` shows
  * the session wherever it plays. It never starts for the demo account (strangers share it) and is
  * never started by the anonymous share page; there the player is exactly what it always was. The
- * rules themselves are in `$lib/playback-sync/*`, pure and tested, and ported by the Android client.
+ * rules themselves are in `#lib/playback-sync/*`, pure and tested, and ported by the Android client.
  */
 
 import { toast } from 'svelte-sonner';
@@ -34,10 +34,10 @@ import {
   reportPlaybackState,
   sendPlaybackCommand,
   toPlayerSong
-} from '$lib/api-client';
-import { isDemo } from '$lib/auth/capabilities';
-import type { SessionUser } from '$lib/auth/session-types';
-import { isInstalledApp } from '$lib/hooks/viewport-insets.svelte';
+} from '#lib/api-client.ts';
+import { isDemo } from '#lib/auth/capabilities.ts';
+import type { SessionUser } from '#lib/auth/session-types.ts';
+import { isInstalledApp } from '#lib/hooks/viewport-insets.svelte.ts';
 import {
   claimTabDeviceId,
   describeDevice,
@@ -46,7 +46,7 @@ import {
   INSTALL_ID_KEY,
   type ChannelLike,
   type TabIdentity
-} from '$lib/playback-sync/device';
+} from '#lib/playback-sync/device.ts';
 import {
   adoptStart,
   deriveMode,
@@ -66,7 +66,7 @@ import {
   withLocalClaim,
   type PendingCommand,
   type PlaybackMode
-} from '$lib/playback-sync/session';
+} from '#lib/playback-sync/session.ts';
 import type {
   DeviceKind,
   PlaybackCommandEvent,
@@ -76,7 +76,7 @@ import type {
   PlaybackSession,
   PlaybackStateReport,
   PlaybackStateResponse
-} from '$lib/playback-sync/wire';
+} from '#lib/playback-sync/wire.ts';
 import {
   localPlayback,
   setPlaybackSync,
@@ -85,9 +85,9 @@ import {
   type PlayerRemote,
   type PlayerSong,
   type PlayOutcome
-} from '$lib/stores/player.svelte';
-import { songsStore } from '$lib/stores/songs.svelte';
-import { artistOf } from '$lib/track-list-view.svelte';
+} from '#lib/stores/player.svelte.ts';
+import { songsStore } from '#lib/stores/songs.svelte.ts';
+import { artistOf } from '#lib/track-list-view.svelte.ts';
 
 /** While this device holds the session, it reports at least this often (the contract's 20 s). */
 export const HEARTBEAT_MS = 20_000;

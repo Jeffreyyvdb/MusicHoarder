@@ -1,11 +1,11 @@
 <script lang="ts">
   import { ListPlus, Loader2 } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
-  import * as BottomSheet from '$lib/components/ui/bottom-sheet';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import PlaylistCover from '$lib/components/v2/PlaylistCover.svelte';
-  import { playlistSubtitle } from '$lib/playlists';
-  import { playlistsStore } from '$lib/stores/playlists.svelte';
+  import * as BottomSheet from '#lib/components/ui/bottom-sheet/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import PlaylistCover from '#lib/components/v2/PlaylistCover.svelte';
+  import { playlistSubtitle } from '#lib/playlists.ts';
+  import { playlistsStore } from '#lib/stores/playlists.svelte.ts';
 
   // "Add to Playlist": Apple Music's sheet — New Playlist… first, then every playlist, most recently
   // changed first. A synced (Spotify / Deezer / YouTube) playlist takes additions too: they play

@@ -1,14 +1,14 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import type { QualitySongRow } from '$lib/api-client';
-  import Cover from '$lib/components/file-browser/Cover.svelte';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import { Badge } from '$lib/components/ui/badge';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
-  import { VERDICT_DOT, issueLabel, verdictBadge } from '$lib/quality-ui';
-  import { cleanDisplayName } from '$lib/formatters';
-  import { coverUrlForSongId } from '$lib/components/v2/inbox/song-cover';
-  import { cn } from '$lib/utils';
+  import type { QualitySongRow } from '#lib/api-client.ts';
+  import Cover from '#lib/components/file-browser/Cover.svelte';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import { Badge } from '#lib/components/ui/badge/index.ts';
+  import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
+  import { VERDICT_DOT, issueLabel, verdictBadge } from '#lib/quality-ui.ts';
+  import { cleanDisplayName } from '#lib/formatters.ts';
+  import { coverUrlForSongId } from '#lib/components/v2/inbox/song-cover.ts';
+  import { cn } from '#lib/utils.ts';
   import { Check, Loader2, TriangleAlert, EarOff, History } from '@lucide/svelte';
 
   // The worst-first song list. Two presentations:

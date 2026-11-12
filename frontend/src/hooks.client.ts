@@ -3,7 +3,7 @@ import {
   isStaleChunkError,
   recoverFromStaleChunk,
   registerStaleChunkRecovery
-} from '$lib/stale-chunk-recovery';
+} from '#lib/stale-chunk-recovery.ts';
 
 // Catch the stale-chunk failures that escape SvelteKit's client error hook
 // (unhandled rejections / vite:preloadError). See stale-chunk-recovery.ts.

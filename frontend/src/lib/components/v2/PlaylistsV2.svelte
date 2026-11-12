@@ -1,17 +1,17 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { ListVideo, Loader2, Plus, Search } from '@lucide/svelte';
-  import { Button } from '$lib/components/ui/button';
-  import { EmptyState } from '$lib/components/ui/empty-state';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
-  import { SearchField } from '$lib/components/ui/search-field';
-  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
-  import PlaylistCover from '$lib/components/v2/PlaylistCover.svelte';
-  import PlaylistNameSheet from '$lib/components/v2/PlaylistNameSheet.svelte';
-  import type { LibraryPlaylist } from '$lib/api-client';
-  import { playlistSubtitle } from '$lib/playlists';
-  import { playlistsStore } from '$lib/stores/playlists.svelte';
-  import { songsStore } from '$lib/stores/songs.svelte';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import { EmptyState } from '#lib/components/ui/empty-state/index.ts';
+  import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
+  import { SearchField } from '#lib/components/ui/search-field/index.ts';
+  import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
+  import PlaylistCover from '#lib/components/v2/PlaylistCover.svelte';
+  import PlaylistNameSheet from '#lib/components/v2/PlaylistNameSheet.svelte';
+  import type { LibraryPlaylist } from '#lib/api-client.ts';
+  import { playlistSubtitle } from '#lib/playlists.ts';
+  import { playlistsStore } from '#lib/stores/playlists.svelte.ts';
+  import { songsStore } from '#lib/stores/songs.svelte.ts';
 
   // Listen → Playlists: the ones made here first, then the ones that follow a playlist collected
   // from Spotify, Deezer or YouTube (under Add). Cards like the Albums grid; a card opens the

@@ -3,15 +3,15 @@ import {
   appendVaryAccept,
   explicitlyAcceptsHtml,
   preferredType
-} from '$lib/server/content-negotiation';
-import { resolveSiteUrl } from '$lib/server/site-url';
+} from '#lib/server/content-negotiation.ts';
+import { resolveSiteUrl } from '#lib/server/site-url.ts';
 import {
   canonicalizePath,
   isMarkdownUrl,
   markdownFor,
   markdownSiblingPath,
   notFoundMarkdown
-} from '$lib/content/site-markdown';
+} from '#lib/content/site-markdown.ts';
 
 const MARKDOWN_TYPE = 'text/markdown; charset=utf-8';
 

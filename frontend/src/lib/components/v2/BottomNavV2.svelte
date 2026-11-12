@@ -1,17 +1,17 @@
 <script lang="ts">
   import { Search } from '@lucide/svelte';
   import { page } from '$app/state';
-  import { tabFor, tabsFor, type NavTab } from '$lib/nav';
-  import { tabMemory } from '$lib/stores/tab-memory.svelte';
-  import { bottomBar } from '$lib/stores/bottom-bar.svelte';
-  import { songDetail } from '$lib/stores/song-detail.svelte';
-  import { commandPalette } from '$lib/stores/command-palette.svelte';
-  import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
-  import { songsStore } from '$lib/stores/songs.svelte';
-  import { inboxBadgeCount } from '$lib/stores/nav-badges.svelte';
-  import { chatStore } from '$lib/stores/chat.svelte';
-  import { isAdmin } from '$lib/auth/capabilities';
-  import { cn } from '$lib/utils';
+  import { tabFor, tabsFor, type NavTab } from '#lib/nav.ts';
+  import { tabMemory } from '#lib/stores/tab-memory.svelte.ts';
+  import { bottomBar } from '#lib/stores/bottom-bar.svelte.ts';
+  import { songDetail } from '#lib/stores/song-detail.svelte.ts';
+  import { commandPalette } from '#lib/stores/command-palette.svelte.ts';
+  import { pipelineOverlay } from '#lib/stores/pipeline-overlay.svelte.ts';
+  import { songsStore } from '#lib/stores/songs.svelte.ts';
+  import { inboxBadgeCount } from '#lib/stores/nav-badges.svelte.ts';
+  import { chatStore } from '#lib/stores/chat.svelte.ts';
+  import { isAdmin } from '#lib/auth/capabilities.ts';
+  import { cn } from '#lib/utils.ts';
 
   // The compact tab bar: a floating glass capsule of tabs plus a separate search circle (iOS 26's
   // "search tab, button appearance"). Always there below md — members included, whose tabs are

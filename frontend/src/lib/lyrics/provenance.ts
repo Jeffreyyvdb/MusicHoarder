@@ -1,4 +1,4 @@
-import type { LyricsProvenance } from '$lib/types'
+import type { LyricsProvenance } from '#lib/types.ts'
 
 /**
  * How much of the lyrics on screen came from an AI.

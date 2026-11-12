@@ -1,9 +1,9 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { Button } from '$lib/components/ui/button';
-  import ThemeToggle from '$lib/components/ThemeToggle.svelte';
-  import BrandMark from '$lib/components/BrandMark.svelte';
-  import { createPrimaryCta } from '$lib/components/landing/cta.svelte';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import ThemeToggle from '#lib/components/ThemeToggle.svelte';
+  import BrandMark from '#lib/components/BrandMark.svelte';
+  import { createPrimaryCta } from '#lib/components/landing/cta.svelte.ts';
 
   const signedIn = $derived(Boolean(page.data.sessionRole));
   // The section links only exist on the landing page itself; About, Contact and Privacy share this

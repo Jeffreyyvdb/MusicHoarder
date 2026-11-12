@@ -1,9 +1,9 @@
 <script lang="ts">
   import { ChevronRight } from '@lucide/svelte';
-  import { Button } from '$lib/components/ui/button';
-  import Screenshot from '$lib/components/landing/Screenshot.svelte';
-  import { createPrimaryCta } from '$lib/components/landing/cta.svelte';
-  import { githubUrl } from '$lib/components/landing/landing-content';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import Screenshot from '#lib/components/landing/Screenshot.svelte';
+  import { createPrimaryCta } from '#lib/components/landing/cta.svelte.ts';
+  import { githubUrl } from '#lib/components/landing/landing-content.ts';
 
   const cta = createPrimaryCta({ signedOutLabel: 'Try the live demo' });
 </script>

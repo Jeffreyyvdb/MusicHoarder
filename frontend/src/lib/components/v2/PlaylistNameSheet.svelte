@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Loader2 } from '@lucide/svelte';
-  import * as BottomSheet from '$lib/components/ui/bottom-sheet';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
+  import * as BottomSheet from '#lib/components/ui/bottom-sheet/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
 
   // Name a playlist: "New Playlist" and "Rename". iOS sheet conventions, like Add from link: Cancel
   // leading, the one prominent action trailing, the field as an inset-grouped cell at 16px so iOS

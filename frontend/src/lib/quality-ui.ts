@@ -1,6 +1,6 @@
 /** Shared colour + label helpers for the AI-quality workbench (cards, list, detail). */
 
-import type { QualityVerdict, QualityCategory, QualityBucketName } from '$lib/api-client';
+import type { QualityVerdict, QualityCategory, QualityBucketName } from '#lib/api-client.ts';
 
 // Colour here follows the app's status rule: red means wrong, the warning tone means "look at
 // this", and everything that is fine reads as plain text — the brand tint is kept for things you

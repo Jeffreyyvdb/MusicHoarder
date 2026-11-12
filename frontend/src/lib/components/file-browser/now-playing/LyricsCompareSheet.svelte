@@ -1,8 +1,8 @@
 <script lang="ts">
-  import * as BottomSheet from '$lib/components/ui/bottom-sheet';
-  import { SegmentedControl } from '$lib/components/ui/segmented-control';
-  import type { AiLyrics, LyricsSource } from '$lib/lyrics/ai-lyrics.svelte';
-  import type { LyricsDoc } from '$lib/lyrics/lyrics-doc.svelte';
+  import * as BottomSheet from '#lib/components/ui/bottom-sheet/index.ts';
+  import { SegmentedControl } from '#lib/components/ui/segmented-control/index.ts';
+  import type { AiLyrics, LyricsSource } from '#lib/lyrics/ai-lyrics.svelte.ts';
+  import type { LyricsDoc } from '#lib/lyrics/lyrics-doc.svelte.ts';
   import LyricsCompareColumn from './LyricsCompareColumn.svelte';
 
   /**

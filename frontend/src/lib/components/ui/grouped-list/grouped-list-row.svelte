@@ -2,7 +2,7 @@
 	import type { Component, Snippet } from "svelte";
 	import type { HTMLAnchorAttributes, HTMLButtonAttributes } from "svelte/elements";
 	import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
-	import { cn, type WithElementRef } from "$lib/utils.js";
+	import { cn, type WithElementRef } from "#lib/utils.js";
 
 	type Props = WithElementRef<
 		Omit<HTMLButtonAttributes, "children" | "value"> & Omit<HTMLAnchorAttributes, "children">

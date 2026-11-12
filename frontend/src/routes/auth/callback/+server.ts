@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
-import { getApiBaseUrl } from '$lib/server/api-target';
-import { APP_HOME } from '$lib/app-home';
-import { isIosSafariUserAgent } from '$lib/ios-safari';
+import { getApiBaseUrl } from '#lib/server/api-target.ts';
+import { APP_HOME } from '#lib/app-home.ts';
+import { isIosSafariUserAgent } from '#lib/ios-safari.ts';
 import type { RequestHandler } from './$types';
 
 /**

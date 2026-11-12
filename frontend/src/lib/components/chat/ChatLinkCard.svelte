@@ -1,9 +1,9 @@
 <script lang="ts">
   import { Download, Link2, Play } from '@lucide/svelte';
-  import type { ChatLink } from '$lib/api-client';
-  import { linkCaption } from '$lib/chat/chat-text';
-  import { playLibrarySong } from '$lib/chat/play-shared';
-  import { cn } from '$lib/utils';
+  import type { ChatLink } from '#lib/api-client.ts';
+  import { linkCaption } from '#lib/chat/chat-text.ts';
+  import { playLibrarySong } from '#lib/chat/play-shared.ts';
+  import { cn } from '#lib/utils.ts';
 
   // A link from outside — a Spotify track or album, a YouTube video — as a card: its artwork, name and
   // artist, opening in the app it came from. When the viewer already has that Spotify track, Play

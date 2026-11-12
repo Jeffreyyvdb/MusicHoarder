@@ -1,7 +1,7 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { replaceUrl } from '$lib/navigation/replace-url';
-  import TrackTimelineV2 from '$lib/components/v2/TrackTimelineV2.svelte';
+  import { replaceUrl } from '#lib/navigation/replace-url.ts';
+  import TrackTimelineV2 from '#lib/components/v2/TrackTimelineV2.svelte';
 
   // Per-song provenance timeline. An invalid id can't render anything useful, so
   // bounce back to the library rather than dead-ending the deep link. The (app)

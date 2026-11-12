@@ -1,20 +1,20 @@
 <script lang="ts">
   import { Check, ImageOff, Loader2, RotateCcw } from '@lucide/svelte';
-  import * as BottomSheet from '$lib/components/ui/bottom-sheet';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import { Badge, type BadgeVariant } from '$lib/components/ui/badge';
-  import { Button } from '$lib/components/ui/button';
-  import { Input } from '$lib/components/ui/input';
-  import { Switch } from '$lib/components/ui/switch';
+  import * as BottomSheet from '#lib/components/ui/bottom-sheet/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import { Badge, type BadgeVariant } from '#lib/components/ui/badge/index.ts';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import { Input } from '#lib/components/ui/input/index.ts';
+  import { Switch } from '#lib/components/ui/switch/index.ts';
   import {
     getSongVideoCandidates,
     getSongVideoCandidateThumbnailUrl,
     probeSongVideoCandidate,
     type SongVideoCandidate,
     type VideoMotion
-  } from '$lib/api-client';
-  import { videoBackdropPrefs } from '$lib/stores/video-backdrop-prefs.svelte';
-  import { cn } from '$lib/utils';
+  } from '#lib/api-client.ts';
+  import { videoBackdropPrefs } from '#lib/stores/video-backdrop-prefs.svelte.ts';
+  import { cn } from '#lib/utils.ts';
   import ActionSheet from './ActionSheet.svelte';
   import {
     formatVideoOffset,

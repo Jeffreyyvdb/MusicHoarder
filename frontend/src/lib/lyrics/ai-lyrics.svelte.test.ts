@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createAiLyrics, type AiLyricsApi } from './ai-lyrics.svelte';
-import type { ApiSong } from '$lib/api-client';
+import type { ApiSong } from '#lib/api-client.ts';
 
 /**
  * This state machine used to live inline in TrackPanel.svelte, where none of it was reachable from

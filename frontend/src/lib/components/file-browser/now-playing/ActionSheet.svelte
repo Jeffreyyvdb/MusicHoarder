@@ -1,7 +1,7 @@
 <script lang="ts">
-  import * as BottomSheet from '$lib/components/ui/bottom-sheet';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import { cn } from '$lib/utils';
+  import * as BottomSheet from '#lib/components/ui/bottom-sheet/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import { cn } from '#lib/utils.ts';
 
   /**
    * A confirmation opened from inside Now Playing, laid out as an iOS action sheet: the title and

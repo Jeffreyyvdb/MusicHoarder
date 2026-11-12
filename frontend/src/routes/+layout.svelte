@@ -6,14 +6,14 @@
   import { afterNavigate, beforeNavigate } from '$app/navigation';
   import { page, updated } from '$app/state';
   import { toast } from 'svelte-sonner';
-  import { Toaster } from '$lib/components/ui/sonner';
-  import Analytics from '$lib/components/Analytics.svelte';
-  import { clearStaleChunkRecovery } from '$lib/stale-chunk-recovery';
-  import { installBottomInsetTracker } from '$lib/hooks/viewport-insets.svelte';
-  import { installDynamicType } from '$lib/dynamic-type';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-  import { surfaceFor } from '$lib/nav';
-  import { themeSurface } from '$lib/stores/theme-surface.svelte';
+  import { Toaster } from '#lib/components/ui/sonner/index.ts';
+  import Analytics from '#lib/components/Analytics.svelte';
+  import { clearStaleChunkRecovery } from '#lib/stale-chunk-recovery.ts';
+  import { installBottomInsetTracker } from '#lib/hooks/viewport-insets.svelte.ts';
+  import { installDynamicType } from '#lib/dynamic-type.ts';
+  import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
+  import { surfaceFor } from '#lib/nav.ts';
+  import { themeSurface } from '#lib/stores/theme-surface.svelte.ts';
 
   type Props = { children: Snippet };
   const { children }: Props = $props();

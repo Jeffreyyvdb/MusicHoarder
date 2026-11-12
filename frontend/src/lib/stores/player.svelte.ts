@@ -7,22 +7,22 @@ import {
   reportSongPlayed,
   toPlayerSong,
   type ApiSong
-} from '$lib/api-client';
+} from '#lib/api-client.ts';
 import {
   convertedStreamUrl,
   createUnplayableFormats,
   needsConversion,
   type UnplayableFormats
-} from '$lib/audio-formats';
+} from '#lib/audio-formats.ts';
 import {
   canAutoResume,
   createPlaybackSnapshotStore,
   type PlaybackSnapshot,
   type PlaybackSnapshotStore
-} from '$lib/player-snapshot';
-import { previousAction } from '$lib/player-seek';
-import { songsStore } from '$lib/stores/songs.svelte';
-import { artistOf } from '$lib/track-list-view.svelte';
+} from '#lib/player-snapshot.ts';
+import { previousAction } from '#lib/player-seek.ts';
+import { songsStore } from '#lib/stores/songs.svelte.ts';
+import { artistOf } from '#lib/track-list-view.svelte.ts';
 
 export interface PlayerSong {
   id: number;
@@ -537,7 +537,7 @@ function stopTrying() {
 
 // ── Formats this browser cannot play ───────────────────────────────────────
 // A song whose file this browser cannot play as it is (Ogg Opus in Safari) streams decoded by the
-// server instead; see `$lib/audio-formats`. Every other song, and every song in a browser
+// server instead; see `#lib/audio-formats.ts`. Every other song, and every song in a browser
 // that can play it, streams as the original file.
 
 /** `MediaError` codes, spelled out because the global is absent outside a browser. */

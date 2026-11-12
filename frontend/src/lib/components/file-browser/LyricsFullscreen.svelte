@@ -2,10 +2,10 @@
   import type { Snippet } from 'svelte';
   import { fly } from 'svelte/transition';
   import { ChevronDown } from '@lucide/svelte';
-  import { Button } from '$lib/components/ui/button';
+  import { Button } from '#lib/components/ui/button/index.ts';
   import Cover from './Cover.svelte';
   import SongTransport from './SongTransport.svelte';
-  import { motionFly } from '$lib/motion';
+  import { motionFly } from '#lib/motion.ts';
 
   /**
    * The share page's fullscreen lyrics (Apple Music / Spotify style): just the lyrics over an

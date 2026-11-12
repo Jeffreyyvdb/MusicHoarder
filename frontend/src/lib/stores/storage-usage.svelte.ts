@@ -11,7 +11,7 @@ import {
   refreshStorageUsage,
   type StorageUsageResponse,
   type StorageUsageSnapshot
-} from '$lib/api-client';
+} from '#lib/api-client.ts';
 
 const POLL_INTERVAL_MS = 2_000;
 

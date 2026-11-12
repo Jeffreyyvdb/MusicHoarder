@@ -1,5 +1,5 @@
 <script lang="ts" module>
-  import type { SourceFileState } from '$lib/api-client';
+  import type { SourceFileState } from '#lib/api-client.ts';
 
   // One quiet status signal per row: a small coloured dot + sentence-case label, the dot in the
   // same status tokens as the folder bars and the page legend.
@@ -42,9 +42,9 @@
 </script>
 
 <script lang="ts">
-  import type { SourceFile } from '$lib/api-client';
-  import { cleanDisplayName, formatFileSize } from '$lib/formatters';
-  import { cn } from '$lib/utils';
+  import type { SourceFile } from '#lib/api-client.ts';
+  import { cleanDisplayName, formatFileSize } from '#lib/formatters.ts';
+  import { cn } from '#lib/utils.ts';
 
   let { file, depth = 0 }: { file: SourceFile; depth?: number } = $props();
 

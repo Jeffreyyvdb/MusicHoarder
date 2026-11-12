@@ -1,13 +1,13 @@
 import { toast } from 'svelte-sonner';
-import { toPlayerSong, type ChatShare } from '$lib/api-client';
+import { toPlayerSong, type ChatShare } from '#lib/api-client.ts';
 import {
   fetchSharePayload,
   reportSharePlay,
   shareCoverUrl,
   shareStreamUrl
-} from '$lib/share-client';
-import { playerStore, type PlayerSong } from '$lib/stores/player.svelte';
-import { songsStore } from '$lib/stores/songs.svelte';
+} from '#lib/share-client.ts';
+import { playerStore, type PlayerSong } from '#lib/stores/player.svelte.ts';
+import { songsStore } from '#lib/stores/songs.svelte.ts';
 
 /**
  * Plays a song or album someone sent in a chat, right here in the app's player.

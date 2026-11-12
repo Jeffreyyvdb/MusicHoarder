@@ -1,10 +1,10 @@
 <script lang="ts">
   import { ArrowRight, Plus } from '@lucide/svelte';
-  import { Input } from '$lib/components/ui/input';
-  import * as Table from '$lib/components/ui/table/index.js';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import type { BeforeAfterRow, EditableFieldKey } from '$lib/review-helpers';
-  import { cn } from '$lib/utils';
+  import { Input } from '#lib/components/ui/input/index.ts';
+  import * as Table from '#lib/components/ui/table/index.js';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import type { BeforeAfterRow, EditableFieldKey } from '#lib/review-helpers.ts';
+  import { cn } from '#lib/utils.ts';
 
   type Props = {
     rows: BeforeAfterRow[];

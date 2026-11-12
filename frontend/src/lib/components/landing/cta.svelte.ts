@@ -1,8 +1,8 @@
 import { goto } from '$app/navigation';
 import { page } from '$app/state';
-import { signInAsDemo } from '$lib/api-client';
-import { APP_HOME } from '$lib/app-home';
-import type { SessionRole } from '$lib/auth/session-types';
+import { signInAsDemo } from '#lib/api-client.ts';
+import { APP_HOME } from '#lib/app-home.ts';
+import type { SessionRole } from '#lib/auth/session-types.ts';
 
 export interface PrimaryCtaOptions {
   /** Label shown to signed-out visitors, e.g. "Try the live demo". */

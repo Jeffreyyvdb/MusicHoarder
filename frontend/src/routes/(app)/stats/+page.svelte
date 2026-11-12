@@ -10,14 +10,14 @@
     TriangleAlert
   } from '@lucide/svelte';
   import type { Component } from 'svelte';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
-  import { Button } from '$lib/components/ui/button';
-  import { Badge } from '$lib/components/ui/badge';
-  import { Skeleton } from '$lib/components/ui/skeleton';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
-  import { fetchInsights, type LibraryInsights } from '$lib/api-client';
-  import { cn } from '$lib/utils';
+  import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import { Badge } from '#lib/components/ui/badge/index.ts';
+  import { Skeleton } from '#lib/components/ui/skeleton/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
+  import { fetchInsights, type LibraryInsights } from '#lib/api-client.ts';
+  import { cn } from '#lib/utils.ts';
 
   // Library stats, Health-summary style: a few highlights, then sections of plain rows — a label,
   // a figure and a thin bar in the one accent. Colour means status everywhere else in the app

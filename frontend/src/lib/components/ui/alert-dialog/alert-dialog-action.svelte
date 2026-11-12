@@ -4,8 +4,8 @@
 		buttonVariants,
 		type ButtonVariant,
 		type ButtonSize,
-	} from "$lib/components/ui/button/index.js";
-	import { cn } from "$lib/utils.js";
+	} from "#lib/components/ui/button/index.js";
+	import { cn } from "#lib/utils.js";
 	import { getAlertDialogClose } from "./alert-dialog.svelte";
 
 	let {

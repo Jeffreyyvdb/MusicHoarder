@@ -9,13 +9,13 @@
     TrendingUp,
     TriangleAlert
   } from '@lucide/svelte';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
-  import { Button } from '$lib/components/ui/button';
-  import { Skeleton } from '$lib/components/ui/skeleton';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import Sparkline from '$lib/components/performance/Sparkline.svelte';
-  import { describeSeriesDelta } from '$lib/components/performance/delta';
-  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
+  import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import { Skeleton } from '#lib/components/ui/skeleton/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import Sparkline from '#lib/components/performance/Sparkline.svelte';
+  import { describeSeriesDelta } from '#lib/components/performance/delta.ts';
+  import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
   import {
     fetchSnapshots,
     fetchSnapshot,
@@ -24,8 +24,8 @@
     type SnapshotSummary,
     type SnapshotDetail,
     type SnapshotCompare
-  } from '$lib/api-client';
-  import { cn } from '$lib/utils';
+  } from '#lib/api-client.ts';
+  import { cn } from '#lib/utils.ts';
 
   let snapshots = $state<SnapshotSummary[]>([]);
   let loading = $state(true);

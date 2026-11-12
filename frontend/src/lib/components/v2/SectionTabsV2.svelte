@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Component } from 'svelte';
-  import { cn, scrollStripToActive } from '$lib/utils';
+  import { cn, scrollStripToActive } from '#lib/utils.ts';
 
   type Tab = {
     id: string;

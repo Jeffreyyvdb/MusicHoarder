@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { cn } from '$lib/utils';
+  import { cn } from '#lib/utils.ts';
 
   /**
    * The vinyl-disc mark — the same drawing as static/icon.svg, which is the favicon and (via the

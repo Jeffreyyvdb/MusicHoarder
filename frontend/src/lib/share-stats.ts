@@ -1,4 +1,4 @@
-import type { ShareDailyPoint, ShareStatsRow } from '$lib/api-client';
+import type { ShareDailyPoint, ShareStatsRow } from '#lib/api-client.ts';
 
 /**
  * The pure half of the Share links page (`/shares`): which list a URL shows, which link it has

@@ -1,5 +1,5 @@
 <script module lang="ts">
-  import type { PurgeSnapshot } from '$lib/api-client';
+  import type { PurgeSnapshot } from '#lib/api-client.ts';
 
   export function purgeModeLabel(snapshot: PurgeSnapshot): string {
     return snapshot.mode === 'post-fingerprint' ? 'Reset enrichment data' : 'Purge all data';

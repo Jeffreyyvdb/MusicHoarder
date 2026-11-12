@@ -1,5 +1,5 @@
-import { getApiBaseUrl } from '$lib/server/api-target';
-import { APP_HOME } from '$lib/app-home';
+import { getApiBaseUrl } from '#lib/server/api-target.ts';
+import { APP_HOME } from '#lib/app-home.ts';
 import type { RequestHandler } from './$types';
 
 /**

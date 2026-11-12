@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { cn } from '$lib/utils';
+  import { cn } from '#lib/utils.ts';
 
   /**
    * A screenshot from `static/screenshots/` (the same files the README embeds). Every image there

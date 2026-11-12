@@ -3,7 +3,7 @@
  * you to where you were in that tab, and Back returns to where you actually came from rather than
  * wherever the shared browser history happens to point.
  *
- * The rules live in `$lib/navigation/tab-stacks` (pure, unit-tested); this store feeds them from
+ * The rules live in `#lib/navigation/tab-stacks.ts` (pure, unit-tested); this store feeds them from
  * `afterNavigate`, persists them to sessionStorage and executes Back and tab switches.
  *
  * Wiring (the (app) layout):
@@ -17,8 +17,8 @@
  * album keys or admin routes.
  */
 import { untrack } from 'svelte';
-import { findTab, isTabRoot, tabFor, type NavAudience, type NavBack, type NavTab } from '$lib/nav';
-import { prefersReducedMotion } from '$lib/motion';
+import { findTab, isTabRoot, tabFor, type NavAudience, type NavBack, type NavTab } from '#lib/nav.ts';
+import { prefersReducedMotion } from '#lib/motion.ts';
 import {
   EMPTY_TAB_MEMORY,
   backTargetFor,
@@ -32,7 +32,7 @@ import {
   resetTabStack,
   serializeTabMemory,
   type TabMemoryState
-} from '$lib/navigation/tab-stacks';
+} from '#lib/navigation/tab-stacks.ts';
 
 export {
   reduceTabStacks,
@@ -40,7 +40,7 @@ export {
   backTargetFor,
   normUrl,
   type TabMemoryState
-} from '$lib/navigation/tab-stacks';
+} from '#lib/navigation/tab-stacks.ts';
 
 const KEY_PREFIX = 'mh:tab-memory:';
 

@@ -1,23 +1,23 @@
 <script lang="ts">
-  import { holdAppInert } from '$lib/actions/inert-app';
+  import { holdAppInert } from '#lib/actions/inert-app.ts';
   import { untrack } from 'svelte';
   import { Dialog as DialogPrimitive } from 'bits-ui';
   import { Loader2 } from '@lucide/svelte';
   import { page } from '$app/state';
-  import { Button } from '$lib/components/ui/button';
-  import TrackPanel from '$lib/components/file-browser/TrackPanel.svelte';
-  import ShareWithFriendDialog from '$lib/components/file-browser/ShareWithFriendDialog.svelte';
-  import AddToPlaylistSheet from '$lib/components/v2/AddToPlaylistSheet.svelte';
-  import VideoBackdrop from '$lib/components/v2/VideoBackdrop.svelte';
-  import { SongVideo } from '$lib/components/file-browser/now-playing/song-video.svelte';
-  import { coverDimAlpha, DIM_UNKNOWN } from '$lib/components/file-browser/now-playing/cover-dim';
-  import { coverUrlForSong, coverThumbUrl } from '$lib/api-client';
-  import { songDetail } from '$lib/stores/song-detail.svelte';
-  import { songsStore } from '$lib/stores/songs.svelte';
-  import { playerStore } from '$lib/stores/player.svelte';
-  import { themeSurface } from '$lib/stores/theme-surface.svelte';
-  import { isAdmin } from '$lib/auth/capabilities';
-  import { DISMISS_VELOCITY, EASE_PRESENT, prefersReducedMotion } from '$lib/motion';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import TrackPanel from '#lib/components/file-browser/TrackPanel.svelte';
+  import ShareWithFriendDialog from '#lib/components/file-browser/ShareWithFriendDialog.svelte';
+  import AddToPlaylistSheet from '#lib/components/v2/AddToPlaylistSheet.svelte';
+  import VideoBackdrop from '#lib/components/v2/VideoBackdrop.svelte';
+  import { SongVideo } from '#lib/components/file-browser/now-playing/song-video.svelte.ts';
+  import { coverDimAlpha, DIM_UNKNOWN } from '#lib/components/file-browser/now-playing/cover-dim.ts';
+  import { coverUrlForSong, coverThumbUrl } from '#lib/api-client.ts';
+  import { songDetail } from '#lib/stores/song-detail.svelte.ts';
+  import { songsStore } from '#lib/stores/songs.svelte.ts';
+  import { playerStore } from '#lib/stores/player.svelte.ts';
+  import { themeSurface } from '#lib/stores/theme-surface.svelte.ts';
+  import { isAdmin } from '#lib/auth/capabilities.ts';
+  import { DISMISS_VELOCITY, EASE_PRESENT, prefersReducedMotion } from '#lib/motion.ts';
 
   // The single global mount of Now Playing — an Apple-Music-style full-screen overlay (a portaled
   // bits-ui Dialog: focus trap, Escape and body scroll-lock for free). It has its own MEDIA

@@ -1,20 +1,20 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import type { SpotifyApiPlaylist, SpotifyApiTrack } from '$lib/api-client';
-  import { fetchSpotifyPlaylistTracks } from '$lib/api-client';
-  import { Button } from '$lib/components/ui/button';
-  import { SearchField } from '$lib/components/ui/search-field';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
-  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
+  import type { SpotifyApiPlaylist, SpotifyApiTrack } from '#lib/api-client.ts';
+  import { fetchSpotifyPlaylistTracks } from '#lib/api-client.ts';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import { SearchField } from '#lib/components/ui/search-field/index.ts';
+  import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
+  import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
   import { Clock, AlertCircle, ListMusic } from '@lucide/svelte';
-  import { albumTint } from '$lib/album-tint';
-  import { computeInitials, formatTotalDuration } from '$lib/formatters';
+  import { albumTint } from '#lib/album-tint.ts';
+  import { computeInitials, formatTotalDuration } from '#lib/formatters.ts';
   import SpotifyTrackRow from './SpotifyTrackRow.svelte';
   import PaginationControls from './PaginationControls.svelte';
   import TrackListSkeleton from './TrackListSkeleton.svelte';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-  import { heroTitle } from '$lib/components/discover/hero-title';
-  import { tabMemory } from '$lib/stores/tab-memory.svelte';
+  import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
+  import { heroTitle } from '#lib/components/discover/hero-title.ts';
+  import { tabMemory } from '#lib/stores/tab-memory.svelte.ts';
 
   // A Spotify playlist, as a page pushed from the Playlists grid (/spotify?tab=playlists&
   // playlist=<id>): its own nav bar with Back to the grid, the cover centred on a phone.

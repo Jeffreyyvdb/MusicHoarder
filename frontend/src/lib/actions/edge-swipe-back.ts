@@ -1,6 +1,6 @@
-import { isInstalledApp } from '$lib/hooks/viewport-insets.svelte';
-import { DISMISS_VELOCITY, EASE_OUT, EASE_PRESENT, prefersReducedMotion } from '$lib/motion';
-import { navBack } from '$lib/stores/nav-back.svelte';
+import { isInstalledApp } from '#lib/hooks/viewport-insets.svelte.ts';
+import { DISMISS_VELOCITY, EASE_OUT, EASE_PRESENT, prefersReducedMotion } from '#lib/motion.ts';
+import { navBack } from '#lib/stores/nav-back.svelte.ts';
 
 /**
  * `use:edgeSwipeBack` — swipe right from the leading edge to go back, in the installed app.

@@ -1,10 +1,10 @@
 <script lang="ts">
   import { ExternalLink } from '@lucide/svelte';
-  import { Button } from '$lib/components/ui/button';
-  import CommandBlock from '$lib/components/landing/CommandBlock.svelte';
-  import LandingSection from '$lib/components/landing/LandingSection.svelte';
-  import { createPrimaryCta } from '$lib/components/landing/cta.svelte';
-  import { githubUrl, installCommand } from '$lib/components/landing/landing-content';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import CommandBlock from '#lib/components/landing/CommandBlock.svelte';
+  import LandingSection from '#lib/components/landing/LandingSection.svelte';
+  import { createPrimaryCta } from '#lib/components/landing/cta.svelte.ts';
+  import { githubUrl, installCommand } from '#lib/components/landing/landing-content.ts';
 
   const cta = createPrimaryCta({ signedOutLabel: 'Try the live demo' });
 </script>

@@ -1,5 +1,5 @@
-import { isAdmin, isDemo } from '$lib/auth/capabilities';
-import type { SessionUser } from '$lib/auth/session-types';
+import { isAdmin, isDemo } from '#lib/auth/capabilities.ts';
+import type { SessionUser } from '#lib/auth/session-types.ts';
 
 /**
  * Settings' sections and which one a URL shows.

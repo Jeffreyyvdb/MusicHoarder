@@ -1,9 +1,9 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { Button } from '$lib/components/ui/button';
-  import BrandMark from '$lib/components/BrandMark.svelte';
-  import { APP_HOME } from '$lib/app-home';
-  import { isInstalledApp } from '$lib/hooks/viewport-insets.svelte';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import BrandMark from '#lib/components/BrandMark.svelte';
+  import { APP_HOME } from '#lib/app-home.ts';
+  import { isInstalledApp } from '#lib/hooks/viewport-insets.svelte.ts';
   import { RefreshCw } from '@lucide/svelte';
 
   // 503 is specifically "the auth gate could not reach the API" — the session is intact, so the

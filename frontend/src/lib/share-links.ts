@@ -1,5 +1,5 @@
 import { toast } from 'svelte-sonner';
-import { createSongShare, listSongShares, shareUrl, type SongShareView } from '$lib/api-client';
+import { createSongShare, listSongShares, shareUrl, type SongShareView } from '#lib/api-client.ts';
 
 /**
  * Public share links for every "Share link…" item: a song row's menu (TrackRowMenu), the album

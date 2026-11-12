@@ -1,6 +1,6 @@
 <script lang="ts">
-  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
-  import FilterChip from '$lib/components/v2/FilterChip.svelte';
+  import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
+  import FilterChip from '#lib/components/v2/FilterChip.svelte';
   import { page } from '$app/state';
   import {
     fetchQualityOverview,
@@ -12,21 +12,21 @@
     type QualityProgress,
     type QualityCategory,
     type QualitySongRow
-  } from '$lib/api-client';
-  import QualityStatusCards from '$lib/components/quality/QualityStatusCards.svelte';
-  import QualityFixesRow from '$lib/components/quality/QualityFixesRow.svelte';
-  import QualityList from '$lib/components/quality/QualityList.svelte';
-  import QualityDetail from '$lib/components/quality/QualityDetail.svelte';
-  import * as AlertDialog from '$lib/components/ui/alert-dialog';
-  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import { Button } from '$lib/components/ui/button';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-  import { replaceUrl } from '$lib/navigation/replace-url';
-  import { prefersReducedMotion } from '$lib/motion';
-  import { QUALITY_BUCKETS, VERDICT_TABS, issueLabel, qualityCategoryLabel } from '$lib/quality-ui';
-  import { cn } from '$lib/utils';
+  } from '#lib/api-client.ts';
+  import QualityStatusCards from '#lib/components/quality/QualityStatusCards.svelte';
+  import QualityFixesRow from '#lib/components/quality/QualityFixesRow.svelte';
+  import QualityList from '#lib/components/quality/QualityList.svelte';
+  import QualityDetail from '#lib/components/quality/QualityDetail.svelte';
+  import * as AlertDialog from '#lib/components/ui/alert-dialog/index.ts';
+  import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
+  import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
+  import { replaceUrl } from '#lib/navigation/replace-url.ts';
+  import { prefersReducedMotion } from '#lib/motion.ts';
+  import { QUALITY_BUCKETS, VERDICT_TABS, issueLabel, qualityCategoryLabel } from '#lib/quality-ui.ts';
+  import { cn } from '#lib/utils.ts';
   import { ChevronDown, History, Loader2, RefreshCw, Sparkles, TriangleAlert, X } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
   import { tick, untrack } from 'svelte';

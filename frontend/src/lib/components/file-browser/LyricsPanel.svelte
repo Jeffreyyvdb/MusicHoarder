@@ -1,9 +1,9 @@
 <script lang="ts">
-  import type { LyricsProvenance, LyricsStatus } from '$lib/types';
+  import type { LyricsProvenance, LyricsStatus } from '#lib/types.ts';
   import { page } from '$app/state';
-  import { Button } from '$lib/components/ui/button';
-  import { Badge } from '$lib/components/ui/badge';
-  import * as ToggleGroup from '$lib/components/ui/toggle-group/index.js';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import { Badge } from '#lib/components/ui/badge/index.ts';
+  import * as ToggleGroup from '#lib/components/ui/toggle-group/index.js';
   import { fade } from 'svelte/transition';
   import {
     AlertCircle,
@@ -17,13 +17,13 @@
     RefreshCw,
     Timer
   } from '@lucide/svelte';
-  import { cn } from '$lib/utils';
-  import { parseLrc } from '$lib/lyrics/parse-lrc';
-  import { createLyricsDoc, type LyricsDoc } from '$lib/lyrics/lyrics-doc.svelte';
-  import { prefersReducedMotion } from '$lib/motion';
+  import { cn } from '#lib/utils.ts';
+  import { parseLrc } from '#lib/lyrics/parse-lrc.ts';
+  import { createLyricsDoc, type LyricsDoc } from '#lib/lyrics/lyrics-doc.svelte.ts';
+  import { prefersReducedMotion } from '#lib/motion.ts';
   import LyricsStatusBadge from './LyricsStatusBadge.svelte';
   import AiLyricsBadge from './AiLyricsBadge.svelte';
-  import { isAdmin } from '$lib/auth/capabilities';
+  import { isAdmin } from '#lib/auth/capabilities.ts';
 
   type Props = {
     songId: number | null;

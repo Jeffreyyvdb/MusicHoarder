@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { albumTint } from '$lib/album-tint';
-  import { coverThumbUrl } from '$lib/api-client';
-  import { computeInitials } from '$lib/formatters';
-  import { cn } from '$lib/utils';
+  import { albumTint } from '#lib/album-tint.ts';
+  import { coverThumbUrl } from '#lib/api-client.ts';
+  import { computeInitials } from '#lib/formatters.ts';
+  import { cn } from '#lib/utils.ts';
 
   type Props = {
     artist: string;

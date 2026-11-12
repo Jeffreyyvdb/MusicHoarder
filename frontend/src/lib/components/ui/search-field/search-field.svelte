@@ -2,7 +2,7 @@
 	import type { HTMLInputAttributes } from "svelte/elements";
 	import SearchIcon from "@lucide/svelte/icons/search";
 	import XIcon from "@lucide/svelte/icons/x";
-	import { cn, type WithElementRef } from "$lib/utils.js";
+	import { cn, type WithElementRef } from "#lib/utils.js";
 
 	type Props = WithElementRef<Omit<HTMLInputAttributes, "type" | "value" | "class">, HTMLInputElement> & {
 		value?: string;

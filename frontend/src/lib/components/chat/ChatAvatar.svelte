@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { albumTint } from '$lib/album-tint';
-  import type { ChatPerson } from '$lib/api-client';
-  import { initials } from '$lib/chat/chat-text';
-  import { cn } from '$lib/utils';
+  import { albumTint } from '#lib/album-tint.ts';
+  import type { ChatPerson } from '#lib/api-client.ts';
+  import { initials } from '#lib/chat/chat-text.ts';
+  import { cn } from '#lib/utils.ts';
 
   // A person as a tinted circle with their initials. The tint is the album-cover hash on the
   // account id, so one person keeps one colour everywhere and nobody's is chosen by hand.

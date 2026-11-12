@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const goto = vi.fn(async (_url: string | URL, _opts?: Record<string, unknown>) => {});
 vi.mock('$app/navigation', () => ({ goto }));
 
-import { findTab, type NavTab } from '$lib/nav';
+import { findTab, type NavTab } from '#lib/nav.ts';
 
 /**
  * The store is module state, so each test gets a fresh copy (vi.resetModules + a dynamic import)
@@ -187,7 +187,7 @@ describe('tabMemory', () => {
 
   it('treats a replaceUrl navigation as a replace', async () => {
     const memory = await load();
-    const { replaceUrl: fresh } = await import('$lib/navigation/replace-url');
+    const { replaceUrl: fresh } = await import('#lib/navigation/replace-url.ts');
     memory.record({ type: 'enter', from: null, to: u('/overview') }, admin);
     nav(memory, admin, 'link', '/tracks');
 

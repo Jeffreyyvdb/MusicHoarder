@@ -1,5 +1,5 @@
-import { renderSitemap, sitemapEntries } from '$lib/content/sitemap';
-import { resolveSiteUrl } from '$lib/server/site-url';
+import { renderSitemap, sitemapEntries } from '#lib/content/sitemap.ts';
+import { resolveSiteUrl } from '#lib/server/site-url.ts';
 import type { RequestHandler } from './$types';
 
 export const prerender = false;

@@ -7,10 +7,10 @@ import {
   type NavAudience,
   type NavBack,
   type NavTab
-} from '$lib/nav';
+} from '#lib/nav.ts';
 
 /**
- * Per-tab navigation stacks — the pure half of `$lib/stores/tab-memory.svelte.ts`.
+ * Per-tab navigation stacks — the pure half of `#lib/stores/tab-memory.svelte.ts`.
  *
  * A phone app keeps one navigation stack per tab: open an album in Listen, switch to Inbox, come
  * back, and Listen is still on the album with Back returning to wherever the album was opened

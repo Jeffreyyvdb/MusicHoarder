@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { page } from '$app/state';
-  import { replaceUrl } from '$lib/navigation/replace-url';
+  import { replaceUrl } from '#lib/navigation/replace-url.ts';
   import {
     ArrowUpDown,
     Disc3,
@@ -20,21 +20,21 @@
     Video,
     X
   } from '@lucide/svelte';
-  import { EmptyState } from '$lib/components/ui/empty-state';
-  import { Button } from '$lib/components/ui/button';
-  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
-  import { SearchField } from '$lib/components/ui/search-field';
-  import AlbumPage from '$lib/components/file-browser/AlbumPage.svelte';
-  import Cover from '$lib/components/file-browser/Cover.svelte';
-  import TrackList from '$lib/components/file-browser/TrackList.svelte';
-  import FilterChip from '$lib/components/v2/FilterChip.svelte';
-  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
-  import LibraryAlbumsGridV2 from '$lib/components/v2/LibraryAlbumsGridV2.svelte';
-  import LibraryArtistsGridV2 from '$lib/components/v2/LibraryArtistsGridV2.svelte';
-  import TrackRowMenu, { activateTrack } from '$lib/components/v2/TrackRowMenu.svelte';
-  import TrackRowText from '$lib/components/v2/TrackRowText.svelte';
-  import { longpress, type LongPressPoint } from '$lib/actions/long-press';
+  import { EmptyState } from '#lib/components/ui/empty-state/index.ts';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
+  import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
+  import { SearchField } from '#lib/components/ui/search-field/index.ts';
+  import AlbumPage from '#lib/components/file-browser/AlbumPage.svelte';
+  import Cover from '#lib/components/file-browser/Cover.svelte';
+  import TrackList from '#lib/components/file-browser/TrackList.svelte';
+  import FilterChip from '#lib/components/v2/FilterChip.svelte';
+  import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
+  import LibraryAlbumsGridV2 from '#lib/components/v2/LibraryAlbumsGridV2.svelte';
+  import LibraryArtistsGridV2 from '#lib/components/v2/LibraryArtistsGridV2.svelte';
+  import TrackRowMenu, { activateTrack } from '#lib/components/v2/TrackRowMenu.svelte';
+  import TrackRowText from '#lib/components/v2/TrackRowText.svelte';
+  import { longpress, type LongPressPoint } from '#lib/actions/long-press.ts';
   import {
     CHIP_KEYS,
     CHIP_LABELS,
@@ -50,7 +50,7 @@
     warmSearchCache,
     type ChipKey,
     type SortKey
-  } from '$lib/track-list-view.svelte';
+  } from '#lib/track-list-view.svelte.ts';
   import {
     ALBUM_SORT_OPTIONS,
     buildArtistGroups,
@@ -68,19 +68,19 @@
     type AlbumSummaryDto,
     type ApiSong,
     type GroupSummary
-  } from '$lib/api-client';
-  import { isAnyUnreleasedSong, isUnreleasedSong } from '$lib/release-status';
-  import { parseBrowseFilter, applyBrowseFilter, browseFilterLabel } from '$lib/browse-filter';
-  import { formatDuration, formatFileSize, formatTotalDuration } from '$lib/formatters';
-  import { toPlayerSong } from '$lib/api-client';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-  import { playerStore } from '$lib/stores/player.svelte';
-  import { filterBySearch, indexForSearch, searchTerms } from '$lib/search/match';
-  import { songsStore } from '$lib/stores/songs.svelte';
-  import { songDetail } from '$lib/stores/song-detail.svelte';
-  import { tabMemory } from '$lib/stores/tab-memory.svelte';
-  import { cn, shuffle } from '$lib/utils';
-  import { isAdmin } from '$lib/auth/capabilities';
+  } from '#lib/api-client.ts';
+  import { isAnyUnreleasedSong, isUnreleasedSong } from '#lib/release-status.ts';
+  import { parseBrowseFilter, applyBrowseFilter, browseFilterLabel } from '#lib/browse-filter.ts';
+  import { formatDuration, formatFileSize, formatTotalDuration } from '#lib/formatters.ts';
+  import { toPlayerSong } from '#lib/api-client.ts';
+  import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
+  import { playerStore } from '#lib/stores/player.svelte.ts';
+  import { filterBySearch, indexForSearch, searchTerms } from '#lib/search/match.ts';
+  import { songsStore } from '#lib/stores/songs.svelte.ts';
+  import { songDetail } from '#lib/stores/song-detail.svelte.ts';
+  import { tabMemory } from '#lib/stores/tab-memory.svelte.ts';
+  import { cn, shuffle } from '#lib/utils.ts';
+  import { isAdmin } from '#lib/auth/capabilities.ts';
 
   // The song-detail panel is the global SongDetailHost (mounted in the app shell), so Library
   // hosts no detail pane of its own — track selection just drives the shared store.
@@ -324,7 +324,7 @@
   });
 
   // Album and artist search go through the same matcher as the tracks list and the command
-  // palette (`$lib/search/match`): every term, in any field, over folded text.
+  // palette (`#lib/search/match.ts`): every term, in any field, over folded text.
   const albumSearchIndex = $derived(indexForSearch(scopedAlbums, (a) => [a.title, a.artist]));
 
   const filteredAlbums = $derived.by(() =>

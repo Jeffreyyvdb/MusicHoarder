@@ -1,4 +1,4 @@
-import { markReplace } from '$lib/stores/tab-memory.svelte';
+import { markReplace } from '#lib/stores/tab-memory.svelte.ts';
 
 type ReplaceUrlOptions = { keepFocus?: boolean; noScroll?: boolean };
 

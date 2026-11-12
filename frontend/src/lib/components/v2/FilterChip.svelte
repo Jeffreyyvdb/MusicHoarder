@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Component, Snippet } from 'svelte';
-  import { cn } from '$lib/utils';
+  import { cn } from '#lib/utils.ts';
 
   // The one filter-pill idiom. Every page's chip band (PageToolbarV2 `filters` / `filterRow`) is
   // built from these, so a chip can't drift in height or in its pressed treatment.

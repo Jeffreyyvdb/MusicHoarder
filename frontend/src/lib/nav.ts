@@ -29,9 +29,9 @@ import Tags from '@lucide/svelte/icons/tags';
 import TrendingUp from '@lucide/svelte/icons/trending-up';
 import Users from '@lucide/svelte/icons/users';
 import Workflow from '@lucide/svelte/icons/workflow';
-import { APP_HOME } from '$lib/app-home';
-import { isAdmin, isDemo } from '$lib/auth/capabilities';
-import type { SessionUser } from '$lib/auth/session-types';
+import { APP_HOME } from '#lib/app-home.ts';
+import { isAdmin, isDemo } from '#lib/auth/capabilities.ts';
+import type { SessionUser } from '#lib/auth/session-types.ts';
 
 /**
  * THE nav source of truth.

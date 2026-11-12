@@ -1,5 +1,5 @@
 import { ANDROID_ASSETLINKS_FINGERPRINTS } from '$app/env/private';
-import { assetlinksJson, parseFingerprints } from '$lib/server/assetlinks';
+import { assetlinksJson, parseFingerprints } from '#lib/server/assetlinks.ts';
 import type { RequestHandler } from './$types';
 
 export const prerender = false;

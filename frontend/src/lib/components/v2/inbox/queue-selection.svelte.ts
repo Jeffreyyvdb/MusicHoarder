@@ -1,7 +1,7 @@
 import { untrack } from 'svelte';
 import { goto } from '$app/navigation';
 import { page } from '$app/state';
-import { replaceUrl } from '$lib/navigation/replace-url';
+import { replaceUrl } from '#lib/navigation/replace-url.ts';
 import { neighbours, parseQueueId, queueHref, resolveSelection } from './queue-selection';
 
 type Options = {

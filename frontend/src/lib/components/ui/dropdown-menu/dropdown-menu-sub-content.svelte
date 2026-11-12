@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { DropdownMenu as DropdownMenuPrimitive } from "bits-ui";
 	import { MediaQuery } from "svelte/reactivity";
-	import { cn } from "$lib/utils.js";
+	import { cn } from "#lib/utils.js";
 
 	// A phone has no room beside a 240px menu for a second one, so on touch a submenu opens
 	// below its item, over the parent — iOS shows submenus in place of the menu, not beside it.

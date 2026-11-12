@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import { bottomBar } from '$lib/stores/bottom-bar.svelte';
-  import { DYNAMIC_TYPE_CHANGE } from '$lib/dynamic-type';
+  import { bottomBar } from '#lib/stores/bottom-bar.svelte.ts';
+  import { DYNAMIC_TYPE_CHANGE } from '#lib/dynamic-type.ts';
 
   // The compact decision toolbar of a pushed Inbox detail (Tag review, Duplicates, AI flagged).
   // It takes the tab bar's slot rather than stacking above it — UIKit's hidesBottomBarWhenPushed,

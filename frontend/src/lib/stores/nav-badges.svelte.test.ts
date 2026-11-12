@@ -10,14 +10,14 @@ const fetchInboxNameCounts = vi.fn();
 const fetchArtistDuplicates = vi.fn();
 const fetchAlbumDuplicates = vi.fn();
 const fetchSplitAlbums = vi.fn();
-vi.mock('$lib/api-client', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('$lib/api-client')>()),
+vi.mock('#lib/api-client.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('#lib/api-client.ts')>()),
   fetchInboxNameCounts: () => fetchInboxNameCounts(),
   fetchArtistDuplicates: () => fetchArtistDuplicates(),
   fetchAlbumDuplicates: () => fetchAlbumDuplicates(),
   fetchSplitAlbums: () => fetchSplitAlbums()
 }));
-vi.mock('$lib/stores/songs.svelte', () => ({ songsStore: { songs: [], isLoading: false } }));
+vi.mock('#lib/stores/songs.svelte.ts', () => ({ songsStore: { songs: [], isLoading: false } }));
 
 beforeEach(() => {
   vi.resetModules();

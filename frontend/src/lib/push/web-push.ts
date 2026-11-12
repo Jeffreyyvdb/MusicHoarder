@@ -1,6 +1,6 @@
-import { fetchPushConfig, removePushSubscription, savePushSubscription } from '$lib/api-client';
-import { isInstalledApp } from '$lib/hooks/viewport-insets.svelte';
-import { isIosDevice } from '$lib/ios-safari';
+import { fetchPushConfig, removePushSubscription, savePushSubscription } from '#lib/api-client.ts';
+import { isInstalledApp } from '#lib/hooks/viewport-insets.svelte.ts';
+import { isIosDevice } from '#lib/ios-safari.ts';
 
 /**
  * Browser notifications for chat (Web Push). The service worker shows them (`src/service-worker.ts`);

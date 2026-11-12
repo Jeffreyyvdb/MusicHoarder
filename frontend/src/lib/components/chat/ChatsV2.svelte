@@ -3,27 +3,27 @@
   import { page } from '$app/state';
   import { Bell, BellOff, MessageCircle, SquarePen, TriangleAlert, UserRound } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
-  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
-  import * as BottomSheet from '$lib/components/ui/bottom-sheet';
-  import { Button } from '$lib/components/ui/button';
-  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
-  import { EmptyState } from '$lib/components/ui/empty-state';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import { Skeleton } from '$lib/components/ui/skeleton';
+  import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
+  import * as BottomSheet from '#lib/components/ui/bottom-sheet/index.ts';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
+  import { EmptyState } from '#lib/components/ui/empty-state/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import { Skeleton } from '#lib/components/ui/skeleton/index.ts';
   import {
     listAccounts,
     fetchChatPeople,
     sendTestPush,
     startChatConversation,
     type ChatPerson
-  } from '$lib/api-client';
-  import { isDemo } from '$lib/auth/capabilities';
-  import { switchAccountAndReload } from '$lib/auth/switch-account';
-  import { conversationTitle, listTimeLabel, messagePreview } from '$lib/chat/chat-text';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-  import { disablePush, pushState, type PushState } from '$lib/push/web-push';
-  import { chatStore } from '$lib/stores/chat.svelte';
-  import { cn } from '$lib/utils';
+  } from '#lib/api-client.ts';
+  import { isDemo } from '#lib/auth/capabilities.ts';
+  import { switchAccountAndReload } from '#lib/auth/switch-account.ts';
+  import { conversationTitle, listTimeLabel, messagePreview } from '#lib/chat/chat-text.ts';
+  import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
+  import { disablePush, pushState, type PushState } from '#lib/push/web-push.ts';
+  import { chatStore } from '#lib/stores/chat.svelte.ts';
+  import { cn } from '#lib/utils.ts';
   import ChatAvatar from './ChatAvatar.svelte';
   import ChatThread from './ChatThread.svelte';
   import NotificationsRow from './NotificationsRow.svelte';

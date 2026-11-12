@@ -1,9 +1,9 @@
 <script lang="ts" module>
-  import { playerStore } from '$lib/stores/player.svelte';
-  import { songDetail } from '$lib/stores/song-detail.svelte';
-  import { tapActionFor } from '$lib/track-list-view.svelte';
-  import { buttonVariants } from '$lib/components/ui/button';
-  import { cn } from '$lib/utils';
+  import { playerStore } from '#lib/stores/player.svelte.ts';
+  import { songDetail } from '#lib/stores/song-detail.svelte.ts';
+  import { tapActionFor } from '#lib/track-list-view.svelte.ts';
+  import { buttonVariants } from '#lib/components/ui/button/index.ts';
+  import { cn } from '#lib/utils.ts';
 
   /**
    * A row tap on a phone (the tap rule, mirrored by the Android client's `RowTap`): a song that is not the
@@ -47,17 +47,17 @@
     UsersRound
   } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
-  import type { LongPressPoint } from '$lib/actions/long-press';
-  import { Button } from '$lib/components/ui/button';
-  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
-  import ShareWithFriendDialog from '$lib/components/file-browser/ShareWithFriendDialog.svelte';
-  import AddToPlaylistSheet from '$lib/components/v2/AddToPlaylistSheet.svelte';
-  import { albumKeyForSong, type ApiSong } from '$lib/api-client';
-  import { can, isAdmin } from '$lib/auth/capabilities';
-  import { findShareLink, shareLink, type ShareLink } from '$lib/share-links';
-  import { sendTo, sendToSong } from '$lib/stores/send-to.svelte';
-  import { songsStore } from '$lib/stores/songs.svelte';
-  import { artistOf, titleOf } from '$lib/track-list-view.svelte';
+  import type { LongPressPoint } from '#lib/actions/long-press.ts';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
+  import ShareWithFriendDialog from '#lib/components/file-browser/ShareWithFriendDialog.svelte';
+  import AddToPlaylistSheet from '#lib/components/v2/AddToPlaylistSheet.svelte';
+  import { albumKeyForSong, type ApiSong } from '#lib/api-client.ts';
+  import { can, isAdmin } from '#lib/auth/capabilities.ts';
+  import { findShareLink, shareLink, type ShareLink } from '#lib/share-links.ts';
+  import { sendTo, sendToSong } from '#lib/stores/send-to.svelte.ts';
+  import { songsStore } from '#lib/stores/songs.svelte.ts';
+  import { artistOf, titleOf } from '#lib/track-list-view.svelte.ts';
 
   // The one action set for a song wherever it is listed — Tracks rows, album tracklists, the
   // Overview's favourites, an artist's songs — behind a visible ⋯ button and, on the row, a

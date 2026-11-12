@@ -3,11 +3,11 @@
   import { page } from '$app/state';
   import { ArrowUp, Loader2, MessageCircle, TriangleAlert } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
-  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
-  import AddFromUrlDialog from '$lib/components/v2/AddFromUrlDialog.svelte';
-  import { Button } from '$lib/components/ui/button';
-  import { EmptyState } from '$lib/components/ui/empty-state';
-  import { Skeleton } from '$lib/components/ui/skeleton';
+  import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
+  import AddFromUrlDialog from '#lib/components/v2/AddFromUrlDialog.svelte';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import { EmptyState } from '#lib/components/ui/empty-state/index.ts';
+  import { Skeleton } from '#lib/components/ui/skeleton/index.ts';
   import {
     ApiError,
     fetchChatConversation,
@@ -15,7 +15,7 @@
     sendChatMessage,
     type ChatConversation,
     type ChatMessage
-  } from '$lib/api-client';
+  } from '#lib/api-client.ts';
   import {
     continuesRun,
     conversationTitle,
@@ -23,12 +23,12 @@
     mergeMessages,
     seenMessageId,
     startsDay
-  } from '$lib/chat/chat-text';
-  import { isAdmin } from '$lib/auth/capabilities';
-  import { bottomBar } from '$lib/stores/bottom-bar.svelte';
-  import { chatStore } from '$lib/stores/chat.svelte';
-  import { tabMemory } from '$lib/stores/tab-memory.svelte';
-  import { cn } from '$lib/utils';
+  } from '#lib/chat/chat-text.ts';
+  import { isAdmin } from '#lib/auth/capabilities.ts';
+  import { bottomBar } from '#lib/stores/bottom-bar.svelte.ts';
+  import { chatStore } from '#lib/stores/chat.svelte.ts';
+  import { tabMemory } from '#lib/stores/tab-memory.svelte.ts';
+  import { cn } from '#lib/utils.ts';
   import ChatMessageView from './ChatMessageView.svelte';
 
   // One conversation: its messages, oldest at the top, and the composer.

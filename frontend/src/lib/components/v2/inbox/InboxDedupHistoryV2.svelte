@@ -1,12 +1,12 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { Loader2, Undo2 } from '@lucide/svelte';
-  import { fetchDedupActions, revertDedupAction, type DedupAction } from '$lib/api-client';
-  import { Button } from '$lib/components/ui/button';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
+  import { fetchDedupActions, revertDedupAction, type DedupAction } from '#lib/api-client.ts';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
   import { toast } from 'svelte-sonner';
-  import { cn } from '$lib/utils';
-  import { formatDateTime } from '$lib/formatters';
+  import { cn } from '#lib/utils.ts';
+  import { formatDateTime } from '#lib/formatters.ts';
   import { dedupKey } from './dedup-undo';
 
   type Props = {

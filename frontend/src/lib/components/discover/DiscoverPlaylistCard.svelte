@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { DiscoverPlaylistSummary } from '$lib/api-client';
+  import type { DiscoverPlaylistSummary } from '#lib/api-client.ts';
   import { ListMusic, Plus, Check, Loader2 } from '@lucide/svelte';
 
   // One playlist in Discover's grid: the Apple Music tile — the cover (8px radius, no card

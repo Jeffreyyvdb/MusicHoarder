@@ -1,6 +1,6 @@
 import { SPOTIFY_OAUTH_STATE_SIGNING_KEY, SPOTIFY_RETURN_ORIGIN_ALLOWLIST } from '$app/env/private';
 
-import { isAllowedReturnOrigin, verifyRelayState } from '$lib/server/spotify-relay-state';
+import { isAllowedReturnOrigin, verifyRelayState } from '#lib/server/spotify-relay-state.ts';
 import type { RequestHandler } from './$types';
 
 /**

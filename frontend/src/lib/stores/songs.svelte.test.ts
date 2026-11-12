@@ -18,8 +18,8 @@ const closeStream = vi.fn();
 const openProgressStream = vi.fn(() => closeStream);
 // The network calls are stubbed; the pure helpers (the filters and grouping behind the store's
 // shared cuts) stay real.
-vi.mock('$lib/api-client', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('$lib/api-client')>()),
+vi.mock('#lib/api-client.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('#lib/api-client.ts')>()),
   currentGrantors: () => [],
   fetchAlbums: (...args: unknown[]) => fetchAlbums(...args),
   fetchAlbumsIfChanged: (...args: unknown[]) => fetchAlbumsIfChanged(...args),

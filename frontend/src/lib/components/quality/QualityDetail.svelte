@@ -7,14 +7,14 @@
     type EnrichmentDetail,
     type SongQualityGradeView,
     type QualitySongRow
-  } from '$lib/api-client';
+  } from '#lib/api-client.ts';
   import {
     candidatesFromDetail,
     beforeAfterRows,
     buildOriginMatrix,
     buildDestinationPath,
     type EditableFieldKey
-  } from '$lib/review-helpers';
+  } from '#lib/review-helpers.ts';
   import {
     verdictTone,
     toneText,
@@ -23,21 +23,21 @@
     verdictGlyph,
     classifyBucket,
     issueLabel
-  } from '$lib/quality-ui';
+  } from '#lib/quality-ui.ts';
   import { goto } from '$app/navigation';
-  import Cover from '$lib/components/file-browser/Cover.svelte';
-  import { Button } from '$lib/components/ui/button';
-  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
-  import { SegmentedControl } from '$lib/components/ui/segmented-control';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
-  import CandidateGrid from '$lib/components/review/CandidateGrid.svelte';
-  import BeforeAfterView from '$lib/components/review/BeforeAfterView.svelte';
-  import OriginMatrixView from '$lib/components/review/OriginMatrixView.svelte';
-  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
-  import type { NavBack } from '$lib/nav';
-  import { cleanDisplayName } from '$lib/formatters';
-  import { coverUrlForSongId } from '$lib/components/v2/inbox/song-cover';
-  import { cn } from '$lib/utils';
+  import Cover from '#lib/components/file-browser/Cover.svelte';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
+  import { SegmentedControl } from '#lib/components/ui/segmented-control/index.ts';
+  import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
+  import CandidateGrid from '#lib/components/review/CandidateGrid.svelte';
+  import BeforeAfterView from '#lib/components/review/BeforeAfterView.svelte';
+  import OriginMatrixView from '#lib/components/review/OriginMatrixView.svelte';
+  import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
+  import type { NavBack } from '#lib/nav.ts';
+  import { cleanDisplayName } from '#lib/formatters.ts';
+  import { coverUrlForSongId } from '#lib/components/v2/inbox/song-cover.ts';
+  import { cn } from '#lib/utils.ts';
   import { Sparkles, Loader2, Copy, ExternalLink } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
   import { SvelteSet } from 'svelte/reactivity';

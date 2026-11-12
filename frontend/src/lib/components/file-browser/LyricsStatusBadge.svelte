@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { LyricsStatus } from '$lib/types';
-  import { Badge } from '$lib/components/ui/badge';
+  import type { LyricsStatus } from '#lib/types.ts';
+  import { Badge } from '#lib/components/ui/badge/index.ts';
   import { CircleCheck, Music, FileText, AlertCircle, Clock } from '@lucide/svelte';
   type Props = { status?: LyricsStatus };
   const { status }: Props = $props();

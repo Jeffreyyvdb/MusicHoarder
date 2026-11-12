@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Skeleton } from '$lib/components/ui/skeleton';
+  import { Skeleton } from '#lib/components/ui/skeleton/index.ts';
 </script>
 
 <!-- Shaped like the track rows it stands in for: art, two lines, a trailing status/duration. -->

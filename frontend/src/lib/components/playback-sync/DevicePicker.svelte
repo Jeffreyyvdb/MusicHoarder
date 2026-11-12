@@ -1,12 +1,12 @@
 <script lang="ts">
   import { Check } from '@lucide/svelte';
   import type { Snippet } from 'svelte';
-  import * as BottomSheet from '$lib/components/ui/bottom-sheet';
-  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-  import { playbackSync, type DeviceEntry } from '$lib/stores/playback-sync.svelte';
-  import { cn } from '$lib/utils';
+  import * as BottomSheet from '#lib/components/ui/bottom-sheet/index.ts';
+  import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
+  import { playbackSync, type DeviceEntry } from '#lib/stores/playback-sync.svelte.ts';
+  import { cn } from '#lib/utils.ts';
   import { DEVICE_ICONS } from './device-icons';
 
   /**

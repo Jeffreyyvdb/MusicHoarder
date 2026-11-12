@@ -1,5 +1,5 @@
-import { getApiBaseUrl } from '$lib/server/api-target';
-import type { SessionRole, SessionUser } from '$lib/auth/session-types';
+import { getApiBaseUrl } from '#lib/server/api-target.ts';
+import type { SessionRole, SessionUser } from '#lib/auth/session-types.ts';
 
 export type { SessionRole, SessionUser };
 

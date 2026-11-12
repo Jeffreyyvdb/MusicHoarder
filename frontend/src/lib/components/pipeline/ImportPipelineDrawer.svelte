@@ -11,18 +11,18 @@
     Square,
     X
   } from '@lucide/svelte';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
-  import { Button } from '$lib/components/ui/button';
-  import * as AlertDialog from '$lib/components/ui/alert-dialog';
+  import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import * as AlertDialog from '#lib/components/ui/alert-dialog/index.ts';
   import {
     pipelineOverlay,
     JOB_CONFIRM_COPY,
     type JobConfirm,
     type StageKey
-  } from '$lib/stores/pipeline-overlay.svelte';
+  } from '#lib/stores/pipeline-overlay.svelte.ts';
   import PipelineStageCard from './PipelineStageCard.svelte';
   import PipelineLogRow from './PipelineLogRow.svelte';
-  import { motionFly } from '$lib/motion';
+  import { motionFly } from '#lib/motion.ts';
 
   const snap = $derived(pipelineOverlay.snapshot);
   const overview = $derived(pipelineOverlay.overview);

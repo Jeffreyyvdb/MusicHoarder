@@ -7,7 +7,7 @@
  * now served by GET /api/library/duplicates (fingerprint-similarity clusters) and rendered in the
  * Inbox — so only the build-state predicate remains.
  */
-import type { ApiSong } from '$lib/api-client';
+import type { ApiSong } from '#lib/api-client.ts';
 
 /**
  * A song is "built"/clean when it reached the destination library:

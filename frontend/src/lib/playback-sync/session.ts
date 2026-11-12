@@ -1,4 +1,4 @@
-import { previousAction } from '$lib/player-seek';
+import { previousAction } from '#lib/player-seek.ts';
 import type { PlaybackCommandName, PlaybackDevice, PlaybackSession } from './wire';
 
 /**

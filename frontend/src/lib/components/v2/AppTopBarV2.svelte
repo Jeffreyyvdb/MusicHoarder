@@ -1,17 +1,17 @@
 <script lang="ts">
   import { Link, Search } from '@lucide/svelte';
   import { page } from '$app/state';
-  import * as Sidebar from '$lib/components/ui/sidebar';
-  import { Button } from '$lib/components/ui/button';
-  import AccountButton from '$lib/components/v2/AccountButton.svelte';
-  import AddFromUrlDialog from '$lib/components/v2/AddFromUrlDialog.svelte';
-  import SectionTabsV2 from '$lib/components/v2/SectionTabsV2.svelte';
-  import { commandPalette } from '$lib/stores/command-palette.svelte';
-  import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
-  import { songsStore } from '$lib/stores/songs.svelte';
-  import { navGroupsFor, resolveNav } from '$lib/nav';
-  import { isAdmin } from '$lib/auth/capabilities';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
+  import * as Sidebar from '#lib/components/ui/sidebar/index.ts';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import AccountButton from '#lib/components/v2/AccountButton.svelte';
+  import AddFromUrlDialog from '#lib/components/v2/AddFromUrlDialog.svelte';
+  import SectionTabsV2 from '#lib/components/v2/SectionTabsV2.svelte';
+  import { commandPalette } from '#lib/stores/command-palette.svelte.ts';
+  import { pipelineOverlay } from '#lib/stores/pipeline-overlay.svelte.ts';
+  import { songsStore } from '#lib/stores/songs.svelte.ts';
+  import { navGroupsFor, resolveNav } from '#lib/nav.ts';
+  import { isAdmin } from '#lib/auth/capabilities.ts';
+  import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
 
   let addOpen = $state(false);
   const isMobile = new IsMobile();

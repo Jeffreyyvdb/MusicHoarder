@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { CircleAlert, CircleCheck } from '@lucide/svelte';
-  import { cn } from '$lib/utils';
+  import { cn } from '#lib/utils.ts';
 
   /**
    * The outcome of a settings action, as a footnote line under its section rather than a tinted

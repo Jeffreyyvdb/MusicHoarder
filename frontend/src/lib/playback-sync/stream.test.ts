@@ -4,7 +4,7 @@ import {
   nextStreamBackoff,
   openPlaybackStream,
   playbackStreamUrl
-} from '$lib/api-client';
+} from '#lib/api-client.ts';
 
 /**
  * The stream opener in api-client: one listener per named server event, validation before any

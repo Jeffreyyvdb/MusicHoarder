@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createLyricsDoc, type LyricsDocApi } from './lyrics-doc.svelte';
-import type { LyricsStatus } from '$lib/types';
+import type { LyricsStatus } from '#lib/types.ts';
 
 /**
  * The lyrics document moved out of LyricsPanel so Now Playing's ⋯ menu and lyrics status row can
