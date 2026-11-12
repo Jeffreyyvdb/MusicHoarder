@@ -38,6 +38,10 @@
     <ItemGroup>
         <PackageReference Include="Aspire.Npgsql.EntityFrameworkCore.PostgreSQL" Version="13.6.5" />
         <PackageReference Include="Fido2.AspNet" Version="4.3.2" />
+        <!-- Fido2 4.3.2 depends on System.Formats.Cbor 9.0.0 (GHSA-vmv3-wvjp-wqpj). This project gets the
+             patched assembly from the ASP.NET Core shared framework (hence NU1510), but the test and
+             perf-seed projects that reference it do not, so pin the patched package for them. -->
+        <PackageReference Include="System.Formats.Cbor" Version="10.0.15" NoWarn="NU1510" />
         <PackageReference Include="FuzzySharp" Version="2.0.2" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.14" />
         <!-- Pinned directly (design-time only) to override a bad transitive resolution to
