@@ -76,7 +76,9 @@
   // only restores the window's. Keyed per account; record() loads the right one itself, init()
   // just does it before the first navigation lands.
   $effect(() => tabMemory.init(page.data.user?.id));
-  beforeNavigate(({ from }) => {
+
+  beforeNavigate(({ from, shallow, type }) => {
+    if (shallow && type === 'goto') return;
     if (from) tabMemory.captureScroll(from.url);
   });
 
@@ -92,6 +94,8 @@
     onSwitched: () => location.reload()
   });
   afterNavigate((nav) => {
+    if (nav.shallow && nav.type === 'goto') return;
+
     tabMemory.record(nav, page.data.user);
     sessionWatch.poke();
   });
@@ -183,7 +187,11 @@
     if (!('serviceWorker' in navigator)) return;
     const onMessage = (event: MessageEvent) => {
       const data = event.data as { type?: string; url?: string } | null;
-      if (data?.type === 'mh:navigate' && typeof data.url === 'string' && data.url.startsWith('/')) {
+      if (
+        data?.type === 'mh:navigate' &&
+        typeof data.url === 'string' &&
+        data.url.startsWith('/')
+      ) {
         void goto(data.url);
       }
     };
@@ -196,7 +204,8 @@
   // stored share as it opens, so this never pulls anyone back to it.
   $effect(() => {
     untrack(() => {
-      if (readPendingShare() && !page.url.pathname.startsWith('/chats/share')) void goto('/chats/share');
+      if (readPendingShare() && !page.url.pathname.startsWith('/chats/share'))
+        void goto('/chats/share');
     });
   });
 

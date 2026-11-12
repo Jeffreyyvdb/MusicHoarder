@@ -26,6 +26,8 @@
   // the effect below announces the update as soon as it's known, so the reload
   // is chosen (tap Refresh) rather than suffered mid-tap (F28).
   beforeNavigate((nav) => {
+    if (nav.shallow && nav.type === 'goto') return;
+
     if (updated.current && nav.to?.url && !nav.willUnload) {
       nav.cancel();
       location.href = nav.to.url.href;
@@ -48,28 +50,15 @@
 
   // A navigation completed without a stale-chunk failure, so chunks are loading
   // fine — reset the stale-chunk reload budget for the next deploy.
-  afterNavigate(() => clearStaleChunkRecovery());
+  afterNavigate(({ shallow, type }) => {
+    if (shallow && type === 'goto') return;
 
-  // Track the browser's bottom chrome (e.g. Chrome Android's bottom address bar)
-  // so the floating bottom nav / mini-player never hide behind it.
+    return clearStaleChunkRecovery();
+  });
+
   onMount(() => installBottomInsetTracker());
-
-  // Follow the iPhone's Text Size setting (--mh-dt, which the iOS text-style utilities scale by).
-  // A no-op off iOS; app.html has already applied the value before first paint.
   $effect(() => installDynamicType());
 
-  // Hex mirrors of `--background` (app.css) for the theme-color meta: Safari's tab bar, and the
-  // status bar of the installed iOS app. app.html sets the initial value before hydration; this
-  // follows the theme toggle. Done by hand rather than via ModeWatcher's `themeColors`, which would
-  // render a second <meta name="theme-color"> on server-rendered pages next to the static one the
-  // client-rendered (app) routes need.
-  //
-  // Inside the app shell the status bar follows the page's surface as well: a grouped page (a hub,
-  // Settings — `surfaceFor` in $lib/nav) sits on #F2F2F7 in light mode, and Now Playing's media
-  // appearance is black in either mode (the theme-surface store holds that one override). A cold
-  // load of a grouped page still paints one #ffffff frame first — app.html cannot know the
-  // surface — which is accepted, like the light launch screen. Landing, login and share pages
-  // keep the plain background.
   const THEME_COLOR = { light: '#ffffff', dark: '#000000' } as const;
   const GROUPED_LIGHT = '#f2f2f7';
   const MEDIA = '#000000';
