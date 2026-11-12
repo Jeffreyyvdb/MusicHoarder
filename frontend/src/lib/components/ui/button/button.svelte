@@ -1,5 +1,5 @@
 <script lang="ts" module>
-	import { cn, twMergeConfig, type WithElementRef } from "$lib/utils.js";
+	import { cn, twMerge, type WithElementRef } from "$lib/utils.js";
 	import type { HTMLAnchorAttributes, HTMLButtonAttributes } from "svelte/elements";
 	import { type VariantProps, tv } from "tailwind-variants";
 
@@ -57,7 +57,7 @@
 			variant: "default",
 			size: "default",
 		},
-	}, { twMergeConfig });
+	}, { twMerge });
 
 	export type ButtonVariant = VariantProps<typeof buttonVariants>["variant"];
 	export type ButtonSize = VariantProps<typeof buttonVariants>["size"];
