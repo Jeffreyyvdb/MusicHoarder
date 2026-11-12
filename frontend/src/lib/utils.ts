@@ -10,11 +10,12 @@ import { extendTailwindMerge } from 'tailwind-merge';
  * Registering the names under `font-size` puts them in the right conflict group:
  * a size and a color now coexist, and two sizes still collapse to the last one.
  *
- * Exported because tailwind-variants runs its own merge inside `tv()` with the stock
- * config: a variant table that pairs a text style with a colour (`text-headline` +
- * `text-primary`) must pass this as `{ twMergeConfig }` or lose one of the two.
+ * tailwind-variants runs its own merge inside `tv()` with the stock config, so a
+ * variant table that pairs a text style with a colour (`text-headline` +
+ * `text-primary`) must pass the exported `twMerge` below as `{ twMerge }` or lose one
+ * of the two.
  */
-export const twMergeConfig = {
+const twMergeConfig = {
   extend: {
     classGroups: {
       'font-size': [
@@ -43,7 +44,7 @@ export const twMergeConfig = {
   }
 };
 
-const twMerge = extendTailwindMerge(twMergeConfig);
+export const twMerge = extendTailwindMerge(twMergeConfig);
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
