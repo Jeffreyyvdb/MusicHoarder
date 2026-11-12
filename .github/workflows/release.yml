@@ -265,7 +265,7 @@ jobs:
       # that has to happen before the API is allowed to publish (see android/README.md).
       - name: Upload the App Bundle as a run artifact
         if: steps.apk.outputs.aab != ''
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: musichoarder-aab-${{ steps.semrel.outputs.new_release_version }}
           path: ${{ steps.apk.outputs.aab }}
