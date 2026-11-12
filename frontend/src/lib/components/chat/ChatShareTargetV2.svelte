@@ -69,10 +69,7 @@
       void chatStore.refresh();
       toast.success(selected.length === 1 ? 'Sent' : `Sent to ${selected.length} people`);
       // A replace: Back from the conversation goes to the chat list, not to this page again.
-      await replaceUrl(messages.length === 1 ? `/chats/${messages[0].conversationId}` : '/chats', {
-        keepFocus: false,
-        noScroll: false
-      });
+      await replaceUrl(messages.length === 1 ? `/chats/${messages[0].conversationId}` : '/chats', { reset: true });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not send it.');
     } finally {
@@ -82,7 +79,7 @@
 
   function cancel() {
     clearPendingShare();
-    void replaceUrl('/chats', { keepFocus: false, noScroll: false });
+    void replaceUrl('/chats', { reset: true });
   }
 </script>
 

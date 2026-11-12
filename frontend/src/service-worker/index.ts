@@ -1,9 +1,6 @@
-/// <reference types="@sveltejs/kit" />
-/// <reference no-default-lib="true"/>
-/// <reference lib="esnext" />
-/// <reference lib="webworker" />
-
-import { base, version } from '$service-worker';
+import { version } from '$app/env';
+import { asset } from '$app/paths';
+import { self } from '$app/service-worker';
 
 /**
  * Deliberately minimal service worker.
@@ -11,7 +8,7 @@ import { base, version } from '$service-worker';
  * What it does: precaches one static page and serves it when a *top-level navigation* fails at
  * the network level, so an installed (home-screen) app launched without connectivity shows a
  * MusicHoarder "you're offline" screen instead of the browser's error page. SvelteKit registers
- * it automatically because this file exists (`kit.serviceWorker.register` defaults to true).
+ * it automatically because this file exists (`serviceWorker.register` defaults to true).
  *
  * It also shows chat notifications (Web Push): a `push` becomes a notification, and tapping one
  * brings the app forward on the conversation. Neither touches a cache or a fetch.
@@ -22,10 +19,10 @@ import { base, version } from '$service-worker';
  * version poll + stale-chunk recovery assume HTML always comes from the server. A caching layer
  * here would turn every deploy into a stale-shell bug — keep it this small.
  */
-const sw = self as unknown as ServiceWorkerGlobalScope;
+const sw = self;
 
 const CACHE = `mh-offline-${version}`;
-const OFFLINE_URL = `${base}/offline.html`;
+const OFFLINE_URL = asset('offline.html');
 
 sw.addEventListener('install', (event) => {
   event.waitUntil(
@@ -104,8 +101,8 @@ sw.addEventListener('push', (event) => {
   const title = payload.title || 'MusicHoarder';
   const options: NotificationOptions & { renotify?: boolean } = {
     body: payload.body || 'New message',
-    icon: `${base}/icon-192.png`,
-    badge: `${base}/icon-maskable-192.png`,
+    icon: asset('icon-192.png'),
+    badge: asset('icon-maskable-192.png'),
     // One notification per conversation: a newer message replaces the older one — and still buzzes.
     tag: payload.tag || 'chat',
     renotify: true,

@@ -171,7 +171,7 @@ describe('tabMemory', () => {
     expect(target?.href).toBe('/overview');
     await memory.goBack(target!);
     expect(back).not.toHaveBeenCalled();
-    expect(goto).toHaveBeenCalledWith('/overview', { replaceState: true });
+    expect(goto).toHaveBeenCalledWith('/overview', { replace: true });
   });
 
   it('records the replacing Back as a replace, not a push', async () => {
@@ -194,9 +194,8 @@ describe('tabMemory', () => {
     goto.mockImplementationOnce(async (url) => nav(memory, admin, 'goto', String(url)));
     await fresh('/tracks?f=mh-liked');
     expect(goto).toHaveBeenLastCalledWith('/tracks?f=mh-liked', {
-      replaceState: true,
-      noScroll: true,
-      keepFocus: true
+      replace: true,
+      reset: false
     });
     // One entry, rewritten — Back goes to the Overview, not to the unfiltered list.
     expect(memory.backTarget(u('/tracks?f=mh-liked'), admin)?.href).toBe('/overview');

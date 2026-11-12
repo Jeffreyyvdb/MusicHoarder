@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { invalidateAll } from '$app/navigation';
+  import { refreshAll } from '$app/navigation';
   import { replaceUrl } from '#lib/navigation/replace-url.ts';
   import { page } from '$app/state';
   import { tabMemory } from '#lib/stores/tab-memory.svelte.ts';
@@ -133,7 +133,7 @@
   // does not return to it): to the root on a phone, the first section on a desktop.
   $effect(() => {
     const target = view.redirect;
-    if (target) void replaceUrl(target, { noScroll: false, keepFocus: false });
+    if (target) void replaceUrl(target, { reset: true });
   });
 
   // A member has one section, so the desktop gets no pane list for them (a list of one row is
@@ -264,7 +264,7 @@
       isEditingName = false;
       // Session user lives in page.data — re-run the layout load so the account button and
       // this page pick up the new name.
-      await invalidateAll();
+      await refreshAll();
     } catch (err) {
       nameError = err instanceof Error ? err.message : 'Could not update the account name.';
     } finally {

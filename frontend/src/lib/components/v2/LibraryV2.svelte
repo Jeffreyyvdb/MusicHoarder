@@ -142,7 +142,7 @@
   const chips = $derived(parseChips(page.url.searchParams.get('f')));
 
   function setChips(next: ChipKey[]) {
-    const url = new URL(page.url);
+    const url = new URL(page.url.href);
     const value = serializeChips(next);
     if (value) url.searchParams.set('f', value);
     else url.searchParams.delete('f');
@@ -167,7 +167,7 @@
   // params) and restore it once the grid has laid out.
   let gridViewport = $state<HTMLElement | null>(null);
   const scrollKey = $derived.by(() => {
-    const u = new URL(page.url);
+    const u = new URL(page.url.href);
     for (const p of ['album', 'song', 'track']) u.searchParams.delete(p);
     return `mh-lib-scroll:${u.pathname}${u.search}`;
   });
@@ -425,13 +425,13 @@
     if (!Number.isFinite(id)) return;
     const owningAlbum = allAlbums.find((a) => a.songs.some((s) => s.id === id));
     songDetail.open(id, owningAlbum?.key);
-    const url = new URL(page.url);
+    const url = new URL(page.url.href);
     url.searchParams.delete('song');
     url.searchParams.delete('track');
     // Preserve the drilldown context for a ?song= link that carried no ?album=.
     if (owningAlbum && tab === 'albums' && !albumKey)
       url.searchParams.set('album', owningAlbum.key);
-    void replaceUrl(url.pathname + url.search, { keepFocus: false });
+    void replaceUrl(url.pathname + url.search);
   });
 
   // Highlighted row follows the open panel (the store is the source of truth).

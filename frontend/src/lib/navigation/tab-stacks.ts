@@ -1,3 +1,4 @@
+import type { ReadonlyURL } from '$app/state';
 import {
   backFor,
   isTabRoot,
@@ -56,8 +57,8 @@ const BASE = 'http://tab-memory.invalid';
 /** A stack can't grow without bound in sessionStorage; iOS itself never shows more than this. */
 const MAX_DEPTH = 30;
 
-function toUrl(url: URL | string): URL {
-  return typeof url === 'string' ? new URL(url, BASE) : url;
+function toUrl(url: ReadonlyURL | string): URL {
+  return typeof url === 'string' ? new URL(url, BASE) : new URL(url.href);
 }
 
 /**
@@ -70,7 +71,7 @@ function toUrl(url: URL | string): URL {
  * `/inbox?tab=review&song=N` — otherwise the two spellings of one page were two stack entries and
  * Back could land on the page you were already on.
  */
-export function normUrl(url: URL | string): string {
+export function normUrl(url: ReadonlyURL | string): string {
   const u = new URL(toUrl(url).href);
   const path =
     u.pathname.length > 1 && u.pathname.endsWith('/') ? u.pathname.slice(0, -1) : u.pathname;
@@ -95,7 +96,7 @@ export function normUrl(url: URL | string): string {
  * not shown, so a plain description is enough; a nav bar that knows a better title (an album
  * name) sets it on the entry instead.
  */
-export function labelFor(url: URL | string, user: NavAudience): string {
+export function labelFor(url: ReadonlyURL | string, user: NavAudience): string {
   const u = toUrl(url);
   if (isTabRoot(u, user)) {
     const tab = tabFor(u, user);
@@ -129,7 +130,7 @@ function capped(stack: TabEntry[]): TabEntry[] {
     : stack;
 }
 
-export type TabNav = { type: string; from: URL | string | null; to: URL | string | null };
+export type TabNav = { type: string; from: ReadonlyURL | string | null; to: ReadonlyURL | string | null };
 
 export type TabNavContext = {
   user: NavAudience;
@@ -209,7 +210,7 @@ export function reduceTabStacks(
  */
 export function backTargetFor(
   state: TabMemoryState,
-  url: URL | string,
+  url: ReadonlyURL | string,
   user: NavAudience
 ): NavBack | null {
   const u = toUrl(url);
@@ -247,7 +248,7 @@ export function backTargetFor(
  */
 export function decideBack(
   lastNav: LastNav | null,
-  currentHref: URL | string,
+  currentHref: ReadonlyURL | string,
   targetHref: string
 ): 'history' | 'goto' {
   if (!lastNav || !isPush(lastNav.type) || lastNav.from === null) return 'goto';
@@ -262,7 +263,7 @@ export function hrefForTab(state: TabMemoryState, tab: NavTab): string {
 }
 
 /** The last entry recorded for `url` on any stack — the active tab's first. */
-export function findEntry(state: TabMemoryState, url: URL | string): TabEntry | null {
+export function findEntry(state: TabMemoryState, url: ReadonlyURL | string): TabEntry | null {
   const key = normUrl(url);
   const order = [
     ...(state.activeTabId ? [state.activeTabId] : []),
@@ -283,7 +284,7 @@ export function findEntry(state: TabMemoryState, url: URL | string): TabEntry | 
  */
 export function patchEntry(
   state: TabMemoryState,
-  url: URL | string,
+  url: ReadonlyURL | string,
   patch: Partial<Omit<TabEntry, 'url'>>
 ): TabMemoryState {
   const key = normUrl(url);

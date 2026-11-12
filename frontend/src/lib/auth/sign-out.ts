@@ -5,7 +5,7 @@
  * SSR off — its stores are module singletons that survive a logout → login in
  * the same tab. Leaving them populated lets the next user briefly see the
  * previous session's data (e.g. the demo account's albums after switching to a
- * real account). `invalidateAll` only re-runs server `load`s; it does not touch
+ * real account). `refreshAll` only re-runs server `load`s; it does not touch
  * these client stores, so we reset them by hand here.
  */
 
@@ -36,5 +36,5 @@ export async function signOutAndReset(allSessions = false): Promise<void> {
   chatStore.stop();
   resetGrantors();
   resetFolderCovers();
-  await goto('/login', { invalidateAll: true });
+  await goto('/login', { refreshAll: true });
 }

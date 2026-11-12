@@ -117,7 +117,7 @@
   }
 
   function withDetail(id: number | null): string {
-    const url = new URL(page.url);
+    const url = new URL(page.url.href);
     if (id == null) url.searchParams.delete('detail');
     else url.searchParams.set('detail', String(id));
     return `${url.pathname}${url.search}`;

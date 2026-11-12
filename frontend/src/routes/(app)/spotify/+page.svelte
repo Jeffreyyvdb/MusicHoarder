@@ -105,7 +105,7 @@
   // A link to a playlist this account doesn't have (or no longer has): back to the grid.
   $effect(() => {
     if (playlistParam && playlistsLoaded && !selectedPlaylist) {
-      untrack(() => void replaceUrl(PLAYLISTS_HREF, { noScroll: false }));
+      untrack(() => void replaceUrl(PLAYLISTS_HREF, { reset: true }));
     }
   });
 
@@ -199,7 +199,7 @@
     } else if (oauthErr != null) {
       oauthBanner = { type: 'error', message: oauthErr };
     }
-    void replaceUrl('/spotify', { keepFocus: false });
+    void replaceUrl('/spotify', { reset: true });
     void loadStatus();
   });
 

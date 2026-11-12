@@ -3,7 +3,7 @@ import { isInstalledApp } from '#lib/hooks/viewport-insets.svelte.ts';
 import { isIosDevice } from '#lib/ios-safari.ts';
 
 /**
- * Browser notifications for chat (Web Push). The service worker shows them (`src/service-worker.ts`);
+ * Browser notifications for chat (Web Push). The service worker shows them (`src/service-worker/index.ts`);
  * this module turns them on and off and keeps the server's copy of the subscription current.
  *
  * Where it works: Chrome, Edge, Firefox and Samsung Internet on Android and desktop, Safari on

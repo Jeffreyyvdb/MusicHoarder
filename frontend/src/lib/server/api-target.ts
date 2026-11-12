@@ -1,4 +1,7 @@
-import { env } from '$env/dynamic/private';
+// Read the process environment directly: the API's address arrives under names Aspire derives
+// from the resource name (`services__musichoarder-api__http__0`, …), which a fixed
+// `defineEnvVars` schema in src/env.ts cannot enumerate. This module is server-only.
+const env = process.env;
 
 const LOCAL_API_FALLBACK = 'http://localhost:5107';
 
@@ -14,7 +17,6 @@ const API_URL_CANDIDATE_KEYS = [
 
 export function getApiBaseUrl(): string {
   for (const key of API_URL_CANDIDATE_KEYS) {
-    // @migration-task Rewrite dynamic env lookup manually.
     const value = env[key];
     if (value) return value;
   }
@@ -23,7 +25,6 @@ export function getApiBaseUrl(): string {
     key.toLowerCase().startsWith('services__musichoarder-api__http')
   );
   if (discoveredKey) {
-    // @migration-task Rewrite dynamic env lookup manually.
     const discoveredValue = env[discoveredKey];
     if (discoveredValue) return discoveredValue;
   }

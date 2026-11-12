@@ -11,7 +11,7 @@
 
   $effect(() => {
     // A replace that really is a new page: reset scroll and focus as a navigation would.
-    if (!valid) void replaceUrl('/library', { noScroll: false, keepFocus: false });
+    if (!valid) void replaceUrl('/library', { reset: true });
   });
 </script>
 
