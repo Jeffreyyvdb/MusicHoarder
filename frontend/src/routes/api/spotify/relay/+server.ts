@@ -1,4 +1,5 @@
-import { env } from '$env/dynamic/private';
+import { SPOTIFY_OAUTH_STATE_SIGNING_KEY, SPOTIFY_RETURN_ORIGIN_ALLOWLIST } from '$app/env/private';
+
 import { isAllowedReturnOrigin, verifyRelayState } from '$lib/server/spotify-relay-state';
 import type { RequestHandler } from './$types';
 
@@ -14,8 +15,8 @@ import type { RequestHandler } from './$types';
  * attacker-chosen origin.
  */
 export const GET: RequestHandler = async ({ url }) => {
-  const signingKey = env.SPOTIFY_OAUTH_STATE_SIGNING_KEY ?? '';
-  const allowlist = env.SPOTIFY_RETURN_ORIGIN_ALLOWLIST ?? '';
+  const signingKey = SPOTIFY_OAUTH_STATE_SIGNING_KEY ?? '';
+  const allowlist = SPOTIFY_RETURN_ORIGIN_ALLOWLIST ?? '';
 
   if (!signingKey) {
     return new Response('Spotify OAuth relay is not configured.', { status: 500 });

@@ -14,6 +14,7 @@ const API_URL_CANDIDATE_KEYS = [
 
 export function getApiBaseUrl(): string {
   for (const key of API_URL_CANDIDATE_KEYS) {
+    // @migration-task Rewrite dynamic env lookup manually.
     const value = env[key];
     if (value) return value;
   }
@@ -22,6 +23,7 @@ export function getApiBaseUrl(): string {
     key.toLowerCase().startsWith('services__musichoarder-api__http')
   );
   if (discoveredKey) {
+    // @migration-task Rewrite dynamic env lookup manually.
     const discoveredValue = env[discoveredKey];
     if (discoveredValue) return discoveredValue;
   }

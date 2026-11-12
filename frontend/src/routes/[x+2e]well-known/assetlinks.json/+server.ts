@@ -1,4 +1,4 @@
-import { env } from '$env/dynamic/private';
+import { ANDROID_ASSETLINKS_FINGERPRINTS } from '$app/env/private';
 import { assetlinksJson, parseFingerprints } from '$lib/server/assetlinks';
 import type { RequestHandler } from './$types';
 
@@ -8,7 +8,7 @@ export const prerender = false;
 // SvelteKit's hex escape ([x+2e] = "."): route dirs can't start with a literal dot. With no
 // fingerprints configured the endpoint 404s and share/invite links simply open in the browser.
 export const GET: RequestHandler = () => {
-  const fingerprints = parseFingerprints(env.ANDROID_ASSETLINKS_FINGERPRINTS);
+  const fingerprints = parseFingerprints(ANDROID_ASSETLINKS_FINGERPRINTS);
   if (!fingerprints) {
     return new Response('assetlinks not configured', {
       status: 404,

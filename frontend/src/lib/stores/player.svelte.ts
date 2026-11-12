@@ -1,5 +1,5 @@
 import { untrack } from 'svelte';
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 import { toast } from 'svelte-sonner';
 import {
   coverThumbUrl,
@@ -1126,6 +1126,7 @@ async function topUpRadio(): Promise<boolean> {
 /** A 4xx answer, which asking again will not change — unless it was a timeout or a rate limit. */
 function isRefusal(err: unknown): boolean {
   const status = (err as { status?: unknown } | null)?.status;
+
   return (
     typeof status === 'number' && status >= 400 && status < 500 && status !== 408 && status !== 429
   );
@@ -1528,6 +1529,7 @@ function restorePlayback(userId: string) {
     wantsPlayback = true;
     claimPlaybackAudioSession();
     sync?.playIntent();
+
     void el
       .play()
       .then(() => (isPlaying = true))

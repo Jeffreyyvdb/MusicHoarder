@@ -1,10 +1,15 @@
 <script lang="ts">
-  import { env } from '$env/dynamic/public';
+  import {
+    PUBLIC_UMAMI_WEBSITE_ID,
+    PUBLIC_UMAMI_SRC,
+    PUBLIC_UMAMI_RECORDER_SRC
+  } from '$app/env/public';
+
   import { umamiEnabled } from '$lib/analytics/umami';
 
-  const websiteId = env.PUBLIC_UMAMI_WEBSITE_ID;
-  const scriptSrc = env.PUBLIC_UMAMI_SRC;
-  const recorderSrc = env.PUBLIC_UMAMI_RECORDER_SRC;
+  const websiteId = PUBLIC_UMAMI_WEBSITE_ID;
+  const scriptSrc = PUBLIC_UMAMI_SRC;
+  const recorderSrc = PUBLIC_UMAMI_RECORDER_SRC;
 
   // Shared with trackUmamiEvent, so a named event is only attempted where the tracker is loaded.
   const enabled = umamiEnabled();
