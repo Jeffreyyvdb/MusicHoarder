@@ -300,11 +300,9 @@ final class AudioEngine: NSObject {
             "seq": seq,
             "index": max(0, trail.count - 1),
             "trail": trail,
-            "url": current?.track.url.absoluteString ?? "",
             "status": status,
             "position": position.isFinite ? max(0, position) : 0,
             "duration": duration.isFinite && duration > 0 ? duration : 0,
-            "rate": Double(rate),
             "ended": endedAtTail
         ]
     }

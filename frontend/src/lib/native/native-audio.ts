@@ -123,6 +123,8 @@ export class NativeAudio extends EventTarget implements PlayerAudio {
   private metaDirty = false;
   private upcoming: NativeTrack[] = [];
   private upcomingDirty = false;
+  /** The list the device was last sent, and the load and track it was sent for. */
+  private upcomingSent = '';
   private commands = { next: false, previous: false };
   private commandsDirty = false;
 
@@ -136,8 +138,6 @@ export class NativeAudio extends EventTarget implements PlayerAudio {
    * where it is, the first load waits, so it can be taken over instead of started again.
    */
   private fresh = true;
-  private takingOver = false;
-  private readonly atStart: Promise<NativeState | null>;
   /** How many of the device's trail came before the track this page took over at. */
   private offset = 0;
   private expect: { position: number; until: number } | null = null;
@@ -156,8 +156,7 @@ export class NativeAudio extends EventTarget implements PlayerAudio {
 
   constructor(
     private readonly plugin: NativePlugin,
-    private readonly platform: NativePlatform = 'ios',
-    private readonly now: () => number = () => performance.now()
+    private readonly platform: NativePlatform
   ) {
     super();
     plugin.listen('state', (data) => this.onState(data as NativeState));
@@ -172,15 +171,13 @@ export class NativeAudio extends EventTarget implements PlayerAudio {
     // store's reload snapshot loads its song in the same turn this is made in: that load takes
     // over what the device is playing where it can (see `takeOver`). With no such load, nothing
     // here knows the music, so it stops.
-    this.atStart = plugin.call('getState').then(
-      (data) => data as NativeState | null,
-      () => null
-    );
-    void this.atStart.then((state) => {
-      if (!this.fresh || this.takingOver) return;
+    const started = (data: unknown) => {
+      const state = data as NativeState | null;
       this.fresh = false;
-      if (Array.isArray(state?.trail) && state.trail.length > 0) this.send('stop');
-    });
+      if (this.pending) this.takeOver(Array.isArray(state?.trail) ? state : null);
+      else if (Array.isArray(state?.trail) && state.trail.length > 0) this.send('stop');
+    };
+    void plugin.call('getState').then(started, () => started(null));
     if (typeof document !== 'undefined') {
       // Reports sent while the page slept may not have arrived: ask where the device is.
       document.addEventListener('visibilitychange', () => {
@@ -200,19 +197,19 @@ export class NativeAudio extends EventTarget implements PlayerAudio {
 
   get currentTime(): number {
     if (!this.progressing) return this.position;
-    const time = this.position + ((this.now() - this.positionAt) / 1000) * this.speed;
+    const time = this.position + ((performance.now() - this.positionAt) / 1000) * this.speed;
     return Number.isFinite(this.length) ? Math.min(time, this.length) : time;
   }
   set currentTime(time: number) {
     this.position = time;
-    this.positionAt = this.now();
+    this.positionAt = performance.now();
     if (this.quietSeek) return; // the device is there already
     if (this.pending) {
       this.pending.position = time;
       return;
     }
     if (!this.url || this.stale) return;
-    this.expect = { position: time, until: this.now() + SEEK_WAIT_MS };
+    this.expect = { position: time, until: performance.now() + SEEK_WAIT_MS };
     this.send('seek', { time, seq: ++this.seq });
   }
 
@@ -242,7 +239,7 @@ export class NativeAudio extends EventTarget implements PlayerAudio {
   }
   set playbackRate(value: number) {
     this.position = this.currentTime;
-    this.positionAt = this.now();
+    this.positionAt = performance.now();
     this.speed = value;
     this.send('setRate', { rate: value });
   }
@@ -264,7 +261,7 @@ export class NativeAudio extends EventTarget implements PlayerAudio {
     this.progressing = false;
     this.isPaused = true;
     this.position = 0;
-    this.positionAt = this.now();
+    this.positionAt = performance.now();
     this.expect = null;
     this.metaDirty = false;
     this.tailHandled = false;
@@ -320,7 +317,7 @@ export class NativeAudio extends EventTarget implements PlayerAudio {
     else if (this.url && !this.stale) this.send('pause', { seq: ++this.seq });
     if (this.isPaused) return;
     this.position = this.currentTime;
-    this.positionAt = this.now();
+    this.positionAt = performance.now();
     this.progressing = false;
     this.isPaused = true;
     this.later('pause');
@@ -399,10 +396,6 @@ export class NativeAudio extends EventTarget implements PlayerAudio {
 
     if (this.pending && this.fresh) {
       // The first load of a new page: the device says where it is before anything is sent.
-      if (!this.takingOver) {
-        this.takingOver = true;
-        void this.atStart.then((state) => this.takeOver(state));
-      }
       for (const settler of settlers) settler.resolve();
       return;
     }
@@ -410,7 +403,7 @@ export class NativeAudio extends EventTarget implements PlayerAudio {
     if (this.pending) {
       const { position, autoplay } = this.pending;
       this.pending = null;
-      if (position > 0) this.expect = { position, until: this.now() + SEEK_WAIT_MS };
+      if (position > 0) this.expect = { position, until: performance.now() + SEEK_WAIT_MS };
       this.send('loadTrack', {
         ...this.describe(),
         position,
@@ -438,11 +431,14 @@ export class NativeAudio extends EventTarget implements PlayerAudio {
       this.upcomingDirty = false;
       // `at` names the track this list follows, as the device counts them: one that has moved on
       // by itself since must not take the list as following where it is now.
-      this.send('setUpcoming', {
-        items: this.upcoming,
-        loadId: this.loadId,
-        at: this.offset + this.adopted - 1
-      });
+      const at = this.offset + this.adopted - 1;
+      const sent = `${this.loadId}:${at}:${this.upcoming.map((track) => track.url).join('\n')}`;
+      // The store says what follows on every load and queue change; mostly it is what the device
+      // already holds, and 20 tracks need not cross the bridge again to say so.
+      if (sent !== this.upcomingSent) {
+        this.upcomingSent = sent;
+        this.send('setUpcoming', { items: this.upcoming, loadId: this.loadId, at });
+      }
     }
 
     for (const settler of settlers) {
@@ -467,11 +463,8 @@ export class NativeAudio extends EventTarget implements PlayerAudio {
    * from that track on, as it would have had it been awake all along. Otherwise the load is sent.
    */
   private takeOver(state: NativeState | null): void {
-    this.fresh = false;
-    this.takingOver = false;
-    if (!this.pending) return;
-    const playing = state && Array.isArray(state.trail) && state.status !== 'paused';
-    const at = playing && this.url ? state.trail.lastIndexOf(this.url) : -1;
+    const at =
+      state && state.status !== 'paused' && this.url ? state.trail.lastIndexOf(this.url) : -1;
     if (!state || at < 0 || at > state.index) {
       this.scheduleFlush(); // sent as any load is, replacing whatever the device holds
       return;
@@ -484,7 +477,7 @@ export class NativeAudio extends EventTarget implements PlayerAudio {
     this.adopted = 1;
     if (at === state.index) {
       this.position = state.position;
-      this.positionAt = this.now();
+      this.positionAt = performance.now();
     }
     this.upcomingDirty = true;
     this.commandsDirty = true;
@@ -576,7 +569,7 @@ export class NativeAudio extends EventTarget implements PlayerAudio {
     let believe = true;
     if (this.expect) {
       const landed = Math.abs(state.position - this.expect.position) <= SEEK_TOLERANCE_S;
-      if (landed || this.now() > this.expect.until) this.expect = null;
+      if (landed || performance.now() > this.expect.until) this.expect = null;
       else believe = false; // still on its way to where it was sent
     }
     if (believe) {
@@ -592,7 +585,7 @@ export class NativeAudio extends EventTarget implements PlayerAudio {
         }
       }
       this.position = state.position;
-      this.positionAt = this.now();
+      this.positionAt = performance.now();
     }
 
     if (state.status === 'paused') {
@@ -661,7 +654,7 @@ export class NativeAudio extends EventTarget implements PlayerAudio {
     this.fire('playing');
     this.fire('timeupdate');
     this.position = 0;
-    this.positionAt = this.now();
+    this.positionAt = performance.now();
     this.expect = null;
     this.followed = false;
     this.inFinish = true;

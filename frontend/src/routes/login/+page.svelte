@@ -5,7 +5,7 @@
   import BrandMark from '#lib/components/BrandMark.svelte';
   import { requestMagicLink, signInAsDemo, loginWithPasskey } from '#lib/api-client.ts';
   import { isPasskeySupported } from '#lib/webauthn-client.ts';
-  import { isInstalledApp } from '#lib/hooks/viewport-insets.svelte.ts';
+  import { isHomeScreenWebApp } from '#lib/hooks/viewport-insets.svelte.ts';
   import { isNativeShell } from '#lib/native/shell.ts';
   import { noteAppSignInRequested } from '#lib/native/app-sign-in.ts';
   import { isIosDevice } from '#lib/ios-safari.ts';
@@ -71,7 +71,7 @@
 
   $effect(() => {
     passkeySupported = isPasskeySupported();
-    inIosHomeScreenApp = isInstalledApp() && isIosDevice() && !isNativeShell();
+    inIosHomeScreenApp = isHomeScreenWebApp() && isIosDevice();
     ready = true;
   });
 

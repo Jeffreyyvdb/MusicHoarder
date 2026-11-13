@@ -283,11 +283,9 @@ final class AudioEngine implements Player.Listener {
         state.put("seq", seq);
         state.put("index", Math.max(0, trail.size() - 1));
         state.put("trail", urls);
-        state.put("url", trail.isEmpty() ? "" : trail.get(trail.size() - 1));
         state.put("status", status);
         state.put("position", Math.max(0, player.getCurrentPosition()) / 1000.0);
         state.put("duration", duration == C.TIME_UNSET || duration <= 0 ? 0 : duration / 1000.0);
-        state.put("rate", (double) player.getPlaybackParameters().speed);
         state.put("ended", endedAtTail);
         return state;
     }

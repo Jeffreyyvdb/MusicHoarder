@@ -312,17 +312,16 @@ function mediaSession(): MediaSession | null {
 }
 
 function updateMediaMetadata(song: PlayerSong) {
-  nativeEl?.setMetadata(nativeTrack(song));
+  const track = nativeTrack(song);
+  nativeEl?.setMetadata(track);
   const ms = mediaSession();
   if (!ms) return;
-  // Size our own cover endpoint to the 512px WebP bucket; external URLs (Spotify
-  // CDN) pass through unchanged. Omit `artwork` entirely when there's no cover.
-  const art = coverThumbUrl(song.coverUrl, 512);
+  // Omit `artwork` entirely when there's no cover.
   ms.metadata = new MediaMetadata({
-    title: song.title,
-    artist: song.artist,
-    album: song.album ?? '',
-    artwork: art ? [{ src: art, sizes: '512x512', type: 'image/webp' }] : []
+    title: track.title,
+    artist: track.artist,
+    album: track.album,
+    artwork: track.artwork ? [{ src: track.artwork, sizes: '512x512', type: 'image/webp' }] : []
   });
 }
 
@@ -359,15 +358,11 @@ function refreshActionHandlers() {
   // The OS controls are this device's own: a media key, the lock screen or a headset press is a
   // local play intent even while the session plays elsewhere — there it picks the session up here
   // (continuing what the account was listening to) rather than steering the other device.
-  set('play', () => mediaKey('none'));
-  set('pause', () => localPause());
-  // Previous is live whenever a track is loaded: at the head of the queue it restarts the track
-  // (see playPrevious), so greying it out there would hide a working control.
-  set('previoustrack', queueIndex >= 0 ? () => mediaKey('previous') : null);
-  set('nexttrack', canAdvance() ? () => mediaKey('next') : null);
-  set('seekto', (details) => {
-    if (typeof details.seekTime === 'number') mediaSeek(details.seekTime);
-  });
+  set('play', () => remoteCommand('play'));
+  set('pause', () => remoteCommand('pause'));
+  set('previoustrack', remoteAvailable('previous') ? () => remoteCommand('previous') : null);
+  set('nexttrack', remoteAvailable('next') ? () => remoteCommand('next') : null);
+  set('seekto', (details) => remoteCommand('seek', details.seekTime));
   // No `seekbackward` / `seekforward`: iOS shows either the track pair or the seek pair, never
   // both, and picks the seek pair whenever it is registered, which puts ±10s buttons where
   // previous/next belong on the lock screen, Control Center and Dynamic Island.
@@ -388,6 +383,8 @@ function nativeTrack(song: PlayerSong): NativeTrack {
     title: song.title,
     artist: song.artist,
     album: song.album ?? '',
+    // Our own cover endpoint is sized to the 512px WebP bucket; external URLs (Spotify CDN) pass
+    // through unchanged.
     artwork: coverThumbUrl(song.coverUrl, 512) ?? null
   };
 }
@@ -397,20 +394,30 @@ function syncNativeQueue() {
   const native = nativeEl;
   if (!native) return;
   untrack(() => {
-    native.setCommands(canAdvance(), queueIndex >= 0);
+    native.setCommands(remoteAvailable('next'), remoteAvailable('previous'));
     const upcoming = queueIndex >= 0 ? queue.slice(queueIndex + 1) : [];
     native.setUpcoming(upcoming.slice(0, NATIVE_UPCOMING).map(nativeTrack));
   });
 }
 
-/** A press on the lock screen or a headset, handled as the Media Session's handlers would. */
-function nativeRemote(command: RemoteCommand, time?: number) {
+/**
+ * Whether Next or Previous can do anything, which is when the OS offers it. Previous is live
+ * whenever a track is loaded: at the head of the queue it restarts the track (see playPrevious),
+ * so greying it out there would hide a working control.
+ */
+function remoteAvailable(step: 'next' | 'previous'): boolean {
+  return step === 'next' ? canAdvance() : queueIndex >= 0;
+}
+
+/**
+ * A press on the lock screen, Control Center, a media key or a headset: one table for the page's
+ * Media Session and the native shell's remote commands.
+ */
+function remoteCommand(command: RemoteCommand, time?: number | null) {
   if (command === 'pause' || (command === 'toggle' && isPlaying)) localPause();
   else if (command === 'play' || command === 'toggle') mediaKey('none');
-  else if (command === 'next') {
-    if (canAdvance()) mediaKey('next');
-  } else if (command === 'previous') {
-    if (queueIndex >= 0) mediaKey('previous');
+  else if (command === 'next' || command === 'previous') {
+    if (remoteAvailable(command)) mediaKey(command);
   } else if (typeof time === 'number') mediaSeek(time);
 }
 
@@ -716,7 +723,7 @@ function ensureAudioEl(): PlayerAudio | null {
   el.preservesPitch = true;
 
   if (native) {
-    native.onRemote = nativeRemote;
+    native.onRemote = remoteCommand;
     nativeEl = native;
     airPlayAvailable = native.hasRoutePicker; // iOS's route sheet is always there to open
   } else if (typeof window !== 'undefined' && 'WebKitPlaybackTargetAvailabilityEvent' in window) {
