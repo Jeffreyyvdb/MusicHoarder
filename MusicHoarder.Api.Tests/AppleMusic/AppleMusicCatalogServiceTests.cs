@@ -34,8 +34,9 @@ public class AppleMusicCatalogServiceTests
     public async Task SearchTracksAsync_AfterRateLimit_ShortCircuitsWithoutHttp()
     {
         var handler = new FakeHttpHandler();
-        // Long Retry-After so the backoff window is still open for the immediate second call.
-        handler.AlwaysRespond(() => RateLimited(HttpStatusCode.TooManyRequests, TimeSpan.FromSeconds(30)));
+        // Long Retry-After so the backoff window is still open for the immediate second call
+        // (and, being past the inline cap, it is not slept out first).
+        handler.AlwaysRespond(() => RateLimited(HttpStatusCode.TooManyRequests, TimeSpan.FromHours(1)));
 
         var service = CreateService(handler);
 
@@ -48,6 +49,21 @@ public class AppleMusicCatalogServiceTests
             () => service.SearchTracksAsync("another query", CancellationToken.None));
 
         Assert.Equal(countAfterFirst, handler.SendCount);
+    }
+
+    [Fact]
+    public async Task SearchTracksAsync_RetryAfterLongerThanTheInlineCap_ThrowsAfterOneAttempt()
+    {
+        var handler = new FakeHttpHandler();
+        handler.AlwaysRespond(() => RateLimited(HttpStatusCode.TooManyRequests, TimeSpan.FromHours(2)));
+
+        var call = CreateService(handler).SearchTracksAsync("artist title", CancellationToken.None);
+        var finished = await Task.WhenAny(call, Task.Delay(TimeSpan.FromSeconds(10)));
+
+        Assert.Same(call, finished);
+        var ex = await Assert.ThrowsAsync<ProviderRateLimitedException>(() => call);
+        Assert.Equal(TimeSpan.FromHours(2), ex.RetryAfter);
+        Assert.Equal(1, handler.SendCount);
     }
 
     private static HttpResponseMessage RateLimited(HttpStatusCode status, TimeSpan retryAfter)

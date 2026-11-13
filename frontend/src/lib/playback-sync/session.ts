@@ -4,7 +4,7 @@ import type { PlaybackCommandName, PlaybackDevice, PlaybackSession } from './wir
 /**
  * The rules every client applies to the account's playback session — what this device shows, when
  * it steps aside, how far a remote song has got. Pure functions over plain values, so they are
- * tested case for case here and the Android client ports them without translating any browser API.
+ * tested case for case here.
  */
 
 /**

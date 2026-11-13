@@ -5,8 +5,8 @@ using MusicHoarder.Api.Auth.Middleware;
 namespace MusicHoarder.Api.Tests.Auth;
 
 /// <summary>
-/// Covers the two session transports: the browser cookie and the <c>Authorization: Bearer</c>
-/// token native clients send (same protected session id — see <see cref="BearerToken"/>).
+/// The session cookie is the one transport: the browser and the app shell's web view both send
+/// it. A bearer header (what the retired native Android client sent) authenticates nothing.
 /// </summary>
 public class AuthenticationMiddlewareTests
 {
@@ -14,10 +14,10 @@ public class AuthenticationMiddlewareTests
     private static readonly Guid DeadSessionId = Guid.NewGuid();
 
     [Fact]
-    public async Task BearerToken_WithActiveSession_SetsCurrentUser()
+    public async Task Cookie_WithActiveSession_SetsCurrentUser()
     {
         var (ctx, cookies) = NewContext();
-        ctx.Request.Headers.Authorization = $"Bearer {FakeCookieService.ProtectStatic(ActiveSessionId)}";
+        ctx.Request.Headers.Cookie = $"{cookies.CookieName}={FakeCookieService.ProtectStatic(ActiveSessionId)}";
 
         await RunAsync(ctx, cookies);
 
@@ -28,67 +28,43 @@ public class AuthenticationMiddlewareTests
     }
 
     [Fact]
-    public async Task BearerToken_SchemeIsCaseInsensitive()
+    public async Task Cookie_DeadSession_IsCleared_AndLeavesRequestAnonymous()
     {
         var (ctx, cookies) = NewContext();
-        ctx.Request.Headers.Authorization = $"bearer {FakeCookieService.ProtectStatic(ActiveSessionId)}";
-
-        await RunAsync(ctx, cookies);
-
-        Assert.NotNull(ctx.Items[HttpContextCurrentUserAccessor.HttpContextItemKey]);
-    }
-
-    [Fact]
-    public async Task BearerToken_Garbage_LeavesRequestAnonymous_AndCallsNext()
-    {
-        var (ctx, cookies) = NewContext();
-        ctx.Request.Headers.Authorization = "Bearer not-a-real-token";
+        ctx.Request.Headers.Cookie = $"{cookies.CookieName}={FakeCookieService.ProtectStatic(DeadSessionId)}";
 
         var nextCalled = await RunAsync(ctx, cookies);
 
         Assert.True(nextCalled);
         Assert.False(ctx.Items.ContainsKey(HttpContextCurrentUserAccessor.HttpContextItemKey));
+        Assert.Equal(1, cookies.ClearCount);
+    }
+
+    [Fact]
+    public async Task TamperedCookie_IsCleared_AndLeavesRequestAnonymous()
+    {
+        var (ctx, cookies) = NewContext();
+        ctx.Request.Headers.Cookie = $"{cookies.CookieName}=tampered-value";
+
+        var nextCalled = await RunAsync(ctx, cookies);
+
+        Assert.True(nextCalled);
+        Assert.Equal(1, cookies.ClearCount);
+        Assert.False(ctx.Items.ContainsKey(HttpContextCurrentUserAccessor.HttpContextItemKey));
         Assert.False(ctx.Items.ContainsKey(AuthenticationMiddleware.SessionIdItemKey));
     }
 
     [Fact]
-    public async Task BearerToken_DeadSession_DoesNotClearCookie()
-    {
-        // There is no cookie to clear on a bearer-only request; clearing would emit a pointless
-        // Set-Cookie delete for native clients.
-        var (ctx, cookies) = NewContext();
-        ctx.Request.Headers.Authorization = $"Bearer {FakeCookieService.ProtectStatic(DeadSessionId)}";
-
-        await RunAsync(ctx, cookies);
-
-        Assert.False(ctx.Items.ContainsKey(HttpContextCurrentUserAccessor.HttpContextItemKey));
-        Assert.Equal(0, cookies.ClearCount);
-    }
-
-    [Fact]
-    public async Task Cookie_TakesPrecedence_OverBearerHeader()
+    public async Task BearerHeader_WithALiveSessionId_AuthenticatesNothing()
     {
         var (ctx, cookies) = NewContext();
-        ctx.Request.Headers.Cookie = $"{cookies.CookieName}={FakeCookieService.ProtectStatic(ActiveSessionId)}";
-        ctx.Request.Headers.Authorization = $"Bearer {FakeCookieService.ProtectStatic(DeadSessionId)}";
-
-        await RunAsync(ctx, cookies);
-
-        Assert.NotNull(ctx.Items[HttpContextCurrentUserAccessor.HttpContextItemKey]);
-        Assert.Equal(ActiveSessionId, ctx.Items[AuthenticationMiddleware.SessionIdItemKey]);
-    }
-
-    [Fact]
-    public async Task TamperedCookie_IsCleared_ThenBearerStillAuthenticates()
-    {
-        var (ctx, cookies) = NewContext();
-        ctx.Request.Headers.Cookie = $"{cookies.CookieName}=tampered-value";
         ctx.Request.Headers.Authorization = $"Bearer {FakeCookieService.ProtectStatic(ActiveSessionId)}";
 
-        await RunAsync(ctx, cookies);
+        var nextCalled = await RunAsync(ctx, cookies);
 
-        Assert.Equal(1, cookies.ClearCount);
-        Assert.NotNull(ctx.Items[HttpContextCurrentUserAccessor.HttpContextItemKey]);
+        Assert.True(nextCalled);
+        Assert.False(ctx.Items.ContainsKey(HttpContextCurrentUserAccessor.HttpContextItemKey));
+        Assert.Equal(0, cookies.ClearCount);
     }
 
     // ── harness ───────────────────────────────────────────────────────────────
@@ -174,9 +150,6 @@ public class AuthenticationMiddlewareTests
             => throw new NotSupportedException();
 
         public Task<Session?> StartDemoSessionAsync(string? ip, string? userAgent, CancellationToken ct)
-            => throw new NotSupportedException();
-
-        public Task<Session?> CreateDeviceSessionAsync(Guid userId, string? ip, string? userAgent, CancellationToken ct)
             => throw new NotSupportedException();
 
         public Task RevokeAsync(Guid sessionId, bool allForUser, CancellationToken ct)

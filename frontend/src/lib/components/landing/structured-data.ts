@@ -41,7 +41,7 @@ export function buildSoftwareApplicationSchema(version?: string | null) {
       'Plain files on disk — Artist / Year - Album / NN - Track, no proprietary database',
       'Human-review Inbox for uncertain matches',
       'Apple Music-style player with synced lyrics, music videos and radio',
-      'Installable iPhone web app and a native Android app',
+      'Installable web app, and an app for iPhone and Android that plays on a locked phone',
       'Share links and invited listen-only member accounts',
       'Discover playlists, Spotify sync and optional wishlist downloads',
       'Self-hosted via Docker Compose'

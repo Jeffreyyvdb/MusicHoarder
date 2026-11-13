@@ -452,7 +452,7 @@ export function allowedPathPrefixesFor(user: NavAudience): string[] {
       // drops them, which is exactly the bug this function replaced.
       '/track',
       '/liked',
-      // Everyone manages their own account: passkeys, phone pairing, signing out.
+      // Everyone manages their own account: passkeys, signing out.
       '/settings'
     ])
   ];
@@ -565,8 +565,7 @@ const LISTEN = (() => {
  * The Listen pages that are a member's tabs: all but Playlists. A phone tab bar holds five (the
  * HIG's limit, and all the width the search circle beside it leaves), and a member's five are
  * Overview · Albums · Artists · Tracks · Chats. Playlists is a row on the Overview instead, as
- * Albums, Artists and Tracks are for an admin; the sidebar lists it at md+. Android, which has no
- * Chats, gives Playlists the fifth tab.
+ * Albums, Artists and Tracks are for an admin; the sidebar lists it at md+.
  */
 const MEMBER_LISTEN_TABS = LISTEN.items.filter((item) => item.id !== 'playlists');
 

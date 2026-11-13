@@ -54,7 +54,6 @@ services:
       Slskd__ApiKey: "${SLSKD_API_KEY:-}"
       Slskd__DownloadsDirectory: "${SLSKD_DOWNLOADS_DIR:-/data/slskd-downloads}"
       StreamingFlac__SidecarUrl: "${SPOTIFLAC_SIDECAR_URL:-}"
-      WebAuthn__Origins__0: "${ANDROID_APK_KEY_HASH_ORIGIN:-}"
       Frontend__PublicBaseUrl: "${PUBLIC_BASE_URL:-http://localhost:3000}"
       MusicEnricher__EnableWishlistDownloads: "${ENABLE_WISHLIST_DOWNLOADS:-false}"
       MusicEnricher__AutoDownloadWishlist: "${AUTO_DOWNLOAD_WISHLIST:-false}"
@@ -122,7 +121,6 @@ services:
       PUBLIC_UMAMI_SRC: "${PUBLIC_UMAMI_SRC}"
       PUBLIC_UMAMI_WEBSITE_ID: "${PUBLIC_UMAMI_WEBSITE_ID}"
       PUBLIC_UMAMI_RECORDER_SRC: "${PUBLIC_UMAMI_RECORDER_SRC}"
-      ANDROID_ASSETLINKS_FINGERPRINTS: "${ANDROID_ASSETLINKS_FINGERPRINTS}"
       HOST: "0.0.0.0"
       HOSTNAME: "0.0.0.0"
     ports:

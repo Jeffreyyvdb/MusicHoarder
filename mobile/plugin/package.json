@@ -1,0 +1,24 @@
+{
+  "name": "musichoarder-native-audio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MusicHoarder's native audio engine: a queue player the web player drives (AVQueuePlayer on iOS, Media3 on Android).",
+  "license": "MIT",
+  "files": [
+    "ios/Sources",
+    "Package.swift",
+    "android/src",
+    "android/build.gradle"
+  ],
+  "capacitor": {
+    "ios": {
+      "src": "ios"
+    },
+    "android": {
+      "src": "android"
+    }
+  },
+  "peerDependencies": {
+    "@capacitor/core": ">=8.0.0"
+  }
+}

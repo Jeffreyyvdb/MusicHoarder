@@ -1,3 +1,5 @@
+import { isNativeShell } from '#lib/native/shell.ts';
+
 // Publishes the bottom inset of the *visual* viewport (browser bottom chrome
 // such as Chrome Android's bottom address bar, plus the on-screen keyboard) as
 // the `--mh-vv-bottom` CSS variable on <html>. Floating bottom-anchored chrome
@@ -42,16 +44,25 @@ export function installBottomInsetTracker(): () => void {
 }
 
 /**
- * True when the page runs as an installed (home-screen) app rather than in a browser tab.
+ * True when the page runs as a web app added to the home screen rather than in a browser tab.
  *
  * `display-mode` is the standard signal and matches what the manifest asked for (`standalone`;
  * `fullscreen` has no browser chrome either). `navigator.standalone` is the iOS-only flag that
  * predates the manifest and is still what older iOS versions set.
  */
-export function isInstalledApp(): boolean {
+export function isHomeScreenWebApp(): boolean {
   if (typeof window === 'undefined') return false;
   if ((navigator as Navigator & { standalone?: boolean }).standalone === true) return true;
   return (
     window.matchMedia?.('(display-mode: standalone), (display-mode: fullscreen)').matches ?? false
   );
+}
+
+/**
+ * True when the page runs as an app rather than in a browser tab: a home-screen web app, or the
+ * native app shell, whose web view has no browser chrome, no swipe-back and no status-bar tap
+ * either.
+ */
+export function isInstalledApp(): boolean {
+  return isNativeShell() || isHomeScreenWebApp();
 }

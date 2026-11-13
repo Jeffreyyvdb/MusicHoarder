@@ -26,7 +26,7 @@ public class AuthEndpointsTests
         var value = Value(result);
         Assert.Equal("Jeffrey", GetProperty<string?>(value, "displayName"));
         Assert.Equal("owner@example.com", GetProperty<string>(value, "email"));
-        Assert.Equal("Owner", GetProperty<string>(value, "role"));
+        Assert.Equal("Admin", GetProperty<string>(value, "role"));
 
         await using var verify = new MusicHoarderDbContext(options);
         Assert.Equal("Jeffrey", (await verify.Users.SingleAsync(u => u.Id == TestUsers.OwnerId)).DisplayName);

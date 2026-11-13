@@ -136,14 +136,13 @@ public class CapabilityTests
     // --- Wire vocabulary ---------------------------------------------------------------------
 
     [Theory]
-    [InlineData(UserRole.Admin, "Owner")]
+    [InlineData(UserRole.Admin, "Admin")]
     [InlineData(UserRole.Demo, "Demo")]
-    [InlineData(UserRole.Member, "Friend")]
-    public void Wire_role_still_speaks_the_pre_rename_vocabulary(UserRole role, string expected)
+    [InlineData(UserRole.Member, "Member")]
+    public void Wire_role_is_the_role_name(UserRole role, string expected)
     {
-        // Shipped Android builds branch on role == "Friend" to pick their API routes. Emitting
-        // "Member" would send every old install down the admin routes and into 403s, with no
-        // re-pair prompt. Flip this only in the release that intentionally breaks old clients.
+        // The pre-rename words (Owner, Friend) were kept only for the retired native Android
+        // client, which picked its API routes from them.
         Assert.Equal(expected, WireRole.ToWire(role));
     }
 
