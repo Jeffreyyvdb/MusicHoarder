@@ -39,18 +39,21 @@ public static class GradingCompletion
     /// Returns the parsed grade and the reply it came from. Throws <see cref="JsonException"/> when
     /// <see cref="MaxAttempts"/> replies held no grade, saying why when the output limit cut them off.
     /// </summary>
+    /// <param name="stats">When given, counts the requests made and adds up their tokens and cost, for the grader trial.</param>
     public static async Task<(GradingResult Grade, string RawContent)> RequestGradeAsync(
         IChatCompletionClient client,
         IReadOnlyList<ChatMessage> messages,
         QualityGradingOptions opts,
         ILogger logger,
-        CancellationToken ct)
+        CancellationToken ct,
+        GradingCallStats? stats = null)
     {
         var maxTokens = opts.MaxOutputTokens;
         for (var attempt = 1; ; attempt++)
         {
             var reply = await client.CompleteAsync(
                 new ChatCompletionRequest(messages, opts.Temperature, maxTokens), ct);
+            stats?.Add(reply);
             try
             {
                 return (QualityGradingPrompt.Parse(reply.Content), reply.Content);
@@ -89,5 +92,26 @@ public static class GradingCompletion
     {
         var flat = content.ReplaceLineEndings(" ");
         return flat.Length <= ExcerptChars ? flat : flat[..ExcerptChars] + "…";
+    }
+}
+
+/// <summary>
+/// What one grade cost: requests made, tokens and USD, summed over the replies that came back. A
+/// request that failed outright (HTTP error, timeout) is not in it — the provider reports no usage
+/// for those.
+/// </summary>
+public sealed class GradingCallStats
+{
+    public int Attempts { get; private set; }
+    public int? PromptTokens { get; private set; }
+    public int? CompletionTokens { get; private set; }
+    public decimal? CostUsd { get; private set; }
+
+    public void Add(ChatCompletionResult reply)
+    {
+        Attempts++;
+        if (reply.PromptTokens is { } p) PromptTokens = (PromptTokens ?? 0) + p;
+        if (reply.CompletionTokens is { } c) CompletionTokens = (CompletionTokens ?? 0) + c;
+        if (reply.CostUsd is { } cost) CostUsd = (CostUsd ?? 0) + cost;
     }
 }

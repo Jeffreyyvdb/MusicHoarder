@@ -174,6 +174,43 @@ public class OpenAiCompatibleChatClientTests
         Assert.DoesNotContain("reasoning", handler.RequestBodies[0]);
     }
 
+    [Fact]
+    public async Task Reads_usage_cost_and_asks_openrouter_for_it()
+    {
+        const string body =
+            """
+            {
+              "choices": [ { "message": { "content": "{\"score\": 90}" }, "finish_reason": "stop" } ],
+              "usage": { "prompt_tokens": 6000, "completion_tokens": 1500, "cost": 0.00205 }
+            }
+            """;
+        using var handler = new QueueHttpHandler(Response(HttpStatusCode.OK, body));
+        var client = CreateClient(new QualityGradingOptions
+        {
+            Enabled = true, ApiKey = "sk-test", BaseUrl = "https://openrouter.ai/api/v1", Model = "deepseek/deepseek-v4-flash",
+        }, handler);
+
+        var result = await client.CompleteAsync(new ChatCompletionRequest([new ChatMessage("user", "grade")], 0.0, 700));
+
+        Assert.Equal(0.00205m, result.CostUsd);
+        Assert.Contains("\"usage\":{\"include\":true}", handler.RequestBodies.Single());
+    }
+
+    [Fact]
+    public async Task Does_not_send_usage_accounting_to_other_endpoints()
+    {
+        using var handler = new QueueHttpHandler(Response(HttpStatusCode.OK, OkBody));
+        var client = CreateClient(new QualityGradingOptions
+        {
+            Enabled = true, ApiKey = "sk-test", BaseUrl = "https://api.openai.com/v1", Model = "gpt-4o-mini",
+        }, handler);
+
+        var result = await client.CompleteAsync(new ChatCompletionRequest([new ChatMessage("user", "grade")], 0.0, 700));
+
+        Assert.Null(result.CostUsd);
+        Assert.DoesNotContain("\"usage\"", handler.RequestBodies.Single());
+    }
+
     private static OpenAiCompatibleChatClient CreateClient(HttpStatusCode status, string responseBody)
     {
         var opts = new QualityGradingOptions

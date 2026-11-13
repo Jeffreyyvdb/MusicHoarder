@@ -121,6 +121,23 @@ public class GradingCompletionTests
         Assert.Single(client.Requests);
     }
 
+    [Fact]
+    public async Task Stats_add_up_every_reply_including_the_ones_without_a_grade()
+    {
+        var client = new ScriptedChatClient(
+            new ChatCompletionResult(AnalysisCutAtQuote, 6000, 900, "stop", CostUsd: 0.0015m),
+            new ChatCompletionResult(Grade, 6000, 1200, "stop", CostUsd: 0.0019m));
+        var stats = new GradingCallStats();
+
+        await GradingCompletion.RequestGradeAsync(
+            client, Messages, new QualityGradingOptions(), NullLogger.Instance, CancellationToken.None, stats);
+
+        Assert.Equal(2, stats.Attempts);
+        Assert.Equal(12000, stats.PromptTokens);
+        Assert.Equal(2100, stats.CompletionTokens);
+        Assert.Equal(0.0034m, stats.CostUsd);
+    }
+
     private static Task<(GradingResult Grade, string RawContent)> RequestAsync(
         ScriptedChatClient client, int maxOutputTokens = 4096) =>
         GradingCompletion.RequestGradeAsync(

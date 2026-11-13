@@ -1,6 +1,4 @@
 using System.Diagnostics;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -8,6 +6,7 @@ using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Matching;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Quality.Jev;
 
 namespace MusicHoarder.Api.Quality;
 
@@ -18,7 +17,8 @@ public sealed class AlbumGradingService(
     IOwnerLookupService ownerLookup,
     IOptions<MusicEnricherOptions> enricherOptions,
     IOptionsMonitor<QualityGradingOptions> options,
-    ILogger<AlbumGradingService> logger) : IAlbumGradingService
+    ILogger<AlbumGradingService> logger,
+    IOptionsMonitor<JevGradingOptions>? trialOptions = null) : IAlbumGradingService
 {
     private static readonly JsonSerializerOptions CompactJson = new(JsonSerializerDefaults.Web);
 
@@ -42,7 +42,7 @@ public sealed class AlbumGradingService(
         var latestVerdicts = await LoadLatestSongVerdictsAsync(db, ownedSongs, ct);
 
         var dossier = dossierFactory.Build(album, ownedSongs, latestVerdicts, enricherOptions.Value.IdentityTitleThreshold);
-        var fingerprint = Fingerprint(dossier);
+        var fingerprint = DossierFingerprint.Of(dossier);
 
         var latest = await db.CanonicalAlbumQualityGrades
             .IgnoreQueryFilters()
@@ -66,11 +66,12 @@ public sealed class AlbumGradingService(
 
         GradingResult parsed;
         string rawContent;
+        var stats = new GradingCallStats();
         var sw = Stopwatch.StartNew();
         try
         {
             (parsed, rawContent) = await GradingCompletion.RequestGradeAsync(
-                chatClient, AlbumGradingPrompt.BuildMessages(dossier), opts, logger, ct);
+                chatClient, AlbumGradingPrompt.BuildMessages(dossier), opts, logger, ct, stats);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -79,7 +80,11 @@ public sealed class AlbumGradingService(
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Album grading failed for canonical album {AlbumId}", canonicalAlbumId);
-            return new GradeAlbumResult(GradeOutcome.Failed, latest, ex.Message, ClassifyError(ex));
+            var code = ClassifyError(ex);
+            await RecordTrialRunAsync(db, GraderTrialRows.Incumbent(
+                GraderSubjectKind.Album, album.Id, owner, opts.Model, AlbumGradingPrompt.Version, fingerprint,
+                null, stats, (int)Math.Min(int.MaxValue, sw.ElapsedMilliseconds), code, ex.Message), ct);
+            return new GradeAlbumResult(GradeOutcome.Failed, latest, ex.Message, code);
         }
         sw.Stop();
 
@@ -106,7 +111,31 @@ public sealed class AlbumGradingService(
         db.CanonicalAlbumQualityGrades.Add(grade);
         await db.SaveChangesAsync(ct);
 
+        await RecordTrialRunAsync(db, GraderTrialRows.Incumbent(
+            GraderSubjectKind.Album, album.Id, owner, opts.Model, AlbumGradingPrompt.Version, fingerprint,
+            parsed, stats, grade.DurationMs, null, null), ct);
+
         return new GradeAlbumResult(GradeOutcome.Graded, grade);
+    }
+
+    /// <summary>Records the incumbent's answer for the grader trial; never allowed to fail the grade.</summary>
+    private async Task RecordTrialRunAsync(MusicHoarderDbContext db, GraderComparisonRun run, CancellationToken ct)
+    {
+        if (trialOptions?.CurrentValue.Enabled != true) return;
+        try
+        {
+            db.GraderComparisonRuns.Add(run);
+            await db.SaveChangesAsync(ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            db.Entry(run).State = EntityState.Detached;
+            logger.LogWarning(ex, "Could not record the grader-trial row for album {AlbumId}", run.SubjectId);
+        }
     }
 
     public async Task<AlbumGradingDossier?> BuildDossierAsync(int canonicalAlbumId, CancellationToken ct = default)
@@ -175,10 +204,4 @@ public sealed class AlbumGradingService(
         InvalidOperationException => "empty_response",
         _ => "error",
     };
-
-    private static string Fingerprint(AlbumGradingDossier dossier)
-    {
-        var json = JsonSerializer.Serialize(dossier, CompactJson);
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json)));
-    }
 }

@@ -17,7 +17,7 @@ namespace MusicHoarder.Api.Persistence.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.12")
+                .HasAnnotation("ProductVersion", "10.0.14")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -929,6 +929,151 @@ namespace MusicHoarder.Api.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("ExportedPlaylists");
+                });
+
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.GraderComparisonRun", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("Arm")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal?>("CostUsd")
+                        .HasPrecision(18, 9)
+                        .HasColumnType("numeric(18,9)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<string>("ErrorCode")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<double?>("FlagProbability")
+                        .HasColumnType("double precision");
+
+                    b.Property<int?>("FullStateBytes")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("InputFingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int?>("InputTokens")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("IssueCodesJson")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("LatencyMs")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Model")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<int?>("OutputTokens")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("OwnerUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ProbabilitiesJson")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("Score")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Source")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("StateBytes")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("StateShed")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("SubjectId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SubjectKind")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Summary")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<double?>("UnsupportedIdentity")
+                        .HasColumnType("double precision");
+
+                    b.Property<int?>("Verdict")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OwnerUserId", "CreatedAtUtc");
+
+                    b.HasIndex("SubjectKind", "SubjectId", "InputFingerprint", "Arm", "Model");
+
+                    b.ToTable("GraderComparisonRuns");
+                });
+
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.GraderTrialLabel", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("InputFingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("Label")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("LabeledAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OwnerUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Stratum")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SubjectId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SubjectKind")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("UnsupportedIdentity")
+                        .HasColumnType("boolean");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OwnerUserId", "SubjectKind", "SubjectId", "InputFingerprint")
+                        .IsUnique();
+
+                    b.ToTable("GraderTrialLabels");
                 });
 
             modelBuilder.Entity("MusicHoarder.Api.Persistence.IngestRun", b =>

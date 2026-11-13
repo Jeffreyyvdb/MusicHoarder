@@ -48,6 +48,8 @@ public class MusicHoarderDbContext : DbContext
     public DbSet<AlbumCompletionState> AlbumCompletionStates { get; set; } = null!;
     public DbSet<SongMetadataChange> SongMetadataChanges { get; set; } = null!;
     public DbSet<SongQualityGrade> SongQualityGrades { get; set; } = null!;
+    public DbSet<GraderComparisonRun> GraderComparisonRuns { get; set; } = null!;
+    public DbSet<GraderTrialLabel> GraderTrialLabels { get; set; } = null!;
     public DbSet<DirectoryPreference> DirectoryPreferences { get; set; } = null!;
     public DbSet<SpotifySettings> SpotifySettings { get; set; } = null!;
     public DbSet<SpotifyTrackLibraryMatch> SpotifyTrackLibraryMatches { get; set; } = null!;
@@ -292,6 +294,25 @@ public class MusicHoarderDbContext : DbContext
 
             // Mirror Song's tenancy filter so this dependent is filtered exactly when its principal
             // would be. Background services bypass via .IgnoreQueryFilters().
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+        });
+
+        // The grader trial (Quality/Jev): every arm's answer per subject, kept apart from
+        // SongQualityGrades so a shadow answer can never become a subject's current grade.
+        modelBuilder.Entity<GraderComparisonRun>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            // "Has this arm answered this subject on this input?" — the shadow sweep's check.
+            entity.HasIndex(e => new { e.SubjectKind, e.SubjectId, e.InputFingerprint, e.Arm, e.Model });
+            entity.HasIndex(e => new { e.OwnerUserId, e.CreatedAtUtc });
+            entity.Property(e => e.CostUsd).HasPrecision(18, 9);
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+        });
+
+        modelBuilder.Entity<GraderTrialLabel>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.OwnerUserId, e.SubjectKind, e.SubjectId, e.InputFingerprint }).IsUnique();
             entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
         });
 

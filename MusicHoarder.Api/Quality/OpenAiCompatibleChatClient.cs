@@ -40,7 +40,10 @@ public class OpenAiCompatibleChatClient(
             request.Temperature,
             request.MaxTokens,
             request.JsonResponse ? new ResponseFormat("json_object") : null,
-            opts.ReasoningMaxTokens > 0 ? new ReasoningConfig(opts.ReasoningMaxTokens) : null);
+            opts.ReasoningMaxTokens > 0 ? new ReasoningConfig(opts.ReasoningMaxTokens) : null,
+            // OpenRouter's usage accounting: puts the request's USD cost in usage.cost. Other
+            // OpenAI-compatible endpoints may reject unknown fields, so it is sent to OpenRouter only.
+            IsOpenRouter(opts.BaseUrl) ? new UsageConfig(true) : null);
         // Serialize once; the body is identical across retries.
         var bodyJson = JsonSerializer.Serialize(payload, Json);
 
@@ -73,8 +76,13 @@ public class OpenAiCompatibleChatClient(
 
         return new ChatCompletionResult(
             content, parsed?.Usage?.PromptTokens, parsed?.Usage?.CompletionTokens, choice?.FinishReason, fromReasoning,
-            parsed?.Provider);
+            parsed?.Provider, parsed?.Usage?.Cost);
     }
+
+    internal static bool IsOpenRouter(string baseUrl) =>
+        Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri)
+        && (uri.Host.Equals("openrouter.ai", StringComparison.OrdinalIgnoreCase)
+            || uri.Host.EndsWith(".openrouter.ai", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Posts the (already-serialized) request, retrying transient failures — HTTP 429/5xx, a per-call
@@ -220,7 +228,10 @@ public class OpenAiCompatibleChatClient(
         double Temperature,
         [property: JsonPropertyName("max_tokens")] int MaxTokens,
         [property: JsonPropertyName("response_format")] ResponseFormat? ResponseFormat,
-        [property: JsonPropertyName("reasoning")] ReasoningConfig? Reasoning);
+        [property: JsonPropertyName("reasoning")] ReasoningConfig? Reasoning,
+        [property: JsonPropertyName("usage")] UsageConfig? Usage);
+
+    private record UsageConfig([property: JsonPropertyName("include")] bool Include);
 
     private record ChatRequestMessage(string Role, string Content);
 
@@ -245,5 +256,6 @@ public class OpenAiCompatibleChatClient(
 
     private record ChatUsage(
         [property: JsonPropertyName("prompt_tokens")] int? PromptTokens,
-        [property: JsonPropertyName("completion_tokens")] int? CompletionTokens);
+        [property: JsonPropertyName("completion_tokens")] int? CompletionTokens,
+        [property: JsonPropertyName("cost")] decimal? Cost);
 }

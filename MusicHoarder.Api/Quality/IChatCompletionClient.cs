@@ -14,13 +14,15 @@ public record ChatCompletionRequest(
 /// reasoning channel instead — what a reasoning model leaves when it runs out of tokens mid-thought.
 /// </param>
 /// <param name="Provider">Which upstream served the request, when a router such as OpenRouter says so.</param>
+/// <param name="CostUsd">What the request cost in USD (<c>usage.cost</c>), when the endpoint reports it (OpenRouter does).</param>
 public record ChatCompletionResult(
     string Content,
     int? PromptTokens,
     int? CompletionTokens,
     string? FinishReason = null,
     bool FromReasoning = false,
-    string? Provider = null);
+    string? Provider = null,
+    decimal? CostUsd = null);
 
 /// <summary>
 /// Minimal client for an OpenAI-compatible <c>/chat/completions</c> endpoint. One method, no
