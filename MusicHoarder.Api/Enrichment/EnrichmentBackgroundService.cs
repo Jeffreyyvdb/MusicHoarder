@@ -132,10 +132,10 @@ public class EnrichmentBackgroundService(
 
             if (ids.Count > 0)
             {
-                pipelineChannel.EnqueueRange(ids);
+                var queued = pipelineChannel.EnqueueRange(ids);
                 logger.LogInformation(
-                    "Enqueued {Count} songs missing an enabled provider (new-provider backfill)",
-                    ids.Count);
+                    "Enqueued {Queued} of {Count} songs missing an enabled provider (new-provider backfill)",
+                    queued, ids.Count);
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -265,11 +265,11 @@ public class EnrichmentBackgroundService(
                     ? []
                     : pending.Where(s => s.SourcePath.StartsWith(downloadPrefix, StringComparison.Ordinal))
                         .Select(s => s.Id).ToList();
-                pipelineChannel.EnqueueRangePriority(priorityIds);
-                pipelineChannel.EnqueueRange(pending.Select(s => s.Id).Except(priorityIds));
+                var queuedPriority = pipelineChannel.EnqueueRangePriority(priorityIds);
+                var queued = pipelineChannel.EnqueueRange(pending.Select(s => s.Id).Except(priorityIds));
                 logger.LogInformation(
-                    "Backfilled {Count} pending songs into enrichment channel ({Priority} priority)",
-                    pending.Count, priorityIds.Count);
+                    "Backfilled {Queued} of {Count} pending songs into enrichment channel ({Priority} priority)",
+                    queued + queuedPriority, pending.Count, queuedPriority);
             }
 
             var retryIds = await db.SongProviderAttempts
@@ -280,8 +280,8 @@ public class EnrichmentBackgroundService(
 
             if (retryIds.Count > 0)
             {
-                pipelineChannel.EnqueueRange(retryIds);
-                logger.LogInformation("Backfilled {Count} retryable songs into enrichment channel", retryIds.Count);
+                var queued = pipelineChannel.EnqueueRange(retryIds);
+                logger.LogInformation("Backfilled {Queued} of {Count} retryable songs into enrichment channel", queued, retryIds.Count);
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -311,8 +311,11 @@ public class EnrichmentBackgroundService(
 
                 if (retryIds.Count > 0)
                 {
-                    pipelineChannel.EnqueueRange(retryIds);
-                    logger.LogInformation("Retry sweep enqueued {Count} rate-limited songs", retryIds.Count);
+                    var queued = pipelineChannel.EnqueueRange(retryIds);
+                    if (queued > 0)
+                        logger.LogInformation(
+                            "Retry sweep enqueued {Queued} retryable songs ({Waiting} waiting in the enrichment queue)",
+                            queued, pipelineChannel.Waiting);
                 }
 
                 await BackfillMissingLyricsAsync(ct);

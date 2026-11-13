@@ -545,7 +545,7 @@ public static class ServiceCollectionExtensions
             var cache = sp.GetRequiredService<Microsoft.Extensions.Caching.Memory.IMemoryCache>();
             var options = sp.GetRequiredService<IOptions<MusicEnricherOptions>>();
             var logger = sp.GetRequiredService<ILogger<SpotifyClientCredentialsClient>>();
-            return new SpotifyClientCredentialsClient(httpClient, cache, options, logger);
+            return new SpotifyClientCredentialsClient(httpClient, cache, options, logger, sp.GetRequiredService<TimeProvider>());
         });
 
         services.AddSingleton<ISpotifyCatalogSearchService>(sp => new SpotifyCatalogSearchService(
@@ -621,7 +621,8 @@ public static class ServiceCollectionExtensions
             var cache = sp.GetRequiredService<Microsoft.Extensions.Caching.Memory.IMemoryCache>();
             var logger = sp.GetRequiredService<ILogger<SpotifyApiService>>();
             var ownerLookup = sp.GetRequiredService<IOwnerLookupService>();
-            return new SpotifyApiService(scopeFactory, oauthService, httpClient, cache, ownerLookup, logger);
+            var options = sp.GetRequiredService<IOptions<MusicEnricherOptions>>();
+            return new SpotifyApiService(scopeFactory, oauthService, httpClient, cache, ownerLookup, options, logger);
         });
         services.AddSingleton<ISpotifyLibraryComparisonService>(sp =>
         {

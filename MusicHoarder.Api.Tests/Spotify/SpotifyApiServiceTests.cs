@@ -428,7 +428,12 @@ public class SpotifyApiServiceTests
         var apiHttpClient = new HttpClient(apiHandler ?? new FakeHttpHandler(HttpStatusCode.OK, "{}"));
         var cache = new MemoryCache(new MemoryCacheOptions());
         var logger = NullLogger<SpotifyApiService>.Instance;
-        return new SpotifyApiService(scopeFactory, oauthService, apiHttpClient, cache, ownerLookup, logger);
+        var enricherOpts = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
+        {
+            SourceDirectory = "/s",
+            DestinationDirectory = "/d",
+        });
+        return new SpotifyApiService(scopeFactory, oauthService, apiHttpClient, cache, ownerLookup, enricherOpts, logger);
     }
 
     private sealed class FakeHttpHandler(

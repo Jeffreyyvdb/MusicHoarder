@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Options;
+using MusicHoarder.Api.RateLimiting;
 
 namespace MusicHoarder.Api.Quality;
 
@@ -172,18 +173,8 @@ public class OpenAiCompatibleChatClient(
     /// <summary>Honors <c>Retry-After</c> when the server sent one, else exponential backoff with full jitter, capped.</summary>
     private static TimeSpan ComputeBackoff(HttpResponseMessage? resp, int attempt)
     {
-        var retryAfter = resp?.Headers.RetryAfter;
-        if (retryAfter is not null)
-        {
-            if (retryAfter.Delta is { } delta && delta >= TimeSpan.Zero)
-                return Cap(delta);
-            if (retryAfter.Date is { } date)
-            {
-                var wait = date - DateTimeOffset.UtcNow;
-                if (wait > TimeSpan.Zero)
-                    return Cap(wait);
-            }
-        }
+        if (resp is not null && RetryAfterHeader.Read(resp, DateTimeOffset.UtcNow) is { } wait && wait >= TimeSpan.Zero)
+            return Cap(wait);
 
         var baseMs = 500.0 * Math.Pow(2, attempt);
         var jittered = Random.Shared.NextDouble() * baseMs;

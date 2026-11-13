@@ -287,7 +287,7 @@ public class SpotifyCatalogSearchTransportTests
             SpotifyApiSearchLimit = 10,
             SpotifyApiSearchCacheMinutes = 60
         });
-        var api = new SpotifyClientCredentialsClient(httpClient, cache, opts, NullLogger<SpotifyClientCredentialsClient>.Instance);
+        var api = new SpotifyClientCredentialsClient(httpClient, cache, opts, NullLogger<SpotifyClientCredentialsClient>.Instance, TimeProvider.System);
         return new SpotifyCatalogSearchService(api, cache, opts);
     }
 }
