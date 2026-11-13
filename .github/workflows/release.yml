@@ -4,8 +4,8 @@ name: Release
 # Conventional Commits across BOTH the .NET API and the SvelteKit frontend; a single
 # `vX.Y.Z` git tag + GitHub Release is cut covering both. When a release happens this
 # workflow dispatches aspire-deploy.yml with the new version, which builds and semver-tags
-# the api + frontend images and redeploys Dokploy; it also attaches the Android APK to the Release
-# and uploads the Android App Bundle to Google Play.
+# the api + frontend images and redeploys Dokploy; it also builds the app shell (mobile/) for
+# Android, attaches the APK to the Release and uploads the App Bundle to Google Play.
 # `workflow_dispatch` triggered by the default GITHUB_TOKEN is permitted to start the
 # downstream run (the one exception to the "GITHUB_TOKEN-created events don't trigger workflows"
 # rule), so no PAT is needed.
@@ -54,9 +54,9 @@ jobs:
       - name: Setup JDK
         uses: actions/setup-java@v6
         with:
-          # Matches android/gradle/gradle-daemon-jvm.properties.
+          # Capacitor's Android project (mobile/android) builds with JDK 21; newer ones fail in Gradle.
           distribution: temurin
-          java-version: '25'
+          java-version: '21'
 
       # Checks the four signing secrets without building anything. It deliberately never fails the
       # job — an Android-only problem must not hold back the API/frontend deploy. It emits an error
@@ -80,7 +80,7 @@ jobs:
           }
 
           if [ -z "${KEYSTORE_BASE64:-}" ]; then
-            echo "No ANDROID_KEYSTORE_BASE64 secret — a release would attach a debug-signed APK. See android/README.md."
+            echo "No ANDROID_KEYSTORE_BASE64 secret — a release would attach a debug-signed APK. See mobile/README.md."
             emit false
             exit 0
           fi
@@ -114,13 +114,6 @@ jobs:
             "$PROBE_JAR" "$MH_KEY_ALIAS" >/dev/null 2>&1 \
             || fail "ANDROID_KEY_PASSWORD cannot unlock the key. For a PKCS12 keystore (anything keytool made recently) it must equal ANDROID_KEYSTORE_PASSWORD."
 
-          # Surface the signing cert's SHA-256 for Android App Links: this is the value the
-          # frontend's ANDROID_ASSETLINKS_FINGERPRINTS env var needs so share/invite links open
-          # the app. Cert fingerprints are public — printing one leaks nothing.
-          FP=$(keytool -list -v -keystore "$KS" -storepass "$MH_KEYSTORE_PASSWORD" -alias "$MH_KEY_ALIAS" 2>/dev/null \
-            | grep -m1 'SHA256:' | sed 's/.*SHA256: //') || true
-          [ -n "$FP" ] && echo "::notice title=App Links fingerprint::Set ANDROID_ASSETLINKS_FINGERPRINTS=$FP on the frontend so share/invite links open the Android app."
-
           rm -rf "$KS" "$PROBE_DIR" "$PROBE_JAR"
           echo "Keystore, alias and both passwords check out — a release will attach a signed APK."
           emit true
@@ -139,7 +132,7 @@ jobs:
           set -uo pipefail
 
           if [ -z "${SERVICE_ACCOUNT_JSON:-}" ]; then
-            echo "No ANDROID_PLAY_SERVICE_ACCOUNT_JSON secret — releases are not published to Google Play. See android/README.md."
+            echo "No ANDROID_PLAY_SERVICE_ACCOUNT_JSON secret — releases are not published to Google Play. See mobile/README.md."
             echo "ok=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -182,11 +175,15 @@ jobs:
           VERSION: ${{ steps.semrel.outputs.new_release_version }}
         run: gh workflow run aspire-deploy.yml --ref main -f version="$VERSION"
 
-      # ── Android APK ────────────────────────────────────────────────────────────────────────
+      # ── Android APK (the app shell, mobile/) ────────────────────────────────────────────────
       # Built *after* semantic-release on purpose: the app is not deployed by a release, so an
-      # Android breakage must never hold back the API/frontend deploy. CI already builds both
-      # variants on every PR, so this failing is the unusual case. The release exists for a minute
-      # or two without the APK attached.
+      # Android breakage must never hold back the API/frontend deploy. mobile.yml builds it on every
+      # PR that touches mobile/, so this failing is the unusual case. The release exists for a
+      # minute or two without the APK attached.
+      #
+      # The shell names no server (MH_SERVER_URL stays unset): it asks for one on first start, so
+      # the store build serves every instance. Same application id, signing key and versionCode
+      # scheme as the native client it replaced, so it installs over it as an update.
 
       - name: Setup Android SDK
         if: steps.semrel.outputs.new_release_version != ''
@@ -201,7 +198,7 @@ jobs:
       - name: Build Android APK and App Bundle
         id: apk
         if: steps.semrel.outputs.new_release_version != ''
-        working-directory: android
+        working-directory: mobile
         env:
           VERSION: ${{ steps.semrel.outputs.new_release_version }}
           SIGNING_OK: ${{ steps.android_signing.outputs.ok }}
@@ -217,6 +214,12 @@ jobs:
           IFS=. read -r MAJOR MINOR PATCH <<< "$VERSION"
           VERSION_CODE=$(( MAJOR * 1000000 + MINOR * 1000 + PATCH ))
           echo "Building $VERSION (versionCode $VERSION_CODE)"
+
+          # The Capacitor project: its JS deps (the CLI and the audio plugin), then the generated
+          # config and web assets inside mobile/android. No MH_SERVER_URL — see above.
+          bun install --frozen-lockfile
+          bun run sync
+          cd android
 
           if [ "${SIGNING_OK:-false}" = "true" ]; then
             printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
@@ -262,7 +265,7 @@ jobs:
       # The bundle is not attached to the Release — an .aab is not installable, and offering one
       # next to the APK only invites people to download the wrong file. It goes to the run's
       # artifacts instead, which is where you fetch it from for the one manual Play Console upload
-      # that has to happen before the API is allowed to publish (see android/README.md).
+      # that has to happen before the API is allowed to publish (see mobile/README.md).
       - name: Upload the App Bundle as a run artifact
         if: steps.apk.outputs.aab != ''
         uses: actions/upload-artifact@v7.0.2
@@ -307,7 +310,7 @@ jobs:
       # with a repo that can cut several releases in a day; promote a build to production from the
       # Play Console when you want one to reach everyone. Set the variable to `production` (and
       # ANDROID_PLAY_STATUS to `draft` if you would rather still press the button yourself) to
-      # change that — see android/README.md for why you probably should not.
+      # change that — see mobile/README.md for why you probably should not.
       #
       # Skipped when the preflight found no service-account key, so a fork releases exactly as it
       # did before this step existed.

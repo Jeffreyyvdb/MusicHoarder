@@ -1,10 +1,9 @@
-# Builds the app shell in mobile/ (a Capacitor web view plus the native audio plugin) for the iOS
-# simulator and as an Android debug APK. This is the only place its Swift and Java are compiled
-# outside a developer's machine: nothing here signs, archives or uploads, so it needs no Apple or
-# Google account and no secrets.
+# Builds the app shell in mobile/ (a Capacitor web view plus the native audio and server plugins)
+# for the iOS simulator and as an Android debug APK. Nothing here signs, archives or uploads, so it
+# needs no Apple or Google account and no secrets; release.yml builds the signed Android release.
 #
-# Path-filtered like android.yml, and for the same reason not one of main's required status
-# checks: a skipped run must not leave a PR waiting on a check that will never report.
+# Path-filtered, and for that reason not one of main's required status checks: a skipped run must
+# not leave a PR waiting on a check that will never report.
 name: Mobile
 
 on:
@@ -26,10 +25,6 @@ permissions:
 concurrency:
   group: mobile-${{ github.ref }}
   cancel-in-progress: true
-
-env:
-  # A placeholder: `sync` writes it into the generated config, and nothing is loaded from it.
-  MH_SERVER_URL: https://music.example.com
 
 jobs:
   ios:

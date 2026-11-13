@@ -62,7 +62,8 @@ a mock-up. The image above follows your GitHub light or dark theme.</sub>
   most-played, recently-added and "never played" shelves.
 - **Install it** — add it to your iPhone or iPad home screen, or install it from Chrome/Edge; it
   launches full-screen with its own icon and shows an offline page instead of a browser error. The
-  native [Android app](android/README.md) mirrors the same design and behaviour.
+  [MusicHoarder app](mobile/README.md) for iPhone and Android is the same pages with a native
+  player, so the next song starts on a locked phone; it asks for your server's address on first start.
 
 ![Now Playing on the desktop: Sade's Kiss of Life with its time-synced lyrics over the song's muted music video, the current line highlighted, and the cover and transport controls on the left](frontend/static/screenshots/now-playing.webp)
 
@@ -155,7 +156,6 @@ a mock-up. The image above follows your GitHub light or dark theme.</sub>
 - **Public share links** — mint a revocable, no-account link scoped to a single track or a whole
   album. The public page is a chrome-free player with ambient artwork, an album queue that plays
   straight through, and a full-screen synced-lyrics view. Nothing else in your library is exposed.
-  With the Android app installed, share and invite links open natively in the app.
 - **Member accounts** — invite people by email (Settings → People mints a one-time link) to create
   their own listen-only account, then share albums, artists, or your entire library with each of
   them. Members get the same listening app — Overview, Albums, Artists, Tracks and their own
@@ -164,7 +164,7 @@ a mock-up. The image above follows your GitHub light or dark theme.</sub>
   Every grant is revocable, and removing someone disables their account and signs them out
   everywhere.
 - **Several accounts on one device** — sign in to more than one account (say, your own and the
-  demo) and switch between them from the account menu, on the web and on Android.
+  demo) and switch between them from the account menu, on the web and in the app.
 
 ### Watch it work
 
@@ -211,8 +211,10 @@ a mock-up. The image above follows your GitHub light or dark theme.</sub>
   the installed app: it keeps its own session, separate from Safari's, and an emailed magic link
   opens in Safari rather than in the installed app — so the smooth way in is a passkey (enrol one
   under Settings → Account from Safari first) or the demo account.
-- **Native Android app** — Kotlin + Compose + Media3, paired by QR code, email sign-in or passkey.
-  See [android/README.md](android/README.md).
+- **The MusicHoarder app (iOS and Android)** — a Capacitor shell around the same pages, with a
+  native audio player (AVQueuePlayer / Media3) that holds the next tracks, so playback carries on
+  through a locked phone. Connect it to your server by address; sign in by email link or the demo.
+  See [mobile/README.md](mobile/README.md).
 
 ## How it works
 
@@ -244,7 +246,7 @@ live on the **Manage → Pipeline** dashboard.
 | `MusicHoarder.AppHost` | .NET Aspire AppHost — composes the API, frontend, and PostgreSQL for local dev |
 | `MusicHoarder.ServiceDefaults` | Shared cross-cutting defaults (health checks, OpenTelemetry, resilient HTTP) |
 | `frontend` | SvelteKit 3 + Svelte 5 + Bun — the full web app, installable on iPhone and desktop: library browser, player with Now Playing, live pipeline, review Inbox, Discover, Stats, History, and share pages |
-| `android` | Native Android client (Kotlin, Jetpack Compose, Media3) — a line-by-line port of the web app's library and player, talking to the same API |
+| `mobile` | The app shell for iOS and Android (Capacitor) — loads the web app from the server the user connects it to, and adds a native audio player for locked-phone playback |
 
 ---
 
