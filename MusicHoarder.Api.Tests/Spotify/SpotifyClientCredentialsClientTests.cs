@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Spotify;
+using MusicHoarder.Api.Tests.Playback;
 
 namespace MusicHoarder.Api.Tests.Spotify;
 
@@ -235,6 +236,89 @@ public class SpotifyClientCredentialsClientTests
         Assert.Equal(5, handler.SendCount);
     }
 
+    // Issue #550: Spotify's Development Mode quota answers 429 QUOTA_EXCEEDED with a Retry-After of
+    // hours. Waiting that out in place parked every enrichment worker while the app looked healthy.
+    private static readonly TimeSpan QuotaRetryAfter = TimeSpan.FromSeconds(76242);
+    private const string AlbumUrl = "https://api.spotify.com/v1/albums/alb1";
+    private const string SearchUrl = "https://api.spotify.com/v1/search?q=x&type=track";
+
+    [Fact]
+    public async Task GetJsonAsync_RetryAfterLongerThanTheInlineCap_ThrowsAtOnceWithoutWaiting()
+    {
+        var handler = new ScriptedHttpHandler();
+        handler.EnqueueToken();
+        handler.Enqueue(HttpStatusCode.TooManyRequests, """{"error":{"status":429,"reason":"QUOTA_EXCEEDED"}}""", QuotaRetryAfter);
+
+        var call = CreateClient(handler).GetJsonAsync("cid", "sec", AlbumUrl, CancellationToken.None);
+        var finished = await Task.WhenAny(call, Task.Delay(TimeSpan.FromSeconds(10)));
+
+        Assert.Same(call, finished);
+        var ex = await Assert.ThrowsAsync<ProviderRateLimitedException>(() => call);
+        Assert.Equal(QuotaRetryAfter, ex.RetryAfter);
+        Assert.Equal(2, handler.SendCount); // token + the one 429, no retries
+    }
+
+    [Fact]
+    public async Task GetJsonAsync_AfterALongRetryAfter_SkipsThatEndpointWithoutHttpUntilItExpires()
+    {
+        var clock = new ManualTimeProvider(new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero));
+        var handler = new ScriptedHttpHandler();
+        handler.EnqueueToken();
+        handler.Enqueue(HttpStatusCode.TooManyRequests, retryAfter: TimeSpan.FromHours(2));
+
+        var client = CreateClient(handler, timeProvider: clock);
+        await Assert.ThrowsAsync<ProviderRateLimitedException>(
+            () => client.GetJsonAsync("cid", "sec", AlbumUrl, CancellationToken.None));
+
+        clock.Advance(TimeSpan.FromMinutes(30));
+        var ex = await Assert.ThrowsAsync<ProviderRateLimitedException>(
+            () => client.GetJsonAsync("cid", "sec", "https://api.spotify.com/v1/albums/other", CancellationToken.None));
+        Assert.Equal(TimeSpan.FromMinutes(90), ex.RetryAfter);
+        Assert.Equal(2, handler.SendCount);
+
+        clock.Advance(TimeSpan.FromMinutes(91));
+        handler.EnqueueJson("""{"id":"alb1"}""");
+        Assert.Equal("""{"id":"alb1"}""", await client.GetJsonAsync("cid", "sec", AlbumUrl, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task GetJsonAsync_ABlockedEndpoint_DoesNotBlockTheOthers()
+    {
+        // The reporter's direct check: /v1/albums was closed for 21 h while /v1/search still answered.
+        var handler = new ScriptedHttpHandler();
+        handler.EnqueueToken();
+        handler.Enqueue(HttpStatusCode.TooManyRequests, retryAfter: QuotaRetryAfter);
+        handler.EnqueueJson("""{"tracks":{"items":[]}}""");
+
+        var client = CreateClient(handler);
+        await Assert.ThrowsAsync<ProviderRateLimitedException>(
+            () => client.GetJsonAsync("cid", "sec", AlbumUrl, CancellationToken.None));
+
+        Assert.Equal("""{"tracks":{"items":[]}}""", await client.GetJsonAsync("cid", "sec", SearchUrl, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task GetJsonAsync_RetryAfterAtTheInlineCap_IsStillWaitedOut()
+    {
+        var handler = new ScriptedHttpHandler();
+        handler.EnqueueToken();
+        handler.Enqueue(HttpStatusCode.TooManyRequests, retryAfter: TimeSpan.Zero);
+        handler.EnqueueJson("""{"ok":true}""");
+
+        var json = await CreateClient(handler, maxInlineRetryAfterSeconds: 0)
+            .GetJsonAsync("cid", "sec", AlbumUrl, CancellationToken.None);
+
+        Assert.Equal("""{"ok":true}""", json);
+    }
+
+    [Theory]
+    [InlineData("https://api.spotify.com/v1/search?q=a", "search")]
+    [InlineData("https://api.spotify.com/v1/albums/abc", "albums")]
+    [InlineData("https://api.spotify.com/v1/tracks/abc", "tracks")]
+    [InlineData("https://api.spotify.com/v1/artists/abc/albums", "artists")]
+    public void EndpointOf_IsTheResourceAfterV1(string url, string expected) =>
+        Assert.Equal(expected, SpotifyClientCredentialsClient.EndpointOf(url));
+
     // ── 401 ─────────────────────────────────────────────────────────────────────────────
 
     [Fact]
@@ -325,7 +409,11 @@ public class SpotifyClientCredentialsClientTests
 
     // ── helpers ─────────────────────────────────────────────────────────────────────────
 
-    private static SpotifyClientCredentialsClient CreateClient(HttpMessageHandler handler, IMemoryCache? cache = null)
+    private static SpotifyClientCredentialsClient CreateClient(
+        HttpMessageHandler handler,
+        IMemoryCache? cache = null,
+        TimeProvider? timeProvider = null,
+        int maxInlineRetryAfterSeconds = 30)
     {
         cache ??= new MemoryCache(new MemoryCacheOptions());
         var httpClient = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
@@ -334,8 +422,10 @@ public class SpotifyClientCredentialsClientTests
             SourceDirectory = "/s",
             DestinationDirectory = "/d",
             SpotifyApiRequestsPerSecond = 20,
+            SpotifyApiMaxInlineRetryAfterSeconds = maxInlineRetryAfterSeconds,
         });
-        return new SpotifyClientCredentialsClient(httpClient, cache, opts, NullLogger<SpotifyClientCredentialsClient>.Instance);
+        return new SpotifyClientCredentialsClient(
+            httpClient, cache, opts, NullLogger<SpotifyClientCredentialsClient>.Instance, timeProvider ?? TimeProvider.System);
     }
 
     private sealed class ManualClock : ISystemClock

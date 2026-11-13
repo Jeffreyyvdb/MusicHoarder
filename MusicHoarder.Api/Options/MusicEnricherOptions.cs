@@ -183,6 +183,15 @@ public class MusicEnricherOptions
     [Range(1, 20)]
     public int SpotifyApiRequestsPerSecond { get; set; } = 4;
 
+    /// <summary>
+    /// Longest Spotify <c>Retry-After</c> (seconds) a request waits out in place before retrying.
+    /// A longer one — an exhausted Development Mode quota answers 429 <c>QUOTA_EXCEEDED</c> with
+    /// hours — is reported at once as a rate limit, and the catalog client leaves that endpoint
+    /// alone until it expires, so an enrichment worker or a sync never hangs on it (issue #550).
+    /// </summary>
+    [Range(0, 600)]
+    public int SpotifyApiMaxInlineRetryAfterSeconds { get; set; } = 30;
+
     /// <summary>Track candidates to request from Spotify search (1–50).</summary>
     [Range(1, 50)]
     public int SpotifyApiSearchLimit { get; set; } = 10;

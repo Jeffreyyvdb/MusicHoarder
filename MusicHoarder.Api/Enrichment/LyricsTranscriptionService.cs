@@ -8,6 +8,7 @@ using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.RateLimiting;
 
 namespace MusicHoarder.Api.Enrichment;
 
@@ -382,7 +383,7 @@ public sealed class LyricsTranscriptionService(
                 {
                     // The provider knows how long it wants us gone; guessing is how a back-off turns into a
                     // 429 storm. Tell the limiter so every other worker pauses too, not just this one.
-                    rateLimiter.NoteBackoff(ReadRetryAfter(resp) ?? TimeSpan.FromSeconds(5));
+                    rateLimiter.NoteBackoff(RetryAfterHeader.Read(resp, DateTimeOffset.UtcNow) ?? TimeSpan.FromSeconds(5));
                 }
 
                 if (attempt < maxAttempts - 1 && IsRetryableStatus(resp.StatusCode))
@@ -439,22 +440,6 @@ public sealed class LyricsTranscriptionService(
         var baseMs = Math.Min(750.0 * Math.Pow(2, attempt), 8000);
         var jittered = (baseMs / 2) + (Random.Shared.NextDouble() * (baseMs / 2));
         return TimeSpan.FromMilliseconds(jittered);
-    }
-
-    /// <summary>Reads a 429's <c>Retry-After</c>, in either the delta-seconds or the HTTP-date form.</summary>
-    private static TimeSpan? ReadRetryAfter(HttpResponseMessage response)
-    {
-        var retryAfter = response.Headers.RetryAfter;
-        if (retryAfter is null)
-            return null;
-        if (retryAfter.Delta is TimeSpan delta)
-            return delta;
-        if (retryAfter.Date is DateTimeOffset date)
-        {
-            var wait = date - DateTimeOffset.UtcNow;
-            return wait > TimeSpan.Zero ? wait : null;
-        }
-        return null;
     }
 
     private static void TryDelete(string path)
