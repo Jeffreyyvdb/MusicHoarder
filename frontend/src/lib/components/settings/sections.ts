@@ -36,7 +36,7 @@ type Audience = Pick<SessionUser, 'role' | 'isAdmin'> | null | undefined;
 /**
  * An admin sees every section. The demo sees all but People (inviting and sharing are
  * administration; its view of the rest is read-only). A member gets Settings for their own
- * account only — sign-out, passkeys, phone pairing — since every other section is instance
+ * account only — sign-out, passkeys — since every other section is instance
  * configuration.
  */
 export function visibleSections(user: Audience): Section[] {

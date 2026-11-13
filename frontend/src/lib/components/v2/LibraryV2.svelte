@@ -502,7 +502,7 @@
     tracks: 'Search tracks'
   };
 
-  // The chip glyphs. Their words are CHIP_LABELS (shared with the Android port); the long
+  // The chip glyphs. Their words are CHIP_LABELS; the long
   // explanations used to be hover tooltips, which a finger never reaches, so they stay only as
   // desktop titles.
   const CHIP_ICON: Record<ChipKey, typeof Heart> = {

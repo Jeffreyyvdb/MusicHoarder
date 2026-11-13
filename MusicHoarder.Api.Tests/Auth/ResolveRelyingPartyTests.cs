@@ -28,8 +28,8 @@ public class ResolveRelyingPartyTests
     [Fact]
     public void Blank_android_origin_adds_nothing()
     {
-        // The AppHost always maps WebAuthn__Origins__0, so an unconfigured deployment binds an
-        // empty string into slot 0. It must not become an allowed origin.
+        // A deployment that binds an empty value into an origins slot (an unset env var) must not
+        // gain "" as an allowed origin.
         var (_, origins) = ServiceCollectionExtensions.ResolveRelyingParty(
             new WebAuthnOptions { Origins = [""] },
             new FrontendOptions { PublicBaseUrl = "https://musichoarder.app" });

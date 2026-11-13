@@ -282,11 +282,21 @@ public class AccountSwitchServiceTests
 
         public MusicHoarderDbContext CreateCtx() => new(_dbOptions);
 
+        /// <summary>A live session for <paramref name="userId"/>, as a sign-in would leave one.</summary>
         public async Task<Session> MintSessionAsync(Guid userId)
         {
-            var session = await Auth.CreateDeviceSessionAsync(userId, null, null, default);
-            Assert.NotNull(session);
-            return session!;
+            var nowUtc = DateTime.UtcNow;
+            var session = new Session
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                IssuedAtUtc = nowUtc,
+                ExpiresAtUtc = nowUtc.AddDays(30),
+            };
+            await using var db = CreateCtx();
+            db.Sessions.Add(session);
+            await db.SaveChangesAsync();
+            return session;
         }
 
         public IReadOnlyList<Guid> SeedExtraFriends(int count)

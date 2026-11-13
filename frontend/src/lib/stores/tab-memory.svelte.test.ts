@@ -20,8 +20,8 @@ function tab(id: string): NavTab {
   return found;
 }
 
-const admin = { id: 'admin-1', role: 'Owner' as const, isAdmin: true };
-const member = { id: 'member-1', role: 'Friend' as const, isAdmin: false, capabilities: [] };
+const admin = { id: 'admin-1', role: 'Admin' as const, isAdmin: true };
+const member = { id: 'member-1', role: 'Member' as const, isAdmin: false, capabilities: [] };
 
 function memoryStorage(): Storage {
   const data = new Map<string, string>();

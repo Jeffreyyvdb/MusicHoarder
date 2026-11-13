@@ -13,7 +13,7 @@ function stubFetch(impl: () => Promise<Response>) {
 const OWNER = {
   id: 'owner-id',
   email: 'owner@example.com',
-  role: 'Owner' as const,
+  role: 'Admin' as const,
   displayName: 'Owner'
 };
 

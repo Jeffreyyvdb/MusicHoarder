@@ -8,11 +8,8 @@ namespace MusicHoarder.Api.Sharing;
 /// Builds the grantee-facing song rows for a resolved <see cref="ILibraryScope"/>.
 ///
 /// <para>
-/// One implementation, two callers: the unified <c>GET /songs</c> and the deprecated
-/// <c>GET /api/shared/songs</c> alias. Keeping them on the same code path is what makes the alias
-/// a genuine compatibility shim rather than a second surface that can drift — and it means the
-/// existing <c>SharedLibraryEndpointsTests</c> keep working as a regression net for the unified
-/// endpoint.
+/// Used by <c>GET /songs</c>, <c>GET /api/albums</c> and <c>GET /api/radio</c> for a granted slice,
+/// so all three publish exactly the same fields of another account's songs.
 /// </para>
 /// </summary>
 public static class SharedSongProjection

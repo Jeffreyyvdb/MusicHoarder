@@ -39,13 +39,11 @@ public sealed partial class MemberWriteGuardMiddleware
     private sealed record WriteRule(string Method, Regex Pattern, Capability Required);
 
     // Session and account self-management. None of these touch anyone else's data: they end the
-    // caller's own session, mint a bearer for the caller's own session, enrol a passkey on the
-    // caller's own account, accept an invite addressed to the caller, or switch between accounts
+    // caller's own session, enrol a passkey on the caller's own account, accept an invite addressed to the caller, or switch between accounts
     // the browser already holds.
     private static readonly WriteRule[] Rules =
     [
         Exact("POST", "/api/auth/logout"),
-        Exact("POST", "/api/auth/device-token"),
         Prefix("POST", "/api/auth/webauthn/authenticate"),
         Prefix("POST", "/api/auth/webauthn/register"),
         Prefix("POST", "/api/auth/webauthn/credentials"),
@@ -54,13 +52,11 @@ public sealed partial class MemberWriteGuardMiddleware
         // Switch to another account already parked in this browser. Possession of the alts cookie
         // is the credential — see AccountSwitchService.
         Prefix("POST", "/api/auth/switch"),
-        // Sign in with an emailed link while still holding a session: "Add an account" on the web
-        // (the callback forwards the browser's cookies so the current account gets parked) and on
-        // the phone (the interceptor attaches the active account's bearer). The emailed token is
-        // the credential; these grant nothing an anonymous caller lacks.
+        // Sign in with an emailed link while still holding a session: "Add an account" (the
+        // callback forwards the browser's cookies so the current account gets parked). The emailed
+        // token is the credential; these grant nothing an anonymous caller lacks.
         Exact("POST", "/api/auth/request-link"),
         Exact("POST", "/api/auth/consume"),
-        Exact("POST", "/api/auth/token"),
 
         // Playback sync between the caller's own devices: report this device's player, and
         // remote-control or hand over to another of the caller's devices. Keyed by the caller's
@@ -90,11 +86,6 @@ public sealed partial class MemberWriteGuardMiddleware
         Song("POST", "like", Capability.TrackListening),
         Song("DELETE", "like", Capability.TrackListening),
         Song("POST", "played", Capability.TrackListening),
-
-        // DEPRECATED alias of the three above; delete with the rest of /api/shared.
-        Shared("POST", "like", Capability.TrackListening),
-        Shared("DELETE", "like", Capability.TrackListening),
-        Shared("POST", "played", Capability.TrackListening),
 
         // The caller's own playlists. Playlist rows are filtered to their owner, so an id that is not
         // the caller's is a 404, and every song added is checked against what the caller may read —
@@ -192,7 +183,4 @@ public sealed partial class MemberWriteGuardMiddleware
     /// <summary><c>/api/chat/conversations/{guid}/{leaf}</c>.</summary>
     private static Regex ChatConversationRoute(string leafPattern) =>
         new($@"^/api/chat/conversations/[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}/{leafPattern}/?$", RegexOptions.IgnoreCase);
-
-    private static WriteRule Shared(string method, string action, Capability required) =>
-        new(method, new Regex($@"^/api/shared/songs/\d+/{Regex.Escape(action)}/?$", RegexOptions.IgnoreCase), required);
 }

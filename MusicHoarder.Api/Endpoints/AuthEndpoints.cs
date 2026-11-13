@@ -79,60 +79,6 @@ public static class AuthEndpoints
             })
             .WithName("AuthConsume");
 
-        // Native-client variant of /consume: exchanges a magic-link token for a bearer access
-        // token instead of a cookie. The token is the same protected session id the cookie
-        // carries, so it hits the same server-side Session row (revocable, sliding lifetime).
-        group.MapPost("/token", async (
-                ConsumeBody body,
-                HttpContext ctx,
-                IAuthService authService,
-                ISessionCookieService cookieService,
-                CancellationToken ct) =>
-            {
-                if (string.IsNullOrWhiteSpace(body.Token))
-                    return Results.BadRequest(new { error = "token_required" });
-
-                var session = await authService.ConsumeLinkAsync(
-                    body.Token,
-                    ctx.Connection.RemoteIpAddress?.ToString(),
-                    ctx.Request.Headers.UserAgent.ToString(),
-                    ct);
-                if (session is null)
-                    return Results.Json(new { error = "invalid_token" }, statusCode: 400);
-
-                return Results.Ok(new AccessTokenResponse(
-                    cookieService.Protect(session.Id), "Bearer", session.ExpiresAtUtc));
-            })
-            .WithName("AuthTokenExchange");
-
-        // Mints a bearer token from an existing authenticated session (e.g. the web UI showing a
-        // QR code / copyable token to pair a device). A separate Session row, so web logout
-        // doesn't kill the device. Demo sessions never get here (DemoReadOnlyMiddleware blocks
-        // the POST).
-        group.MapPost("/device-token", async (
-                HttpContext ctx,
-                ICurrentUserAccessor accessor,
-                IAuthService authService,
-                ISessionCookieService cookieService,
-                CancellationToken ct) =>
-            {
-                var user = accessor.User;
-                if (user is null)
-                    return Results.Json(new { error = "unauthenticated" }, statusCode: 401);
-
-                var session = await authService.CreateDeviceSessionAsync(
-                    user.Id,
-                    ctx.Connection.RemoteIpAddress?.ToString(),
-                    ctx.Request.Headers.UserAgent.ToString(),
-                    ct);
-                if (session is null)
-                    return Results.Json(new { error = "user_unavailable" }, statusCode: 403);
-
-                return Results.Ok(new AccessTokenResponse(
-                    cookieService.Protect(session.Id), "Bearer", session.ExpiresAtUtc));
-            })
-            .WithName("AuthDeviceToken");
-
         group.MapPost("/demo-login", async (
                 HttpContext ctx,
                 IAuthService authService,
@@ -160,8 +106,7 @@ public static class AuthEndpoints
                 {
                     id = user.Id,
                     email = user.Email,
-                    // Legacy vocabulary on purpose — see WireRole. New clients read isAdmin and
-                    // capabilities instead and ignore this field.
+                    // For display: clients branch on isAdmin and capabilities (see WireRole).
                     role = WireRole.ToWire(user.Role),
                     isAdmin = user.IsAdmin,
                     capabilities = WireRole.ToWire(user.Effective),
@@ -179,27 +124,18 @@ public static class AuthEndpoints
         group.MapPost("/logout", async (
                 bool? all,
                 HttpContext ctx,
-                IAuthService authService,
                 ISessionCookieService cookieService,
                 IAccountSwitchService accountSwitch,
                 CancellationToken ct) =>
             {
-                // Cookie (browser): the account switcher revokes the active session and falls
-                // back to the newest parked account, if any.
+                // The account switcher revokes the active session and falls back to the newest
+                // parked account, if any.
                 if (ctx.Request.Cookies.TryGetValue(cookieService.CookieName, out var cookie) && !string.IsNullOrEmpty(cookie))
                 {
                     var outcome = await accountSwitch.LogoutAsync(ctx, allForActiveUser: all == true, ct);
                     return Results.Ok(new { ok = true, fallback = outcome.Fallback });
                 }
 
-                // Bearer token (native client) — no cookies involved, just revoke.
-                var raw = BearerToken.TryRead(ctx);
-                if (raw is not null)
-                {
-                    var sessionId = cookieService.Unprotect(raw);
-                    if (sessionId is not null)
-                        await authService.RevokeAsync(sessionId.Value, allForUser: all == true, ct);
-                }
                 cookieService.Clear(ctx);
                 return Results.Ok(new { ok = true, fallback = (AccountView?)null });
             })
@@ -291,5 +227,3 @@ public sealed record ConsumeBody(string Token);
 public sealed record SwitchAccountBody(Guid UserId);
 public sealed record UpdateMeBody(string? DisplayName);
 
-/// <summary>Bearer token issued to native clients; send as <c>Authorization: Bearer …</c>.</summary>
-public sealed record AccessTokenResponse(string AccessToken, string TokenType, DateTime ExpiresAtUtc);

@@ -25,15 +25,12 @@ export interface PrimaryCtaOptions {
 export function createPrimaryCta(options: PrimaryCtaOptions) {
   let launching = $state(false);
 
-  const role = $derived((page.data.sessionRole ?? null) as SessionRole | 'Admin' | 'Member' | null);
-  // Accepts BOTH role vocabularies on purpose. This reads a bare role string (the landing page
-  // has no full session object to call isAdmin on), and the wire names are scheduled to change
-  // from Owner/Friend to Admin/Member — matching only the old ones would silently downgrade
-  // every signed-in visitor to the demo label on that release.
+  // A bare role string: the landing page has no full session object to call isAdmin on.
+  const role = $derived((page.data.sessionRole ?? null) as SessionRole | null);
   const signedInLabel = $derived(
-    role === 'Owner' || role === 'Admin'
+    role === 'Admin'
       ? 'Open your library'
-      : role === 'Friend' || role === 'Member'
+      : role === 'Member'
         ? 'Open shared music'
         : 'Continue the demo'
   );

@@ -35,7 +35,6 @@ public sealed class DemoReadOnlyMiddleware
         "/api/auth/switch",
         "/api/auth/request-link",
         "/api/auth/consume",
-        "/api/auth/token",
         "/api/auth/webauthn/authenticate",
         "/api/invite/accept",
     ];
