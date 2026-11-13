@@ -15,9 +15,10 @@ namespace MusicHoarder.Api.Spotify;
 /// App-authenticated GET against the Spotify Web API for the catalog lookups that need no user:
 /// a client-credentials token per app id (fetched under a lock, cached until shortly before it
 /// expires), the process-wide request rate limit, and the response policy every lookup shares —
-/// a 429 waits out <c>Retry-After</c> and retries, a 401 refreshes the token exactly once, and
-/// anything else non-2xx gives up. Callers hand it a URL and get the JSON body back, or
-/// <c>null</c> when Spotify had nothing usable; parsing is theirs
+/// a 429 with a short <c>Retry-After</c> is waited out and retried, a long one (a Development Mode
+/// quota answers with hours) is reported at once and the endpoint skipped until it expires, a 401
+/// refreshes the token exactly once, and anything else non-2xx gives up. Callers hand it a URL and
+/// get the JSON body back, or <c>null</c> when Spotify had nothing usable; parsing is theirs
 /// (<see cref="SpotifyCatalogSearchService"/>). User-token requests do not come through here —
 /// <see cref="SpotifyApiService"/> refreshes the owner's OAuth grant instead.
 /// </summary>
@@ -25,7 +26,8 @@ public sealed class SpotifyClientCredentialsClient(
     HttpClient httpClient,
     IMemoryCache cache,
     IOptions<MusicEnricherOptions> options,
-    ILogger<SpotifyClientCredentialsClient> logger)
+    ILogger<SpotifyClientCredentialsClient> logger,
+    TimeProvider time)
 {
     private const string AccountsTokenUrl = "https://accounts.spotify.com/api/token";
     private const string UserAgent = "MusicHoarder/1.0 (https://github.com/Jeffreyyvdb/MusicHoarder)";
@@ -38,17 +40,25 @@ public sealed class SpotifyClientCredentialsClient(
 
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _tokenLocks = new(StringComparer.Ordinal);
 
+    // Endpoint ("search", "albums", …) → when Spotify said it may be asked again, after a
+    // Retry-After too long to wait out. Per endpoint: a quota can close one while another answers.
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _endpointBlockedUntil = new(StringComparer.Ordinal);
+
     /// <summary>
     /// GETs <paramref name="url"/> as the app identified by <paramref name="clientId"/> and returns the
     /// response body, or <c>null</c> when the credentials are blank, no token could be obtained, the
     /// rate limiter refused a permit, or Spotify answered with a non-success status (a 401 that
     /// survives one token refresh included). Throws <see cref="ProviderRateLimitedException"/> when
-    /// every attempt was rate limited.
+    /// every attempt was rate limited, or the endpoint is blocked (see
+    /// <see cref="MusicEnricherOptions.SpotifyApiMaxInlineRetryAfterSeconds"/>).
     /// </summary>
     public async Task<string?> GetJsonAsync(string clientId, string clientSecret, string url, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
             return null;
+
+        var endpoint = EndpointOf(url);
+        ThrowIfEndpointBlocked(endpoint);
 
         // QueueLimit must be > 0 so concurrent enrichment workers wait for tokens instead of
         // failing immediately (matches AcoustIdService rate-limiter behavior).
@@ -58,6 +68,9 @@ public sealed class SpotifyClientCredentialsClient(
             logger.LogWarning("Spotify catalog rate limiter could not grant a permit (disposed or canceled)");
             return null;
         }
+
+        // Another request may have closed the endpoint while this one queued for a permit.
+        ThrowIfEndpointBlocked(endpoint);
 
         var accessToken = await GetAccessTokenAsync(clientId, clientSecret, ct);
         if (accessToken is null)
@@ -74,14 +87,23 @@ public sealed class SpotifyClientCredentialsClient(
 
             if (response.StatusCode == HttpStatusCode.TooManyRequests)
             {
-                var retryAfter = response.Headers.RetryAfter?.Delta ?? RateLimitDefaultDelay;
-                logger.LogWarning(
-                    "Spotify catalog request rate limited. Retrying after {Delay}s (attempt {Attempt}/{Max})",
-                    retryAfter.TotalSeconds, attempt + 1, MaxRetries);
-                if (attempt < MaxRetries)
+                var retryAfter = RetryAfterHeader.Read(response, time.GetUtcNow()) ?? RateLimitDefaultDelay;
+                var waitInline = retryAfter <= TimeSpan.FromSeconds(options.Value.SpotifyApiMaxInlineRetryAfterSeconds);
+                if (waitInline && attempt < MaxRetries)
                 {
-                    await Task.Delay(retryAfter, ct);
+                    logger.LogWarning(
+                        "Spotify catalog request rate limited. Retrying after {Delay}s (attempt {Attempt}/{Max})",
+                        retryAfter.TotalSeconds, attempt + 1, MaxRetries);
+                    await Task.Delay(retryAfter, time, ct);
                     continue;
+                }
+
+                if (!waitInline)
+                {
+                    BlockEndpoint(endpoint, time.GetUtcNow() + retryAfter);
+                    logger.LogWarning(
+                        "Spotify catalog endpoint {Endpoint} rate limited for {Delay}s; skipping it until then. {Body}",
+                        endpoint, retryAfter.TotalSeconds, await response.Content.ReadAsStringAsync(ct));
                 }
 
                 throw new ProviderRateLimitedException(retryAfter);
@@ -115,6 +137,21 @@ public sealed class SpotifyClientCredentialsClient(
 
         return null;
     }
+
+    private void ThrowIfEndpointBlocked(string endpoint)
+    {
+        var now = time.GetUtcNow();
+        if (_endpointBlockedUntil.TryGetValue(endpoint, out var until) && until > now)
+            throw new ProviderRateLimitedException(until - now);
+    }
+
+    // Extend-only, so a shorter wait reported later never reopens an endpoint early.
+    private void BlockEndpoint(string endpoint, DateTimeOffset until) =>
+        _endpointBlockedUntil.AddOrUpdate(endpoint, until, (_, current) => current > until ? current : until);
+
+    /// <summary>The Web API resource a URL addresses — <c>search</c>, <c>albums</c>, <c>tracks</c>, …</summary>
+    internal static string EndpointOf(string url) =>
+        new Uri(url).AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries).ElementAtOrDefault(1) ?? "";
 
     private async Task<string?> GetAccessTokenAsync(string clientId, string clientSecret, CancellationToken ct)
     {

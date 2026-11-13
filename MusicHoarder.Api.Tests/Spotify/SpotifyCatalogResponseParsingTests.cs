@@ -423,7 +423,7 @@ public class SpotifyCatalogResponseParsingTests
             SpotifyApiSearchCacheMinutes = 60,
             SpotifyApiMarket = market
         });
-        var api = new SpotifyClientCredentialsClient(httpClient, cache, opts, NullLogger<SpotifyClientCredentialsClient>.Instance);
+        var api = new SpotifyClientCredentialsClient(httpClient, cache, opts, NullLogger<SpotifyClientCredentialsClient>.Instance, TimeProvider.System);
         return new SpotifyCatalogSearchService(api, cache, opts);
     }
 }

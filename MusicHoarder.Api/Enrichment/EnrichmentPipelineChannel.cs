@@ -11,6 +11,13 @@ namespace MusicHoarder.Api.Enrichment;
 /// flight. It uses that to flip the <see cref="JobType.Enrich"/> step Running↔Idle in
 /// <see cref="JobManager"/> and to drive <see cref="EnrichmentProgressTracker"/>, which together
 /// make enrichment visible in the status snapshot, the SSE stream, and Runs history.
+/// <para>
+/// A song waits in the queue at most once. The startup sweeps overlap (a song can be both pending
+/// and missing a provider) and the retry sweep re-selects the same rate-limited songs every few
+/// minutes, so without this a backlog grew by thousands of repeats (issue #550). Only <em>waiting</em>
+/// songs are deduplicated: one already handed to a worker can be queued again, because whatever
+/// queued it (a reset, a fresh download) may have changed the row after the worker loaded it.
+/// </para>
 /// </summary>
 public class EnrichmentPipelineChannel(JobManager jobManager, EnrichmentProgressTracker progressTracker)
 {
@@ -23,11 +30,19 @@ public class EnrichmentPipelineChannel(JobManager jobManager, EnrichmentProgress
         new UnboundedChannelOptions { SingleReader = false, SingleWriter = false });
 
     private readonly object _lock = new();
+
+    // Songs waiting in a lane → true when that lane is the priority one. A song promoted from the
+    // normal lane leaves a stale entry there, which the reader drops (Claim) without counting it.
+    private readonly Dictionary<int, bool> _waiting = [];
     private int _inFlight;
     private Guid _runId;
     private string? _label;
 
-    public ChannelWriter<int> Writer => _channel.Writer;
+    /// <summary>
+    /// The normal lane, for inspection in tests. Workers read through
+    /// <see cref="ReadAllPrioritizedAsync"/>, which also keeps the waiting set; there is no public
+    /// writer, so every producer goes through the deduplicating Enqueue methods.
+    /// </summary>
     public ChannelReader<int> Reader => _channel.Reader;
 
     /// <summary>Songs currently in flight in the active enrichment cycle (0 when idle). Surfaced as a metric gauge.</summary>
@@ -42,33 +57,73 @@ public class EnrichmentPipelineChannel(JobManager jobManager, EnrichmentProgress
         get { lock (_lock) return _label; }
     }
 
-    public void Enqueue(int songId, string? label = null)
+    /// <summary>Songs waiting for a worker (both lanes), excluding the one each worker holds.</summary>
+    public int Waiting
     {
-        BeginItems(1, label);
-        _channel.Writer.TryWrite(songId);
+        get { lock (_lock) return _waiting.Count; }
     }
 
-    public void EnqueueRange(IEnumerable<int> songIds, string? label = null)
-    {
-        var ids = songIds as ICollection<int> ?? songIds.ToList();
-        if (ids.Count == 0)
-            return;
+    /// <summary>Queues a song unless it is already waiting. True when it was queued.</summary>
+    public bool Enqueue(int songId, string? label = null) => EnqueueRange([songId], label) > 0;
 
-        BeginItems(ids.Count, label);
-        foreach (var id in ids)
-            _channel.Writer.TryWrite(id);
+    /// <summary>
+    /// Queues the songs that are not already waiting and returns how many that was — the number to
+    /// log, since the rest were already in the queue.
+    /// </summary>
+    public int EnqueueRange(IEnumerable<int> songIds, string? label = null) => Add(songIds, priority: false, label);
+
+    /// <summary>
+    /// Fast lane: these songs are dequeued before anything in the normal queue. A song already
+    /// waiting in the normal lane moves up (it is not counted twice). Returns how many were queued
+    /// or moved up.
+    /// </summary>
+    public int EnqueueRangePriority(IEnumerable<int> songIds, string? label = null) => Add(songIds, priority: true, label);
+
+    private int Add(IEnumerable<int> songIds, bool priority, string? label)
+    {
+        var lane = priority ? _priorityChannel : _channel;
+        var accepted = 0;
+        lock (_lock)
+        {
+            var added = 0;
+            foreach (var id in songIds)
+            {
+                if (_waiting.TryGetValue(id, out var inPriority))
+                {
+                    if (inPriority || !priority)
+                        continue;
+                    _waiting[id] = true; // promotion: same item, new lane — not a new one
+                }
+                else
+                {
+                    _waiting[id] = priority;
+                    added++;
+                }
+
+                accepted++;
+                lane.Writer.TryWrite(id);
+            }
+
+            if (added > 0)
+                BeginItemsLocked(added, label);
+        }
+
+        return accepted;
     }
 
-    /// <summary>Fast lane: these songs are dequeued before anything in the normal queue.</summary>
-    public void EnqueueRangePriority(IEnumerable<int> songIds, string? label = null)
+    /// <summary>
+    /// Takes a read entry off the waiting set. False for a stale normal-lane entry whose song was
+    /// promoted to (and already read from) the priority lane, or was cleared by a reset.
+    /// </summary>
+    private bool Claim(int songId, bool fromPriority)
     {
-        var ids = songIds as ICollection<int> ?? songIds.ToList();
-        if (ids.Count == 0)
-            return;
-
-        BeginItems(ids.Count, label);
-        foreach (var id in ids)
-            _priorityChannel.Writer.TryWrite(id);
+        lock (_lock)
+        {
+            if (!_waiting.TryGetValue(songId, out var inPriority) || inPriority != fromPriority)
+                return false;
+            _waiting.Remove(songId);
+            return true;
+        }
     }
 
     /// <summary>
@@ -85,12 +140,14 @@ public class EnrichmentPipelineChannel(JobManager jobManager, EnrichmentProgress
 
             if (_priorityChannel.Reader.TryRead(out var priorityId))
             {
-                yield return priorityId;
+                if (Claim(priorityId, fromPriority: true))
+                    yield return priorityId;
                 continue;
             }
             if (_channel.Reader.TryRead(out var songId))
             {
-                yield return songId;
+                if (Claim(songId, fromPriority: false))
+                    yield return songId;
                 continue;
             }
 
@@ -103,27 +160,24 @@ public class EnrichmentPipelineChannel(JobManager jobManager, EnrichmentProgress
         }
     }
 
-    private void BeginItems(int count, string? label)
+    private void BeginItemsLocked(int count, string? label)
     {
-        lock (_lock)
+        if (_inFlight == 0)
         {
-            if (_inFlight == 0)
-            {
-                // Fresh cycle: register the enrich step as Running and start a progress cycle.
-                _runId = Guid.NewGuid();
-                jobManager.TryRegisterAutoJob(JobType.Enrich, _runId, out _);
-                progressTracker.StartCycle(_runId, count);
-                _label = label;
-            }
-            else
-            {
-                // Cycle already active: grow the denominator and adopt a label if we don't have one.
-                progressTracker.AddToTotal(count);
-                _label ??= label;
-            }
-
-            _inFlight += count;
+            // Fresh cycle: register the enrich step as Running and start a progress cycle.
+            _runId = Guid.NewGuid();
+            jobManager.TryRegisterAutoJob(JobType.Enrich, _runId, out _);
+            progressTracker.StartCycle(_runId, count);
+            _label = label;
         }
+        else
+        {
+            // Cycle already active: grow the denominator and adopt a label if we don't have one.
+            progressTracker.AddToTotal(count);
+            _label ??= label;
+        }
+
+        _inFlight += count;
     }
 
     /// <summary>Called by a worker once per dequeued item, regardless of outcome.</summary>
@@ -154,6 +208,7 @@ public class EnrichmentPipelineChannel(JobManager jobManager, EnrichmentProgress
         {
             while (_channel.Reader.TryRead(out _)) { }
             while (_priorityChannel.Reader.TryRead(out _)) { }
+            _waiting.Clear();
             _inFlight = 0;
             completed = CompleteLocked(cancelled);
         }

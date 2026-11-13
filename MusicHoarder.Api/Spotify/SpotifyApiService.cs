@@ -3,8 +3,11 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
+using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.RateLimiting;
 
 namespace MusicHoarder.Api.Spotify;
 
@@ -14,6 +17,7 @@ public class SpotifyApiService(
     HttpClient httpClient,
     IMemoryCache cache,
     IOwnerLookupService ownerLookup,
+    IOptions<MusicEnricherOptions> options,
     ILogger<SpotifyApiService> logger) : ISpotifyApiService
 {
     private const string BaseUrl = "https://api.spotify.com/v1";
@@ -120,12 +124,14 @@ public class SpotifyApiService(
 
             if (response.StatusCode == HttpStatusCode.TooManyRequests)
             {
-                var retryAfter = response.Headers.RetryAfter?.Delta ?? RateLimitDefaultDelay;
-                logger.LogWarning("Spotify rate limited. Retrying after {Delay}s (attempt {Attempt}/{Max})",
-                    retryAfter.TotalSeconds, attempt + 1, MaxRetries);
-
-                if (attempt < MaxRetries)
+                // A wait past the cap (an exhausted quota asks for hours) is not slept out: the 429
+                // surfaces as an HttpRequestException below instead of hanging the sync.
+                var retryAfter = RetryAfterHeader.Read(response, DateTimeOffset.UtcNow) ?? RateLimitDefaultDelay;
+                if (retryAfter <= TimeSpan.FromSeconds(options.Value.SpotifyApiMaxInlineRetryAfterSeconds)
+                    && attempt < MaxRetries)
                 {
+                    logger.LogWarning("Spotify rate limited. Retrying after {Delay}s (attempt {Attempt}/{Max})",
+                        retryAfter.TotalSeconds, attempt + 1, MaxRetries);
                     await Task.Delay(retryAfter, ct);
                     continue;
                 }
