@@ -40,6 +40,7 @@
   import { avatar } from '#lib/components/v2/AccountPanel.svelte';
   import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
   import { isPasskeySupported } from '#lib/webauthn-client.ts';
+  import { isNativeShell } from '#lib/native/shell.ts';
   import {
     fetchSpotifyCredentials,
     saveSpotifyCredentials,
@@ -282,6 +283,8 @@
   // A member enrols too: the ceremony endpoints act on the caller's own account and never take a
   // user id from the request. The demo stays out — its credentials are shared by every visitor.
   let passkeySupported = $state(false);
+  // In the app shell passkeys are off (see isPasskeySupported); say so instead of blaming a browser.
+  const inApp = isNativeShell();
   let platform = $state<PasskeyPlatform>('other');
   let passkeys = $state<PasskeyView[]>([]);
   let passkeysLoading = $state(false);
@@ -1736,7 +1739,11 @@
 
       <GroupedList.Section headingLevel={2} header="Passkeys" footer={passkeysFooter}>
         {#if !passkeySupported}
-          <GroupedList.Row label="This browser doesn’t support passkeys" />
+          <GroupedList.Row
+            label={inApp
+              ? 'Passkeys work in your browser, not in this app'
+              : 'This browser doesn’t support passkeys'}
+          />
         {:else}
           {#if passkeysLoading}
             <GroupedList.Row label="Loading passkeys…">

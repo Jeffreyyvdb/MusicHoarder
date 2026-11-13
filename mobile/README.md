@@ -95,10 +95,13 @@ one on every release and uploads it to Google Play (see the root `CLAUDE.md`, "R
   on the phone can open a `musichoarder://` link, and one carrying somebody else's token would
   sign the app in to their account. A link asked for elsewhere says it did not work.
 - **Demo.** Works as on the web.
-- **Passkeys do not work yet.** A web view only offers a site's passkeys to an app the site vouches
-  for (an associated domain on iOS, Digital Asset Links plus a web-view setting on Android), and a
-  self-hosted server cannot vouch for a store app it does not know about. The login page still shows
-  the passkey button inside the app.
+- **No passkeys in the app.** A web view gets a site's passkeys only when the app vouches for the
+  site. On iOS that means listing the domain in the app's Associated Domains entitlement at build
+  time (paid developer program), which a store app cannot do for servers people host themselves;
+  in the app WebKit answers every request with NotAllowedError. So the pages hide passkeys inside
+  the app (`isPasskeySupported()`; the login page also words its sign-in without them, from the
+  `MusicHoarderApp` user agent). Android could do it (Digital Asset Links served by each server,
+  plus a web-view setting), but it is not built: it needs a phone with a Google account to test.
 
 ## How playback works
 
@@ -242,8 +245,8 @@ first install trust the developer under Settings → General → VPN & Device Ma
   sign-in through the `musichoarder://auth` hand-off, native playback, track changes with the app
   in the background, and Change server (which stops the music). Not yet on a phone.
 - The server picker has been tried on the iOS simulator, not yet on an iPhone.
-- The fix for the white first frame in dark mode (`frontend/src/app.html`) has been seen on a dev
-  server only, where styles load through JavaScript; confirm it against a production build.
+- The white first frame in dark mode is fixed (`frontend/src/app.html`). Recorded against a
+  production build on the iOS simulator: no frame of the launch is lighter than the dark page.
 - Swiping the Android app away stops the music: the page is what knows the queue.
 - How the pages sit around Android's system bars has not been looked at on a device.
 - Music videos and anything else the pages play through their own `<video>` or `<audio>` elements
