@@ -3,6 +3,7 @@ using System.Text;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using MusicHoarder.Api.Deezer;
+using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Options;
 
 namespace MusicHoarder.Api.Tests.Deezer;
@@ -452,6 +453,43 @@ public class DeezerCatalogResponseParsingTests
             .Select(i => $$"""{ "id": {{i}}, "title": "T{{i}}", "duration": 1, "artist": { "name": "A" } }"""));
         var nextJson = next is null ? "" : $$""", "next": "{{next}}" """;
         return $$"""{ "data": [ {{rows}} ]{{nextJson}} }""";
+    }
+
+    // ── rate limits (issue #550) ────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task SearchTracksAsync_RetryAfterLongerThanTheInlineCap_ThrowsWithoutWaitingOrRetrying()
+    {
+        var stub = new RoutingStub(_ => RateLimited(TimeSpan.FromHours(2)));
+
+        var call = CreateService(stub).SearchTracksAsync("artist title", CancellationToken.None);
+        var finished = await Task.WhenAny(call, Task.Delay(TimeSpan.FromSeconds(10)));
+
+        Assert.Same(call, finished);
+        var ex = await Assert.ThrowsAsync<ProviderRateLimitedException>(() => call);
+        Assert.Equal(TimeSpan.FromHours(2), ex.RetryAfter);
+        Assert.Single(stub.Requests);
+    }
+
+    [Fact]
+    public async Task SearchTracksAsync_ShortRetryAfter_IsStillWaitedOutAndRetried()
+    {
+        var calls = 0;
+        var stub = new RoutingStub(_ => ++calls == 1
+            ? RateLimited(TimeSpan.Zero)
+            : Json("""{"data":[]}"""));
+
+        var tracks = await CreateService(stub).SearchTracksAsync("artist title", CancellationToken.None);
+
+        Assert.Empty(tracks);
+        Assert.Equal(2, stub.Requests.Count);
+    }
+
+    private static HttpResponseMessage RateLimited(TimeSpan retryAfter)
+    {
+        var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+        response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(retryAfter);
+        return response;
     }
 
     private static HttpResponseMessage Json(string body) =>
