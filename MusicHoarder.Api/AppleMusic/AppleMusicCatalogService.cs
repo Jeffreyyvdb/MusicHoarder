@@ -76,12 +76,12 @@ public sealed class AppleMusicCatalogService(
             // iTunes throttles with 403 as well as the standard 429; treat both as rate-limited.
             if (response.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden)
             {
-                var retryAfter = response.Headers.RetryAfter?.Delta ?? RateLimitDefaultDelay;
+                var retryAfter = RetryAfterHeader.Read(response, DateTimeOffset.UtcNow) ?? RateLimitDefaultDelay;
                 // Open the shared backoff window so concurrent/subsequent callers short-circuit.
                 ExtendBackoff(retryAfter);
                 logger.LogWarning("Apple Music rate limited ({Status}). Retry after {Delay}s (attempt {Attempt}/{Max})",
                     (int)response.StatusCode, retryAfter.TotalSeconds, attempt, MaxRetries);
-                if (attempt < MaxRetries)
+                if (attempt < MaxRetries && retryAfter <= RetryAfterHeader.MaxInlineWait)
                 {
                     await Task.Delay(retryAfter, ct);
                     continue;
@@ -243,9 +243,13 @@ public sealed class AppleMusicCatalogService(
 
             if (response.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden)
             {
-                var retryAfter = response.Headers.RetryAfter?.Delta ?? RateLimitDefaultDelay;
+                var retryAfter = RetryAfterHeader.Read(response, DateTimeOffset.UtcNow) ?? RateLimitDefaultDelay;
                 ExtendBackoff(retryAfter);
-                if (attempt < MaxRetries) { await Task.Delay(retryAfter, ct); continue; }
+                if (attempt < MaxRetries && retryAfter <= RetryAfterHeader.MaxInlineWait)
+                {
+                    await Task.Delay(retryAfter, ct);
+                    continue;
+                }
                 throw new ProviderRateLimitedException(retryAfter);
             }
 
