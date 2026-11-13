@@ -79,6 +79,9 @@ and a keystore through `MH_KEYSTORE_PATH`, `MH_KEYSTORE_PASSWORD`, `MH_KEY_ALIAS
 - **Email link.** Asked for inside the app, the emailed link opens a page in the browser with an
   "Open the MusicHoarder app" button, which hands the sign-in over (`musichoarder://auth`). With
   the native Android client installed as well, Android asks which app to open.
+  The app takes that hand-over only for a link asked for inside it, within 20 minutes: anything
+  on the phone can open a `musichoarder://` link, and one carrying somebody else's token would
+  sign the app in to their account. A link asked for elsewhere says it did not work.
 - **Demo.** Works as on the web.
 - **Passkeys do not work yet.** A web view only offers a site's passkeys to an app the site vouches
   for (an associated domain on iOS, Digital Asset Links plus a web-view setting on Android).
