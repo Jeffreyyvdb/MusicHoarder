@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { ComponentProps } from "svelte";
-	import { Button } from "$lib/components/ui/button/index.js";
-	import { cn } from "$lib/utils.js";
+	import { Button } from "#lib/components/ui/button/index.js";
+	import { cn } from "#lib/utils.js";
 
 	type Props = Omit<ComponentProps<typeof Button>, "variant" | "size"> & {
 		/** The sheet's confirming action (Done, Add): semibold, like a nav bar's done item. */

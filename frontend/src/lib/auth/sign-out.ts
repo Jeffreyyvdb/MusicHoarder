@@ -5,18 +5,18 @@
  * SSR off — its stores are module singletons that survive a logout → login in
  * the same tab. Leaving them populated lets the next user briefly see the
  * previous session's data (e.g. the demo account's albums after switching to a
- * real account). `invalidateAll` only re-runs server `load`s; it does not touch
+ * real account). `refreshAll` only re-runs server `load`s; it does not touch
  * these client stores, so we reset them by hand here.
  */
 
 import { goto } from '$app/navigation';
-import { resetGrantors, signOut } from '$lib/api-client';
-import { APP_HOME } from '$lib/app-home';
-import { songsStore } from '$lib/stores/songs.svelte';
-import { playerStore } from '$lib/stores/player.svelte';
-import { playbackSync } from '$lib/stores/playback-sync.svelte';
-import { chatStore } from '$lib/stores/chat.svelte';
-import { forgetPushOnSignOut } from '$lib/push/web-push';
+import { resetFolderCovers, resetGrantors, signOut } from '#lib/api-client.ts';
+import { APP_HOME } from '#lib/app-home.ts';
+import { songsStore } from '#lib/stores/songs.svelte.ts';
+import { playerStore } from '#lib/stores/player.svelte.ts';
+import { playbackSync } from '#lib/stores/playback-sync.svelte.ts';
+import { chatStore } from '#lib/stores/chat.svelte.ts';
+import { forgetPushOnSignOut } from '#lib/push/web-push.ts';
 
 export async function signOutAndReset(allSessions = false): Promise<void> {
   // While the session still stands: this account's chat notifications stop arriving here.
@@ -35,5 +35,6 @@ export async function signOutAndReset(allSessions = false): Promise<void> {
   playerStore.stop();
   chatStore.stop();
   resetGrantors();
-  await goto('/login', { invalidateAll: true });
+  resetFolderCovers();
+  await goto('/login', { refreshAll: true });
 }

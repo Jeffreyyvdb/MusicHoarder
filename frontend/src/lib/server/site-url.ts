@@ -1,4 +1,4 @@
-import { DEFAULT_SITE_URL } from '$lib/content/site-markdown';
+import { DEFAULT_SITE_URL } from '#lib/content/site-markdown.ts';
 
 /**
  * The site's public origin, for absolute URLs in Markdown bodies and the sitemap.

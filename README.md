@@ -243,7 +243,7 @@ live on the **Manage → Pipeline** dashboard.
 | `MusicHoarder.Api` | ASP.NET Core minimal API — endpoints, EF Core/PostgreSQL persistence, and the background services that run the pipeline, enrichment providers, sync, and downloads |
 | `MusicHoarder.AppHost` | .NET Aspire AppHost — composes the API, frontend, and PostgreSQL for local dev |
 | `MusicHoarder.ServiceDefaults` | Shared cross-cutting defaults (health checks, OpenTelemetry, resilient HTTP) |
-| `frontend` | SvelteKit 2 + Svelte 5 + Bun — the full web app, installable on iPhone and desktop: library browser, player with Now Playing, live pipeline, review Inbox, Discover, Stats, History, and share pages |
+| `frontend` | SvelteKit 3 + Svelte 5 + Bun — the full web app, installable on iPhone and desktop: library browser, player with Now Playing, live pipeline, review Inbox, Discover, Stats, History, and share pages |
 | `android` | Native Android client (Kotlin, Jetpack Compose, Media3) — a line-by-line port of the web app's library and player, talking to the same API |
 
 ---

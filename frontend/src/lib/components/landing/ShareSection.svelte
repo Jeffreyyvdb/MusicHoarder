@@ -1,8 +1,8 @@
 <script lang="ts">
-  import LandingSection from '$lib/components/landing/LandingSection.svelte';
-  import FeatureGrid from '$lib/components/landing/FeatureGrid.svelte';
-  import Screenshot from '$lib/components/landing/Screenshot.svelte';
-  import { shareFeatures } from '$lib/components/landing/landing-content';
+  import LandingSection from '#lib/components/landing/LandingSection.svelte';
+  import FeatureGrid from '#lib/components/landing/FeatureGrid.svelte';
+  import Screenshot from '#lib/components/landing/Screenshot.svelte';
+  import { shareFeatures } from '#lib/components/landing/landing-content.ts';
 </script>
 
 <LandingSection

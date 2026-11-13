@@ -1,8 +1,8 @@
 <script lang="ts">
-  import SeoHead from '$lib/components/SeoHead.svelte';
-  import LandingNav from '$lib/components/landing/LandingNav.svelte';
-  import Footer from '$lib/components/landing/Footer.svelte';
-  import type { ProsePage } from '$lib/content/types';
+  import SeoHead from '#lib/components/SeoHead.svelte';
+  import LandingNav from '#lib/components/landing/LandingNav.svelte';
+  import Footer from '#lib/components/landing/Footer.svelte';
+  import type { ProsePage } from '#lib/content/types.ts';
 
   type Props = { page: ProsePage; eyebrow: string };
   const { page, eyebrow }: Props = $props();

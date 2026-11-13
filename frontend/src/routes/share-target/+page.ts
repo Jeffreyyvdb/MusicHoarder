@@ -1,5 +1,5 @@
 import { redirect } from '@sveltejs/kit';
-import { pendingShareFrom, savePendingShare, toSearchParams } from '$lib/chat/pending-share';
+import { pendingShareFrom, savePendingShare, toSearchParams } from '#lib/chat/pending-share.ts';
 import type { PageLoad } from './$types';
 
 // The manifest's `share_target`: where Android's share sheet (Spotify's "Share", YouTube's…) sends

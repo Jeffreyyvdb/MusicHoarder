@@ -18,25 +18,25 @@
   } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
   import { fly } from 'svelte/transition';
-  import { motionFly } from '$lib/motion';
+  import { motionFly } from '#lib/motion.ts';
   import { cubicOut } from 'svelte/easing';
   import { goto } from '$app/navigation';
-  import { playerStore } from '$lib/stores/player.svelte';
-  import { playbackSync } from '$lib/stores/playback-sync.svelte';
-  import { songsStore } from '$lib/stores/songs.svelte';
-  import DevicePicker from '$lib/components/playback-sync/DevicePicker.svelte';
-  import { DEVICE_ICONS } from '$lib/components/playback-sync/device-icons';
-  import { seekTargetForKey } from '$lib/player-seek';
-  import { songDetail } from '$lib/stores/song-detail.svelte';
-  import { longpress, type LongPressPoint } from '$lib/actions/long-press';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-  import { albumKeyForSong } from '$lib/api-client';
-  import { artistOf } from '$lib/track-list-view.svelte';
-  import { Button } from '$lib/components/ui/button';
-  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
-  import Cover from '$lib/components/file-browser/Cover.svelte';
-  import { formatDuration } from '$lib/formatters';
-  import { blurAfterPointerClick, cn, transportGlyphClass } from '$lib/utils';
+  import { playerStore } from '#lib/stores/player.svelte.ts';
+  import { playbackSync } from '#lib/stores/playback-sync.svelte.ts';
+  import { songsStore } from '#lib/stores/songs.svelte.ts';
+  import DevicePicker from '#lib/components/playback-sync/DevicePicker.svelte';
+  import { DEVICE_ICONS } from '#lib/components/playback-sync/device-icons.ts';
+  import { seekTargetForKey } from '#lib/player-seek.ts';
+  import { songDetail } from '#lib/stores/song-detail.svelte.ts';
+  import { longpress, type LongPressPoint } from '#lib/actions/long-press.ts';
+  import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
+  import { albumKeyForSong } from '#lib/api-client.ts';
+  import { artistOf } from '#lib/track-list-view.svelte.ts';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
+  import Cover from '#lib/components/file-browser/Cover.svelte';
+  import { formatDuration } from '#lib/formatters.ts';
+  import { blurAfterPointerClick, cn, transportGlyphClass } from '#lib/utils.ts';
 
   // Two layouts. Compact (below md): an iOS mini player — a glass capsule docked above the tab bar
   // (or whatever owns the bottom slot), art · title/artist · play · next, the whole bar opening

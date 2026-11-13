@@ -1,6 +1,6 @@
 <script lang="ts">
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import { issueLabel } from '$lib/quality-ui';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import { issueLabel } from '#lib/quality-ui.ts';
 
   // The algorithm's most common failure patterns (issue codes the AI grader flagged most). Opening
   // one filters the full graded list to it. `card` is the desktop's explanatory card; `rows` is

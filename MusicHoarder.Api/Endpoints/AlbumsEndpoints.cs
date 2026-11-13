@@ -27,7 +27,8 @@ public static class AlbumsEndpoints
         app.MapGet("/api/albums", ListAlbums)
             .WithName("ListAlbums")
             .WithSummary("Every album the caller may see, grouped server-side: destination folder first, then folded by name. Carries track ids rather than track rows — clients join them against GET /songs.")
-            .WithTags("Library");
+            .WithTags("Library")
+            .WithLibraryChangeEtag();
 
         app.MapGet("/api/albums/detail", GetAlbumDetail)
             .WithName("GetAlbumDetail")
@@ -75,6 +76,14 @@ public static class AlbumsEndpoints
     /// guards all-tenant sweeps running with the filter off, and this is a request-path read where a
     /// demo session should see the demo library.
     /// </para>
+    ///
+    /// <para>
+    /// The route answers <c>304</c> from <see cref="LibraryChangeStamp"/>, like <c>GET /songs</c>,
+    /// and reads nothing that list does not: the caller's songs and save dates, and what is shared
+    /// with them. The five parameters reach the ETag through the query string, and
+    /// <see cref="AlbumProjection"/> is a pure function of the rows. A new read here, or a rule
+    /// there that looks at the clock, has to go into the stamp in the same change.
+    /// </para>
     /// </summary>
     /// <param name="builtOnly">
     /// Only songs that reached the destination library — what the grid shows. False also groups
@@ -117,6 +126,7 @@ public static class AlbumsEndpoints
         MusicHoarderDbContext db, ILibraryScope scope, CancellationToken ct)
     {
         var self = scope.Slices[0];
+        // Stamp: every Songs row of the caller.
         var songs = await scope.SongsFor(db, self)
             .OrderBy(s => s.Artist ?? "")
             .ThenBy(s => s.Album ?? "")

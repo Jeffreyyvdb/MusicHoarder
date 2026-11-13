@@ -21,7 +21,7 @@ public static class SongsEndpoints
 {
     public static IEndpointRouteBuilder MapSongsEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/songs", ListSongs).WithName("ListSongs");
+        app.MapGet("/songs", ListSongs).WithName("ListSongs").WithLibraryChangeEtag();
         app.MapGet("/songs/{id:int}/enrichment-detail", GetEnrichmentDetail)
             .WithName("GetEnrichmentDetail")
             .WithSummary("Dev: source vs current metadata + every provider attempt for one song.")
@@ -257,6 +257,21 @@ public static class SongsEndpoints
     /// empty for them by construction, and an admin with no grants runs exactly the code path that
     /// shipped before this endpoint was unified.
     /// </para>
+    ///
+    /// <para>
+    /// This is the response every client downloads whole, so it carries only what a list or a
+    /// player reads. What a single track's detail needs and no list does (the fingerprint, the
+    /// pre-enrichment tags beyond the ones Tag review shows, build errors, sort names) is in
+    /// <c>GET /songs/{id}/enrichment-detail</c>. Add a field here only when a list uses it:
+    /// every field costs its name and value once per song.
+    /// </para>
+    ///
+    /// <para>
+    /// The route answers <c>304</c> from <see cref="LibraryChangeStamp"/>, so everything read here
+    /// has to be something that stamp covers: a new table, option or parameter goes into the stamp
+    /// in the same change, and nothing may depend on the clock or the disk. Each read below says
+    /// which part of the stamp stands for it.
+    /// </para>
     /// </summary>
     internal static async Task<IResult> ListSongs(
         MusicHoarderDbContext db,
@@ -267,6 +282,8 @@ public static class SongsEndpoints
         bool includeDeleted = false,
         string? enrichmentStatus = null)
     {
+        // Stamp: every Songs row of the caller, deleted ones included. The two parameters reach the
+        // ETag through the query string.
         var query = db.Songs.AsNoTracking();
         if (!includeDeleted)
             query = query.Where(s => s.DeletedAtUtc == null);
@@ -281,6 +298,8 @@ public static class SongsEndpoints
         // track list and the album grid can never disagree about when a track arrived.
         var saveDates = await SpotifySaveDates.LoadAsync(db, ct);
 
+        // Stamp: both values are folded in. Read through the same IOptions<T> the stamp uses, so the
+        // two cannot see different values.
         var downloadDirectory = enricherOptions.Value.DownloadDirectory;
         var syncedSourceDirectory = syncOptions.Value.SyncedSourceDirectory;
 
@@ -297,7 +316,6 @@ public static class SongsEndpoints
                 s.FileName,
                 s.Extension,
                 s.FileSizeBytes,
-                s.LastModifiedUtc,
                 s.IndexedAtUtc,
                 s.AcquiredAtUtc,
                 s.DeletedAtUtc,
@@ -312,7 +330,9 @@ public static class SongsEndpoints
                 s.DurationMs,
                 s.Bitrate,
                 s.HasCoverArt,
-                s.Fingerprint,
+                // A flag, not the value: a Chromaprint fingerprint is a few kilobytes per song, and
+                // was half of this response. One track's fingerprint is in its enrichment detail.
+                HasFingerprint = s.Fingerprint != null && s.Fingerprint != string.Empty,
                 s.Isrc,
                 s.MusicBrainzId,
                 s.MusicBrainzReleaseId,
@@ -321,50 +341,39 @@ public static class SongsEndpoints
                 s.LrclibId,
                 s.Genre,
                 s.ReleaseDate,
-                s.OriginalReleaseDate,
                 s.Label,
                 s.CatalogNumber,
                 s.Upc,
                 s.Composer,
                 s.Copyright,
-                s.ArtistSort,
-                s.AlbumArtistSort,
                 s.EnrichmentStatus,
                 s.MatchedBy,
                 s.MatchConfidence,
                 s.MatchWarnings,
-                s.EnrichedAtUtc,
                 s.EnrichmentError,
                 s.OriginalMetadataCaptured,
                 s.OriginalArtist,
-                s.OriginalAlbumArtist,
                 s.OriginalAlbum,
                 s.OriginalTitle,
-                s.OriginalYear,
-                s.OriginalTrackNumber,
-                s.OriginalIsrc,
-                s.OriginalMusicBrainzId,
-                s.OriginalSpotifyId,
-                s.OriginalMetadataCapturedAtUtc,
                 s.IsUnreleased,
                 s.IsDuplicate,
                 s.DuplicateOfId,
                 s.LibraryBuildStatus,
                 s.LibraryBuiltAtUtc,
-                s.LibraryBuildLastAttemptedAtUtc,
-                s.LibraryBuildError,
                 s.DestinationPath,
-                s.PreviousDestinationPath,
                 s.LyricsStatus,
-                s.SyncedLyrics,
-                s.PlainLyrics,
+                // Only what the list says about the lyrics, decided in the database: the text itself
+                // (kilobytes per song) is fetched per track by GetTrackLyrics.
+                HasSyncedLyrics = s.SyncedLyrics != null && s.SyncedLyrics != string.Empty,
+                HasPlainLyrics = s.PlainLyrics != null && s.PlainLyrics != string.Empty,
+                SyncedLyricsBlank = string.IsNullOrWhiteSpace(s.SyncedLyrics),
+                PlainLyricsBlank = string.IsNullOrWhiteSpace(s.PlainLyrics),
                 s.IsInstrumental,
                 // Lightweight transcription flags only — the (potentially large) AI lyric text is fetched
                 // on demand via GetTrackLyrics, not shipped with every row in the songs list.
                 HasTranscribedLyrics =
                     (s.TranscribedSyncedLyrics != null && s.TranscribedSyncedLyrics != string.Empty)
                     || (s.TranscribedPlainLyrics != null && s.TranscribedPlainLyrics != string.Empty),
-                s.TranscriptionStatus,
                 s.TranscribedAtUtc,
                 s.TranscriptionModel,
                 s.PreferredLyricsSource,
@@ -380,7 +389,9 @@ public static class SongsEndpoints
                 // gates on and the share tracklist already uses, reached through the one-to-one nav so
                 // EF emits a LEFT JOIN on the unique IX_SongMusicVideos_SongId — no extra round-trip.
                 // Deliberately NOT VideoInfoDto.FileMissing: that needs a per-row File.Exists, which is
-                // not something to do thousands of times in a full-library listing.
+                // not something to do thousands of times in a full-library listing — and a file's
+                // presence is not a row version, so the list could no longer be answered with a 304.
+                // Stamp: the SongMusicVideos rows of the caller's songs.
                 HasMusicVideo = s.MusicVideo != null
                     && s.MusicVideo.Status == MusicVideoStatus.Ready
                     && s.MusicVideo.FilePath != null,
@@ -398,15 +409,15 @@ public static class SongsEndpoints
             return new
             {
             s.Id, s.SourcePath, s.FileName, s.Extension, s.FileSizeBytes,
-            s.LastModifiedUtc, s.IndexedAtUtc, s.AcquiredAtUtc, s.DeletedAtUtc,
+            s.IndexedAtUtc, s.AcquiredAtUtc, s.DeletedAtUtc,
             s.Artist, s.Artists, s.AlbumArtist, s.Album, s.Title, s.Year, s.TrackNumber,
             s.DurationSeconds, s.DurationMs,
             s.Bitrate,
             s.HasCoverArt,
-            s.Fingerprint,
+            s.HasFingerprint,
                 s.Isrc, s.MusicBrainzId, s.MusicBrainzReleaseId, s.SpotifyId, s.AcoustIdTrackId, s.LrclibId,
-            s.Genre, s.ReleaseDate, s.OriginalReleaseDate, s.Label, s.CatalogNumber, s.Upc,
-            s.Composer, s.Copyright, s.ArtistSort, s.AlbumArtistSort,
+            s.Genre, s.ReleaseDate, s.Label, s.CatalogNumber, s.Upc,
+            s.Composer, s.Copyright,
             s.EnrichmentStatus, s.MatchedBy, s.MatchConfidence,
             MatchWarnings = matchWarnings,
             // Released vs unreleased (leak/snippet/stem), derived from the tracker category the
@@ -414,20 +425,17 @@ public static class SongsEndpoints
             ReleaseClassification = ReleaseClassifier
                 .Classify(s.IsUnreleased, s.EnrichmentStatus, s.MatchedBy, matchWarnings, s.Isrc, s.SpotifyId)
                 .ToString(),
-            s.EnrichedAtUtc, s.EnrichmentError,
-            s.OriginalMetadataCaptured, s.OriginalArtist, s.OriginalAlbumArtist,
-            s.OriginalAlbum, s.OriginalTitle, s.OriginalYear, s.OriginalTrackNumber,
-            s.OriginalIsrc, s.OriginalMusicBrainzId, s.OriginalSpotifyId,
-            s.OriginalMetadataCapturedAtUtc,
+            s.EnrichmentError,
+            s.OriginalMetadataCaptured, s.OriginalArtist,
+            s.OriginalAlbum, s.OriginalTitle,
             s.IsDuplicate, s.DuplicateOfId,
-            s.LibraryBuildStatus, s.LibraryBuiltAtUtc, s.LibraryBuildLastAttemptedAtUtc,
-            s.LibraryBuildError, s.DestinationPath, s.PreviousDestinationPath,
+            s.LibraryBuildStatus, s.LibraryBuiltAtUtc,
+            s.DestinationPath,
             LyricsStatus = s.LyricsStatus.ToString(),
-            HasSyncedLyrics = s.SyncedLyrics != null && s.SyncedLyrics != string.Empty,
-            HasPlainLyrics = s.PlainLyrics != null && s.PlainLyrics != string.Empty,
+            s.HasSyncedLyrics,
+            s.HasPlainLyrics,
             s.IsInstrumental,
             s.HasTranscribedLyrics,
-            TranscriptionStatus = s.TranscriptionStatus.ToString(),
             s.TranscribedAtUtc,
             s.TranscriptionModel,
             PreferredLyricsSource = s.PreferredLyricsSource.ToString(),
@@ -437,9 +445,9 @@ public static class SongsEndpoints
                 showingTranscription:
                     s.HasTranscribedLyrics
                     && (s.PreferredLyricsSource == PreferredLyricsSource.Transcribed
-                        || (string.IsNullOrWhiteSpace(s.SyncedLyrics) && string.IsNullOrWhiteSpace(s.PlainLyrics))),
+                        || (s.SyncedLyricsBlank && s.PlainLyricsBlank)),
                 alignedToReference: s.TranscriptionAlignedToReference,
-                hasSyncedLyrics: !string.IsNullOrWhiteSpace(s.SyncedLyrics),
+                hasSyncedLyrics: !s.SyncedLyricsBlank,
                 syncOffsetMs: s.LyricsSyncOffsetMs).ToString(),
             LyricsSyncStatus = s.LyricsSyncStatus.ToString(),
             s.LyricsSyncIssue,
@@ -486,6 +494,8 @@ public static class SongsEndpoints
         // Anything shared with the caller, appended after their own rows. `includeDeleted` and
         // `enrichmentStatus` deliberately do not apply here — they are pipeline-triage filters over
         // rows you own, and ScopeSongs already excludes deleted, duplicate, and synthetic rows.
+        // Stamp: the grants, the grantors' names and songs, and the caller's listening state — see
+        // the reads inside the resolver and the projection.
         var scope = await scopeResolver.ResolveAsync(db, ct);
         var (sharedSongs, grantors) =
             await SharedSongProjection.BuildAsync(db, scope, scope.Slices[0].GrantorUserId, ct);
@@ -1479,6 +1489,8 @@ public static class SongsEndpoints
             matchConfidence = song.MatchConfidence,
             matchWarnings = DeserializeWarnings(song.MatchWarnings),
             enrichmentError = song.EnrichmentError,
+            // The full Chromaprint fingerprint lives here; the song list only says whether one exists.
+            fingerprint = song.Fingerprint,
             originalMetadataCaptured = song.OriginalMetadataCaptured,
             source,
             current,

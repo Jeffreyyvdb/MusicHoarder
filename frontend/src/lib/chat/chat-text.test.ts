@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ChatMessage } from '$lib/api-client';
+import type { ChatMessage } from '#lib/api-client.ts';
 import {
   continuesRun,
   dayLabel,

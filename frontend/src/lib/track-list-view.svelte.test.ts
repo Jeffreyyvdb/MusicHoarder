@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import {
   CHIP_KEYS,
@@ -12,10 +12,13 @@ import {
   SORT_KEYS,
   SORT_MENU_LABELS,
   tapActionFor,
+  warmSearchCache,
   type ChipKey,
   type SortKey
 } from './track-list-view.svelte';
+import * as apiClient from './api-client';
 import type { ApiSong } from './api-client';
+import * as match from './search/match';
 
 /**
  * The filter/sort state used to live inside TrackList.svelte, where none of this was reachable from
@@ -203,6 +206,116 @@ describe('createTrackListView', () => {
       flushSync();
       expect(v.stats.count).toBe(1);
       expect(v.stats.totalSec).toBe(100);
+    });
+    cleanup();
+  });
+});
+
+describe('the per-row search + sort caches', () => {
+  /*
+   * `songsStore` never mutates a row in place — a change always replaces it with a new object
+   * (`patchSong`) inside a new array — so these caches, keyed by row identity, must treat an
+   * unfamiliar object as a fresh row even when an old object with the same id is still "in" the
+   * array a moment before. The tests below simulate exactly that: a `rows` array that is itself
+   * `$state`, so reassigning it (rather than editing an element) is what a live refresh or a
+   * heart tap actually does.
+   */
+
+  it('folds a row once and reuses it across a songs-array replacement, refolding only the row that changed', () => {
+    const spy = vi.spyOn(match, 'normalizeFields');
+    try {
+      const cleanup = $effect.root(() => {
+        const a = song(1, { title: 'Alpha' });
+        const b = song(2, { title: 'Beta' });
+        let rows = $state<ApiSong[]>([a, b]);
+        let query = $state('al');
+        const v = createTrackListView({ songs: () => rows, searchQuery: () => query });
+        flushSync();
+        expect(v.filtered.map((s) => s.id)).toEqual([1]);
+        const callsAfterFirstFold = spy.mock.calls.length;
+        expect(callsAfterFirstFold).toBe(2); // one call per row, not per field
+
+        // A patchSong-style update: a NEW object for row 1, the same object for row 2.
+        rows = [song(1, { title: 'Gamma' }), b];
+        query = 'gam';
+        flushSync();
+
+        expect(v.filtered.map((s) => s.id)).toEqual([1]);
+        // Only the replaced row needed folding again — row 2's cached fields were reused.
+        expect(spy.mock.calls.length).toBe(callsAfterFirstFold + 1);
+      });
+      cleanup();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('warms the search cache ahead of a query, so the first filter after it does no folding', async () => {
+    const spy = vi.spyOn(match, 'normalizeFields');
+    try {
+      const rows = Array.from({ length: 10 }, (_, i) => song(i, { title: `Track ${i}` }));
+      warmSearchCache(rows);
+      // The warm runs on an idle/async callback (see `scheduleIdle`), not synchronously.
+      expect(spy).not.toHaveBeenCalled();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(spy.mock.calls.length).toBe(rows.length);
+
+      const cleanup = $effect.root(() => {
+        const v = createTrackListView({ songs: () => rows, searchQuery: () => 'track 3' });
+        flushSync();
+        expect(v.filtered.map((s) => s.id)).toEqual([3]);
+      });
+      cleanup();
+
+      // Every row was already folded by the warm; filtering must not have folded any again.
+      expect(spy.mock.calls.length).toBe(rows.length);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("parses a row's date-based sort keys once, even across repeated re-sorts of the same rows", () => {
+    const spy = vi.spyOn(apiClient, 'songAddedTime');
+    try {
+      const cleanup = $effect.root(() => {
+        const v = view([
+          song(1, { acquiredAtUtc: '2024-01-01T00:00:00Z' }),
+          song(2, { acquiredAtUtc: '2025-01-01T00:00:00Z' })
+        ]);
+        flushSync();
+        expect(v.sorted.map((s) => s.id)).toEqual([2, 1]);
+        const callsAfterFirstSort = spy.mock.calls.length;
+        expect(callsAfterFirstSort).toBe(2); // one per row
+
+        v.setSortDir('asc');
+        flushSync();
+        expect(v.sorted.map((s) => s.id)).toEqual([1, 2]);
+        // Flipping direction re-sorts the same two rows — neither needed its date parsed again.
+        expect(spy.mock.calls.length).toBe(callsAfterFirstSort);
+      });
+      cleanup();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("reflects a replaced row's new liked-date immediately rather than a stale cached one", () => {
+    const cleanup = $effect.root(() => {
+      const a = song(1, { likedAtUtc: '2024-01-01T00:00:00Z' });
+      const b = song(2, { likedAtUtc: '2025-01-01T00:00:00Z' });
+      let rows = $state<ApiSong[]>([a, b]);
+      const v = createTrackListView({
+        songs: () => rows,
+        searchQuery: () => '',
+        initialSortKey: 'liked'
+      });
+      flushSync();
+      expect(v.sorted.map((s) => s.id)).toEqual([2, 1]); // b was liked later
+
+      // patchSong-style replace: a's like now postdates b's.
+      rows = [song(1, { likedAtUtc: '2026-01-01T00:00:00Z' }), b];
+      flushSync();
+      expect(v.sorted.map((s) => s.id)).toEqual([1, 2]);
     });
     cleanup();
   });

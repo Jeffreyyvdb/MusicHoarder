@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!-- Fills a throwaway database with a synthetic library for the performance suite (perf/README.md).
+         Deliberately not in MusicHoarder.slnx: nothing ships from here, and the API image build must
+         not depend on it. -->
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <!-- Matches the EF Core version the API compiles against; its own reference is private
+             (the Design package), so it does not flow here. Bump the two together. -->
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.14" />
+        <ProjectReference Include="..\..\MusicHoarder.Api\MusicHoarder.Api.csproj" />
+    </ItemGroup>
+
+</Project>

@@ -1,7 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const env = vi.hoisted(() => ({}) as Record<string, string | undefined>);
-vi.mock('$env/dynamic/public', () => ({ env }));
+// Getters, so a test can change a variable after umami.ts has imported it.
+vi.mock('$app/env/public', () => ({
+  get PUBLIC_UMAMI_SRC() {
+    return env.PUBLIC_UMAMI_SRC;
+  },
+  get PUBLIC_UMAMI_WEBSITE_ID() {
+    return env.PUBLIC_UMAMI_WEBSITE_ID;
+  }
+}));
 
 import { trackUmamiEvent, umamiEnabled } from './umami';
 

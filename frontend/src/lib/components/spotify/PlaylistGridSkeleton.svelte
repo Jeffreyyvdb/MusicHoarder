@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Skeleton } from '$lib/components/ui/skeleton';
+  import { Skeleton } from '#lib/components/ui/skeleton/index.ts';
 </script>
 
 <!-- Shaped like the cover grid it stands in for (Discover and Spotify's playlists): a square of

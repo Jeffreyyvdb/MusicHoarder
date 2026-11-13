@@ -1,14 +1,14 @@
 <script lang="ts">
-  import { Button } from '$lib/components/ui/button';
-  import * as AlertDialog from '$lib/components/ui/alert-dialog';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import StatusLine from '$lib/components/settings/StatusLine.svelte';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import * as AlertDialog from '#lib/components/ui/alert-dialog/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import StatusLine from '#lib/components/settings/StatusLine.svelte';
   import {
     auditStoredVideos,
     deleteSongVideo,
     type StoredVideoAudit,
     type StoredVideoAuditRow
-  } from '$lib/api-client';
+  } from '#lib/api-client.ts';
   import { Film, Loader2, Trash2 } from '@lucide/svelte';
 
   /**

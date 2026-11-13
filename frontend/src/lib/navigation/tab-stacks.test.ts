@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findTab } from '$lib/nav';
+import { findTab } from '#lib/nav.ts';
 import {
   EMPTY_TAB_MEMORY,
   backTargetFor,

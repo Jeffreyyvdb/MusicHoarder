@@ -49,6 +49,12 @@ public sealed class SpotifySaveDates
     /// For hosted-service scopes, where the current user is <see cref="Guid.Empty"/> and the filter
     /// would otherwise resolve to no rows at all.
     /// </param>
+    /// <remarks>
+    /// Both library lists call this, and both answer <c>304</c> from <see cref="LibraryChangeStamp"/>:
+    /// it covers the caller's wishlist sources, their items that link a song, and their liked-songs
+    /// matches that carry a date — the three reads below, filter for filter. Widen one of them, or
+    /// read another table, and the stamp has to follow.
+    /// </remarks>
     public static async Task<SpotifySaveDates> LoadAsync(MusicHoarderDbContext db, CancellationToken ct, bool allTenants = false)
     {
         IQueryable<WishlistSource> sourceRows = db.WishlistSources.AsNoTracking();

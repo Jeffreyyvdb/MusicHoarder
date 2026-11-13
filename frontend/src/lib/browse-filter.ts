@@ -6,7 +6,8 @@
  * the URL with `parseBrowseFilter` and narrows `fetchSongs()` with `applyBrowseFilter`
  * before its usual album grouping.
  */
-import { discreteArtistsForSong, UNKNOWN_GROUP, type ApiSong } from '$lib/api-client';
+import type { ReadonlyURLSearchParams } from '$app/state';
+import { discreteArtistsForSong, UNKNOWN_GROUP, type ApiSong } from '#lib/api-client.ts';
 
 const UNKNOWN_ARTIST = 'Unknown Artist';
 const UNKNOWN_YEAR_PARAM = UNKNOWN_GROUP.toLowerCase(); // "unknown"
@@ -28,7 +29,7 @@ function songArtist(song: ApiSong): string {
   return (song.albumArtist ?? song.artist ?? UNKNOWN_ARTIST).trim() || UNKNOWN_ARTIST;
 }
 
-export function parseBrowseFilter(params: URLSearchParams): BrowseFilter | null {
+export function parseBrowseFilter(params: ReadonlyURLSearchParams): BrowseFilter | null {
   const artist = params.get('artist');
   if (artist != null && artist.trim().length > 0) {
     return { artist: artist.trim() };

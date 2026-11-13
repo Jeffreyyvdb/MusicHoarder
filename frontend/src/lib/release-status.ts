@@ -6,7 +6,7 @@
  * `Unreleased` is a community tracker saying so outright, `LikelyUnreleased` is the absence of any
  * match anywhere. The library filter shows both; anything that needs precision should not.
  */
-import type { ApiSong } from '$lib/api-client';
+import type { ApiSong } from '#lib/api-client.ts';
 
 /** A community tracker catalogued this as a leak, snippet, demo, stem or session file. */
 export function isUnreleasedSong(song: ApiSong): boolean {

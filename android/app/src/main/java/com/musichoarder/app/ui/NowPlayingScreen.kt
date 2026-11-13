@@ -1199,7 +1199,7 @@ private class CoordinatesHolder {
 }
 
 /**
- * `cubic-bezier(0.32, 0.72, 0, 1)` over 350ms — the web's presentation curve (`$lib/motion.ts`),
+ * `cubic-bezier(0.32, 0.72, 0, 1)` over 350ms — the web's presentation curve (`#lib/motion.ts`),
  * which sheets and Now Playing rise, fall and spring back on.
  */
 internal val EasePresent = CubicBezierEasing(0.32f, 0.72f, 0f, 1f)

@@ -1,22 +1,22 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import SeoHead from '$lib/components/SeoHead.svelte';
-  import JsonLd from '$lib/components/JsonLd.svelte';
-  import LandingNav from '$lib/components/landing/LandingNav.svelte';
-  import HeroSection from '$lib/components/landing/HeroSection.svelte';
-  import ListenSection from '$lib/components/landing/ListenSection.svelte';
-  import OrganizeSection from '$lib/components/landing/OrganizeSection.svelte';
-  import ReviewSection from '$lib/components/landing/ReviewSection.svelte';
-  import GrowSection from '$lib/components/landing/GrowSection.svelte';
-  import ShareSection from '$lib/components/landing/ShareSection.svelte';
-  import QuickstartSection from '$lib/components/landing/QuickstartSection.svelte';
-  import FinalCtaSection from '$lib/components/landing/FinalCtaSection.svelte';
-  import Footer from '$lib/components/landing/Footer.svelte';
+  import SeoHead from '#lib/components/SeoHead.svelte';
+  import JsonLd from '#lib/components/JsonLd.svelte';
+  import LandingNav from '#lib/components/landing/LandingNav.svelte';
+  import HeroSection from '#lib/components/landing/HeroSection.svelte';
+  import ListenSection from '#lib/components/landing/ListenSection.svelte';
+  import OrganizeSection from '#lib/components/landing/OrganizeSection.svelte';
+  import ReviewSection from '#lib/components/landing/ReviewSection.svelte';
+  import GrowSection from '#lib/components/landing/GrowSection.svelte';
+  import ShareSection from '#lib/components/landing/ShareSection.svelte';
+  import QuickstartSection from '#lib/components/landing/QuickstartSection.svelte';
+  import FinalCtaSection from '#lib/components/landing/FinalCtaSection.svelte';
+  import Footer from '#lib/components/landing/Footer.svelte';
   import {
     buildSoftwareApplicationSchema,
     organizationSchema,
     faqPageSchema
-  } from '$lib/components/landing/structured-data';
+  } from '#lib/components/landing/structured-data.ts';
 
   const title = 'MusicHoarder — Self-Hosted Music Library Organizer & Player';
   const description =

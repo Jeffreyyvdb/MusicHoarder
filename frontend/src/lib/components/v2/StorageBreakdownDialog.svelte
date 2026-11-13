@@ -1,13 +1,13 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { AlertTriangle, Loader2 } from '@lucide/svelte';
-  import * as BottomSheet from '$lib/components/ui/bottom-sheet';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import { Button } from '$lib/components/ui/button';
-  import type { StorageRoot } from '$lib/api-client';
-  import { storageUsage } from '$lib/stores/storage-usage.svelte';
-  import { categoryMeta, originMeta, rootLabel } from '$lib/storage-usage-meta';
-  import { formatBytesShort, formatFileSize, formatRelativeTime } from '$lib/formatters';
+  import * as BottomSheet from '#lib/components/ui/bottom-sheet/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import type { StorageRoot } from '#lib/api-client.ts';
+  import { storageUsage } from '#lib/stores/storage-usage.svelte.ts';
+  import { categoryMeta, originMeta, rootLabel } from '#lib/storage-usage-meta.ts';
+  import { formatBytesShort, formatFileSize, formatRelativeTime } from '#lib/formatters.ts';
 
   // A bottom sheet on a phone (grabber, drag to dismiss) and a centred dialog on a desktop — the
   // BottomSheet primitive switches at md. One scroller: the sheet body, never a second one

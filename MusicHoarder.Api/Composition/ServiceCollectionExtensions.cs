@@ -135,6 +135,9 @@ public static class ServiceCollectionExtensions
         // Both resolve ICurrentUserAccessor from RequestServices themselves.
         services.AddScoped<Sharing.ISharedLibraryGrantResolver, Sharing.SharedLibraryGrantResolver>();
         services.AddScoped<Sharing.ILibraryScopeResolver, Sharing.LibraryScopeResolver>();
+        // What lets GET /songs and GET /api/albums answer 304. Scoped: it reads through the
+        // request's own DbContext, as the caller the request resolved.
+        services.AddScoped<ILibraryChangeStamp, LibraryChangeStamp>();
         // Share-link open/play counter: holds the day's in-memory visitor salt and the per-share cap.
         services.AddSingleton<Sharing.ShareVisitTracker>();
 
@@ -229,6 +232,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IArtistCreditRepairHealer, ArtistCreditRepairHealer>();
         services.AddScoped<IArtistDuplicateService, ArtistDuplicateService>();
         services.AddScoped<IAlbumDuplicateDetector, AlbumDuplicateDetector>();
+        // Outlives the request on purpose: it is what lets the next page load skip a detection.
+        services.AddSingleton<DetectionCountMemo>();
+        services.AddScoped<IInboxNameCounter, InboxNameCounter>();
         services.AddScoped<IDedupActionHistory, DedupActionHistoryService>();
 
         // History feed. Every source derives its entries from rows the pipeline already writes, and all

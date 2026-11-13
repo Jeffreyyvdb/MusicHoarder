@@ -1,5 +1,5 @@
 <script module lang="ts">
-  import type { StagedSourceReleaseSnapshot } from '$lib/api-client';
+  import type { StagedSourceReleaseSnapshot } from '#lib/api-client.ts';
 
   /**
    * What a screen reader hears when a release starts and when it ends — spoken by Settings'
@@ -16,7 +16,7 @@
 
 <script lang="ts">
   import { CircleAlert, CircleCheck, CircleStop, Loader2 } from '@lucide/svelte';
-  import { formatFileSize } from '$lib/formatters';
+  import { formatFileSize } from '#lib/formatters.ts';
 
   // A staged-source release's progress as the last cell of the Download staging section — same
   // shape as PurgeStatusBanner: spinner and bar while running, then a glyph and the outcome.

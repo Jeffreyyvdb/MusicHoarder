@@ -1,12 +1,12 @@
 <script lang="ts">
   import { ChevronRight } from '@lucide/svelte';
-  import CommandBlock from '$lib/components/landing/CommandBlock.svelte';
-  import LandingSection from '$lib/components/landing/LandingSection.svelte';
+  import CommandBlock from '#lib/components/landing/CommandBlock.svelte';
+  import LandingSection from '#lib/components/landing/LandingSection.svelte';
   import {
     composeSnippet,
     githubUrl,
     quickstartSteps
-  } from '$lib/components/landing/landing-content';
+  } from '#lib/components/landing/landing-content.ts';
 </script>
 
 <LandingSection

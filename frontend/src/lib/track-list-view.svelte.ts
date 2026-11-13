@@ -10,10 +10,10 @@ import {
   songLikedTime,
   spotifyAddedTime,
   type ApiSong
-} from '$lib/api-client';
-import { isBuiltSong } from '$lib/album-sections';
-import { filterBySearch, indexForSearch, searchTerms } from '$lib/search/match';
-import { isAnyUnreleasedSong } from '$lib/release-status';
+} from '#lib/api-client.ts';
+import { isBuiltSong } from '#lib/album-sections.ts';
+import { filterBySearch, normalizeFields, searchTerms, type SearchEntry } from '#lib/search/match.ts';
+import { isAnyUnreleasedSong } from '#lib/release-status.ts';
 
 export type SortKey =
   'added' | 'liked' | 'spotify' | 'title' | 'artist' | 'album' | 'year' | 'size' | 'match' | 'dur';
@@ -232,6 +232,80 @@ function applyChips(songs: ApiSong[], keys: readonly ChipKey[]): ApiSong[] {
   return r;
 }
 
+/**
+ * Per-row caches, keyed by row object identity rather than id. `songsStore` only ever replaces a
+ * row wholesale (`patchSong` swaps in a new object; a full refetch swaps in a new array of new
+ * objects — see `#lib/stores/songs.svelte.ts`), never mutates one in place, so a cache entry can
+ * never go stale while its key is still reachable: a changed row is simply a miss under its new
+ * identity, same as a row from a fresh load.
+ *
+ * `foldedFieldsCache` holds the search index's per-row folded text: the Unicode normalisation in
+ * `normalizeForSearch` is most of what folding the whole library costs, and it was being redone
+ * from scratch every time `songs` changed, including the very first keystroke, where `searchIndex`
+ * below is read for the first time. `dateKeyCache` holds the date-based sort keys for the same
+ * reason — each is up to a few `Date.parse` calls, repeated for every row on every re-sort even
+ * when the sort key itself hasn't changed.
+ */
+const foldedFieldsCache = new WeakMap<ApiSong, string[]>();
+const dateKeyCache = new WeakMap<ApiSong, Partial<Record<'added' | 'liked' | 'spotify', number>>>();
+
+/** The search index's folded fields for one row, computed once and reused until it is replaced. */
+function cachedFields(s: ApiSong): string[] {
+  let fields = foldedFieldsCache.get(s);
+  if (fields === undefined) {
+    fields = normalizeFields(titleOf(s), artistOf(s), s.album ?? '');
+    foldedFieldsCache.set(s, fields);
+  }
+  return fields;
+}
+
+/** One of the date-based sort keys for one row, computed once and reused until it is replaced. */
+function cachedDateKey(
+  s: ApiSong,
+  field: 'added' | 'liked' | 'spotify',
+  compute: () => number
+): number {
+  let entry = dateKeyCache.get(s);
+  if (entry === undefined) {
+    entry = {};
+    dateKeyCache.set(s, entry);
+  }
+  let value = entry[field];
+  if (value === undefined) {
+    value = compute();
+    entry[field] = value;
+  }
+  return value;
+}
+
+const WARM_SLICE = 300;
+let warming = false;
+
+function scheduleIdle(fn: () => void): void {
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(fn, { timeout: 200 });
+  else setTimeout(fn, 16);
+}
+
+/**
+ * Pre-fold a row set into {@link foldedFieldsCache} before typing starts, a few hundred rows per
+ * idle slice — call this from the search field's focus or pointerdown. Without it, the whole fold
+ * happens inside the first keystroke, because `searchIndex` below is a lazy derived that only
+ * computes once something reads it. A second call while one is still running is a no-op; the next
+ * focus after the songs array changes warms whatever is still uncached.
+ */
+export function warmSearchCache(songs: readonly ApiSong[]): void {
+  if (warming) return;
+  warming = true;
+  let i = 0;
+  const step = () => {
+    const end = Math.min(i + WARM_SLICE, songs.length);
+    for (; i < end; i++) cachedFields(songs[i]);
+    if (i < songs.length) scheduleIdle(step);
+    else warming = false;
+  };
+  scheduleIdle(step);
+}
+
 export type TrackListView = ReturnType<typeof createTrackListView>;
 
 /**
@@ -270,10 +344,15 @@ export function createTrackListView(opts: {
   const searchQuery = $derived(opts.searchQuery());
   const chips = $derived(opts.chips?.() ?? []);
 
-  // Folded once per dataset rather than per keystroke — see `$lib/search/match` for what a query
-  // means (every term, any field, punctuation and order ignored).
+  // Folded once per row rather than per keystroke — see `#lib/search/match.ts` for what a query means
+  // (every term, any field, punctuation and order ignored). Built from `cachedFields` rather than
+  // `indexForSearch` directly, so a row that was already folded (by a previous search, or by
+  // `warmSearchCache` before typing started) is reused instead of refolded.
   const searchIndex = $derived(
-    indexForSearch(songs, (s) => [titleOf(s), artistOf(s), s.album ?? ''])
+    songs.map((song): SearchEntry<ApiSong> => {
+      const fields = cachedFields(song);
+      return { value: song, fields, haystack: fields.join(' ') };
+    })
   );
 
   /** Search applied, chips not yet — the base every per-chip count is measured against. */
@@ -307,18 +386,20 @@ export function createTrackListView(opts: {
         case 'match':
           return matchValue(s);
         case 'liked':
-          return songLikedTime(s);
+          return cachedDateKey(s, 'liked', () => songLikedTime(s));
         case 'spotify':
-          return spotifyAddedTime(s);
+          return cachedDateKey(s, 'spotify', () => spotifyAddedTime(s));
         case 'added':
         default:
-          return songAddedTime(s);
+          return cachedDateKey(s, 'added', () => songAddedTime(s));
       }
     };
     // Each key is worked out once per row, not once per comparison: the default sort parses a date
     // (and the text sorts lower-case a string) for every song, and a comparator does that
     // ~2·n·log n times — thousands of rows made opening Tracks wait on it. The sort is stable, so
-    // the order is exactly what comparing the rows directly gives.
+    // the order is exactly what comparing the rows directly gives. The three date keys are also
+    // cached per row (see `dateKeyCache` above), so re-sorting the same rows — flipping the
+    // direction, toggling a chip — doesn't re-parse a date that hasn't changed.
     const keyed = filtered.map((song) => ({ song, key: pick(song) }));
     keyed.sort(({ key: av }, { key: bv }) => {
       if (av == null || bv == null) return av == null ? (bv == null ? 0 : 1) : -1;

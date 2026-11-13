@@ -5,6 +5,7 @@ using MusicHoarder.Api.Library;
 using MusicHoarder.Api.Metadata;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Tests.Persistence;
 
 namespace MusicHoarder.Api.Tests.Library;
 
@@ -360,6 +361,141 @@ public class ArtistDuplicateServiceTests
         var report = await Service(db).DetectAsync(Owner);
 
         Assert.Empty(report.Clusters);
+    }
+
+    // DetectAsync loads DetectColumns and nothing else. Every other column of every row here holds
+    // a value, so the day Detect (or a helper it shares with merge and split) starts reading one,
+    // it sees that value over whole rows and a blank through DetectAsync, and the two reports part.
+    [Fact]
+    public async Task Detect_ReadsOnlyTheColumnsItLoads()
+    {
+        await using var db = NewContext();
+        SongMetadata[] library =
+        [
+            // Track credits without a discrete list: spellings of one name.
+            Song("/a/1.mp3", artist: "JAY-Z"),
+            Song("/a/2.mp3", artist: "JAY-Z"),
+            Song("/a/3.mp3", artist: "JAYZ"),
+            // Discrete lists, tied together by the ids that travel with them.
+            Song("/b/1.mp3", artist: "Lauryn Hill", artists: "Lauryn Hill", artistMbids: "mbid-lauryn"),
+            Song("/b/2.mp3", artist: "Ms. Lauryn Hill", artists: "Ms. Lauryn Hill", artistMbids: "mbid-lauryn"),
+            // A name that exists only as an album artist, with an id only the album artist carries.
+            Song("/c/1.mp3", artist: "Common", artists: "Common", albumArtist: "Erykah Badu", albumArtistMbid: "mbid-badu"),
+            Song("/c/2.mp3", artist: "Common", artists: "Common", albumArtist: "Erykah Badú"),
+            // A collab album artist over its own discrete list: a combined credit.
+            .. HefShape(),
+        ];
+        string[] eligibility = [nameof(SongMetadata.OwnerUserId), nameof(SongMetadata.DeletedAtUtc), nameof(SongMetadata.IsSynthetic)];
+        for (var i = 0; i < library.Length; i++)
+            library[i].FillExcept(db, seed: i, ArtistDuplicateService.DetectColumns.Names, eligibility);
+        db.Songs.AddRange(library);
+        await db.SaveChangesAsync();
+        var options = new MusicEnricherOptions();
+        ArtistDuplicateReport Detect(IReadOnlyList<SongMetadata> rows) => ArtistDuplicateService.Detect(
+            rows, [], options.ArtistMergeFuzzyThreshold, options.ArtistMergeIdentityFuzzyThreshold, options.DuplicateMaxBlockSize);
+
+        var overWholeRows = Detect(await db.Songs.AsNoTracking().ToListAsync());
+        var loaded = await Service(db).DetectAsync(Owner);
+
+        Assert.Equal(3, overWholeRows.Clusters.Count);
+        Assert.Single(overWholeRows.CombinedCredits);
+        Assert.Equal(Json(overWholeRows), Json(loaded));
+
+        // And the list is not padded: leave any one of them out and the report changes.
+        foreach (var column in ArtistDuplicateService.DetectColumns.Names)
+        {
+            var without = new SongColumnSet([.. ArtistDuplicateService.DetectColumns.Names.Where(n => n != column)]);
+            Assert.NotEqual(Json(overWholeRows), Json(Detect(await db.Songs.WithOnly(db, without).ToListAsync())));
+        }
+
+        // The report holds lists, which records compare by reference.
+        static string Json(ArtistDuplicateReport report) => System.Text.Json.JsonSerializer.Serialize(report);
+    }
+
+    // --- Count (remembered) ---
+
+    // The count is remembered under a stamp of Detect's arguments, so the two must take the same
+    // ones: give Detect an argument the stamp lacks, and a change to it leaves a stale count standing.
+    [Fact]
+    public void StampOf_TakesExactlyTheArgumentsOfDetect()
+    {
+        static (string?, Type)[] Parameters(string method) => typeof(ArtistDuplicateService)
+            .GetMethod(method, System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!
+            .GetParameters().Select(p => (p.Name, p.ParameterType)).ToArray();
+
+        Assert.Equal(Parameters(nameof(ArtistDuplicateService.Detect)), Parameters(nameof(ArtistDuplicateService.StampOf)));
+    }
+
+    [Fact]
+    public void StampOf_ChangesWithEveryArgument_AndWithNothingElse()
+    {
+        SongMetadata[] songs = [Song("/a/1.mp3", artist: "JAY-Z"), Song("/a/2.mp3", artist: "JAYZ")];
+        HashSet<(string, string)> dismissed = [("jayz", "jay z"), ("a", "b")];
+        var stamp = ArtistDuplicateService.StampOf(songs, dismissed, 92, 70, 50);
+
+        Assert.Equal(stamp, ArtistDuplicateService.StampOf(songs, dismissed, 92, 70, 50));
+        // A set: the order its pairs were added in is not an input.
+        Assert.Equal(stamp, ArtistDuplicateService.StampOf(songs, [.. dismissed.Reverse()], 92, 70, 50));
+        Assert.NotEqual(stamp, ArtistDuplicateService.StampOf([songs[1], songs[0]], dismissed, 92, 70, 50));
+        Assert.NotEqual(stamp, ArtistDuplicateService.StampOf(songs, [dismissed.First()], 92, 70, 50));
+        Assert.NotEqual(stamp, ArtistDuplicateService.StampOf(songs, dismissed, 93, 70, 50));
+        Assert.NotEqual(stamp, ArtistDuplicateService.StampOf(songs, dismissed, 92, 71, 50));
+        Assert.NotEqual(stamp, ArtistDuplicateService.StampOf(songs, dismissed, 92, 70, 51));
+
+        // Played, renamed, rebuilt: nothing detection reads.
+        songs[0].PlayCount = 12;
+        songs[0].Title = "Empire State of Mind";
+        songs[0].Album = "The Blueprint 3";
+        songs[0].LibraryBuildStatus = LibraryBuildStatus.Done;
+        Assert.Equal(stamp, ArtistDuplicateService.StampOf(songs, dismissed, 92, 70, 50));
+
+        songs[0].ArtistMusicBrainzIds = "mbid-jay";
+        Assert.NotEqual(stamp, ArtistDuplicateService.StampOf(songs, dismissed, 92, 70, 50));
+    }
+
+    [Fact]
+    public async Task CountAsync_IsAnsweredFromMemory_UntilSomethingDetectionReadsChanges()
+    {
+        await using var db = NewContext();
+        db.Songs.AddRange(
+            Song("/a/1.mp3", artist: "Lauryn Hill", artists: "Lauryn Hill", artistMbids: "mbid-lauryn"),
+            Song("/a/2.mp3", artist: "Ms. Lauryn Hill", artists: "Ms. Lauryn Hill", artistMbids: "mbid-lauryn"),
+            Song("/a/3.mp3", artist: "JAY-Z & Kanye West"),
+            Song("/a/4.mp3", artist: "JAY-Z", artists: "JAY-Z"),
+            Song("/a/5.mp3", artist: "Kanye West", artists: "Kanye West"));
+        await db.SaveChangesAsync();
+        var options = new MusicEnricherOptions();
+        var memo = new DetectionCountMemo();
+        Task<List<SongMetadata>> Library() => db.Songs.AsNoTracking().OrderBy(s => s.Id).ToListAsync();
+
+        // One spelling cluster and one combined credit, counted together.
+        Assert.Equal(2, await Service(db).CountAsync(Owner, await Library()));
+
+        // A count planted under the stamp of these very inputs tells a remembered answer (99) from
+        // a detection (2): nothing else distinguishes them, which is the point.
+        memo.GetOrCount(nameof(ArtistDuplicateService), Owner,
+            ArtistDuplicateService.StampOf(
+                await Library(), [], options.ArtistMergeFuzzyThreshold, options.ArtistMergeIdentityFuzzyThreshold,
+                options.DuplicateMaxBlockSize),
+            () => 99);
+        Assert.Equal(99, await Service(db, memo).CountAsync(Owner, await Library()));
+
+        // A play is a write to the row, and to nothing detection reads.
+        (await db.Songs.FirstAsync()).PlayCount += 1;
+        await db.SaveChangesAsync();
+        Assert.Equal(99, await Service(db, memo).CountAsync(Owner, await Library()));
+
+        // Another account's library is another count, whatever is remembered for this one.
+        Assert.Equal(0, await Service(db, memo).CountAsync(Guid.NewGuid(), await Library()));
+
+        // A dismissal is an input: counted again, and the cluster is gone.
+        await Service(db).DismissAsync(Owner, ["Lauryn Hill", "Ms. Lauryn Hill"]);
+        Assert.Equal(1, await Service(db, memo).CountAsync(Owner, await Library()));
+
+        // So is a name: the combined credit, re-tagged to one artist.
+        (await db.Songs.SingleAsync(s => s.Artist == "JAY-Z & Kanye West")).Artist = "Kanye West";
+        await db.SaveChangesAsync();
+        Assert.Equal(0, await Service(db, memo).CountAsync(Owner, await Library()));
     }
 
     // --- Merge ---
@@ -853,9 +989,10 @@ public class ArtistDuplicateServiceTests
             destinationPath: collabBuilt ? "/dest/Hef met Jayh/Album/04.mp3" : null),
     ];
 
-    private static ArtistDuplicateService Service(MusicHoarderDbContext db) => new(
+    private static ArtistDuplicateService Service(MusicHoarderDbContext db, DetectionCountMemo? memo = null) => new(
         db,
         Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions()),
+        memo ?? new DetectionCountMemo(),
         NullLogger<ArtistDuplicateService>.Instance);
 
     private static MusicHoarderDbContext NewContext()

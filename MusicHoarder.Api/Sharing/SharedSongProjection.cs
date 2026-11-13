@@ -26,6 +26,10 @@ public static class SharedSongProjection
         if (scope.GrantedSlices.Count == 0)
             return ([], []);
 
+        // Three reads, each covered by LibraryChangeStamp so the library lists can answer 304: every
+        // Songs row of each grantor (it does not narrow to the granted subset), those songs'
+        // SongMusicVideos rows, and the caller's UserSongStates. A fourth read has to be added there.
+        //
         // Materialized rather than projected in SQL: the lyric flags come from the computed
         // Display* properties, which have no column to translate to. Grantors are disjoint by
         // construction (ScopeSongs pins every branch to one OwnerUserId), so per-slice queries

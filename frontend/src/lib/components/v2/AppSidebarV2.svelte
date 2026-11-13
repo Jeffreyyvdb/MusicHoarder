@@ -1,20 +1,20 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { ChevronDown } from '@lucide/svelte';
-  import * as Sidebar from '$lib/components/ui/sidebar';
-  import BrandMark from '$lib/components/BrandMark.svelte';
-  import { navGroupsFor, resolveNav, type NavGroupId, type NavItem } from '$lib/nav';
-  import { APP_HOME } from '$lib/app-home';
-  import { isBuiltSong } from '$lib/album-sections';
-  import { isTrackListSong } from '$lib/track-list-view.svelte';
-  import { songsStore } from '$lib/stores/songs.svelte';
-  import { inboxCounts, refreshInboxNameCounts } from '$lib/stores/nav-badges.svelte';
-  import { chatStore } from '$lib/stores/chat.svelte';
-  import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
-  import { storageUsage } from '$lib/stores/storage-usage.svelte';
-  import { storageSummary } from '$lib/storage-usage-meta';
-  import { cn } from '$lib/utils';
-  import { isAdmin } from '$lib/auth/capabilities';
+  import * as Sidebar from '#lib/components/ui/sidebar/index.ts';
+  import BrandMark from '#lib/components/BrandMark.svelte';
+  import { navGroupsFor, resolveNav, type NavGroupId, type NavItem } from '#lib/nav.ts';
+  import { APP_HOME } from '#lib/app-home.ts';
+  import { isBuiltSong } from '#lib/album-sections.ts';
+  import { isTrackListSong } from '#lib/track-list-view.svelte.ts';
+  import { songsStore } from '#lib/stores/songs.svelte.ts';
+  import { inboxCounts, refreshInboxNameCounts } from '#lib/stores/nav-badges.svelte.ts';
+  import { chatStore } from '#lib/stores/chat.svelte.ts';
+  import { pipelineOverlay } from '#lib/stores/pipeline-overlay.svelte.ts';
+  import { storageUsage } from '#lib/stores/storage-usage.svelte.ts';
+  import { storageSummary } from '#lib/storage-usage-meta.ts';
+  import { cn } from '#lib/utils.ts';
+  import { isAdmin } from '#lib/auth/capabilities.ts';
 
   // The running build's version (clean semver), surfaced by the root layout load.
   const version = $derived(page.data.appVersion as string | null | undefined);

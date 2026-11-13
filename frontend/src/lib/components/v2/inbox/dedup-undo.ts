@@ -1,5 +1,5 @@
 import { toast } from 'svelte-sonner';
-import { fetchDedupActions, revertDedupAction, type DedupAction } from '$lib/api-client';
+import { fetchDedupActions, revertDedupAction, type DedupAction } from '#lib/api-client.ts';
 
 /**
  * Undo for the Artist names / Album names decisions (merge, credit split, album merge).

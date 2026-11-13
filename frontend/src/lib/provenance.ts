@@ -8,7 +8,7 @@ import {
   ListVideo,
   RefreshCw
 } from '@lucide/svelte';
-import type { ProvenanceGroup, ProvenanceReason, ProvenanceSeed } from '$lib/api-client';
+import type { ProvenanceGroup, ProvenanceReason, ProvenanceSeed } from '#lib/api-client.ts';
 
 /** One glyph per reason a track is in the library — the album header's row and the sheet's rows. */
 export const PROVENANCE_ICON: Record<ProvenanceReason, typeof HardDrive> = {

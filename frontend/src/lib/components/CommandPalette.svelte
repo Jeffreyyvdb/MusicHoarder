@@ -12,22 +12,22 @@
     Settings,
     type LucideIcon
   } from '@lucide/svelte';
-  import * as Command from '$lib/components/ui/command';
-  import * as Dialog from '$lib/components/ui/dialog';
-  import { navGroupsFor, tabsFor } from '$lib/nav';
-  import { isAdmin, isDemo } from '$lib/auth/capabilities';
+  import * as Command from '#lib/components/ui/command/index.ts';
+  import * as Dialog from '#lib/components/ui/dialog/index.ts';
+  import { navGroupsFor, tabsFor } from '#lib/nav.ts';
+  import { isAdmin, isDemo } from '#lib/auth/capabilities.ts';
   import {
     buildArtistGroups,
     type ApiSong,
     type AlbumSummary,
     type GroupSummary
-  } from '$lib/api-client';
-  import { commandPalette } from '$lib/stores/command-palette.svelte';
-  import { holdAppInert } from '$lib/actions/inert-app';
-  import { songDetail } from '$lib/stores/song-detail.svelte';
-  import { songsStore } from '$lib/stores/songs.svelte';
-  import { indexForSearch, rankBySearch, searchTerms } from '$lib/search/match';
-  import { cn } from '$lib/utils';
+  } from '#lib/api-client.ts';
+  import { commandPalette } from '#lib/stores/command-palette.svelte.ts';
+  import { holdAppInert } from '#lib/actions/inert-app.ts';
+  import { songDetail } from '#lib/stores/song-detail.svelte.ts';
+  import { songsStore } from '#lib/stores/songs.svelte.ts';
+  import { indexForSearch, rankBySearch, searchTerms } from '#lib/search/match.ts';
+  import { cn } from '#lib/utils.ts';
 
   // Cap each result group so typing stays snappy on large libraries.
   const MAX_PER_GROUP = 8;
@@ -121,7 +121,7 @@
 
   // Per-entity folded haystacks, rebuilt only when the dataset changes — one normalization pass
   // per row instead of three per keystroke. Fields are passed most-significant first, which is what
-  // ranks a title hit over an album hit (`$lib/search/match`).
+  // ranks a title hit over an album hit (`#lib/search/match.ts`).
   const trackIndex = $derived(
     indexForSearch(builtSongs, (s) => [
       s.title ?? s.fileName,
@@ -198,10 +198,14 @@
 
   const recentlyPlayed = $derived.by(() => {
     if (hasQuery) return [];
+    // Through the store, not off the row: a play counted since the rows were fetched is not there.
+    // Read once per song, so the sort compares strings it already holds.
     return builtSongs
-      .filter((s) => s.lastPlayedAtUtc)
-      .sort((a, b) => (b.lastPlayedAtUtc ?? '').localeCompare(a.lastPlayedAtUtc ?? ''))
-      .slice(0, MAX_RECENT);
+      .map((song) => ({ song, at: songsStore.playStatsOf(song).lastPlayedAtUtc ?? '' }))
+      .filter((played) => played.at)
+      .sort((a, b) => b.at.localeCompare(a.at))
+      .slice(0, MAX_RECENT)
+      .map((played) => played.song);
   });
 
   const goTo = $derived.by<{ label: string; href: string; icon: LucideIcon }[]>(() => {

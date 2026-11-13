@@ -469,6 +469,7 @@ public class StagedSourceReleaseServiceTests
         public IDriveInfoFactory DriveInfo => inner.DriveInfo;
         public IFileSystemWatcherFactory FileSystemWatcher => inner.FileSystemWatcher;
         public IFileVersionInfoFactory FileVersionInfo => inner.FileVersionInfo;
+        public IRandomAccess RandomAccess => inner.RandomAccess;
 
         private sealed class DeleteThrowingFile(MockFileSystem inner) : MockFile(inner)
         {

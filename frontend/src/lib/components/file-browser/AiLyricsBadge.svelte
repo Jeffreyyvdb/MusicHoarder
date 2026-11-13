@@ -1,5 +1,5 @@
 <script lang="ts" module>
-  import type { LyricsProvenance } from '$lib/types';
+  import type { LyricsProvenance } from '#lib/types.ts';
 
   /**
    * What each label claims, in the words shown to the reader. Exported so Now Playing's chip can
@@ -24,8 +24,8 @@
 
 <script lang="ts">
   import Sparkles from '@lucide/svelte/icons/sparkles';
-  import { Badge } from '$lib/components/ui/badge';
-  import { cn } from '$lib/utils';
+  import { Badge } from '#lib/components/ui/badge/index.ts';
+  import { cn } from '#lib/utils.ts';
 
   type Props = {
     provenance?: LyricsProvenance | null;

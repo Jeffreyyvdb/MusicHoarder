@@ -1,4 +1,4 @@
-import type { ChatConversation, ChatLink, ChatMessage, ChatPerson } from '$lib/api-client';
+import type { ChatConversation, ChatLink, ChatMessage, ChatPerson } from '#lib/api-client.ts';
 
 /**
  * The pure parts of chat: what a shared link is, how a message reads in the conversation list, how

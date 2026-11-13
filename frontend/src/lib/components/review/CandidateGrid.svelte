@@ -1,8 +1,8 @@
 <script lang="ts">
   import { Check } from '@lucide/svelte';
-  import { Spinner } from '$lib/components/ui/spinner/index.js';
-  import { providerColor, type ReviewCandidate } from '$lib/review-helpers';
-  import { cn } from '$lib/utils';
+  import { Spinner } from '#lib/components/ui/spinner/index.js';
+  import { providerColor, type ReviewCandidate } from '#lib/review-helpers.ts';
+  import { cn } from '#lib/utils.ts';
   import { radioGroup, radioTabIndex } from './radio-group';
 
   type Props = {

@@ -1,22 +1,22 @@
 <script lang="ts">
   import { Link2, RefreshCw, TriangleAlert } from '@lucide/svelte';
   import { page } from '$app/state';
-  import Cover from '$lib/components/file-browser/Cover.svelte';
-  import ShareLinkDetail from '$lib/components/shares/ShareLinkDetail.svelte';
-  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import { Button } from '$lib/components/ui/button';
-  import { EmptyState } from '$lib/components/ui/empty-state';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
-  import { Skeleton } from '$lib/components/ui/skeleton';
+  import Cover from '#lib/components/file-browser/Cover.svelte';
+  import ShareLinkDetail from '#lib/components/shares/ShareLinkDetail.svelte';
+  import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import { EmptyState } from '#lib/components/ui/empty-state/index.ts';
+  import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
+  import { Skeleton } from '#lib/components/ui/skeleton/index.ts';
   import {
     ApiError,
     fetchShareStatsList,
     getSongCoverUrl,
     type ShareStatsRow
-  } from '$lib/api-client';
-  import { formatRelativeTime } from '$lib/formatters';
-  import { replaceUrl } from '$lib/navigation/replace-url';
+  } from '#lib/api-client.ts';
+  import { formatRelativeTime } from '#lib/formatters.ts';
+  import { replaceUrl } from '#lib/navigation/replace-url.ts';
   import {
     countLabel,
     isRevoked,
@@ -26,8 +26,8 @@
     shareListView,
     shareTitle,
     type ShareListView
-  } from '$lib/share-stats';
-  import { cn } from '$lib/utils';
+  } from '#lib/share-stats.ts';
+  import { cn } from '#lib/utils.ts';
 
   // Every public link made with "Share link…", with how often each was opened — the page that
   // answers "did anyone click the link I posted?", and the one place a link can be revoked.

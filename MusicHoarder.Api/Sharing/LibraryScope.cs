@@ -73,6 +73,9 @@ public sealed class LibraryScopeResolver(
         if (callerId == Guid.Empty)
             return new LibraryScope([self], grants);
 
+        // LibraryChangeStamp stands for both reads when the library lists answer 304: every grant
+        // row naming the caller, and the granting accounts' Users rows. A third input to what a
+        // caller may read, or to how a grantor is shown, has to be added there too.
         var sets = await grants.ResolveAsync(db, callerId, ct);
         if (sets.Count == 0)
             return new LibraryScope([self], grants);

@@ -1,14 +1,14 @@
 <script lang="ts">
-  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
+  import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
   import { onMount } from 'svelte';
   import { Disc3, History, Loader2, RefreshCw, Sparkles, TriangleAlert } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
-  import * as AlertDialog from '$lib/components/ui/alert-dialog';
-  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import { Button } from '$lib/components/ui/button';
-  import { Skeleton } from '$lib/components/ui/skeleton';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
+  import * as AlertDialog from '#lib/components/ui/alert-dialog/index.ts';
+  import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import { Skeleton } from '#lib/components/ui/skeleton/index.ts';
+  import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
   import {
     fetchAlbumQualityOverview,
     fetchAlbumQualityProgress,
@@ -16,9 +16,9 @@
     gradeOutdatedAlbums,
     type AlbumQualityOverview,
     type AlbumQualityRow
-  } from '$lib/api-client';
-  import { verdictBadge, scoreColor, verdictGlyph } from '$lib/quality-ui';
-  import { cn } from '$lib/utils';
+  } from '#lib/api-client.ts';
+  import { verdictBadge, scoreColor, verdictGlyph } from '#lib/quality-ui.ts';
+  import { cn } from '#lib/utils.ts';
 
   // Album matches: how well each owned album matches its canonical release. The bar carries one
   // prominent action (Grade all albums, which asks first: it spends AI credits) and a More menu

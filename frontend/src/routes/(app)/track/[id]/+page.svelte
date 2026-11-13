@@ -1,7 +1,7 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { replaceUrl } from '$lib/navigation/replace-url';
-  import TrackTimelineV2 from '$lib/components/v2/TrackTimelineV2.svelte';
+  import { replaceUrl } from '#lib/navigation/replace-url.ts';
+  import TrackTimelineV2 from '#lib/components/v2/TrackTimelineV2.svelte';
 
   // Per-song provenance timeline. An invalid id can't render anything useful, so
   // bounce back to the library rather than dead-ending the deep link. The (app)
@@ -11,7 +11,7 @@
 
   $effect(() => {
     // A replace that really is a new page: reset scroll and focus as a navigation would.
-    if (!valid) void replaceUrl('/library', { noScroll: false, keepFocus: false });
+    if (!valid) void replaceUrl('/library', { reset: true });
   });
 </script>
 

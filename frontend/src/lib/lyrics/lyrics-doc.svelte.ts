@@ -5,8 +5,8 @@ import {
   type RecheckLyricsResponse,
   type TrackLyricsResponse,
   type VerifyLyricsTimingResponse
-} from '$lib/api-client';
-import type { LyricsProvenance, LyricsStatus, LyricsSyncStatus } from '$lib/types';
+} from '#lib/api-client.ts';
+import type { LyricsProvenance, LyricsStatus, LyricsSyncStatus } from '#lib/types.ts';
 
 /**
  * The server calls this module makes, injectable so the rules are unit-testable without a

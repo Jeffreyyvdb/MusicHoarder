@@ -4,7 +4,7 @@ import { untrack } from 'svelte';
  * The one page-surface fact a URL cannot tell: Now Playing is open. Its media appearance is dark
  * over the cover whatever the app theme, so while it is up the installed app's status bar (painted
  * from theme-color) must be black too. Everything else about the surface is derived from the URL
- * by `surfaceFor` in `$lib/nav`; this holds only the override.
+ * by `surfaceFor` in `#lib/nav.ts`; this holds only the override.
  *
  * A counter of claims rather than a flag, so an overlay that remounts (or two that overlap during
  * a transition) cannot clear the other's claim.

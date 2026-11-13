@@ -1,4 +1,4 @@
-import { EASE_OUT, prefersReducedMotion } from '$lib/motion';
+import { EASE_OUT, prefersReducedMotion } from '#lib/motion.ts';
 
 /**
  * `use:longpress` — touch-and-hold for touch and pen.

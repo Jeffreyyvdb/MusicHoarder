@@ -3,9 +3,9 @@ import {
   markChatRead,
   openChatStream,
   type ChatConversation
-} from '$lib/api-client';
-import { isDemo } from '$lib/auth/capabilities';
-import type { SessionUser } from '$lib/auth/session-types';
+} from '#lib/api-client.ts';
+import { isDemo } from '#lib/auth/capabilities.ts';
+import type { SessionUser } from '#lib/auth/session-types.ts';
 
 /**
  * The account's conversations and unread counts, kept live over the chat stream

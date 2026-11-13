@@ -8,18 +8,18 @@ import type { PlayerSong } from './player.svelte';
  * one track or several, counted and queued as if the page had been awake, and never loaded twice.
  */
 
-vi.mock('$app/environment', () => ({ browser: true }));
+vi.mock('$app/env', () => ({ browser: true }));
 vi.mock('svelte-sonner', () => ({ toast: Object.assign(vi.fn(), { error: vi.fn() }) }));
-vi.mock('$lib/api-client', () => ({
+vi.mock('#lib/api-client.ts', () => ({
   coverThumbUrl: (url: string | null | undefined) => url ?? null,
   fetchRadio: vi.fn(async () => []),
   reportSongPlayed: vi.fn(async () => {}),
   toPlayerSong: vi.fn()
 }));
-vi.mock('$lib/stores/songs.svelte', () => ({
+vi.mock('#lib/stores/songs.svelte.ts', () => ({
   songsStore: { notePlayed: vi.fn(), songsById: new Map() }
 }));
-vi.mock('$lib/track-list-view.svelte', () => ({ artistOf: vi.fn() }));
+vi.mock('#lib/track-list-view.svelte.ts', () => ({ artistOf: vi.fn() }));
 
 interface Call {
   method: string;
@@ -63,7 +63,7 @@ const device = {
 
 let platform: 'ios' | 'android' = 'ios';
 
-vi.mock('$lib/native/shell', () => ({
+vi.mock('#lib/native/shell.ts', () => ({
   isNativeShell: () => true,
   nativePlatform: () => platform,
   nativePlugin: () => ({
@@ -97,7 +97,7 @@ let fetchMock: ReturnType<typeof vi.fn>;
 
 async function loadPlayer() {
   const { playerStore, initPlayer } = await import('./player.svelte');
-  const { reportSongPlayed } = await import('$lib/api-client');
+  const { reportSongPlayed } = await import('#lib/api-client.ts');
   initPlayer();
   return { playerStore, reportSongPlayed: vi.mocked(reportSongPlayed) };
 }

@@ -1,4 +1,4 @@
-import { isIosDevice } from '$lib/ios-safari';
+import { isIosDevice } from '#lib/ios-safari.ts';
 
 /**
  * Dynamic Type for the installed iOS app.

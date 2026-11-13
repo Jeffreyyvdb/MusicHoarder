@@ -5,6 +5,7 @@ using MusicHoarder.Api.Library;
 using MusicHoarder.Api.Matching;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Tests.Persistence;
 
 namespace MusicHoarder.Api.Tests.Library;
 
@@ -708,6 +709,164 @@ public class AlbumSplitHealerTests
         await Healer(db).HealAsync();
 
         Assert.All(await db.Songs.ToListAsync(), s => Assert.Equal("Domo Genesis", s.AlbumArtist));
+    }
+
+    // DetectAsync loads DetectColumns and nothing else. Every other column of every row here holds
+    // a value, so the day the dry run (the reconciler, the path resolver, the restore) starts
+    // reading one, it sees that value over whole rows and a blank through DetectAsync, and the two
+    // reports part. One library with every branch of the dry run in it, because a column only
+    // matters on the branch that reads it.
+    [Fact]
+    public async Task DetectAsync_ReadsOnlyTheColumnsItLoads()
+    {
+        await using var db = NewContext();
+
+        // Two releases with a track each: the one holding disc 1 wins, then the album's fields
+        // travel with it.
+        var graduation = new[]
+        {
+            Song("/g1.flac", "Champion", 2, year: 2007, releaseId: "rel-b"),
+            Song("/g2.flac", "Good Morning", 1, year: 2008, releaseId: "rel-a"),
+        };
+        (graduation[0].DiscNumber, graduation[1].DiscNumber) = (1, 2);
+        graduation[0].TotalDiscs = 2;
+        graduation[0].IsCompilation = true;
+        graduation[0].ReleaseTypePrimary = "album";
+        graduation[0].ReleaseTypes = "album; live";
+        graduation[0].MusicBrainzReleaseGroupId = "group-b";
+        graduation[0].AlbumArtistMusicBrainzId = "mbid-kanye";
+
+        // The same tie with no disc numbers: track 1 wins.
+        var registration = new[]
+        {
+            Song("/r1.flac", "Wake Up Mr. West", 1, year: 2005, album: "Late Registration", releaseId: "rel-z"),
+            Song("/r2.flac", "Heard 'Em Say", 2, year: 2005, album: "Late Registration", releaseId: "rel-y"),
+        };
+
+        // Two spellings, a logical album each; the canonical album names one of them, the owner's
+        // own merge the other, and the merge wins.
+        SeedMiseducationCanonical(db);
+        db.ArtistAliases.Add(new ArtistAlias
+        {
+            OwnerUserId = WellKnownUsers.OwnerId,
+            AliasKey = TitleNormalizer.NormalizeArtistKey("Ms. Lauryn Hill"),
+            CanonicalName = "Lauryn Hill",
+            CreatedAtUtc = EnrichedAt,
+        });
+        var miseducation = new[]
+        {
+            MiseducationSong("/m1.flac", "Lost Ones", 1, "Ms. Lauryn Hill"),
+            MiseducationSong("/m2.flac", "Ex-Factor", 2, "Ms. Lauryn Hill"),
+            MiseducationSong("/m3.flac", "To Zion", 3, "Lauryn Hill"),
+            MiseducationSong("/m4.flac", "Doo Wop (That Thing)", 4, "Lauryn Hill"),
+        };
+
+        // An album artist the heal log shows flipping between two spellings: frozen to one, with the
+        // id that spelling carries.
+        AddCanonical(db, "Domo Genesis", "No Idols", "No Idols", "Domo Genesis, The Alchemist");
+        var noIdols = new[]
+        {
+            NoIdolsSong("/n1.opus", "Fuck Everybody Else", 1, "Domo Genesis"),
+            NoIdolsSong("/n2.opus", "All Alone", 2, "Domo Genesis"),
+        };
+        noIdols[0].AlbumArtistMusicBrainzId = "mbid-domo";
+        noIdols[1].Year = 2012;
+
+        // Album artists a wrong canonical album wrote: given back, except where the song's own
+        // discrete credits name that artist.
+        SeedChiraqChain(db);
+        var chiraq = new[]
+        {
+            ChiraqSong("/c1.mp3", "Awesome", 3, "Rigo Dominguez Y Su Grupo Audaz"),
+            ChiraqSong("/c2.mp3", "I Feel Like That (feat. Frank Ocean)", 9, "Rigo Dominguez Y Su Grupo Audaz"),
+            ChiraqSong("/c3.mp3", "All Day", 11, "Rigo Dominguez Y Su Grupo Audaz"),
+        };
+        chiraq[2].Artists = "Kanye West;Rigo Dominguez Y Su Grupo Audaz";
+
+        // A leak renamed to the artist of a real record of that name. The tracks album completion
+        // then downloaded are on that record, and must not make it look like the owner's album.
+        var merged = AddCanonical(db, "Kanye West", "So Help Me God!", "So Help Me God!", "2 Chainz", "Lambo Wrist");
+        foreach (var (title, number) in new[] { ("Only One", 2), ("Southside Serenade", 3) })
+            merged.Tracks.Add(new CanonicalAlbumTrack { DiscNumber = 1, TrackNumber = number, Title = title, IsContested = true });
+        AddCanonical(db, "2 Chainz", "So Help Me God!", "So Help Me God!", "2 Chainz", "Lambo Wrist");
+        var leak = new[]
+        {
+            Song("/k1.mp3", "Only One", 1, year: 2015, album: "So Help Me God!", artist: "Kanye West", albumArtist: "2 Chainz"),
+            Song("/k2.mp3", "Southside Serenade", 2, year: 2015, album: "So Help Me God!", artist: "Kanye West", albumArtist: "2 Chainz"),
+        };
+        var download = Song("/f1.mp3", "Lambo Wrist", 1, year: 2020, album: "So Help Me God!", artist: "2 Chainz", albumArtist: "2 Chainz");
+        download.AcquisitionIntent = SongAcquisitionIntent.AlbumFill;
+
+        // A cross-artist album artist the album's real row vouches for, by the tracks it lists.
+        AddCanonical(db, "Shyne", "I'm Good...", "I'm Good…", "Kanye West", "Quiet", "Bring the Pain");
+        AddCanonical(db, "Lil' Kim", "I'm Good...", "808s & Heartbreak", "Kanye West", "Say You Will");
+        var imGood = new[]
+        {
+            Song("/s1.mp3", "Quiet", 4, year: 2009, album: "I'm Good...", artist: "Shyne", albumArtist: "Kanye West"),
+            Song("/s2.mp3", "Bring the Pain", 5, year: 2009, album: "I'm Good...", artist: "Shyne", albumArtist: "Kanye West"),
+        };
+
+        SongMetadata[] library =
+            [.. graduation, .. registration, .. miseducation, .. noIdols, .. chiraq, .. leak, download, .. imGood];
+        string[] eligibility =
+        [
+            nameof(SongMetadata.DeletedAtUtc), nameof(SongMetadata.IsSynthetic), nameof(SongMetadata.IsDuplicate),
+            nameof(SongMetadata.EnrichmentStatus),
+        ];
+        for (var i = 0; i < library.Length; i++)
+            library[i].FillExcept(db, seed: i, AlbumSplitHealer.DetectColumns.Names, eligibility);
+        db.Songs.AddRange(library);
+        await db.SaveChangesAsync();
+
+        SeedHealChange(db, noIdols[0].Id, "Domo Genesis", "2 Chainz");
+        foreach (var song in noIdols)
+        {
+            SeedHealChange(db, song.Id, "Domo Genesis, The Alchemist", "Domo Genesis");
+            SeedHealChange(db, song.Id, "Domo Genesis", "Domo Genesis, The Alchemist");
+        }
+        SeedHealChange(db, chiraq[0].Id, "Kanye West", "Fat Joe");
+        foreach (var song in chiraq)
+        {
+            SeedHealChange(db, song.Id, "Fat Joe", "Chiqito");
+            SeedHealChange(db, song.Id, "Chiqito", "Rigo Dominguez Y Su Grupo Audaz");
+        }
+        foreach (var song in leak)
+            SeedHealChange(db, song.Id, "Kanye West", "2 Chainz");
+        foreach (var song in imGood)
+            SeedHealChange(db, song.Id, "Shyne", "Kanye West");
+        await db.SaveChangesAsync();
+
+        var healer = (AlbumSplitHealer)Healer(db);
+        // The dry run changes the rows it is handed, so each run gets its own.
+        async Task<string> Over(IQueryable<SongMetadata> rows) =>
+            System.Text.Json.JsonSerializer.Serialize(await healer.DetectAsync(await rows.ToListAsync(), CancellationToken.None));
+
+        var overWholeRows = await Over(db.Songs.AsNoTracking());
+        var loaded = await healer.DetectAsync();
+
+        Assert.Equal(overWholeRows, System.Text.Json.JsonSerializer.Serialize(loaded));
+        Assert.Equal(
+            ["CHIRAQ", "Graduation", "Late Registration", "No Idols", "So Help Me God!", "The Miseducation of Lauryn Hill"],
+            loaded.Select(g => g.ElectedIdentity.Album).Order(StringComparer.Ordinal));
+        AlbumSplitGroup Group(string album) => loaded.Single(g => g.ElectedIdentity.Album == album);
+        Assert.Equal("rel-b", Group("Graduation").ElectedIdentity.MusicBrainzReleaseId);
+        Assert.Equal("rel-z", Group("Late Registration").ElectedIdentity.MusicBrainzReleaseId);
+        Assert.Equal("Lauryn Hill", Group("The Miseducation of Lauryn Hill").ElectedIdentity.AlbumArtist);
+        Assert.Equal(("Domo Genesis", "mbid-domo"),
+            (Group("No Idols").ElectedIdentity.AlbumArtist, Group("No Idols").ElectedIdentity.AlbumArtistMusicBrainzId));
+        Assert.Equal(("Kanye West", 2), (Group("CHIRAQ").ElectedIdentity.AlbumArtist, Group("CHIRAQ").MemberCount));
+        Assert.Equal(("Kanye West", 2),
+            (Group("So Help Me God!").ElectedIdentity.AlbumArtist, Group("So Help Me God!").MemberCount));
+
+        // And the list is not padded: leave any one of them out and the report changes. All but
+        // three, which the destination path reads for parts of it this report never shows — the
+        // file name, and the folder an unreleased track would get (no eligible row is one).
+        string[] pathOnly = [nameof(SongMetadata.FileName), nameof(SongMetadata.Extension), nameof(SongMetadata.IsUnreleased)];
+        foreach (var column in AlbumSplitHealer.DetectColumns.Names.Except(pathOnly))
+        {
+            var without = new SongColumnSet([.. AlbumSplitHealer.DetectColumns.Names.Where(n => n != column)]);
+            Assert.True(overWholeRows != await Over(db.Songs.WithOnly(db, without)), $"{column} is loaded but changes nothing here.");
+        }
     }
 
     // Every row the prod CHIRAQ chain left behind, each keyed by the name the previous one wrote.

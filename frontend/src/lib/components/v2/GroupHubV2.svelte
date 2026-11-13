@@ -1,16 +1,16 @@
 <script lang="ts">
   import { HardDrive, Link } from '@lucide/svelte';
   import { page } from '$app/state';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
-  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
-  import AddFromUrlDialog from '$lib/components/v2/AddFromUrlDialog.svelte';
-  import { NAV_GROUPS, type NavGroupId, type NavItem } from '$lib/nav';
-  import { inboxCounts, refreshInboxNameCounts } from '$lib/stores/nav-badges.svelte';
-  import { pipelineOverlay, type StageKey } from '$lib/stores/pipeline-overlay.svelte';
-  import { storageUsage } from '$lib/stores/storage-usage.svelte';
-  import { storageSummary, watchedFolders, watchingLabel } from '$lib/storage-usage-meta';
-  import { isAdmin } from '$lib/auth/capabilities';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
+  import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
+  import AddFromUrlDialog from '#lib/components/v2/AddFromUrlDialog.svelte';
+  import { NAV_GROUPS, type NavGroupId, type NavItem } from '#lib/nav.ts';
+  import { inboxCounts, refreshInboxNameCounts } from '#lib/stores/nav-badges.svelte.ts';
+  import { pipelineOverlay, type StageKey } from '#lib/stores/pipeline-overlay.svelte.ts';
+  import { storageUsage } from '#lib/stores/storage-usage.svelte.ts';
+  import { storageSummary, watchedFolders, watchingLabel } from '#lib/storage-usage-meta.ts';
+  import { isAdmin } from '#lib/auth/capabilities.ts';
 
   // A group's hub: the root of its tab on a phone — a grouped list of the group's pages, the iOS
   // Settings / Music Library pattern — and, for Add and Manage, a page of its own on a desktop

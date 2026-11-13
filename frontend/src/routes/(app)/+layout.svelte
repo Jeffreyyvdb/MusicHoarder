@@ -2,25 +2,25 @@
   import { untrack, type Snippet } from 'svelte';
   import { afterNavigate, beforeNavigate, goto, invalidate } from '$app/navigation';
   import { page } from '$app/state';
-  import ImportPipelineDrawer from '$lib/components/pipeline/ImportPipelineDrawer.svelte';
-  import CommandPalette from '$lib/components/CommandPalette.svelte';
-  import AppShellV2 from '$lib/components/v2/AppShellV2.svelte';
-  import SendToSheet from '$lib/components/chat/SendToSheet.svelte';
-  import { chatStore } from '$lib/stores/chat.svelte';
-  import { readPendingShare } from '$lib/chat/pending-share';
-  import { setAppBadge, syncPush } from '$lib/push/web-push';
-  import { initPlayer, playerStore } from '$lib/stores/player.svelte';
-  import { playbackSync } from '$lib/stores/playback-sync.svelte';
-  import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
-  import { commandPalette } from '$lib/stores/command-palette.svelte';
-  import { songDetail } from '$lib/stores/song-detail.svelte';
-  import { tabMemory } from '$lib/stores/tab-memory.svelte';
-  import { songsStore } from '$lib/stores/songs.svelte';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-  import { isInboxHub, resolveNav } from '$lib/nav';
-  import { isAdmin, isDemo } from '$lib/auth/capabilities';
-  import { createSessionWatch, SESSION_DEPENDENCY } from '$lib/auth/session-watch';
-  import { fetchCurrentUser } from '$lib/api-client';
+  import ImportPipelineDrawer from '#lib/components/pipeline/ImportPipelineDrawer.svelte';
+  import CommandPalette from '#lib/components/CommandPalette.svelte';
+  import AppShellV2 from '#lib/components/v2/AppShellV2.svelte';
+  import SendToSheet from '#lib/components/chat/SendToSheet.svelte';
+  import { chatStore } from '#lib/stores/chat.svelte.ts';
+  import { readPendingShare } from '#lib/chat/pending-share.ts';
+  import { setAppBadge, syncPush } from '#lib/push/web-push.ts';
+  import { initPlayer, playerStore } from '#lib/stores/player.svelte.ts';
+  import { playbackSync } from '#lib/stores/playback-sync.svelte.ts';
+  import { pipelineOverlay } from '#lib/stores/pipeline-overlay.svelte.ts';
+  import { commandPalette } from '#lib/stores/command-palette.svelte.ts';
+  import { songDetail } from '#lib/stores/song-detail.svelte.ts';
+  import { tabMemory } from '#lib/stores/tab-memory.svelte.ts';
+  import { songsStore } from '#lib/stores/songs.svelte.ts';
+  import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
+  import { isInboxHub, resolveNav } from '#lib/nav.ts';
+  import { isAdmin, isDemo } from '#lib/auth/capabilities.ts';
+  import { createSessionWatch, SESSION_DEPENDENCY } from '#lib/auth/session-watch.ts';
+  import { fetchCurrentUser } from '#lib/api-client.ts';
 
   type Props = { children: Snippet };
   const { children }: Props = $props();
@@ -76,7 +76,9 @@
   // only restores the window's. Keyed per account; record() loads the right one itself, init()
   // just does it before the first navigation lands.
   $effect(() => tabMemory.init(page.data.user?.id));
-  beforeNavigate(({ from }) => {
+
+  beforeNavigate(({ from, shallow, type }) => {
+    if (shallow && type === 'goto') return;
     if (from) tabMemory.captureScroll(from.url);
   });
 
@@ -92,6 +94,8 @@
     onSwitched: () => location.reload()
   });
   afterNavigate((nav) => {
+    if (nav.shallow && nav.type === 'goto') return;
+
     tabMemory.record(nav, page.data.user);
     sessionWatch.poke();
   });
@@ -183,7 +187,11 @@
     if (!('serviceWorker' in navigator)) return;
     const onMessage = (event: MessageEvent) => {
       const data = event.data as { type?: string; url?: string } | null;
-      if (data?.type === 'mh:navigate' && typeof data.url === 'string' && data.url.startsWith('/')) {
+      if (
+        data?.type === 'mh:navigate' &&
+        typeof data.url === 'string' &&
+        data.url.startsWith('/')
+      ) {
         void goto(data.url);
       }
     };
@@ -196,7 +204,8 @@
   // stored share as it opens, so this never pulls anyone back to it.
   $effect(() => {
     untrack(() => {
-      if (readPendingShare() && !page.url.pathname.startsWith('/chats/share')) void goto('/chats/share');
+      if (readPendingShare() && !page.url.pathname.startsWith('/chats/share'))
+        void goto('/chats/share');
     });
   });
 

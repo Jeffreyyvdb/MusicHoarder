@@ -1,8 +1,8 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { Loader2 } from '@lucide/svelte';
-  import { Switch } from '$lib/components/ui/switch';
-  import { cn } from '$lib/utils';
+  import { Switch } from '#lib/components/ui/switch/index.ts';
+  import { cn } from '#lib/utils.ts';
 
   /**
    * A GroupedList row whose control is a switch, rendered as a `<label>` so a tap anywhere on the

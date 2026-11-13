@@ -4,7 +4,7 @@
     fetchFolderFiles,
     type DirectoryMatchNode,
     type SourceFile
-  } from '$lib/api-client';
+  } from '#lib/api-client.ts';
   import {
     AlertCircle,
     Check,
@@ -14,10 +14,10 @@
     Sparkles,
     Tag
   } from '@lucide/svelte';
-  import { cleanDisplayName } from '$lib/formatters';
-  import { cn } from '$lib/utils';
-  import { Button } from '$lib/components/ui/button';
-  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
+  import { cleanDisplayName } from '#lib/formatters.ts';
+  import { cn } from '#lib/utils.ts';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
   import Self from './DirectoryTreeRow.svelte';
   import SourceFileRow from './SourceFileRow.svelte';
 

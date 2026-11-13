@@ -42,6 +42,16 @@ public interface IArtistDuplicateService
     Task<ArtistDuplicateReport> DetectAsync(Guid ownerUserId, CancellationToken ct = default);
 
     /// <summary>
+    /// How many clusters and combined credits <see cref="DetectAsync"/> would report for this owner,
+    /// together, from songs the caller has already read for several detectors at once (see
+    /// <see cref="InboxNameCounter"/>): <paramref name="library"/> is every song that is not
+    /// deleted, synthetic or the demo account's, in id order, carrying at least
+    /// <see cref="ArtistDuplicateService.CountColumns"/>. The count is remembered for as long as the
+    /// names, the dismissals and the settings it came from stay the same.
+    /// </summary>
+    Task<int> CountAsync(Guid ownerUserId, IReadOnlyList<SongMetadata> library, CancellationToken ct = default);
+
+    /// <summary>
     /// Rewrites every whole-field occurrence of the variant spellings (Artist / AlbumArtist) and
     /// every matching segment of the discrete Artists list to the canonical spelling, audits each
     /// change, re-queues built rows for re-tag, and stores <see cref="ArtistAlias"/> rows so heals
@@ -66,16 +76,107 @@ public interface IArtistDuplicateService
 public sealed class ArtistDuplicateService(
     MusicHoarderDbContext db,
     IOptions<MusicEnricherOptions> options,
+    DetectionCountMemo memo,
     ILogger<ArtistDuplicateService> logger) : IArtistDuplicateService
 {
     private const string MergeChangeSource = "artist-merge";
     private const string SplitChangeSource = "artist-credit-split";
 
+    /// <summary>
+    /// Every song column <see cref="Detect"/> reads: the three places a row names an artist and the
+    /// MusicBrainz ids that travel with them. Nothing else is loaded for detection — so a property
+    /// read there (or in a helper it shares with merge and split, which load whole rows) that is
+    /// not in this list is always blank.
+    /// </summary>
+    internal static readonly SongColumnSet DetectColumns = new(
+        nameof(SongMetadata.Artist),
+        nameof(SongMetadata.AlbumArtist),
+        nameof(SongMetadata.Artists),
+        nameof(SongMetadata.ArtistMusicBrainzIds),
+        nameof(SongMetadata.AlbumArtistMusicBrainzId));
+
     public async Task<ArtistDuplicateReport> DetectAsync(Guid ownerUserId, CancellationToken ct = default)
     {
-        var songs = await QueryEligible(ownerUserId).AsNoTracking().ToListAsync(ct);
+        var songs = await QueryEligible(ownerUserId).WithOnly(db, DetectColumns).ToListAsync(ct);
         var dismissed = await LoadDismissedPairsAsync(ownerUserId, ct);
 
+        return Detect(
+            songs,
+            dismissed,
+            options.Value.ArtistMergeFuzzyThreshold,
+            options.Value.ArtistMergeIdentityFuzzyThreshold,
+            options.Value.DuplicateMaxBlockSize);
+    }
+
+    /// <summary>
+    /// What <see cref="CountAsync"/> needs on a row it did not load itself: the columns detection
+    /// reads, and the one the rest of <see cref="QueryEligible"/>'s filter tests.
+    /// </summary>
+    internal static readonly SongColumnSet CountColumns = DetectColumns.With(nameof(SongMetadata.OwnerUserId));
+
+    public async Task<int> CountAsync(
+        Guid ownerUserId, IReadOnlyList<SongMetadata> library, CancellationToken ct = default)
+    {
+        // The part of QueryEligible the shared read has not applied.
+        var songs = library.Where(s => s.OwnerUserId == ownerUserId).ToList();
+        var dismissed = await LoadDismissedPairsAsync(ownerUserId, ct);
+        var threshold = options.Value.ArtistMergeFuzzyThreshold;
+        var identityFloor = options.Value.ArtistMergeIdentityFuzzyThreshold;
+        var maxIdBlock = options.Value.DuplicateMaxBlockSize;
+
+        // The stamp and the detection take the same five arguments. Detect gets copies that carry
+        // DetectColumns only — these rows hold other detectors' columns too, and a column the stamp
+        // does not cover must be one Detect cannot see.
+        return memo.GetOrCount(
+            nameof(ArtistDuplicateService),
+            ownerUserId,
+            StampOf(songs, dismissed, threshold, identityFloor, maxIdBlock),
+            () =>
+            {
+                var report = Detect(DetectColumns.Copy(songs), dismissed, threshold, identityFloor, maxIdBlock);
+                return report.Clusters.Count + report.CombinedCredits.Count;
+            });
+    }
+
+    /// <summary>
+    /// A fingerprint of everything <see cref="Detect"/> is given, parameter for parameter: its
+    /// columns of its songs in order, the dismissed pairs (which it only looks up, so in a fixed
+    /// order) and the three settings. A parameter added to one must be added to the other.
+    /// </summary>
+    internal static byte[] StampOf(
+        IReadOnlyList<SongMetadata> songs,
+        HashSet<(string Low, string High)> dismissed,
+        double threshold,
+        double identityFloor,
+        int maxIdBlock)
+    {
+        using var stamp = new ContentStamp();
+        DetectColumns.AddTo(stamp, songs);
+        stamp.Add(dismissed.Count);
+        foreach (var (low, high) in dismissed
+            .OrderBy(p => p.Low, StringComparer.Ordinal)
+            .ThenBy(p => p.High, StringComparer.Ordinal))
+        {
+            stamp.Add(low);
+            stamp.Add(high);
+        }
+        stamp.Add(threshold);
+        stamp.Add(identityFloor);
+        stamp.Add(maxIdBlock);
+        return stamp.Finish();
+    }
+
+    /// <summary>
+    /// The detection itself, over one owner's songs already loaded. Static so that the rows, the
+    /// dismissed pairs and the three settings are all it can see.
+    /// </summary>
+    internal static ArtistDuplicateReport Detect(
+        IReadOnlyList<SongMetadata> songs,
+        HashSet<(string Low, string High)> dismissed,
+        double threshold,
+        double identityFloor,
+        int maxIdBlock)
+    {
         var stats = CollectNameStats(songs);
         var credits = CreditEvidence.Build(songs, stats.Keys);
 
@@ -100,9 +201,6 @@ public sealed class ArtistDuplicateService(
             var pair = string.CompareOrdinal(ka, kb) <= 0 ? (ka, kb) : (kb, ka);
             return dismissed.Contains(pair);
         }
-
-        var threshold = options.Value.ArtistMergeFuzzyThreshold;
-        var identityFloor = options.Value.ArtistMergeIdentityFuzzyThreshold;
 
         // The single edge test. Evidence is always PAIRWISE: a shared MusicBrainz id corroborates a
         // spelling that already looks alike, it never stands on its own. Names routinely carry ids
@@ -143,7 +241,6 @@ public sealed class ArtistDuplicateService(
         // One id shared by more names than this is noise, not identity (a placeholder that slipped
         // the filter, a provider stamping the release artist onto every credit) — expanding it
         // pairwise only manufactures candidates.
-        var maxIdBlock = options.Value.DuplicateMaxBlockSize;
         var candidateBlocks = names.GroupBy(n => keyOf[n]).Where(g => g.Key.Length > 0).Select(g => g.ToList())
             .Concat(byMbid.Values.Where(g => g.Count > 1 && g.Count <= maxIdBlock))
             .Concat(names.Where(n => keyOf[n].Length >= 4).GroupBy(n => BucketOf(keyOf[n])).Select(g => g.ToList()));

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { AlertTriangle, ExternalLink, Search } from '@lucide/svelte';
-  import { cn } from '$lib/utils';
-  import type { TimelineEvent, TimelineTint } from '$lib/review-helpers';
+  import { cn } from '#lib/utils.ts';
+  import type { TimelineEvent, TimelineTint } from '#lib/review-helpers.ts';
 
   type Props = {
     events: TimelineEvent[];

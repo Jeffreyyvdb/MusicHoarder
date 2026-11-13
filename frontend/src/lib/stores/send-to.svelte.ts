@@ -1,4 +1,4 @@
-import { getSongCoverUrl, type ApiSong } from '$lib/api-client';
+import { getSongCoverUrl, type ApiSong } from '#lib/api-client.ts';
 
 /**
  * "Send to…": which song or album the people picker is sending, if any. One sheet for the whole app

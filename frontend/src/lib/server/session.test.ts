@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { probeSession } from './session';
 
-vi.mock('$lib/server/api-target', () => ({
+vi.mock('#lib/server/api-target.ts', () => ({
   getApiBaseUrl: () => 'http://api.test'
 }));
 

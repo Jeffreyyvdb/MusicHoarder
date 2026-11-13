@@ -1,5 +1,6 @@
 import type { RequestHandler } from './$types';
-import { getApiBaseUrl } from '$lib/server/api-target';
+import { getApiBaseUrl } from '#lib/server/api-target.ts';
+import { compressBody, pickProxyEncoding } from '#lib/server/proxy-compression.ts';
 
 function buildTargetUrl(pathSegments: string, search: string): string {
   const base = getApiBaseUrl().replace(/\/$/, '');
@@ -69,7 +70,19 @@ async function proxy(request: Request, pathSegments: string, search: string): Pr
     for (const value of setCookies) responseHeaders.append('set-cookie', value);
   }
 
-  return new Response(response.body, {
+  // The API sends JSON as it is; compress it here so a deployment with no CDN in front does not
+  // put the whole song list on the wire. Decided after the headers above, which describe the body
+  // the proxy now holds.
+  const encoding = response.body
+    ? pickProxyEncoding(request.headers, response.status, responseHeaders)
+    : null;
+  if (encoding) {
+    responseHeaders.set('content-encoding', encoding);
+    responseHeaders.delete('content-length');
+    responseHeaders.append('vary', 'Accept-Encoding');
+  }
+
+  return new Response(encoding ? compressBody(response.body!, encoding) : response.body, {
     status: response.status,
     statusText: response.statusText,
     headers: responseHeaders

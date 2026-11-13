@@ -3,7 +3,7 @@
 // must work for visitors without an account. All requests still go through the same-origin
 // /api/mh proxy, so no CORS is involved.
 
-import type { LyricsProvenance } from "$lib/types"
+import type { LyricsProvenance } from "#lib/types.ts"
 
 const API_PREFIX = "/api/mh"
 

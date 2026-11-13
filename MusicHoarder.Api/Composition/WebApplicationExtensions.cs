@@ -30,6 +30,7 @@ public static class WebApplicationExtensions
         app.MapDuplicatesEndpoints();
         app.MapArtistDedupEndpoints();
         app.MapAlbumDedupEndpoints();
+        app.MapInboxCountsEndpoints();
         app.MapDedupActionsEndpoints();
         app.MapSharesEndpoints();
         app.MapFriendsEndpoints();

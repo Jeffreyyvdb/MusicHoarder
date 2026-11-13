@@ -1,11 +1,11 @@
 <script lang="ts">
   import { MediaQuery } from 'svelte/reactivity';
-  import { getSongVideoStreamUrl } from '$lib/api-client';
-  import { cropMatte } from '$lib/actions/crop-matte';
-  import { playerStore } from '$lib/stores/player.svelte';
-  import { videoBackdropPrefs } from '$lib/stores/video-backdrop-prefs.svelte';
-  import type { SongVideo } from '$lib/components/file-browser/now-playing/song-video.svelte';
-  import { cn } from '$lib/utils';
+  import { getSongVideoStreamUrl } from '#lib/api-client.ts';
+  import { cropMatte } from '#lib/actions/crop-matte.ts';
+  import { playerStore } from '#lib/stores/player.svelte.ts';
+  import { videoBackdropPrefs } from '#lib/stores/video-backdrop-prefs.svelte.ts';
+  import type { SongVideo } from '#lib/components/file-browser/now-playing/song-video.svelte.ts';
+  import { cn } from '#lib/utils.ts';
 
   // Now Playing's background. Three layers, and no backdrop-filter anywhere (lyrics repaint every
   // frame over it): the cover, blown up and blurred into a wash; a black dim sized per cover so

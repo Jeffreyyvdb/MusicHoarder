@@ -1,4 +1,4 @@
-import { nativePlatform, nativePlugin, type NativePlatform, type NativePlugin } from './shell';
+import { nativePlatform, nativePlugin, type NativePlatform, type NativePlugin } from './shell.ts';
 
 /**
  * The native player of the app shell, wearing the part of an audio element the player store uses.

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
+  import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
   import {
     ChevronRight,
     CircleCheck,
@@ -15,15 +15,15 @@
   import { toast } from 'svelte-sonner';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { Button } from '$lib/components/ui/button';
-  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-  import { tabMemory } from '$lib/stores/tab-memory.svelte';
-  import { Skeleton } from '$lib/components/ui/skeleton';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import Cover from '$lib/components/file-browser/Cover.svelte';
-  import TimelineList from '$lib/components/v2/TimelineList.svelte';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
+  import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
+  import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
+  import { tabMemory } from '#lib/stores/tab-memory.svelte.ts';
+  import { Skeleton } from '#lib/components/ui/skeleton/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import Cover from '#lib/components/file-browser/Cover.svelte';
+  import TimelineList from '#lib/components/v2/TimelineList.svelte';
   import {
     albumKeyForSong,
     enrichSong,
@@ -36,7 +36,7 @@
     type ApiSong,
     type EnrichmentDetail,
     type SongQualityGradeView
-  } from '$lib/api-client';
+  } from '#lib/api-client.ts';
   import {
     buildTimeline,
     contributedProviders,
@@ -45,16 +45,16 @@
     decisionLabel,
     type TimelineEvent,
     type TimelineTint
-  } from '$lib/review-helpers';
+  } from '#lib/review-helpers.ts';
   import {
     formatDuration,
     formatFileSize,
     formatBitrate,
     formatTotalDuration
-  } from '$lib/formatters';
-  import { isAdmin } from '$lib/auth/capabilities';
-  import { isBuiltSong } from '$lib/album-sections';
-  import { cn } from '$lib/utils';
+  } from '#lib/formatters.ts';
+  import { isAdmin } from '#lib/auth/capabilities.ts';
+  import { isBuiltSong } from '#lib/album-sections.ts';
+  import { cn } from '#lib/utils.ts';
 
   type Props = { songId: number };
   const { songId }: Props = $props();
@@ -512,15 +512,15 @@
         <GroupedList.Row label="Size" value={formatFileSize(song.fileSizeBytes)} />
       </GroupedList.Section>
 
-      {#if song.fingerprint || song.musicBrainzId}
+      {#if detail?.fingerprint || song.musicBrainzId}
         <GroupedList.Section
           headingLevel={3}
           header="Identifiers"
           footer="Tap an identifier to copy it."
         >
-          {#if song.fingerprint}
+          {#if detail?.fingerprint}
             <!-- The chromaprint is long: the row shows its head and copies the whole thing. -->
-            {@render copyRow('Fingerprint', `${song.fingerprint.slice(0, 22)}…`, song.fingerprint)}
+            {@render copyRow('Fingerprint', `${detail.fingerprint.slice(0, 22)}…`, detail.fingerprint)}
           {/if}
           {#if song.musicBrainzId}
             {@render copyRow('MusicBrainz recording', song.musicBrainzId, song.musicBrainzId)}

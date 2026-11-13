@@ -1,17 +1,17 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { page } from '$app/state';
-  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
-  import FilterChip from '$lib/components/v2/FilterChip.svelte';
-  import { Button } from '$lib/components/ui/button';
-  import { Input } from '$lib/components/ui/input';
-  import { Switch } from '$lib/components/ui/switch';
-  import { SearchField } from '$lib/components/ui/search-field';
-  import { Skeleton } from '$lib/components/ui/skeleton';
-  import * as AlertDialog from '$lib/components/ui/alert-dialog';
-  import * as BottomSheet from '$lib/components/ui/bottom-sheet';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
+  import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
+  import FilterChip from '#lib/components/v2/FilterChip.svelte';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import { Input } from '#lib/components/ui/input/index.ts';
+  import { Switch } from '#lib/components/ui/switch/index.ts';
+  import { SearchField } from '#lib/components/ui/search-field/index.ts';
+  import { Skeleton } from '#lib/components/ui/skeleton/index.ts';
+  import * as AlertDialog from '#lib/components/ui/alert-dialog/index.ts';
+  import * as BottomSheet from '#lib/components/ui/bottom-sheet/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
   import {
     Compass,
     Link2,
@@ -39,16 +39,16 @@
     type DiscoverPlaylistSummary,
     type DiscoverPlaylistDetail,
     type DiscoverResolveResult
-  } from '$lib/api-client';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-  import { tabMemory } from '$lib/stores/tab-memory.svelte';
-  import { albumTint } from '$lib/album-tint';
-  import { computeInitials } from '$lib/formatters';
+  } from '#lib/api-client.ts';
+  import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
+  import { tabMemory } from '#lib/stores/tab-memory.svelte.ts';
+  import { albumTint } from '#lib/album-tint.ts';
+  import { computeInitials } from '#lib/formatters.ts';
   import { toast } from 'svelte-sonner';
-  import DiscoverPlaylistCard from '$lib/components/discover/DiscoverPlaylistCard.svelte';
-  import { heroTitle } from '$lib/components/discover/hero-title';
-  import PlaylistGridSkeleton from '$lib/components/spotify/PlaylistGridSkeleton.svelte';
-  import TrackListSkeleton from '$lib/components/spotify/TrackListSkeleton.svelte';
+  import DiscoverPlaylistCard from '#lib/components/discover/DiscoverPlaylistCard.svelte';
+  import { heroTitle } from '#lib/components/discover/hero-title.ts';
+  import PlaylistGridSkeleton from '#lib/components/spotify/PlaylistGridSkeleton.svelte';
+  import TrackListSkeleton from '#lib/components/spotify/TrackListSkeleton.svelte';
 
   const isMobile = new IsMobile();
   const compact = $derived(isMobile.current);

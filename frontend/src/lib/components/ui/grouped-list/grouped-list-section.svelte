@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { Snippet } from "svelte";
 	import type { HTMLAttributes } from "svelte/elements";
-	import { cn, type WithElementRef } from "$lib/utils.js";
+	import { cn, type WithElementRef } from "#lib/utils.js";
 
 	type Props = WithElementRef<Omit<HTMLAttributes<HTMLDivElement>, "children">> & {
 		/** Section header — a short sentence-case label, or a snippet for anything richer. */

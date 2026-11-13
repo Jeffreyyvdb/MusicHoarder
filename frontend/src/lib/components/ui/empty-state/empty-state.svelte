@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { Component, Snippet } from "svelte";
-	import { Button } from "$lib/components/ui/button/index.js";
-	import { cn } from "$lib/utils.js";
+	import { Button } from "#lib/components/ui/button/index.js";
+	import { cn } from "#lib/utils.js";
 
 	/**
 	 * The one blank-screen idiom: a muted glyph, a headline that says what happened, a hint that says

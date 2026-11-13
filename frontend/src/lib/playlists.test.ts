@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { PlaylistSource } from '$lib/api-client';
+import type { PlaylistSource } from '#lib/api-client.ts';
 import { missingLabel, playlistKindLabel, playlistSubtitle, trackCountLabel } from './playlists';
 
 const source = (type: PlaylistSource['type']): PlaylistSource => ({

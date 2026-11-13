@@ -1,14 +1,14 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { Button } from '$lib/components/ui/button';
-  import { Input } from '$lib/components/ui/input';
-  import BrandMark from '$lib/components/BrandMark.svelte';
-  import { requestMagicLink, signInAsDemo, loginWithPasskey } from '$lib/api-client';
-  import { isPasskeySupported } from '$lib/webauthn-client';
-  import { isInstalledApp } from '$lib/hooks/viewport-insets.svelte';
-  import { isNativeShell } from '$lib/native/shell';
-  import { isIosDevice } from '$lib/ios-safari';
-  import { APP_HOME } from '$lib/app-home';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import { Input } from '#lib/components/ui/input/index.ts';
+  import BrandMark from '#lib/components/BrandMark.svelte';
+  import { requestMagicLink, signInAsDemo, loginWithPasskey } from '#lib/api-client.ts';
+  import { isPasskeySupported } from '#lib/webauthn-client.ts';
+  import { isInstalledApp } from '#lib/hooks/viewport-insets.svelte.ts';
+  import { isNativeShell } from '#lib/native/shell.ts';
+  import { isIosDevice } from '#lib/ios-safari.ts';
+  import { APP_HOME } from '#lib/app-home.ts';
   import {
     CircleAlert,
     CircleCheck,

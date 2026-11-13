@@ -1,5 +1,5 @@
 import type { PageLoad } from './$types';
-import { fetchSharePayload } from '$lib/share-client';
+import { fetchSharePayload } from '#lib/share-client.ts';
 
 export const prerender = false;
 

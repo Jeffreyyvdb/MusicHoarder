@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { SpotifyApiPlaylist } from '$lib/api-client';
+  import type { SpotifyApiPlaylist } from '#lib/api-client.ts';
   import { ListMusic, Plus, Loader2 } from '@lucide/svelte';
 
   // One Spotify playlist in the grid — the same cover tile as Discover's: the art with the title

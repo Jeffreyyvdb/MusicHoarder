@@ -1,7 +1,7 @@
-import { createPasskey, getPasskeyAssertion } from "$lib/webauthn-client"
-import { formatOf } from "$lib/audio-formats"
-import type { PlayerSong } from "$lib/stores/player.svelte"
-import type { LyricsProvenance, LyricsSyncStatus } from "$lib/types"
+import { createPasskey, getPasskeyAssertion } from "#lib/webauthn-client.ts"
+import { formatOf } from "#lib/audio-formats.ts"
+import type { PlayerSong } from "#lib/stores/player.svelte.ts"
+import type { LyricsProvenance, LyricsSyncStatus } from "#lib/types.ts"
 import {
   parseCommandEvent,
   parseDevicesEvent,
@@ -17,7 +17,7 @@ import {
   type PlaybackSession,
   type PlaybackStateReport,
   type PlaybackStateResponse,
-} from "$lib/playback-sync/wire"
+} from "#lib/playback-sync/wire.ts"
 
 const API_PREFIX = "/api/mh"
 
@@ -113,7 +113,11 @@ export interface ApiSong {
   year?: number | null
   trackNumber?: number | null
   durationSeconds?: number | null
-  fingerprint?: string | null
+  /**
+   * Whether the file has been fingerprinted. The list does not carry the Chromaprint string itself
+   * (kilobytes per song); a track's own is `EnrichmentDetail.fingerprint`.
+   */
+  hasFingerprint?: boolean
   isrc?: string | null
   musicBrainzId?: string | null
   musicBrainzReleaseId?: string | null
@@ -125,18 +129,17 @@ export interface ApiSong {
   /** Full release date as an ISO string (YYYY-MM-DD or partial); {@link year} is the coarse form. */
   releaseDate?: string | null
   /** Original (first) release date of the release-group, ISO string. */
-  originalReleaseDate?: string | null
   label?: string | null
   catalogNumber?: string | null
   /** Album barcode / UPC. */
   upc?: string | null
   composer?: string | null
   copyright?: string | null
-  artistSort?: string | null
-  albumArtistSort?: string | null
   enrichmentStatus?: string | number | null
   /** When the scanner first indexed the file (always set). */
   indexedAtUtc?: string | null
+  /** Set on a soft-deleted row, which the list only carries when asked to include them. */
+  deletedAtUtc?: string | null
   /**
    * When the track entered the collection — stamped once at first index and never rewritten. This is
    * the field "recently added" sorts on: `indexedAtUtc` moves whenever the file changes on disk and
@@ -159,11 +162,8 @@ export interface ApiSong {
   enrichmentError?: string | null
   originalMetadataCaptured?: boolean | null
   originalArtist?: string | null
-  originalAlbumArtist?: string | null
   originalAlbum?: string | null
   originalTitle?: string | null
-  originalYear?: number | null
-  originalTrackNumber?: number | null
   lyricsStatus?: string | null
   hasSyncedLyrics?: boolean | null
   hasPlainLyrics?: boolean | null
@@ -173,7 +173,6 @@ export interface ApiSong {
   /** True when an AI transcription exists. The (large) text is fetched on demand via fetchTrackLyrics. */
   hasTranscribedLyrics?: boolean | null
   /** "NotRequested" | "Pending" | "Completed" | "Failed". */
-  transcriptionStatus?: string | null
   transcribedAtUtc?: string | null
   transcriptionModel?: string | null
   /** Which lyrics the synced viewer shows when both exist: "Lrclib" | "Transcribed". */
@@ -481,6 +480,12 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
     cache: "no-store",
   })
 
+  await throwIfFailed(path, response)
+  return (await response.json()) as T
+}
+
+/** Turn a non-2xx response into the {@link ApiError} every caller expects. */
+async function throwIfFailed(path: string, response: Response): Promise<void> {
   if (!response.ok) {
     let detail = ""
     let code: string | null = null
@@ -524,8 +529,39 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new ApiError(detail || `Request failed for ${path}: ${response.status}`, code, response.status)
   }
+}
 
-  return (await response.json()) as T
+/**
+ * The answer to a request that offered the server the validator of a copy already held: either the
+ * rows again with the validator they now carry, or word that the held copy is still current.
+ */
+export type Revalidated<T> =
+  | { notModified: false; data: T; etag: string | null }
+  /** `etag` is the validator that was sent — the copy this answer is about. */
+  | { notModified: true; etag: string }
+
+/**
+ * GET a list, saying which copy of it is already held. The API answers the two library lists with
+ * `304` and no body when that copy is current, which spares downloading and parsing the whole
+ * library to learn that nothing changed.
+ *
+ * `cache: "no-store"` stays: the browser then hands the bare 304 to this code instead of
+ * answering from an HTTP cache of its own, so the only copy of the rows is the one the caller
+ * holds in memory and the validator can never outlive it. Pass `null` when no copy is held — the
+ * request is then unconditional, and a 304 to it is an error rather than "keep what you have".
+ */
+async function requestJsonIfChanged<T>(path: string, etag: string | null): Promise<Revalidated<T>> {
+  const response = await fetch(`${API_PREFIX}${path}`, {
+    headers: etag ? { "if-none-match": etag } : undefined,
+    cache: "no-store",
+  })
+
+  if (response.status === 304) {
+    if (etag) return { notModified: true, etag }
+    throw new ApiError(`Request failed for ${path}: 304 to a request that named no copy`, null, 304)
+  }
+  await throwIfFailed(path, response)
+  return { notModified: false, data: (await response.json()) as T, etag: response.headers.get("etag") }
 }
 
 // The running build's version (clean semver, matching the GitHub release / Docker tag). Accepts an
@@ -662,16 +698,31 @@ export interface AlbumQuery {
   unreleased?: boolean
 }
 
-export async function fetchAlbums(query: AlbumQuery = {}): Promise<AlbumSummaryDto[]> {
+function albumsPath(query: AlbumQuery): string {
   const params = new URLSearchParams()
   if (query.builtOnly === false) params.set("builtOnly", "false")
   if (query.merge === false) params.set("merge", "false")
   if (query.artist) params.set("artist", query.artist)
   if (query.year) params.set("year", query.year)
   if (query.unreleased) params.set("unreleased", "true")
-  const suffix = params.size > 0 ? `?${params}` : ""
-  const result = await requestJson<{ albums: AlbumSummaryDto[] }>(`/api/albums${suffix}`)
+  return `/api/albums${params.size > 0 ? `?${params}` : ""}`
+}
+
+export async function fetchAlbums(query: AlbumQuery = {}): Promise<AlbumSummaryDto[]> {
+  const result = await requestJson<{ albums: AlbumSummaryDto[] }>(albumsPath(query))
   return result.albums ?? []
+}
+
+/**
+ * {@link fetchAlbums} for a caller that already holds the cards: `etag` is the validator they came
+ * with, and must have come from the same `query`. See {@link requestJsonIfChanged}.
+ */
+export async function fetchAlbumsIfChanged(
+  query: AlbumQuery,
+  etag: string | null,
+): Promise<Revalidated<AlbumSummaryDto[]>> {
+  const result = await requestJsonIfChanged<{ albums: AlbumSummaryDto[] }>(albumsPath(query), etag)
+  return result.notModified ? result : { ...result, data: result.data.albums ?? [] }
 }
 
 /**
@@ -778,9 +829,19 @@ export function isAlbumSortKey(value: string | null | undefined): value is Album
  * arbitrary one the grouping map happened to produce.
  */
 export function sortAlbums(albums: AlbumSummary[], key: AlbumSortKey): AlbumSummary[] {
-  const added = (a: AlbumSummary) => (a.addedAtUtc ? Date.parse(a.addedAtUtc) : 0)
-  const compare: Record<AlbumSortKey, (a: AlbumSummary, b: AlbumSummary) => number> = {
-    recent: (a, b) => added(b) - added(a),
+  if (key === "recent") {
+    // The default sort, and the one a ten-thousand-song library pays for most often: parsing
+    // `addedAtUtc` from inside the comparator re-parses it on every one of a sort's ~n·log n
+    // comparisons. Precompute it once per album instead; the tie-break stays on the items
+    // themselves, since artist/title comparisons are cheap already.
+    const withAdded = albums.map((album) => ({
+      album,
+      added: album.addedAtUtc ? Date.parse(album.addedAtUtc) : 0,
+    }))
+    withAdded.sort((a, b) => b.added - a.added || byArtistThenTitle(a.album, b.album))
+    return withAdded.map((a) => a.album)
+  }
+  const compare: Record<Exclude<AlbumSortKey, "recent">, (a: AlbumSummary, b: AlbumSummary) => number> = {
     artist: () => 0,
     title: (a, b) => a.title.localeCompare(b.title),
     year: (a, b) => (b.year ?? 0) - (a.year ?? 0),
@@ -788,6 +849,66 @@ export function sortAlbums(albums: AlbumSummary[], key: AlbumSortKey): AlbumSumm
   }
   const primary = compare[key]
   return [...albums].sort((a, b) => primary(a, b) || byArtistThenTitle(a, b))
+}
+
+// ── Overview shelf ordering ──────────────────────────────────────────────────
+// LibraryOverviewV2's shelves used to call their key function from inside the sort comparator —
+// hashing a ~100-character key or parsing a date on every one of a comparator's ~n·log n calls,
+// when the key is really a property of the item, computed once. These decorate (map to item +
+// key), sort on the key, then undecorate; `Array.prototype.sort` is stable, so the order is
+// exactly what calling the key function from the comparator gave, just without redoing the work.
+
+/**
+ * A per-visit "random" order that stays stable across a silent background refetch of the same
+ * items: hashing each item's key together with a seed set once per page mount is what makes a
+ * shelf look randomly ordered between visits without reshuffling under your thumb while a live
+ * refresh replaces the array it reads from.
+ */
+export function seededOrder<T>(items: readonly T[], keyOf: (item: T) => string, seed: string): T[] {
+  const hash = (s: string): number => {
+    let h = 5381
+    for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0
+    return h
+  }
+  return items
+    .map((item) => ({ item, k: hash(keyOf(item) + seed) }))
+    .sort((a, b) => a.k - b.k)
+    .map((d) => d.item)
+}
+
+/** Most recent `lastPlayedAtUtc` across an album's songs, epoch ms (0 = never played). */
+function albumLastPlayedTime(
+  a: AlbumSummary,
+  lastPlayedOf: (song: ApiSong) => string | null | undefined,
+): number {
+  let max = 0
+  for (const s of a.songs) {
+    const at = lastPlayedOf(s)
+    const t = at ? Date.parse(at) : 0
+    if (t > max) max = t
+  }
+  return max
+}
+
+/** Albums with at least one play, most recently played first — the Overview's "Last played" shelf. */
+export function sortAlbumsByLastPlayed(
+  albums: readonly AlbumSummary[],
+  // The row's own stamp goes stale at the first play; a caller that knows of later plays says so.
+  lastPlayedOf: (song: ApiSong) => string | null | undefined = (song) => song.lastPlayedAtUtc,
+): AlbumSummary[] {
+  return albums
+    .map((album) => ({ album, at: albumLastPlayedTime(album, lastPlayedOf) }))
+    .filter((d) => d.at > 0)
+    .sort((a, b) => b.at - a.at)
+    .map((d) => d.album)
+}
+
+/** Songs ordered by most recently liked first — the Overview's "Favourite tracks" shelf. */
+export function sortSongsByRecentlyLiked(songs: readonly ApiSong[]): ApiSong[] {
+  return songs
+    .map((song) => ({ song, at: Date.parse(song.likedAtUtc ?? "") }))
+    .sort((a, b) => b.at - a.at)
+    .map((d) => d.song)
 }
 
 // ── Organize-by grouping (Artist / Year) ───────────────────────────────────────
@@ -1166,7 +1287,21 @@ export async function fetchSongs(includeDeleted = false): Promise<ApiSong[]> {
   // with them, scoped server-side from their grants. There is no client-side library mode.
   const result = await requestJson<SongsResponse>(`/songs?includeDeleted=${includeDeleted}`)
   grantors = result.grantors ?? []
+  rememberFolderCovers(result.songs ?? [])
   return result.songs ?? []
+}
+
+/**
+ * {@link fetchSongs} for a caller that already holds the rows: `etag` is the validator they came
+ * with. On "not modified" nothing here is touched — the grantors are part of the same response,
+ * so the copy from the load that produced those rows still describes them.
+ */
+export async function fetchSongsIfChanged(etag: string | null): Promise<Revalidated<ApiSong[]>> {
+  const result = await requestJsonIfChanged<SongsResponse>("/songs?includeDeleted=false", etag)
+  if (result.notModified) return result
+  grantors = result.data.grantors ?? []
+  rememberFolderCovers(result.data.songs ?? [])
+  return { ...result, data: result.data.songs ?? [] }
 }
 
 /**
@@ -2464,6 +2599,127 @@ export function coverThumbUrl(url: string | null | undefined, size: number): str
 export function coverUrlForSong(song: ApiSong): string | null {
   if (song.albumArt) return song.albumArt
   return song.hasCoverArt ? getSongCoverUrl(song.id) : null
+}
+
+// ── One cover per album folder, for track rows ───────────────────────────────
+
+/**
+ * The album folder the library builder put this track in, or null for a row that takes no part in
+ * {@link electFolderCovers}: one shared with you (its destination path is not published), one not
+ * built, a soft-deleted one (the cover endpoint answers 404 for it), and the demo library's rows,
+ * which are "built" in place — destination and source are one file, so no builder ever wrote a
+ * cover into that folder.
+ */
+function builtFolderOf(song: ApiSong): string | null {
+  const path = song.destinationPath
+  if (song.isBuilt !== true || !path || song.sharedByUserId || song.deletedAtUtc) return null
+  if (path === song.sourcePath) return null
+  // Split where the server would: a POSIX path only on "/", a Windows one on either separator.
+  const cut = path.startsWith("/")
+    ? path.lastIndexOf("/")
+    : Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"))
+  return cut > 0 ? path.slice(0, cut) : null
+}
+
+/**
+ * Which other song's cover each track row can show instead of asking for its own: for every row
+ * whose picture is its album folder's, the id of the track standing in for that folder. Rows that
+ * keep their own cover are absent.
+ *
+ * Each row used to ask for `/songs/{its own id}/cover`, so the twelve tracks of one album were
+ * twelve URLs: a request and an image decode per row for a single picture, all of it paid while
+ * scrolling. They are one picture because of how the server answers for a built track — the
+ * `cover/folder/front.*` image in its destination folder wins over the file's embedded art
+ * (`CoverArtResolver`), and the builder writes that `cover.*` into every album folder it finds art
+ * for — so those rows can share one URL, and one cache entry.
+ *
+ * The list does not say whether a folder has that image, and without it every track answers with
+ * its own embedded picture. So a folder shares only when nothing in the list hints that it is
+ * missing, and each rule below falls back to the row's own id, which is always right:
+ *
+ * - Every built track in the folder is flagged as having art. Writing a folder cover flags all of
+ *   them (`DestinationCoverFlagger`), so one unflagged track means no image was written there.
+ * - At least one of them is not unreleased material. The builder files an artist's unreleased
+ *   tracks together in one folder and writes no cover into it, because they are unrelated
+ *   recordings; `releaseClassification` reads "Unreleased" for every such row.
+ *
+ * The first track in list order stands in for the rest, so the choice is stable from one load to
+ * the next — skipping any with a music video, whose thumbnail is the cover of last resort for a
+ * track with no art and must not become its album's picture. Album cards are not involved: they
+ * show the server-elected `coverSongId`.
+ *
+ * What the list cannot rule out is a folder with no image whose tracks are nevertheless all
+ * flagged (art embedded in each, and the folder cover never written or since removed). Its rows
+ * show the stand-in's embedded picture rather than their own. Only the server can close that, by
+ * saying which cover a row resolves to; until it does, do not loosen the rules above.
+ */
+export function electFolderCovers(songs: readonly ApiSong[]): Map<number, number> {
+  type Folder = { ids: number[]; standIn: number | null; allHaveArt: boolean; anyReleased: boolean }
+  const folders = new Map<string, Folder>()
+  for (const song of songs) {
+    const key = builtFolderOf(song)
+    if (key === null) continue
+    let folder = folders.get(key)
+    if (!folder) {
+      folder = { ids: [], standIn: null, allHaveArt: true, anyReleased: false }
+      folders.set(key, folder)
+    }
+    folder.ids.push(song.id)
+    if (folder.standIn === null && !song.hasMusicVideo) folder.standIn = song.id
+    if (!song.hasCoverArt) folder.allHaveArt = false
+    if (song.releaseClassification !== "Unreleased") folder.anyReleased = true
+  }
+
+  const coverIds = new Map<number, number>()
+  for (const { ids, standIn, allHaveArt, anyReleased } of folders.values()) {
+    if (standIn === null || !allHaveArt || !anyReleased) continue
+    for (const id of ids) if (id !== standIn) coverIds.set(id, standIn)
+  }
+  return coverIds
+}
+
+/**
+ * {@link electFolderCovers} over the most recent `fetchSongs()`.
+ *
+ * Module state like {@link grantors}, and just as unreactive: rebuilt only when the whole list is
+ * replaced, which is also when every row on screen becomes a new object and is rendered again. A
+ * single row changing (a heart tap, a play) moves no track between folders, so it is left alone.
+ */
+let folderCoverIds: ReadonlyMap<number, number> = new Map()
+
+function rememberFolderCovers(songs: readonly ApiSong[]): void {
+  folderCoverIds = electFolderCovers(songs)
+}
+
+/** Forget the shared row covers. Called from sign-out alongside the other client-side resets. */
+export function resetFolderCovers(): void {
+  folderCoverIds = new Map()
+}
+
+/**
+ * Cover URL for a song's row in a track list: {@link coverUrlForSong}, except that the tracks of
+ * one album folder all name the same song (see {@link electFolderCovers}) and so load one image
+ * between them. Pass {@link rowCoverFallbackForSong} to the same `<Cover>`.
+ *
+ * Rows only, because a `<Cover>` can fall back when a borrowed image fails to load. The player
+ * keeps {@link coverUrlForSong}: its one URL per song also goes to the lock screen and into the
+ * saved session, where there is no second chance.
+ */
+export function rowCoverUrlForSong(song: ApiSong): string | null {
+  if (song.albumArt) return song.albumArt
+  if (!song.hasCoverArt) return null
+  return getSongCoverUrl(folderCoverIds.get(song.id) ?? song.id)
+}
+
+/**
+ * The row's own cover, as `<Cover>`'s second chance when {@link rowCoverUrlForSong} borrowed
+ * another track's and that one fails to load — the stand-in was deleted since the list loaded, or
+ * its folder has no image after all and its own art is unreadable. Null when nothing was borrowed,
+ * so a row with its own URL fails exactly as before.
+ */
+export function rowCoverFallbackForSong(song: ApiSong): string | null {
+  if (song.albumArt || !song.hasCoverArt || !folderCoverIds.has(song.id)) return null
+  return getSongCoverUrl(song.id)
 }
 
 /**
@@ -4308,6 +4564,23 @@ export async function dismissAlbumDuplicates(artist: string, albumA: string, alb
   })
 }
 
+/** How many suggestions the Inbox's two name queues hold. */
+export interface InboxNameCounts {
+  /** Artist names: variant-spelling clusters plus combined credits. */
+  artists: number
+  /** Album names: split albums plus duplicate-name pairs. */
+  albums: number
+}
+
+/**
+ * The Artist names and Album names counts, without their reports. For the shell's badges, which
+ * show two numbers on every page: each of the three reports behind them makes the server walk the
+ * whole library, and this counts all three from one walk.
+ */
+export async function fetchInboxNameCounts(): Promise<InboxNameCounts> {
+  return requestJson<InboxNameCounts>("/api/inbox/name-counts")
+}
+
 // ── Dedup action history (merges / splits / heals, with revert) ────────────────
 
 export interface DedupAction {
@@ -4393,6 +4666,8 @@ export interface ChangeLogEntry {
 
 export interface EnrichmentDetail {
   id: number
+  /** The track's full Chromaprint fingerprint, when it has one. */
+  fingerprint?: string | null
   fileName: string
   sourcePath: string
   destinationPath?: string | null

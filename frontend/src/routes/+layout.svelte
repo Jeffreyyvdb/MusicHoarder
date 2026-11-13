@@ -6,14 +6,14 @@
   import { afterNavigate, beforeNavigate } from '$app/navigation';
   import { page, updated } from '$app/state';
   import { toast } from 'svelte-sonner';
-  import { Toaster } from '$lib/components/ui/sonner';
-  import Analytics from '$lib/components/Analytics.svelte';
-  import { clearStaleChunkRecovery } from '$lib/stale-chunk-recovery';
-  import { installBottomInsetTracker } from '$lib/hooks/viewport-insets.svelte';
-  import { installDynamicType } from '$lib/dynamic-type';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-  import { surfaceFor } from '$lib/nav';
-  import { themeSurface } from '$lib/stores/theme-surface.svelte';
+  import { Toaster } from '#lib/components/ui/sonner/index.ts';
+  import Analytics from '#lib/components/Analytics.svelte';
+  import { clearStaleChunkRecovery } from '#lib/stale-chunk-recovery.ts';
+  import { installBottomInsetTracker } from '#lib/hooks/viewport-insets.svelte.ts';
+  import { installDynamicType } from '#lib/dynamic-type.ts';
+  import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
+  import { surfaceFor } from '#lib/nav.ts';
+  import { themeSurface } from '#lib/stores/theme-surface.svelte.ts';
 
   type Props = { children: Snippet };
   const { children }: Props = $props();
@@ -26,6 +26,8 @@
   // the effect below announces the update as soon as it's known, so the reload
   // is chosen (tap Refresh) rather than suffered mid-tap (F28).
   beforeNavigate((nav) => {
+    if (nav.shallow && nav.type === 'goto') return;
+
     if (updated.current && nav.to?.url && !nav.willUnload) {
       nav.cancel();
       location.href = nav.to.url.href;
@@ -48,7 +50,10 @@
 
   // A navigation completed without a stale-chunk failure, so chunks are loading
   // fine — reset the stale-chunk reload budget for the next deploy.
-  afterNavigate(() => clearStaleChunkRecovery());
+  afterNavigate(({ shallow, type }) => {
+    if (shallow && type === 'goto') return;
+    clearStaleChunkRecovery();
+  });
 
   // Track the browser's bottom chrome (e.g. Chrome Android's bottom address bar)
   // so the floating bottom nav / mini-player never hide behind it.
@@ -65,7 +70,7 @@
   // client-rendered (app) routes need.
   //
   // Inside the app shell the status bar follows the page's surface as well: a grouped page (a hub,
-  // Settings — `surfaceFor` in $lib/nav) sits on #F2F2F7 in light mode, and Now Playing's media
+  // Settings — `surfaceFor` in #lib/nav) sits on #F2F2F7 in light mode, and Now Playing's media
   // appearance is black in either mode (the theme-surface store holds that one override). A cold
   // load of a grouped page still paints one #ffffff frame first — app.html cannot know the
   // surface — which is accepted, like the light launch screen. Landing, login and share pages

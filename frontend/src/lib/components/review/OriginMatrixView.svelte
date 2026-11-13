@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { OriginMatrix } from '$lib/review-helpers';
-  import { cn } from '$lib/utils';
-  import * as Table from '$lib/components/ui/table/index.js';
+  import type { OriginMatrix } from '#lib/review-helpers.ts';
+  import { cn } from '#lib/utils.ts';
+  import * as Table from '#lib/components/ui/table/index.js';
 
   type Props = { matrix: OriginMatrix };
   const { matrix }: Props = $props();

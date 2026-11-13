@@ -1,5 +1,6 @@
-import { isAdmin, isDemo } from '$lib/auth/capabilities';
-import type { SessionUser } from '$lib/auth/session-types';
+import type { ReadonlyURL } from '$app/state';
+import { isAdmin, isDemo } from '#lib/auth/capabilities.ts';
+import type { SessionUser } from '#lib/auth/session-types.ts';
 
 /**
  * Settings' sections and which one a URL shows.
@@ -48,7 +49,7 @@ export function visibleSections(user: Audience): Section[] {
  * The section a URL asks for: `?tab=`, else a `#hash` naming one (older links, the update
  * banner's `/settings#updates` among them, used a hash). Null when it names nothing.
  */
-export function requestedSection(url: URL): string | null {
+export function requestedSection(url: ReadonlyURL): string | null {
   const tab = url.searchParams.get('tab');
   if (tab) return tab;
   const hash = url.hash.replace(/^#/, '');
@@ -82,7 +83,7 @@ export type SettingsView = {
  * `stacked` is a phone, or a window too narrow for two panes (SettingsV2 measures it): the root
  * list with each section pushed over it.
  */
-export function resolveSettingsView(url: URL, user: Audience, stacked: boolean): SettingsView {
+export function resolveSettingsView(url: ReadonlyURL, user: Audience, stacked: boolean): SettingsView {
   const visible = visibleSections(user);
   const asked = requestedSection(url);
   const retired = asked !== null ? RETIRED.get(asked) : undefined;

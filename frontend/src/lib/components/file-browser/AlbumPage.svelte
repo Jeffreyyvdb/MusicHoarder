@@ -28,29 +28,29 @@
   } from '@lucide/svelte';
   import { untrack } from 'svelte';
   import { page } from '$app/state';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
-  import * as BottomSheet from '$lib/components/ui/bottom-sheet';
-  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import { Badge } from '$lib/components/ui/badge';
-  import { Button } from '$lib/components/ui/button';
-  import Cover from '$lib/components/file-browser/Cover.svelte';
-  import AlbumTimelineDialog from '$lib/components/file-browser/AlbumTimelineDialog.svelte';
-  import ProvenanceSheet from '$lib/components/file-browser/ProvenanceSheet.svelte';
-  import ShareWithFriendDialog from '$lib/components/file-browser/ShareWithFriendDialog.svelte';
-  import AddToPlaylistSheet from '$lib/components/v2/AddToPlaylistSheet.svelte';
-  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
-  import TrackRowMenu, { activateTrack } from '$lib/components/v2/TrackRowMenu.svelte';
-  import { longpress, type LongPressPoint } from '$lib/actions/long-press';
-  import { albumTint, coverTint } from '$lib/album-tint';
-  import { buildDisplayRows } from '$lib/album-rows';
+  import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
+  import * as BottomSheet from '#lib/components/ui/bottom-sheet/index.ts';
+  import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import { Badge } from '#lib/components/ui/badge/index.ts';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import Cover from '#lib/components/file-browser/Cover.svelte';
+  import AlbumTimelineDialog from '#lib/components/file-browser/AlbumTimelineDialog.svelte';
+  import ProvenanceSheet from '#lib/components/file-browser/ProvenanceSheet.svelte';
+  import ShareWithFriendDialog from '#lib/components/file-browser/ShareWithFriendDialog.svelte';
+  import AddToPlaylistSheet from '#lib/components/v2/AddToPlaylistSheet.svelte';
+  import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
+  import TrackRowMenu, { activateTrack } from '#lib/components/v2/TrackRowMenu.svelte';
+  import { longpress, type LongPressPoint } from '#lib/actions/long-press.ts';
+  import { albumTint, coverTint } from '#lib/album-tint.ts';
+  import { buildDisplayRows } from '#lib/album-rows.ts';
   import {
     formatDuration,
     formatFamily,
     formatFileSize,
     formatReleaseDate,
     formatTotalDuration
-  } from '$lib/formatters';
+  } from '#lib/formatters.ts';
   import { SvelteSet } from 'svelte/reactivity';
   import {
     acquireCanonicalTrack,
@@ -69,20 +69,20 @@
     type AlbumTracklist,
     type ApiSong,
     type SongProvenance
-  } from '$lib/api-client';
-  import { PROVENANCE_ICON } from '$lib/provenance';
-  import { VERDICT_DOT } from '$lib/quality-ui';
-  import { findShareLink, shareLink, type ShareLink } from '$lib/share-links';
-  import { sendTo, sendToAlbum } from '$lib/stores/send-to.svelte';
+  } from '#lib/api-client.ts';
+  import { PROVENANCE_ICON } from '#lib/provenance.ts';
+  import { VERDICT_DOT } from '#lib/quality-ui.ts';
+  import { findShareLink, shareLink, type ShareLink } from '#lib/share-links.ts';
+  import { sendTo, sendToAlbum } from '#lib/stores/send-to.svelte.ts';
   import { toast } from 'svelte-sonner';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-  import { albumViewPrefs } from '$lib/stores/album-view-prefs.svelte';
-  import { playerStore, type StartQueueOptions } from '$lib/stores/player.svelte';
-  import { songsStore } from '$lib/stores/songs.svelte';
-  import { songDetail } from '$lib/stores/song-detail.svelte';
-  import { tabMemory } from '$lib/stores/tab-memory.svelte';
-  import { cn, shuffle } from '$lib/utils';
-  import { can, isAdmin } from '$lib/auth/capabilities';
+  import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
+  import { albumViewPrefs } from '#lib/stores/album-view-prefs.svelte.ts';
+  import { playerStore, type StartQueueOptions } from '#lib/stores/player.svelte.ts';
+  import { songsStore } from '#lib/stores/songs.svelte.ts';
+  import { songDetail } from '#lib/stores/song-detail.svelte.ts';
+  import { tabMemory } from '#lib/stores/tab-memory.svelte.ts';
+  import { cn, shuffle } from '#lib/utils.ts';
+  import { can, isAdmin } from '#lib/auth/capabilities.ts';
 
   type Props = {
     album: AlbumSummary | null;
@@ -1555,7 +1555,11 @@
     border-radius: 1px;
     background: currentColor;
   }
+  /* As in TrackList: while it animates, a bar is full height and scaled from its foot, so the
+     animation runs on the compositor instead of laying the page out on every frame. */
   .mh-eq.is-playing > :global(i) {
+    height: 100%;
+    transform-origin: bottom;
     animation: mh-eq 0.9s ease-in-out infinite;
   }
   .mh-eq > :global(i:nth-child(1)) {
@@ -1570,16 +1574,17 @@
   @keyframes mh-eq {
     0%,
     100% {
-      height: 30%;
+      transform: scaleY(0.3);
     }
     50% {
-      height: 100%;
+      transform: scaleY(1);
     }
   }
   /* Belt-and-braces alongside the global app.css reduced-motion guard: the
      equalizer holds a static three-bar pose instead of animating. */
   @media (prefers-reduced-motion: reduce) {
     .mh-eq.is-playing > :global(i) {
+      height: 35%;
       animation: none;
     }
   }

@@ -9,8 +9,10 @@ namespace MusicHoarder.Api.Tests.Endpoints;
 
 public class ListSongsTests
 {
+    // The list says whether a song has a fingerprint and never carries the value: a Chromaprint
+    // fingerprint is kilobytes per song, and it was half of the response.
     [Fact]
-    public async Task ListSongs_IncludesFingerprintInPayload()
+    public async Task ListSongs_SaysASongHasAFingerprint_WithoutCarryingIt()
     {
         await using var db = NewContext();
         var song = NewSong("/a.mp3", "a.mp3");
@@ -21,11 +23,12 @@ public class ListSongsTests
         var result = await ListSongsCaller.Invoke(db);
 
         var first = SingleSong(result);
-        Assert.Equal("AQADtMkUhEL-fingerprint-sample", GetProperty<string?>(first, "Fingerprint"));
+        Assert.True(GetProperty<bool>(first, "HasFingerprint"));
+        Assert.Null(first.GetType().GetProperty("Fingerprint"));
     }
 
     [Fact]
-    public async Task ListSongs_NullFingerprint_IsExposedAsNull()
+    public async Task ListSongs_NullFingerprint_IsNoFingerprint()
     {
         await using var db = NewContext();
         db.Songs.Add(NewSong("/b.mp3", "b.mp3"));
@@ -34,7 +37,26 @@ public class ListSongsTests
         var result = await ListSongsCaller.Invoke(db);
 
         var first = SingleSong(result);
-        Assert.Null(GetProperty<string?>(first, "Fingerprint"));
+        Assert.False(GetProperty<bool>(first, "HasFingerprint"));
+    }
+
+    [Fact]
+    public async Task ListSongs_ReportsLyricsAsFlags_NotText()
+    {
+        await using var db = NewContext();
+        var song = NewSong("/c.mp3", "c.mp3");
+        song.SyncedLyrics = "[00:01.00] line";
+        song.PlainLyrics = "   ";
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        var result = await ListSongsCaller.Invoke(db);
+
+        var first = SingleSong(result);
+        Assert.True(GetProperty<bool>(first, "HasSyncedLyrics"));
+        Assert.True(GetProperty<bool>(first, "HasPlainLyrics"));
+        Assert.Null(first.GetType().GetProperty("SyncedLyrics"));
+        Assert.Null(first.GetType().GetProperty("PlainLyrics"));
     }
 
     [Fact]

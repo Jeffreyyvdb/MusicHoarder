@@ -1,0 +1,14 @@
+{
+  "name": "musichoarder-perf",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "perf": "bun src/cli.ts",
+    "check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.0",
+    "playwright-core": "^1.56.0",
+    "typescript": "^5.9.0"
+  }
+}

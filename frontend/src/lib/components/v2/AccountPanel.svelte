@@ -1,6 +1,6 @@
 <script lang="ts" module>
-  import { cn } from '$lib/utils';
-  import { listAccounts, type AccountView } from '$lib/api-client';
+  import { cn } from '#lib/utils.ts';
+  import { listAccounts, type AccountView } from '#lib/api-client.ts';
 
   /** Two letters for an avatar — the display name's (or the email's) first two characters. */
   export function initialsOf(name: string | null | undefined, email: string): string {
@@ -46,18 +46,18 @@
     Settings,
     UserPlus
   } from '@lucide/svelte';
-  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
+  import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
   import {
     SegmentedControl,
     type SegmentedControlItem
-  } from '$lib/components/ui/segmented-control';
-  import { isAdmin, isDemo, roleLabel } from '$lib/auth/capabilities';
-  import { signOutAndReset } from '$lib/auth/sign-out';
-  import { switchAccountAndReload } from '$lib/auth/switch-account';
-  import { pipelineOverlay } from '$lib/stores/pipeline-overlay.svelte';
-  import { storageUsage } from '$lib/stores/storage-usage.svelte';
-  import { storageSummary, watchedFolders, watchingLabel } from '$lib/storage-usage-meta';
+  } from '#lib/components/ui/segmented-control/index.ts';
+  import { isAdmin, isDemo, roleLabel } from '#lib/auth/capabilities.ts';
+  import { signOutAndReset } from '#lib/auth/sign-out.ts';
+  import { switchAccountAndReload } from '#lib/auth/switch-account.ts';
+  import { pipelineOverlay } from '#lib/stores/pipeline-overlay.svelte.ts';
+  import { storageUsage } from '#lib/stores/storage-usage.svelte.ts';
+  import { storageSummary, watchedFolders, watchingLabel } from '#lib/storage-usage-meta.ts';
 
   // The account panel: who you are, the other accounts this browser remembers, the
   // appearance override, the admin's storage and folder status, the version, and sign out. One

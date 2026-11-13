@@ -1,27 +1,28 @@
 <script lang="ts">
-  import type { Snippet } from 'svelte';
+  import { untrack, type Snippet } from 'svelte';
   import { ArrowDown, ArrowUp, Clock, Heart, ListMusic, Pause, Play } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
-  import Cover from '$lib/components/file-browser/Cover.svelte';
-  import { Badge } from '$lib/components/ui/badge';
-  import { EmptyState } from '$lib/components/ui/empty-state';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
-  import SharedByBadge from '$lib/components/v2/SharedByBadge.svelte';
-  import TrackRowMenu from '$lib/components/v2/TrackRowMenu.svelte';
-  import TrackRowText from '$lib/components/v2/TrackRowText.svelte';
-  import { longpress, type LongPressPoint } from '$lib/actions/long-press';
-  import { DYNAMIC_TYPE_CHANGE, dynamicTypeScale } from '$lib/dynamic-type';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-  import { formatDuration, formatFamily, formatFileSize } from '$lib/formatters';
+  import Cover from '#lib/components/file-browser/Cover.svelte';
+  import { Badge } from '#lib/components/ui/badge/index.ts';
+  import { EmptyState } from '#lib/components/ui/empty-state/index.ts';
+  import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
+  import SharedByBadge from '#lib/components/v2/SharedByBadge.svelte';
+  import TrackRowMenu from '#lib/components/v2/TrackRowMenu.svelte';
+  import TrackRowText from '#lib/components/v2/TrackRowText.svelte';
+  import { longpress, type LongPressPoint } from '#lib/actions/long-press.ts';
+  import { DYNAMIC_TYPE_CHANGE, dynamicTypeScale } from '#lib/dynamic-type.ts';
+  import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
+  import { formatDuration, formatFamily, formatFileSize } from '#lib/formatters.ts';
   import {
     albumKeyForSong,
-    coverUrlForSong,
     isSpotifySourced,
     mapEnrichmentStatus,
+    rowCoverFallbackForSong,
+    rowCoverUrlForSong,
     songOriginLabel,
     toPlayerSong,
     type ApiSong
-  } from '$lib/api-client';
+  } from '#lib/api-client.ts';
   import {
     artistOf,
     hasLyrics,
@@ -29,10 +30,10 @@
     titleOf,
     type SortKey,
     type TrackListView
-  } from '$lib/track-list-view.svelte';
-  import { playerStore } from '$lib/stores/player.svelte';
-  import { songsStore } from '$lib/stores/songs.svelte';
-  import { cn } from '$lib/utils';
+  } from '#lib/track-list-view.svelte.ts';
+  import { playerStore } from '#lib/stores/player.svelte.ts';
+  import { songsStore } from '#lib/stores/songs.svelte.ts';
+  import { cn } from '#lib/utils.ts';
 
   type Props = {
     /**
@@ -222,7 +223,9 @@
     void view.chips.join(',');
     void view.sortKey;
     void view.sortDir;
-    if (scrollEl) scrollEl.scrollTop = 0;
+    // Only when it is not already at the top: assigning scrollTop makes the browser lay the page
+    // out on the spot, in the middle of the keystroke that changed the list.
+    if (scrollEl && untrack(() => scrollTop) !== 0) scrollEl.scrollTop = 0;
     scrollTop = 0;
   });
 
@@ -385,7 +388,8 @@
                   <Cover
                     artist={artistOf(song)}
                     title={song.album ?? titleOf(song)}
-                    coverUrl={coverUrlForSong(song)}
+                    coverUrl={rowCoverUrlForSong(song)}
+                    fallbackUrl={rowCoverFallbackForSong(song)}
                     size={48}
                     corner={6}
                     caption={false}
@@ -474,7 +478,8 @@
               <Cover
                 artist={artistOf(song)}
                 title={song.album ?? titleOf(song)}
-                coverUrl={coverUrlForSong(song)}
+                coverUrl={rowCoverUrlForSong(song)}
+                fallbackUrl={rowCoverFallbackForSong(song)}
                 size={36}
                 corner={4}
                 caption={false}
@@ -665,7 +670,12 @@
     border-radius: 1px;
     background: currentColor;
   }
+  /* While it animates, a bar is full height and drawn shorter by a transform from its foot, so
+     the animation runs on the compositor. Animating `height` laid the document out and painted
+     it on every frame, for as long as a song played with its row on screen. */
   .mh-eq.is-playing > :global(i) {
+    height: 100%;
+    transform-origin: bottom;
     animation: mh-eq 0.9s ease-in-out infinite;
   }
   .mh-eq > :global(i:nth-child(1)) {
@@ -680,15 +690,16 @@
   @keyframes mh-eq {
     0%,
     100% {
-      height: 30%;
+      transform: scaleY(0.3);
     }
     50% {
-      height: 100%;
+      transform: scaleY(1);
     }
   }
   /* Belt-and-braces alongside the global reduced-motion clamp: a static three-bar pose. */
   @media (prefers-reduced-motion: reduce) {
     .mh-eq.is-playing > :global(i) {
+      height: 35%;
       animation: none;
     }
   }

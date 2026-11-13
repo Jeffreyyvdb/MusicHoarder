@@ -1,4 +1,4 @@
-import { getVersion } from '$lib/api-client';
+import { getVersion } from '#lib/api-client.ts';
 import type { LayoutLoad } from './$types';
 
 // Marketing root layout — dynamic so cookie-based behavior remains an option later.

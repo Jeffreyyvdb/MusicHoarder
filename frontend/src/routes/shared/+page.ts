@@ -1,5 +1,5 @@
 import { redirect } from '@sveltejs/kit';
-import { APP_HOME } from '$lib/app-home';
+import { APP_HOME } from '#lib/app-home.ts';
 import type { PageLoad } from './$types';
 
 // Invited accounts used to live on a dedicated /shared page; they now use the ordinary Listen

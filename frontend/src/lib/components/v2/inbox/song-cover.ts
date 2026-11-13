@@ -1,5 +1,5 @@
-import { coverUrlForSong, getSongCoverUrl } from '$lib/api-client';
-import { songsStore } from '$lib/stores/songs.svelte';
+import { coverUrlForSong, getSongCoverUrl } from '#lib/api-client.ts';
+import { songsStore } from '#lib/stores/songs.svelte.ts';
 
 /**
  * Artwork for a row that only knows a song id (Inbox Duplicates and AI flagged, the AI quality

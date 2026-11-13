@@ -17,18 +17,18 @@ import type { PlayerSong } from './player.svelte';
  *    slept through gives up rather than starting music whenever the app is next opened.
  */
 
-vi.mock('$app/environment', () => ({ browser: true }));
+vi.mock('$app/env', () => ({ browser: true }));
 vi.mock('svelte-sonner', () => ({ toast: Object.assign(vi.fn(), { error: vi.fn() }) }));
-vi.mock('$lib/api-client', () => ({
+vi.mock('#lib/api-client.ts', () => ({
   coverThumbUrl: () => null,
   fetchRadio: vi.fn(async () => []),
   reportSongPlayed: vi.fn(async () => {}),
   toPlayerSong: vi.fn()
 }));
-vi.mock('$lib/stores/songs.svelte', () => ({
+vi.mock('#lib/stores/songs.svelte.ts', () => ({
   songsStore: { notePlayed: vi.fn(), songsById: new Map() }
 }));
-vi.mock('$lib/track-list-view.svelte', () => ({ artistOf: vi.fn() }));
+vi.mock('#lib/track-list-view.svelte.ts', () => ({ artistOf: vi.fn() }));
 
 class FakeAudio extends EventTarget {
   static instances: FakeAudio[] = [];
@@ -92,6 +92,35 @@ const song = (id: number, format?: string): PlayerSong => ({
 
 /** Lets every pending promise run, so a negative assertion is not just early. */
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+/**
+ * What the browser's frames are to the store: a callback asked for runs once, when a frame is
+ * drawn, and not at all while the page is hidden.
+ */
+function fakeFrames() {
+  const waiting = new Map<number, FrameRequestCallback>();
+  let asked = 0;
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    waiting.set(++asked, callback);
+    return asked;
+  });
+  vi.stubGlobal('cancelAnimationFrame', (handle: number) => waiting.delete(handle));
+  return {
+    /** Frames asked for so far. */
+    get asked() {
+      return asked;
+    },
+    /** Frames asked for and not drawn yet. */
+    get waiting() {
+      return waiting.size;
+    },
+    draw(now: number) {
+      const due = [...waiting.values()];
+      waiting.clear();
+      for (const callback of due) callback(now);
+    }
+  };
+}
 
 const MEDIA_ERR_NETWORK = 2;
 const MEDIA_ERR_SRC_NOT_SUPPORTED = 4;
@@ -250,7 +279,7 @@ describe('the end of a song', () => {
   });
 
   it('leaves a song with nothing after it loaded, paused at its start', async () => {
-    const api = await import('$lib/api-client');
+    const api = await import('#lib/api-client.ts');
     vi.mocked(api.fetchRadio).mockRejectedValueOnce(
       Object.assign(new Error('Not found'), { status: 404 })
     );
@@ -527,13 +556,415 @@ describe('recovering a stream', () => {
   });
 });
 
+describe('the position while a song plays', () => {
+  let frames: ReturnType<typeof fakeFrames>;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    frames = fakeFrames();
+  });
+  afterEach(() => vi.useRealTimers());
+
+  async function playing() {
+    const loaded = await loadPlayer();
+    await loaded.playerStore.playSong(song(1), [song(1), song(2)]);
+    loaded.audio.dispatchEvent(new Event('play'));
+    return loaded;
+  }
+
+  it('is committed about ten times a second, each from one frame — not a frame asked for on every frame', async () => {
+    const { playerStore, audio } = await playing();
+
+    // A second of a 60 Hz screen: a frame every 16.7 ms, drawn only if something asked for it.
+    let drawn = 0;
+    for (let frame = 0; frame < 60; frame++) {
+      audio.currentTime = frame / 60;
+      if (frames.waiting > 0) {
+        drawn += 1;
+        frames.draw(1000 + (frame * 1000) / 60);
+        expect(playerStore.currentTime).toBe(audio.currentTime);
+        // The commit asks for nothing: the next frame is only wanted once the interval is up.
+        expect(frames.waiting).toBe(0);
+      }
+      vi.advanceTimersByTime(1000 / 60);
+    }
+    expect(drawn).toBe(10);
+    expect(frames.asked).toBeLessThanOrEqual(11);
+  });
+
+  it('commits on every frame it takes, however little time the frame says has passed', async () => {
+    const { playerStore, audio } = await playing();
+    audio.currentTime = 5;
+    frames.draw(1000);
+    vi.advanceTimersByTime(90);
+
+    // A frame stamped a hair under the interval is still the one this commit waited for.
+    audio.currentTime = 5.1;
+    frames.draw(1099.9);
+    expect(playerStore.currentTime).toBe(5.1);
+  });
+
+  it('keeps nobody who needs the exact second waiting: a report, a seek and the lock screen read the element', async () => {
+    const setPositionState = vi.fn();
+    vi.stubGlobal('MediaMetadata', class {});
+    vi.stubGlobal('navigator', {
+      audioSession,
+      mediaSession: { metadata: null, setActionHandler: () => {}, setPositionState }
+    });
+    const { playerStore, audio } = await playing();
+    const { localPlayback } = await import('./player.svelte');
+    audio.duration = 200;
+    audio.dispatchEvent(new Event('loadedmetadata'));
+    audio.currentTime = 5;
+    frames.draw(1000);
+
+    // Forty milliseconds on, between two commits: what is shown waits, what is reported does not.
+    audio.currentTime = 5.04;
+    expect(playerStore.currentTime).toBe(5);
+    expect(localPlayback.state()).toMatchObject({ positionMs: 5040, durationMs: 200_000 });
+
+    playerStore.seek(42);
+    expect(playerStore.currentTime).toBe(42);
+    expect(setPositionState).toHaveBeenLastCalledWith({
+      duration: 200,
+      position: 42,
+      playbackRate: 1
+    });
+  });
+
+  it('tells the lock screen where a stream reloaded in the background resumes, not the second last drawn', async () => {
+    const setPositionState = vi.fn();
+    vi.stubGlobal('MediaMetadata', class {});
+    vi.stubGlobal('navigator', {
+      audioSession,
+      mediaSession: { metadata: null, setActionHandler: () => {}, setPositionState }
+    });
+    const { playerStore, audio } = await playing();
+    audio.duration = 200;
+    audio.dispatchEvent(new Event('loadedmetadata'));
+    audio.currentTime = 5;
+    frames.draw(1000);
+
+    // The app leaves the screen five seconds in. No frame is drawn from here on, so 0:05 is the
+    // last position committed, while the song plays on for two minutes and then loses its stream.
+    doc.hidden = true;
+    audio.playFrom(125);
+    audio.fail(MEDIA_ERR_NETWORK);
+    vi.advanceTimersByTime(1000);
+    expect(audio.load).toHaveBeenCalledTimes(2);
+    audio.dispatchEvent(new Event('loadedmetadata'));
+
+    // The lock screen counts on from what it is told here, and it is the only place to see it.
+    expect(playerStore.currentTime).toBe(5);
+    expect(setPositionState).toHaveBeenLastCalledWith({
+      duration: 200,
+      position: 125,
+      playbackRate: 1
+    });
+  });
+
+  it('stops with the song, and a pause shows the exact second it stopped at', async () => {
+    const { playerStore, audio } = await playing();
+    frames.draw(1000);
+
+    audio.currentTime = 7.25;
+    audio.dispatchEvent(new Event('pause'));
+    expect(playerStore.currentTime).toBe(7.25);
+    vi.advanceTimersByTime(60_000);
+    expect(frames.waiting).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+
+    // Paused while it was waiting on a frame: that frame is given back too.
+    audio.dispatchEvent(new Event('play'));
+    expect(frames.waiting).toBe(1);
+    audio.dispatchEvent(new Event('pause'));
+    expect(frames.waiting).toBe(0);
+  });
+
+  it('parks while the page is hidden, and carries on from the first frame after', async () => {
+    const { playerStore, audio } = await playing();
+    frames.draw(1000);
+    const before = frames.asked;
+
+    // Hidden: timers still fire, frames do not. One frame stays asked for, and nothing else runs.
+    vi.advanceTimersByTime(10 * 60_000);
+    expect(frames.asked).toBe(before + 1);
+    expect(vi.getTimerCount()).toBe(0);
+
+    audio.currentTime = 600;
+    frames.draw(601_000);
+    expect(playerStore.currentTime).toBe(600);
+    vi.advanceTimersByTime(90);
+    expect(frames.waiting).toBe(1);
+  });
+});
+
+describe('surviving a reload', () => {
+  // The reload snapshot is two entries in the tab's storage: the queue, and everything else. The
+  // queue can be the whole library, and storing it holds the main thread for a tenth of a second
+  // on a phone, so it is written when the queue is a different one and at a quiet moment — not
+  // with every position write, and not in the middle of a tap.
+  const QUEUE_ENTRY = 'mh:playback:queue';
+  const SMALL_ENTRY = 'mh:playback';
+
+  let frames: ReturnType<typeof fakeFrames>;
+  /** The tab's sessionStorage: it outlives the document, so a "reload" below keeps it. */
+  let stored: Map<string, string>;
+  /** Every key written, in order. */
+  let writes: string[];
+  let pageEvents: Map<string, () => void>;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    frames = fakeFrames();
+    stored = new Map();
+    writes = [];
+    pageEvents = new Map();
+    const listen = (type: string, listener: () => void) => void pageEvents.set(type, listener);
+    Object.assign(doc, { visibilityState: 'visible', addEventListener: listen });
+    vi.stubGlobal('window', {
+      sessionStorage: {
+        getItem: (key: string) => stored.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+          writes.push(key);
+          stored.set(key, value);
+        },
+        removeItem: (key: string) => void stored.delete(key)
+      },
+      addEventListener: listen
+    });
+  });
+  afterEach(() => vi.useRealTimers());
+
+  /** A document of the signed-in app: the player with its reload snapshot on. */
+  async function boot() {
+    const { playerStore, localPlayback, initPlayer } = await import('./player.svelte');
+    initPlayer('u1');
+    return { playerStore, localPlayback, audio: FakeAudio.instances.at(-1)! };
+  }
+
+  /** The same tab loading the app again: a new document over the storage the last one left. */
+  async function reload() {
+    pageEvents.get('pagehide')!();
+    vi.resetModules();
+    FakeAudio.instances = [];
+    writes = [];
+    return boot();
+  }
+
+  const library = (size: number) => Array.from({ length: size }, (_, i) => song(i + 1));
+  const smallEntry = () => JSON.parse(stored.get(SMALL_ENTRY)!) as Record<string, unknown>;
+
+  it('writes the queue once, and only the small entry for as long as the song plays', async () => {
+    const { playerStore, audio } = await boot();
+    await playerStore.startQueue(library(10_000), 4);
+    audio.dispatchEvent(new Event('play'));
+
+    // Half a minute of playing, a frame every tenth of a second.
+    for (let ms = 0; ms <= 30_000; ms += 100) {
+      audio.currentTime = ms / 1000;
+      frames.draw(ms);
+      vi.advanceTimersByTime(100);
+    }
+    // The queue with the first write, then the position every five seconds, by itself.
+    expect(writes).toEqual([QUEUE_ENTRY, ...Array(6).fill(SMALL_ENTRY)]);
+    expect(stored.get(QUEUE_ENTRY)!.length).toBeGreaterThan(500_000);
+    expect(stored.get(SMALL_ENTRY)!.length).toBeLessThan(400);
+    expect(smallEntry()).toMatchObject({ queueIndex: 4, position: 30 });
+  });
+
+  it('does not write on the first frame of a track: only once it has played for five seconds', async () => {
+    const { playerStore, audio } = await boot();
+    await playerStore.startQueue(library(3), 0);
+    pageEvents.get('pagehide')!();
+    writes = [];
+
+    // Paused a while ago; the frames below carry on from a clock long past the last write.
+    audio.dispatchEvent(new Event('play'));
+    frames.draw(60_000);
+    expect(writes).toEqual([]);
+
+    for (let ms = 60_100; ms <= 65_000; ms += 100) {
+      vi.advanceTimersByTime(100);
+      frames.draw(ms);
+    }
+    expect(writes).toEqual([SMALL_ENTRY]);
+  });
+
+  it('keeps a new queue out of the tap that made it: it waits for a quiet moment, and the entries keep what they had', async () => {
+    const { playerStore } = await boot();
+    await playerStore.startQueue([song(1), song(2)], 0);
+    pageEvents.get('pagehide')!();
+    const before = new Map(stored);
+    writes = [];
+
+    await playerStore.startQueue(library(10_000), 7);
+    playerStore.seek(12); // a write asked for while the new queue is not stored yet
+    expect(writes).toEqual([]);
+    vi.advanceTimersByTime(999);
+    expect(writes).toEqual([]);
+    // A tab that died here comes back to the queue and song it had, not to half of each.
+    expect(stored).toEqual(before);
+
+    vi.advanceTimersByTime(1);
+    expect(writes).toEqual([QUEUE_ENTRY, SMALL_ENTRY]);
+    expect(smallEntry()).toMatchObject({ queueIndex: 7, position: 12 });
+  });
+
+  it('takes the browser up on an idle moment where it offers one', async () => {
+    let idle: (() => void) | null = null;
+    const requestIdle = vi.fn((callback: () => void, _options?: { timeout: number }) => {
+      idle = callback;
+      return 1;
+    });
+    vi.stubGlobal('requestIdleCallback', requestIdle);
+    vi.stubGlobal('cancelIdleCallback', () => (idle = null));
+    const { playerStore } = await boot();
+
+    await playerStore.startQueue(library(3), 0);
+    playerStore.seek(12);
+    playerStore.seek(13); // asked for once, however many writes want it
+    expect(requestIdle).toHaveBeenCalledTimes(1);
+    // Idle or not, it is written within two seconds.
+    expect(requestIdle.mock.calls[0][1]).toEqual({ timeout: 2000 });
+    vi.advanceTimersByTime(60_000);
+    expect(writes).toEqual([]);
+
+    idle!();
+    expect(writes).toEqual([QUEUE_ENTRY, SMALL_ENTRY]);
+  });
+
+  it('writes everything at once when the page goes away or out of sight', async () => {
+    const { playerStore } = await boot();
+    await playerStore.startQueue(library(3), 1);
+    playerStore.seek(12);
+    expect(writes).toEqual([]);
+
+    pageEvents.get('pagehide')!();
+    expect(writes).toEqual([QUEUE_ENTRY, SMALL_ENTRY]);
+    // The write that was waiting has been done: it does not come round again.
+    vi.advanceTimersByTime(60_000);
+    expect(writes).toEqual([QUEUE_ENTRY, SMALL_ENTRY]);
+
+    await playerStore.startQueue(library(4), 2);
+    Object.assign(doc, { visibilityState: 'hidden' });
+    pageEvents.get('visibilitychange')!();
+    expect(writes).toEqual([QUEUE_ENTRY, SMALL_ENTRY, QUEUE_ENTRY, SMALL_ENTRY]);
+  });
+
+  it('writes a queue that changed while the page is hidden without waiting: nobody is kept waiting there', async () => {
+    const { playerStore } = await boot();
+    await playerStore.startQueue(library(3), 0);
+    doc.hidden = true;
+    playerStore.seek(30); // the lock screen's scrubber
+    expect(writes).toEqual([QUEUE_ENTRY, SMALL_ENTRY]);
+  });
+
+  it('writes nothing in the hand-off to the next track while the app is in the background', async () => {
+    const { playerStore, audio } = await boot();
+    await playerStore.startQueue(library(3), 0);
+    pageEvents.get('pagehide')!();
+    audio.playFrom(200);
+    audio.play.mockClear();
+    writes = [];
+
+    doc.hidden = true;
+    audio.loopToStart();
+    // The next song is on the element and asked to play; the storage was not touched on the way.
+    expect(audio.src).toBe('/api/mh/songs/2/stream');
+    expect(audio.play).toHaveBeenCalledTimes(1);
+    expect(writes).toEqual([]);
+  });
+
+  it('brings back exactly what was playing: a library-sized queue in its order, the song, the second, the station', async () => {
+    // Shuffled, as a queue is: the order is the queue's own, not the library's.
+    const queue = Array.from({ length: 10_000 }, (_, i) => song(((i * 7919) % 10_000) + 1, 'opus'));
+    const first = await boot();
+    await first.playerStore.startQueue(queue, 1234);
+    first.playerStore.setVolume(0.4);
+    first.audio.currentTime = 83.5;
+
+    const { playerStore, localPlayback, audio } = await reload();
+    expect(localPlayback.state()).toMatchObject({
+      song: queue[1234],
+      queue: queue.map((s) => s.id),
+      queueIndex: 1234,
+      radioSeedId: queue[1234].id
+    });
+    expect(playerStore.currentSong).toEqual(queue[1234]);
+    expect(playerStore.currentTime).toBe(83.5);
+    expect(playerStore.volume).toBe(0.4);
+    expect(playerStore.hasNext).toBe(true);
+    expect(audio.src).toBe(queue[1234].streamUrl);
+    expect(audio.currentTime).toBe(83.5);
+    expect(audio.play).toHaveBeenCalledTimes(1); // it was playing, and the reload was just now
+
+    // What came back is what is stored: the next write is the small entry alone.
+    playerStore.seek(90);
+    pageEvents.get('pagehide')!();
+    expect(writes).toEqual([SMALL_ENTRY, SMALL_ENTRY]);
+  });
+
+  it('brings back a snapshot written before the queue had an entry of its own, and stores it as two', async () => {
+    stored.set(
+      SMALL_ENTRY,
+      JSON.stringify({
+        v: 1,
+        userId: 'u1',
+        queue: library(3),
+        queueIndex: 2,
+        position: 30,
+        wasPlaying: false,
+        volume: 1,
+        radioSeedId: 1,
+        radioExhausted: false,
+        miniPlayerDismissed: false,
+        savedAt: Date.now()
+      })
+    );
+    const { localPlayback } = await boot();
+    expect(localPlayback.state()).toMatchObject({
+      queue: [1, 2, 3],
+      queueIndex: 2,
+      radioSeedId: 1
+    });
+
+    const again = await reload();
+    expect(stored.has(QUEUE_ENTRY)).toBe(true);
+    expect(smallEntry()).toMatchObject({ v: 2, queueIndex: 2 });
+    expect(again.localPlayback.state()).toMatchObject({ queue: [1, 2, 3], queueIndex: 2 });
+  });
+
+  it("removes both entries rather than inherit another account's queue, and when playback is stopped", async () => {
+    const first = await boot();
+    await first.playerStore.startQueue(library(3), 0);
+    pageEvents.get('pagehide')!();
+    expect(stored.size).toBe(2);
+
+    // Another account signs in on this tab.
+    vi.resetModules();
+    FakeAudio.instances = [];
+    const { playerStore, initPlayer } = await import('./player.svelte');
+    initPlayer('u2');
+    expect(playerStore.currentSong).toBeNull();
+    expect(stored.size).toBe(0);
+
+    await playerStore.startQueue(library(3), 0);
+    pageEvents.get('pagehide')!();
+    expect(stored.size).toBe(2);
+    playerStore.stop();
+    pageEvents.get('pagehide')!();
+    expect(stored.size).toBe(0);
+  });
+});
+
 describe('the station', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
   async function stationFixture() {
-    const api = await import('$lib/api-client');
-    const { songsStore } = await import('$lib/stores/songs.svelte');
+    const api = await import('#lib/api-client.ts');
+    const { songsStore } = await import('#lib/stores/songs.svelte.ts');
     vi.mocked(api.toPlayerSong).mockImplementation((row) => song((row as { id: number }).id));
     (songsStore.songsById as Map<number, unknown>).set(7, { id: 7 });
     return vi.mocked(api.fetchRadio);

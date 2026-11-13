@@ -13,13 +13,13 @@
     PackageCheck,
     TriangleAlert
   } from '@lucide/svelte';
-  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
+  import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
   import type { Component } from 'svelte';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
-  import { Skeleton } from '$lib/components/ui/skeleton';
-  import { Button } from '$lib/components/ui/button';
-  import * as AlertDialog from '$lib/components/ui/alert-dialog';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
+  import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
+  import { Skeleton } from '#lib/components/ui/skeleton/index.ts';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import * as AlertDialog from '#lib/components/ui/alert-dialog/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
   import {
     fetchAlbums,
     hydrateAlbums,
@@ -39,18 +39,18 @@
     type DuplicatesResponse,
     type QualityOverview,
     type QualityProgress
-  } from '$lib/api-client';
-  import { isBuiltSong } from '$lib/album-sections';
-  import { activityDot } from '$lib/activity-tone';
+  } from '#lib/api-client.ts';
+  import { isBuiltSong } from '#lib/album-sections.ts';
+  import { activityDot } from '#lib/activity-tone.ts';
   import {
     pipelineOverlay,
     JOB_CONFIRM_COPY,
     type JobConfirm,
     type StageKey
-  } from '$lib/stores/pipeline-overlay.svelte';
-  import { cn } from '$lib/utils';
-  import { formatBytesShort } from '$lib/formatters';
-  import { inboxCounts, publishInboxQueueCount } from '$lib/stores/nav-badges.svelte';
+  } from '#lib/stores/pipeline-overlay.svelte.ts';
+  import { cn } from '#lib/utils.ts';
+  import { formatBytesShort } from '#lib/formatters.ts';
+  import { inboxCounts, publishInboxQueueCount } from '#lib/stores/nav-badges.svelte.ts';
 
   // The pipeline's home: what is running and how to hold it, what the library looks like, where
   // each stage stands, what is waiting for a decision, and what just happened. On a phone it is

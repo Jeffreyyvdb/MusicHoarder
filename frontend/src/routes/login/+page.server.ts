@@ -1,7 +1,7 @@
 import { redirect } from '@sveltejs/kit';
-import { probeSession } from '$lib/server/session';
-import { APP_HOME } from '$lib/app-home';
-import { isDemo } from '$lib/auth/capabilities';
+import { probeSession } from '#lib/server/session.ts';
+import { APP_HOME } from '#lib/app-home.ts';
+import { isDemo } from '#lib/auth/capabilities.ts';
 import type { PageServerLoad } from './$types';
 
 /**

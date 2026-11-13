@@ -1,8 +1,8 @@
 import { error, redirect } from '@sveltejs/kit';
-import { probeSession, SESSION_COOKIE } from '$lib/server/session';
-import { APP_HOME } from '$lib/app-home';
-import { allowedPathPrefixesFor, isPathAllowed } from '$lib/nav';
-import { SESSION_DEPENDENCY } from '$lib/auth/session-watch';
+import { probeSession, SESSION_COOKIE } from '#lib/server/session.ts';
+import { APP_HOME } from '#lib/app-home.ts';
+import { allowedPathPrefixesFor, isPathAllowed } from '#lib/nav.ts';
+import { SESSION_DEPENDENCY } from '#lib/auth/session-watch.ts';
 import type { LayoutServerLoad } from './$types';
 
 /**
@@ -17,7 +17,7 @@ import type { LayoutServerLoad } from './$types';
  * It runs once per document load, NOT once per navigation: the pathname is read untracked, so
  * SvelteKit has no reason to re-run it (and make the browser wait on `__data.json` plus an API
  * round trip) before it can render the next page. Client-side navigations are guarded by the
- * universal load in `+layout.ts`, and `createSessionWatch` (`$lib/auth/session-watch`) re-asks
+ * universal load in `+layout.ts`, and `createSessionWatch` (`#lib/auth/session-watch.ts`) re-asks
  * about the session in the background, re-running this load through {@link SESSION_DEPENDENCY}
  * only when the API says it is gone.
  */

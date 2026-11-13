@@ -1,14 +1,14 @@
 <script lang="ts">
   import { Copy, ExternalLink, Link2Off, RefreshCw, Share, TriangleAlert } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
-  import Cover from '$lib/components/file-browser/Cover.svelte';
-  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
-  import ShareOpensChart from '$lib/components/shares/ShareOpensChart.svelte';
-  import * as AlertDialog from '$lib/components/ui/alert-dialog';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
-  import { Button } from '$lib/components/ui/button';
-  import { Skeleton } from '$lib/components/ui/skeleton';
-  import { SegmentedControl } from '$lib/components/ui/segmented-control';
+  import Cover from '#lib/components/file-browser/Cover.svelte';
+  import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
+  import ShareOpensChart from '#lib/components/shares/ShareOpensChart.svelte';
+  import * as AlertDialog from '#lib/components/ui/alert-dialog/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import { Skeleton } from '#lib/components/ui/skeleton/index.ts';
+  import { SegmentedControl } from '#lib/components/ui/segmented-control/index.ts';
   import {
     ApiError,
     fetchShareStats,
@@ -16,9 +16,9 @@
     revokeSongShare,
     shareUrl,
     type ShareStatsDetail
-  } from '$lib/api-client';
-  import { formatRelativeTime } from '$lib/formatters';
-  import { resetShareLinkCache } from '$lib/share-links';
+  } from '#lib/api-client.ts';
+  import { formatRelativeTime } from '#lib/formatters.ts';
+  import { resetShareLinkCache } from '#lib/share-links.ts';
   import {
     countLabel,
     isRevoked,
@@ -26,9 +26,9 @@
     shareTitle,
     sourceLabel,
     sumDaily
-  } from '$lib/share-stats';
-  import type { NavBack } from '$lib/nav';
-  import { cn } from '$lib/utils';
+  } from '#lib/share-stats.ts';
+  import type { NavBack } from '#lib/nav.ts';
+  import { cn } from '#lib/utils.ts';
 
   // One share link, pushed from the Share links list: how many people opened it and played it,
   // when, and from where — then the link itself (copy, share, open) and, last and alone, Revoke.

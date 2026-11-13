@@ -1,17 +1,29 @@
+<script module lang="ts">
+  // The last height measured for each layout (compact / md+, which is what changes it — the
+  // chip band on md+). A page is a fresh mount of this component, so without this the bar's
+  // height is unknown until the ResizeObserver below says so, a frame after the new page has
+  // already been styled and laid out once at the old (or unset) value. Seeding this guess is
+  // what lets the first pass get it right instead of needing a second one.
+  let lastNavbarH: { compact: number | null; desktop: number | null } = {
+    compact: null,
+    desktop: null
+  };
+</script>
+
 <script lang="ts">
   import type { Component, Snippet } from 'svelte';
   import { page } from '$app/state';
   import { ChevronLeft, Ellipsis } from '@lucide/svelte';
-  import { Button } from '$lib/components/ui/button';
-  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
-  import { SegmentedControl } from '$lib/components/ui/segmented-control';
-  import SectionTabsV2 from '$lib/components/v2/SectionTabsV2.svelte';
-  import AccountButton from '$lib/components/v2/AccountButton.svelte';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-  import { isTabRoot, surfaceFor, type NavBack } from '$lib/nav';
-  import { tabMemory } from '$lib/stores/tab-memory.svelte';
-  import { navBack } from '$lib/stores/nav-back.svelte';
-  import { cn } from '$lib/utils';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
+  import { SegmentedControl } from '#lib/components/ui/segmented-control/index.ts';
+  import SectionTabsV2 from '#lib/components/v2/SectionTabsV2.svelte';
+  import AccountButton from '#lib/components/v2/AccountButton.svelte';
+  import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
+  import { isTabRoot, surfaceFor, type NavBack } from '#lib/nav.ts';
+  import { tabMemory } from '#lib/stores/tab-memory.svelte.ts';
+  import { navBack } from '#lib/stores/nav-back.svelte.ts';
+  import { cn } from '#lib/utils.ts';
 
   // The page's navigation bar — the one page-header idiom, now shaped like UIKit's.
   //
@@ -179,6 +191,10 @@
 
   // A bits-ui ScrollArea viewport only turns `overflow-y: scroll` on once its scrollbar has
   // mounted, which is after this bar's effects run, so it is recognised by its attribute too.
+  //
+  // This asks for computed style, and the first such question after a page mounts makes the
+  // browser style the whole new page on the spot. Only call it inside an animation frame, where
+  // that pass is about to happen anyway.
   function scrollParentOf(el: HTMLElement): HTMLElement | null {
     for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
       if (p.hasAttribute('data-scroll-area-viewport')) return p;
@@ -186,6 +202,11 @@
       if (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay') return p;
     }
     return null;
+  }
+
+  /** The ScrollArea viewport around `el`, found by attribute alone: no style is asked for. */
+  function viewportAround(el: HTMLElement): HTMLElement | null {
+    return el.parentElement?.closest<HTMLElement>('[data-scroll-area-viewport]') ?? null;
   }
 
   // Passed at all (even while still null) means the page's heading, not the sentinel, decides.
@@ -228,24 +249,48 @@
   // has to stick below the bar, not slide behind it. Publish the bar's live height on the
   // scroller so it can use `top: var(--mh-navbar-h, 0px)` — 48px on a phone, the bar plus its
   // chip bands on desktop.
+  //
+  // A custom property inherits, so writing it invalidates the style of every descendant and then
+  // their layout — and the ResizeObserver was the only thing that ever wrote it, first firing
+  // after the new page had already been styled and laid out once: a second full pass over the
+  // whole page, every navigation. Seeding the value measured last time for this layout before
+  // that first pass avoids it on every page but the first (or a genuine change — Dynamic Type,
+  // a resize, a different chip band — which the observer still corrects, same as before); the
+  // observer skipping its own write when the measured height already matches avoids it even
+  // then.
+  //
+  // The seed has to be written before anything asks the new page for style or layout, so it goes
+  // on the ScrollArea viewport around the bar, which an attribute identifies without such a
+  // question; a page with a hand-rolled scroller is not seeded and behaves as it always did. The
+  // exact lookup follows inside the frame, and moves the value if the scroller turns out to be a
+  // nearer element.
   $effect(() => {
     const bar = navbarEl;
     if (!bar) return;
+    const layout = compact ? 'compact' : 'desktop';
+    const seeded = viewportAround(bar);
+    const seed = lastNavbarH[layout];
+    if (seeded && seed != null) seeded.style.setProperty('--mh-navbar-h', `${seed}px`);
     let root: HTMLElement | null = null;
     let ro: ResizeObserver | null = null;
     const frame = requestAnimationFrame(() => {
       root = scrollParentOf(bar);
+      if (seeded && seeded !== root) seeded.style.removeProperty('--mh-navbar-h');
       if (!root) return;
       const target = root;
-      ro = new ResizeObserver(() =>
-        target.style.setProperty('--mh-navbar-h', `${bar.offsetHeight}px`)
-      );
+      ro = new ResizeObserver(() => {
+        const h = bar.offsetHeight;
+        lastNavbarH[layout] = h;
+        if (target.style.getPropertyValue('--mh-navbar-h') === `${h}px`) return;
+        target.style.setProperty('--mh-navbar-h', `${h}px`);
+      });
       ro.observe(bar);
     });
     return () => {
       cancelAnimationFrame(frame);
       ro?.disconnect();
       root?.style.removeProperty('--mh-navbar-h');
+      if (seeded !== root) seeded?.style.removeProperty('--mh-navbar-h');
     };
   });
 

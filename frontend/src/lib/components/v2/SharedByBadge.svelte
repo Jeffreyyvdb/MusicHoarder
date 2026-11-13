@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Users } from '@lucide/svelte';
-  import type { ApiSong } from '$lib/api-client';
-  import { songsStore } from '$lib/stores/songs.svelte';
+  import type { ApiSong } from '#lib/api-client.ts';
+  import { songsStore } from '#lib/stores/songs.svelte.ts';
 
   /**
    * "Shared by <name>" for a track that belongs to someone else's library.

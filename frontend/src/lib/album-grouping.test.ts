@@ -185,6 +185,27 @@ describe('sortAlbums', () => {
     expect(sortAlbums(tied, 'played').map((a) => a.artist)).toEqual(['A', 'B']);
     expect(sortAlbums(tied, 'recent').map((a) => a.artist)).toEqual(['A', 'B']);
   });
+
+  it("'recent' matches parsing addedAtUtc from inside the comparator, on a mix of ties, missing and invalid dates", () => {
+    // `sortAlbums` now precomputes each album's added-time once instead of re-parsing it on every
+    // comparison; this pins the new output against the naive comparator it replaced.
+    const mixed = hydrated([
+      card({ artist: 'Zappa', title: 'Hot Rats', addedAtUtc: '2020-06-01T00:00:00Z' }),
+      card({ artist: 'No Date A', title: 'No Date A', addedAtUtc: null }),
+      card({ artist: 'No Date B', title: 'No Date B', addedAtUtc: null }),
+      card({ artist: 'Bad Date', title: 'Bad Date', addedAtUtc: 'not-a-date' }),
+      card({ artist: 'Tied One', title: 'Tied One', addedAtUtc: '2020-06-01T00:00:00Z' }),
+      card({ artist: 'Aphex Twin', title: 'Drukqs', addedAtUtc: '2026-01-01T00:00:00Z' })
+    ]);
+    const addedOld = (a: AlbumSummary) => (a.addedAtUtc ? Date.parse(a.addedAtUtc) : 0);
+    const byArtistThenTitleOld = (a: AlbumSummary, b: AlbumSummary) =>
+      a.artist.localeCompare(b.artist) || a.title.localeCompare(b.title);
+    const old = [...mixed].sort(
+      (a, b) => addedOld(b) - addedOld(a) || byArtistThenTitleOld(a, b)
+    );
+
+    expect(sortAlbums(mixed, 'recent')).toEqual(old);
+  });
 });
 
 describe('hydrateAlbums', () => {

@@ -58,6 +58,9 @@ public sealed class SharedLibraryGrantResolver : ISharedLibraryGrantResolver
 
     public IQueryable<SongMetadata> ScopeSongs(MusicHoarderDbContext db, GrantSet set)
     {
+        // Every rule below reads the song's own columns, and LibraryChangeStamp covers every Songs
+        // row of the grantor — which is what lets the library lists answer 304. A rule that reads
+        // another table has to be added to that stamp.
         var baseQuery = db.Songs.IgnoreQueryFilters().AsNoTracking()
             .Where(s => s.OwnerUserId == set.OwnerUserId
                 && s.DeletedAtUtc == null

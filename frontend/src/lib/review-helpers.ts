@@ -5,7 +5,7 @@ import type {
   EnrichmentCandidate,
   EnrichmentDetail,
   ProviderAttempt
-} from '$lib/api-client';
+} from '#lib/api-client.ts';
 
 export type ReviewReasonKey = 'low_confidence' | 'multiple_matches' | 'no_fingerprint' | 'below_threshold';
 
@@ -21,8 +21,8 @@ export interface ReviewReason {
  * reason enum, so it's derived from the same signals the pipeline uses: a missing
  * fingerprint, several competing matches, or a single low-confidence match.
  */
-export function reasonFor(track: Pick<ApiSong, 'fingerprint' | 'matchWarnings' | 'matchConfidence'>): ReviewReason {
-  if (!track.fingerprint) return { key: 'no_fingerprint', label: 'No fingerprint', tint: 'err' };
+export function reasonFor(track: Pick<ApiSong, 'hasFingerprint' | 'matchWarnings' | 'matchConfidence'>): ReviewReason {
+  if (!track.hasFingerprint) return { key: 'no_fingerprint', label: 'No fingerprint', tint: 'err' };
   if ((track.matchWarnings?.length ?? 0) > 1)
     return { key: 'multiple_matches', label: 'Multiple matches', tint: 'info' };
   if (track.matchConfidence != null && track.matchConfidence < 0.7)
@@ -548,7 +548,7 @@ export function buildTimeline(track: ApiSong, detail: EnrichmentDetail | null | 
       description: `discovered ${track.fileName}${noTags ? ' · no usable ID3' : ''}`
     });
   }
-  if (track.fingerprint && firstAttempt) {
+  if (track.hasFingerprint && firstAttempt) {
     events.push({
       key: 'fp',
       time: new Date(firstAttempt).toISOString(),

@@ -1,4 +1,4 @@
-import { isNativeShell } from '$lib/native/shell';
+import { isNativeShell } from '#lib/native/shell.ts';
 
 // Publishes the bottom inset of the *visual* viewport (browser bottom chrome
 // such as Chrome Android's bottom address bar, plus the on-screen keyboard) as

@@ -12,29 +12,34 @@
     Trash2
   } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
-  import * as AlertDialog from '$lib/components/ui/alert-dialog';
-  import { Button } from '$lib/components/ui/button';
-  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
-  import { EmptyState } from '$lib/components/ui/empty-state';
-  import { ScrollArea } from '$lib/components/ui/scroll-area';
-  import Cover from '$lib/components/file-browser/Cover.svelte';
-  import PageToolbarV2 from '$lib/components/v2/PageToolbarV2.svelte';
-  import PlaylistCover from '$lib/components/v2/PlaylistCover.svelte';
-  import PlaylistNameSheet from '$lib/components/v2/PlaylistNameSheet.svelte';
-  import TrackRowMenu, { activateTrack } from '$lib/components/v2/TrackRowMenu.svelte';
-  import TrackRowText from '$lib/components/v2/TrackRowText.svelte';
-  import { longpress, type LongPressPoint } from '$lib/actions/long-press';
-  import { coverUrlForSong, toPlayerSong, type ApiSong } from '$lib/api-client';
-  import { formatDuration, formatTotalDuration } from '$lib/formatters';
-  import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-  import { missingLabel, playlistKindLabel, trackCountLabel, sourceLabel } from '$lib/playlists';
-  import { playerStore } from '$lib/stores/player.svelte';
-  import { playlistSongs, playlistsStore } from '$lib/stores/playlists.svelte';
-  import { songDetail } from '$lib/stores/song-detail.svelte';
-  import { songsStore } from '$lib/stores/songs.svelte';
-  import { tabMemory } from '$lib/stores/tab-memory.svelte';
-  import { artistOf, titleOf } from '$lib/track-list-view.svelte';
-  import { cn, shuffle } from '$lib/utils';
+  import * as AlertDialog from '#lib/components/ui/alert-dialog/index.ts';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
+  import { EmptyState } from '#lib/components/ui/empty-state/index.ts';
+  import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
+  import Cover from '#lib/components/file-browser/Cover.svelte';
+  import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
+  import PlaylistCover from '#lib/components/v2/PlaylistCover.svelte';
+  import PlaylistNameSheet from '#lib/components/v2/PlaylistNameSheet.svelte';
+  import TrackRowMenu, { activateTrack } from '#lib/components/v2/TrackRowMenu.svelte';
+  import TrackRowText from '#lib/components/v2/TrackRowText.svelte';
+  import { longpress, type LongPressPoint } from '#lib/actions/long-press.ts';
+  import {
+    rowCoverFallbackForSong,
+    rowCoverUrlForSong,
+    toPlayerSong,
+    type ApiSong
+  } from '#lib/api-client.ts';
+  import { formatDuration, formatTotalDuration } from '#lib/formatters.ts';
+  import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
+  import { missingLabel, playlistKindLabel, trackCountLabel, sourceLabel } from '#lib/playlists.ts';
+  import { playerStore } from '#lib/stores/player.svelte.ts';
+  import { playlistSongs, playlistsStore } from '#lib/stores/playlists.svelte.ts';
+  import { songDetail } from '#lib/stores/song-detail.svelte.ts';
+  import { songsStore } from '#lib/stores/songs.svelte.ts';
+  import { tabMemory } from '#lib/stores/tab-memory.svelte.ts';
+  import { artistOf, titleOf } from '#lib/track-list-view.svelte.ts';
+  import { cn, shuffle } from '#lib/utils.ts';
 
   // A playlist's page (/playlists/[id]): the album page's shape — cover, name, Play / Shuffle — over
   // the songs in play order. A synced playlist lists its own tracks first, then "Added here"; only
@@ -264,7 +269,8 @@
         <Cover
           artist={fallbackArtist(song)}
           title={song.album ?? titleOf(song)}
-          coverUrl={coverUrlForSong(song)}
+          coverUrl={rowCoverUrlForSong(song)}
+          fallbackUrl={rowCoverFallbackForSong(song)}
           size={48}
           corner={6}
           caption={false}

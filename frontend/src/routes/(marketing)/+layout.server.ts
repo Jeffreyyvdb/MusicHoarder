@@ -1,4 +1,4 @@
-import { probeSession, type SessionRole } from '$lib/server/session';
+import { probeSession, type SessionRole } from '#lib/server/session.ts';
 import type { LayoutServerLoad } from './$types';
 
 /**

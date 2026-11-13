@@ -1,6 +1,6 @@
 <script lang="ts">
   import { CircleCheck, ExternalLink } from '@lucide/svelte';
-  import * as GroupedList from '$lib/components/ui/grouped-list';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
 
   type Props = {
     name: string;

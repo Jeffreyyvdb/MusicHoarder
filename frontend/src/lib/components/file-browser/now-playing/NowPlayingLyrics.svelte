@@ -1,14 +1,14 @@
 <script lang="ts">
   import { AlertTriangle, CircleCheck, Languages, Loader2, Sparkles, Timer } from '@lucide/svelte';
-  import { Badge } from '$lib/components/ui/badge';
-  import { Button } from '$lib/components/ui/button';
-  import { SegmentedControl } from '$lib/components/ui/segmented-control';
-  import LyricsPanel from '$lib/components/file-browser/LyricsPanel.svelte';
-  import type { ApiSong } from '$lib/api-client';
-  import type { AiLyrics, LyricsViewMode } from '$lib/lyrics/ai-lyrics.svelte';
-  import type { LyricsDoc } from '$lib/lyrics/lyrics-doc.svelte';
-  import { playerStore } from '$lib/stores/player.svelte';
-  import { cn } from '$lib/utils';
+  import { Badge } from '#lib/components/ui/badge/index.ts';
+  import { Button } from '#lib/components/ui/button/index.ts';
+  import { SegmentedControl } from '#lib/components/ui/segmented-control/index.ts';
+  import LyricsPanel from '#lib/components/file-browser/LyricsPanel.svelte';
+  import type { ApiSong } from '#lib/api-client.ts';
+  import type { AiLyrics, LyricsViewMode } from '#lib/lyrics/ai-lyrics.svelte.ts';
+  import type { LyricsDoc } from '#lib/lyrics/lyrics-doc.svelte.ts';
+  import { playerStore } from '#lib/stores/player.svelte.ts';
+  import { cn } from '#lib/utils.ts';
   import LyricsCompareColumn from './LyricsCompareColumn.svelte';
 
   /**
