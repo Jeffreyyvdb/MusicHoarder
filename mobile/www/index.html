@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
+    <title>MusicHoarder</title>
+    <!-- The one page bundled with the app: shown when the server cannot be reached, or when the
+         app was built without one. Everything else is loaded from the server. The colours are the
+         hex copies of the app.css tokens the frontend's own handoff pages use. -->
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #ffffff;
+        --fg: #000000;
+        --muted: #5f5f64;
+        --tint: #006b1f;
+        --on-tint: #ffffff;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #000000;
+          --fg: #ffffff;
+          --muted: #a1a1a6;
+          --tint: #2fbd55;
+          --on-tint: #000000;
+        }
+      }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        display: grid;
+        place-items: center;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: system-ui, -apple-system, sans-serif;
+        text-align: center;
+      }
+      main {
+        padding: 32px 24px;
+        max-width: 380px;
+      }
+      h1 {
+        font-size: 1.25rem;
+        margin: 0 0 8px;
+      }
+      p {
+        color: var(--muted);
+        font-size: 0.9rem;
+        line-height: 1.5;
+        margin: 0 0 24px;
+      }
+      button {
+        display: block;
+        width: 100%;
+        padding: 14px 20px;
+        border: 0;
+        border-radius: 999px;
+        background: var(--tint);
+        color: var(--on-tint);
+        font: inherit;
+        font-weight: 600;
+      }
+      [hidden] {
+        display: none;
+      }
+    </style>
+    <script src="server.js"></script>
+  </head>
+  <body>
+    <main>
+      <h1 id="title">Can't reach your library</h1>
+      <p id="text">Check your connection. MusicHoarder plays from your own server.</p>
+      <button id="retry" type="button">Try again</button>
+    </main>
+    <script>
+      (function () {
+        var server = window.MH_SERVER_URL;
+        if (!server) {
+          document.getElementById('title').textContent = 'No server set';
+          document.getElementById('text').textContent =
+            'This build was made without a server address. Build it again with MH_SERVER_URL set.';
+          document.getElementById('retry').hidden = true;
+          return;
+        }
+        function retry() {
+          location.replace(server + '/overview');
+        }
+        document.getElementById('retry').addEventListener('click', retry);
+        window.addEventListener('online', retry);
+      })();
+    </script>
+  </body>
+</html>

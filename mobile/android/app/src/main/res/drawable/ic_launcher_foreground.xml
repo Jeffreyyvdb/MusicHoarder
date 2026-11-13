@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Vinyl disc -->
+    <path
+        android:fillColor="#FAFAFA"
+        android:pathData="M26,54a28,28 0 1,0 56,0a28,28 0 1,0 -56,0z" />
+    <!-- Grooves -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#A3A3A3"
+        android:strokeWidth="0.5"
+        android:strokeAlpha="0.5"
+        android:pathData="M30.8,54a23.2,23.2 0 1,0 46.4,0a23.2,23.2 0 1,0 -46.4,0z" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#A3A3A3"
+        android:strokeWidth="0.4"
+        android:strokeAlpha="0.35"
+        android:pathData="M34.8,54a19.2,19.2 0 1,0 38.4,0a19.2,19.2 0 1,0 -38.4,0z" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#A3A3A3"
+        android:strokeWidth="0.3"
+        android:strokeAlpha="0.25"
+        android:pathData="M38.8,54a15.2,15.2 0 1,0 30.4,0a15.2,15.2 0 1,0 -30.4,0z" />
+    <!-- Center label -->
+    <path
+        android:fillColor="#0A0A0A"
+        android:pathData="M45.2,54a8.8,8.8 0 1,0 17.6,0a8.8,8.8 0 1,0 -17.6,0z" />
+    <!-- Spindle hole -->
+    <path
+        android:fillColor="#FAFAFA"
+        android:pathData="M50.8,54a3.2,3.2 0 1,0 6.4,0a3.2,3.2 0 1,0 -6.4,0z" />
+</vector>
