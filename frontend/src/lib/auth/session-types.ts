@@ -4,14 +4,10 @@
  */
 
 /**
- * The role string as it appears ON THE WIRE, which is deliberately still the pre-rename
- * vocabulary. Server-side the roles are Admin / Demo / Member; the API keeps emitting the old
- * names because shipped Android builds branch on `role === 'Friend'` to pick their API routes.
- *
- * Prefer `isAdmin` and `capabilities` over this field — see `#lib/auth/capabilities.ts`. This union
- * exists so the legacy value is still typed, not so new code branches on it.
+ * The account's role, as the API names it. For display: branch on `isAdmin` and `capabilities`
+ * instead — see `#lib/auth/capabilities.ts`.
  */
-export type SessionRole = 'Owner' | 'Demo' | 'Friend';
+export type SessionRole = 'Admin' | 'Demo' | 'Member';
 
 /** What an admin can grant a person. Mirrors the server's `Capability` flags, by name. */
 export type Capability = 'DownloadMusic' | 'TrackListening' | 'ManageOwnShares' | 'Administer';
@@ -19,7 +15,7 @@ export type Capability = 'DownloadMusic' | 'TrackListening' | 'ManageOwnShares' 
 export interface SessionUser {
   id: string;
   email: string;
-  /** Legacy vocabulary — see {@link SessionRole}. Branch on `isAdmin` instead. */
+  /** For display — see {@link SessionRole}. Branch on `isAdmin` instead. */
   role: SessionRole;
   displayName: string | null;
   /** True for an administrator. Authoritative; do not re-derive it from `role`. */

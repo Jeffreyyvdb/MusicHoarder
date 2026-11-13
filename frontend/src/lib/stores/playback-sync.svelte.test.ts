@@ -126,7 +126,7 @@ class FakeAudio {
 
 const ME = 'tab-mac-0001';
 const PHONE = 'phone-00001';
-const USER = { id: 'u1', email: 'a@example.com', role: 'Owner' as const, displayName: null };
+const USER = { id: 'u1', email: 'a@example.com', role: 'Admin' as const, displayName: null };
 
 let audio: FakeAudio | undefined;
 let sessionStore: Map<string, string>;

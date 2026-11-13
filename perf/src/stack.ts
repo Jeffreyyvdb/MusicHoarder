@@ -9,7 +9,6 @@ import { REPO_ROOT, PERF_ROOT, type StackConfig, type Target } from './config.ts
 interface StackState {
   apiPid: number
   webPid: number
-  bearer: string
   cookies: string[]
 }
 
@@ -193,7 +192,7 @@ function apiEnvironment(cfg: StackConfig): Record<string, string> {
   }
 }
 
-async function signIn(cfg: StackConfig, apiLog: string): Promise<{ bearer: string; cookies: string[] }> {
+async function signIn(cfg: StackConfig, apiLog: string): Promise<{ cookies: string[] }> {
   // The console sender logs the link when no mail provider is configured; that log is the inbox.
   const requestToken = async (): Promise<string> => {
     const seen = (readFileSync(apiLog, 'utf8').match(/\[MAGIC LINK\]/g) ?? []).length
@@ -213,16 +212,6 @@ async function signIn(cfg: StackConfig, apiLog: string): Promise<{ bearer: strin
     return token!
   }
 
-  const tokenResponse = await fetch(`${cfg.apiUrl}/api/auth/token`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ token: await requestToken() }),
-  })
-  if (!tokenResponse.ok) throw new Error(`auth/token answered ${tokenResponse.status}`)
-  const tokenBody = (await tokenResponse.json()) as Record<string, string>
-  const bearer = tokenBody.accessToken ?? tokenBody.access_token ?? tokenBody.token
-  if (!bearer) throw new Error(`auth/token returned no token: ${Object.keys(tokenBody).join(', ')}`)
-
   const consume = await fetch(`${cfg.apiUrl}/api/auth/consume`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -231,7 +220,7 @@ async function signIn(cfg: StackConfig, apiLog: string): Promise<{ bearer: strin
   if (!consume.ok) throw new Error(`auth/consume answered ${consume.status}`)
   const cookies = consume.headers.getSetCookie().map((cookie) => cookie.split(';')[0]!).filter((c) => !c.endsWith('='))
   if (cookies.length === 0) throw new Error('auth/consume set no cookie.')
-  return { bearer, cookies }
+  return { cookies }
 }
 
 export interface UpOptions {
@@ -288,7 +277,7 @@ export async function up(cfg: StackConfig, options: UpOptions): Promise<Target> 
     MUSICHOARDER_API_URL: cfg.apiUrl,
     OTEL_EXPORTER_OTLP_ENDPOINT: '',
   }, join(cfg.workDir, 'logs/web.log'))
-  writeFileSync(statePath(cfg), JSON.stringify({ apiPid, webPid, bearer: '', cookies: [] } satisfies StackState))
+  writeFileSync(statePath(cfg), JSON.stringify({ apiPid, webPid, cookies: [] } satisfies StackState))
 
   try {
     await waitFor('the API', async () => {
@@ -312,13 +301,14 @@ export async function up(cfg: StackConfig, options: UpOptions): Promise<Target> 
 export function target(cfg: StackConfig): Target {
   if (!existsSync(statePath(cfg))) throw new Error(`No ${cfg.size} stack is running. Start one with: bun perf up --size ${cfg.size}`)
   const state = JSON.parse(readFileSync(statePath(cfg), 'utf8')) as StackState
-  if (!alive(state.apiPid) || !alive(state.webPid) || !state.bearer)
+  if (!alive(state.apiPid) || !alive(state.webPid) || !state.cookies?.length)
     throw new Error(`The ${cfg.size} stack is not running any more. Start it again with: bun perf up --size ${cfg.size}`)
   return {
     apiBase: cfg.apiUrl,
     webBase: cfg.webUrl,
     proxyBase: `${cfg.webUrl}/api/mh`,
-    headers: { authorization: `Bearer ${state.bearer}` },
+    // The session cookie, as a browser (or the app shell's web view) sends it.
+    headers: { cookie: state.cookies.join('; ') },
     cookies: state.cookies,
     local: cfg,
     label: `local stack, ${cfg.songs.toLocaleString('en')} songs`,

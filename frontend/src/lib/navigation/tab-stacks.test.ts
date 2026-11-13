@@ -16,8 +16,8 @@ import {
   type TabMemoryState
 } from './tab-stacks';
 
-const admin = { role: 'Owner' as const, isAdmin: true };
-const member = { role: 'Friend' as const, isAdmin: false, capabilities: [] };
+const admin = { role: 'Admin' as const, isAdmin: true };
+const member = { role: 'Member' as const, isAdmin: false, capabilities: [] };
 type User = typeof admin | typeof member;
 
 const u = (path: string) => new URL(path, 'https://musichoarder.test');

@@ -41,7 +41,7 @@ library.
 ## Listening
 
 - **Player** — Apple Music-style: full-screen Now Playing with time-synced lyrics and music videos, likes, play history, and a radio that continues with similar songs when the queue runs out.
-- **Phone** — an iOS-style interface (tab bar, per-tab navigation, Dynamic Type), installable to the iPhone Home Screen; a native Android app mirrors it.
+- **Phone** — an iOS-style interface (tab bar, per-tab navigation, Dynamic Type), installable to the iPhone Home Screen; the MusicHoarder app for iPhone and Android wraps the same pages around a native player that keeps going on a locked phone.
 - **Sharing** — revocable public links to a track or album, and invited listen-only member accounts over what you share.
 - **Growing the library** — Discover playlists, Spotify sync, and an optional wishlist that downloads missing songs.
 
@@ -50,7 +50,7 @@ library.
 - Price: free. MIT licensed. No hosted tier, no paid plan, no account required.
 - Deployment: Docker Compose (prebuilt images on GHCR) or build from source; PostgreSQL for state.
 - Stack: ASP.NET Core minimal API, SvelteKit 5 frontend, .NET Aspire orchestration, Chromaprint/fpcalc.
-- Clients: web app (installable on iPhone and desktop), plus a native Android client that pairs by QR code, email sign-in or passkey.
+- Clients: web app (installable on iPhone and desktop), plus the MusicHoarder app for iPhone and Android: the same pages, connected to your server by its address, with a native audio player.
 - Telemetry: none. Installed instances send nothing back to the maintainer.
 
 ## Links

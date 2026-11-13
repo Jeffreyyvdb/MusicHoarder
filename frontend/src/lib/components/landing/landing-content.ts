@@ -83,7 +83,7 @@ export const listenFeatures: readonly Feature[] = [
   {
     icon: Download,
     title: 'Install it',
-    body: 'Add it to your iPhone’s Home Screen, or install it from Chrome or Edge. A native Android app mirrors the same design and behaviour.'
+    body: 'Add it to your iPhone’s Home Screen, or install it from Chrome or Edge. The MusicHoarder app for iPhone and Android keeps the music playing on a locked phone.'
   }
 ];
 

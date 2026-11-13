@@ -15,6 +15,9 @@ import type { PageServerLoad } from './$types';
  *  - `?switch` opts out of the redirect entirely, so a signed-in owner can still reach the form.
  */
 export const load: PageServerLoad = async ({ request, url }) => {
+  // The app shell (mobile/) adds this to its user agent. It cannot use passkeys (see
+  // isPasskeySupported), so the page words its sign-in without them from the first frame.
+  const inApp = /\bMusicHoarderApp\b/.test(request.headers.get('user-agent') ?? '');
   const probe = await probeSession(request.headers.get('cookie'), {
     userAgent: request.headers.get('user-agent'),
     timeoutMs: 4000
@@ -24,6 +27,7 @@ export const load: PageServerLoad = async ({ request, url }) => {
     // "Add account" mode: the form renders even while signed in, with a banner explaining the
     // current account stays signed in (the account switcher parks it on login).
     return {
+      inApp,
       switching: true,
       currentUser: probe.status === 'authenticated' ? probe.user : null
     };
@@ -35,5 +39,5 @@ export const load: PageServerLoad = async ({ request, url }) => {
     throw redirect(303, APP_HOME);
   }
 
-  return { switching: false, currentUser: null };
+  return { inApp, switching: false, currentUser: null };
 };

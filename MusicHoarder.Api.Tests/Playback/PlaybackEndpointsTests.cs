@@ -557,9 +557,6 @@ public class PlaybackEndpointsTests
         public Task<Session?> StartDemoSessionAsync(string? ip, string? userAgent, CancellationToken ct)
             => throw new NotSupportedException();
 
-        public Task<Session?> CreateDeviceSessionAsync(Guid userId, string? ip, string? userAgent, CancellationToken ct)
-            => throw new NotSupportedException();
-
         public Task RevokeAsync(Guid sessionId, bool allForUser, CancellationToken ct)
             => throw new NotSupportedException();
 

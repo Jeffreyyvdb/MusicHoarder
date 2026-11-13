@@ -56,7 +56,7 @@ public class RequireAuthMiddlewareTests
     [Theory]
     [InlineData("/api/friends")]
     [InlineData("/api/friends/invites")]
-    [InlineData("/api/shared/songs")]
+    [InlineData("/songs")]
     public async Task FriendManagementAndSharedReads_Require401_WhenAnonymous(string path)
     {
         var (ctx, nextCalled) = await RunAsync(path, user: null);

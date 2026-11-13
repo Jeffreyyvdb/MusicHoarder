@@ -1,0 +1,6 @@
+<!--
+  Never shown. Capacitor on iOS refuses to start (exit 1, "Unable to load …/public//overview")
+  unless server.appStartPath also exists as a bundled file, even though the page itself is loaded
+  from the server (CAPBridgeViewController.loadWebView). Keep this file named after appStartPath
+  in capacitor.config.ts.
+-->

@@ -6,7 +6,7 @@
   import { cn } from '#lib/utils.ts';
 
   /**
-   * A row tap on a phone (the tap rule, mirrored by the Android client's `RowTap`): a song that is not the
+   * A row tap on a phone (the tap rule): a song that is not the
    * loaded one plays the list it sits in, from it (`play`, via `playerStore.startQueue`); the
    * loaded song opens Now Playing instead, resuming it if it was paused. A tap never pauses and
    * never restarts — the old row play button toggled pause, which is the wrong thing for a

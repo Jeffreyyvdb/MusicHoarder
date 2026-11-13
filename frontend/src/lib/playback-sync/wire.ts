@@ -2,18 +2,20 @@
  * The playback-sync ("Connect") wire contract: what `GET /api/playback`, its SSE stream and the two
  * POSTs carry, and the validation every incoming message goes through before the store sees it.
  *
- * The rules are small on purpose, because the Android client ports them line for line: identity
- * fields (a version, a song id, the queue and its index, a device id, a command id) are strict and
- * a message missing one is dropped whole; display and optional fields fall back to a safe default
- * instead, so a server that adds or renames a hint never costs anyone their session. Nothing here
- * touches a browser API.
+ * Identity fields (a version, a song id, the queue and its index, a device id, a command id) are
+ * strict and a message missing one is dropped whole; display and optional fields fall back to a
+ * safe default instead, so a server that adds or renames a hint never costs anyone their session.
+ * Nothing here touches a browser API.
  */
 
 export type DeviceKind = 'computer' | 'phone' | 'tablet' | 'unknown';
 export type DeviceClient = 'web' | 'android';
 export type PlaybackCommandName = 'pause' | 'resume' | 'next' | 'previous' | 'seek' | 'transfer';
 
-/** One player instance of the account: a browser tab, or the Android app. */
+/**
+ * One player instance of the account: a browser tab (the app shell's web view is one too). The
+ * server may still name an `android` client, from installs of the retired native app.
+ */
 export interface PlaybackDevice {
   deviceId: string;
   /** One per browser profile on the web; two tabs sharing it are "Another tab" to each other. */

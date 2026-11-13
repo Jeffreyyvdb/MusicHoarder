@@ -11,7 +11,9 @@
     PasskeyRefusedError
   } from '#lib/api-client.ts';
   import { isPasskeyAutofillSupported, isPasskeySupported } from '#lib/webauthn-client.ts';
-  import { isInstalledApp } from '#lib/hooks/viewport-insets.svelte.ts';
+  import { isHomeScreenWebApp } from '#lib/hooks/viewport-insets.svelte.ts';
+  import { isNativeShell } from '#lib/native/shell.ts';
+  import { noteAppSignInRequested } from '#lib/native/app-sign-in.ts';
   import { isIosDevice } from '#lib/ios-safari.ts';
   import { APP_HOME } from '#lib/app-home.ts';
   import {
@@ -60,7 +62,9 @@
   let isPasskeyLogin = $state(false);
   let passkeySupported = $state(false);
   // An iOS Home Screen app has its own cookie jar and never receives links — an emailed sign-in
-  // link always opens in Safari — so inside it a passkey is the way in.
+  // link always opens in Safari — so inside it a passkey is the way in. The native app shell does
+  // receive them (the link's page hands the token over through `musichoarder://auth`), so there
+  // email leads as it does in a browser.
   let inIosHomeScreenApp = $state(false);
   // The server render cannot know either of those. Everywhere but the installed iOS app the
   // order is the server's (email first), so the form and the demo show from the first paint —
@@ -73,7 +77,7 @@
 
   $effect(() => {
     passkeySupported = isPasskeySupported();
-    inIosHomeScreenApp = isInstalledApp() && isIosDevice();
+    inIosHomeScreenApp = isHomeScreenWebApp() && isIosDevice();
     ready = true;
   });
 
@@ -179,8 +183,11 @@
     isSending = true;
     result = null;
     try {
-      const r = await requestMagicLink(value);
+      const fromApp = isNativeShell();
+      const r = await requestMagicLink(value, { fromApp });
       if (r.ok) {
+        // The app takes the link's token only while this web view is waiting for one.
+        if (fromApp) noteAppSignInRequested();
         result = {
           ok: true,
           sent: true,
@@ -344,8 +351,8 @@
     </h1>
     <!-- Static, so it cannot reflow after hydration. -->
     <p class="text-callout text-muted-foreground mt-1.5 md:text-sm">
-      Sign in to your MusicHoarder library with an emailed link or a passkey — there are no
-      passwords.
+      Sign in to your MusicHoarder library with an emailed link{data.inApp ? '' : ' or a passkey'} —
+      there are no passwords.
     </p>
 
     {#if data.switching && data.currentUser}

@@ -43,6 +43,7 @@
     Loader2,
     LogOut,
     Plus,
+    Server,
     Settings,
     UserPlus
   } from '@lucide/svelte';
@@ -55,6 +56,7 @@
   import { isAdmin, isDemo, roleLabel } from '#lib/auth/capabilities.ts';
   import { signOutAndReset } from '#lib/auth/sign-out.ts';
   import { switchAccountAndReload } from '#lib/auth/switch-account.ts';
+  import { canChangeServer, changeServer } from '#lib/native/shell.ts';
   import { pipelineOverlay } from '#lib/stores/pipeline-overlay.svelte.ts';
   import { storageUsage } from '#lib/stores/storage-usage.svelte.ts';
   import { storageSummary, watchedFolders, watchingLabel } from '#lib/storage-usage-meta.ts';
@@ -116,6 +118,11 @@
     accounts = null;
     void signOutAndReset();
   }
+
+  // The app shell asks for its server on first start; this takes the user back to that question.
+  // Not a reactive read: the bridge is there from the page's first script or not at all.
+  const serverChangeable = canChangeServer();
+  const serverHost = typeof location === 'undefined' ? '' : location.host;
 
   function retryAccounts() {
     accountsError = false;
@@ -291,6 +298,14 @@
 
       <div class="flex flex-col gap-1">
         <GroupedList.Section>
+          {#if serverChangeable}
+            <GroupedList.Row
+              onclick={() => void changeServer()}
+              icon={Server}
+              label="Change server"
+              sublabel={serverHost}
+            />
+          {/if}
           <GroupedList.Row onclick={signOut} label="Sign out" destructive />
         </GroupedList.Section>
         {@render versionLine()}
@@ -416,6 +431,11 @@
     {/if}
 
     <DropdownMenu.Separator />
+    {#if serverChangeable}
+      <DropdownMenu.Item onSelect={() => void changeServer()}>
+        <Server /> Change server
+      </DropdownMenu.Item>
+    {/if}
     <DropdownMenu.Item variant="destructive" onSelect={signOut}>
       <LogOut /> Sign out
     </DropdownMenu.Item>

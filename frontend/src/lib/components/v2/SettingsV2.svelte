@@ -18,7 +18,6 @@
   import StagedSourceReleaseBanner, {
     releaseAnnouncement
   } from '#lib/components/settings/StagedSourceReleaseBanner.svelte';
-  import PairDeviceCard from '#lib/components/settings/PairDeviceCard.svelte';
   import InstallAppCard from '#lib/components/settings/InstallAppCard.svelte';
   import PeopleCard from '#lib/components/settings/PeopleCard.svelte';
   import SwitchRow from '#lib/components/settings/SwitchRow.svelte';
@@ -42,6 +41,7 @@
   import { avatar } from '#lib/components/v2/AccountPanel.svelte';
   import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
   import { isPasskeySupported } from '#lib/webauthn-client.ts';
+  import { isNativeShell } from '#lib/native/shell.ts';
   import {
     fetchSpotifyCredentials,
     saveSpotifyCredentials,
@@ -285,9 +285,10 @@
 
   // ── passkeys (admin + member, each for their own account) ──────────────────────
   // A member enrols too: the ceremony endpoints act on the caller's own account and never take a
-  // user id from the request, and without a passkey of their own the Android client's passkey
-  // sign-in would be admin-only. The demo stays out — its credentials are shared by every visitor.
+  // user id from the request. The demo stays out — its credentials are shared by every visitor.
   let passkeySupported = $state(false);
+  // In the app shell passkeys are off (see isPasskeySupported); say so instead of blaming a browser.
+  const inApp = isNativeShell();
   let platform = $state<PasskeyPlatform>('other');
   let passkeys = $state<PasskeyView[]>([]);
   let passkeysLoading = $state(false);
@@ -1741,15 +1742,18 @@
           {/if}
           <p>
             Sign in with {passkeyUnlockPhrase(platform)} — no email needed. Add one on each device you
-            use; the Android app signs in with the same passkey. Keep an email that can receive sign-in
-            links so you can always get back in.
+            use. Keep an email that can receive sign-in links so you can always get back in.
           </p>
         </div>
       {/snippet}
 
       <GroupedList.Section headingLevel={2} header="Passkeys" footer={passkeysFooter}>
         {#if !passkeySupported}
-          <GroupedList.Row label="This browser doesn’t support passkeys" />
+          <GroupedList.Row
+            label={inApp
+              ? 'Passkeys work in your browser, not in this app'
+              : 'This browser doesn’t support passkeys'}
+          />
         {:else}
           {#if passkeysLoading}
             <GroupedList.Row label="Loading passkeys…">
@@ -1837,15 +1841,12 @@
     {/if}
 
     {#if !demo}
-      <!-- Renders only in Safari on iPhone/iPad: the iOS counterpart of the pairing section. -->
+      <!-- Renders only in Safari on iPhone/iPad. -->
       <InstallAppCard />
-      <!-- Members pair phones too: the token rides their own session, and the server's member
-           allowlist deliberately permits POST /api/auth/device-token. -->
-      <PairDeviceCard />
     {/if}
 
     <GroupedList.Section
-      footer="Sign out ends this account’s session here; if another account is remembered on this device you switch to it. Sign out everywhere ends all of this account’s sessions — paired phones included — and forgets the other accounts remembered here."
+      footer="Sign out ends this account’s session here; if another account is remembered on this device you switch to it. Sign out everywhere ends all of this account’s sessions — the MusicHoarder app on your phones included — and forgets the other accounts remembered here."
     >
       <GroupedList.Row onclick={() => handleSignOut(false)} label="Sign out" destructive />
       <GroupedList.Row
@@ -1860,7 +1861,7 @@
         <AlertDialog.Header>
           <AlertDialog.Title>Sign out everywhere?</AlertDialog.Title>
           <AlertDialog.Description>
-            Every session of this account ends, paired phones included.
+            Every session of this account ends, the MusicHoarder app on your phones included.
           </AlertDialog.Description>
         </AlertDialog.Header>
         <AlertDialog.Footer>

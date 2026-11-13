@@ -9,9 +9,7 @@ namespace MusicHoarder.Api.Endpoints;
 /// WebAuthn (passkey) ceremonies. Nested under <c>/api/auth/webauthn</c> so the unauthenticated
 /// <c>authenticate/*</c> endpoints fall inside the <c>/api/auth/</c> allowlist; enrollment +
 /// management require a real (non-demo) account via
-/// <see cref="RouteHandlerBuilderExtensions.RequireNonDemo"/> — an invited friend enrols
-/// passkeys for their own account too, which is what lets them sign in to the native client with
-/// one.
+/// <see cref="RouteHandlerBuilderExtensions.RequireNonDemo"/>, an invited member included.
 /// The in-flight ceremony challenge round-trips through a short-lived, data-protected cookie.
 /// </summary>
 public static class WebAuthnEndpoints
@@ -148,89 +146,19 @@ public static class WebAuthnEndpoints
             })
             .WithName("WebAuthnAuthenticateComplete");
 
-        // --- Authentication, native clients (anonymous) ----------------------------------------
-        // The same ceremony with no cookies in either direction. A native client has no cookie jar
-        // to round-trip the in-flight challenge through and wants a bearer token rather than a
-        // session cookie out the other end, so the challenge travels in the response body as an
-        // opaque, time-limited, data-protected blob the caller hands straight back. Nested under
-        // `authenticate/` so both routes stay inside the demo/friend middlewares' allowlist prefix.
-
-        group.MapPost("/authenticate/native/begin", (
-                IWebAuthnService webAuthn,
-                IDataProtectionProvider dp) =>
-            {
-                var options = webAuthn.BeginAuthentication();
-                var json = options.ToJson();
-                return Results.Ok(new NativeAssertionChallenge(ProtectChallenge(dp, json), json));
-            })
-            .WithName("WebAuthnAuthenticateNativeBegin");
-
-        group.MapPost("/authenticate/native/complete", async (
-                NativeAssertionCompleteBody body,
-                HttpContext ctx,
-                IWebAuthnService webAuthn,
-                ISessionCookieService cookieService,
-                IDataProtectionProvider dp,
-                CancellationToken ct) =>
-            {
-                var stored = UnprotectChallenge(dp, body.State);
-                if (stored is null)
-                    return Results.Json(new { error = "challenge_expired" }, statusCode: 400);
-
-                var originalOptions = AssertionOptions.FromJson(stored);
-                var result = await webAuthn.CompleteAuthenticationAsync(
-                    body.Assertion,
-                    originalOptions,
-                    ctx.Connection.RemoteIpAddress?.ToString(),
-                    ctx.Request.Headers.UserAgent.ToString(),
-                    ct);
-                if (result.Session is not { } session)
-                    return SignInRefused(result.Failure);
-
-                // No cookie: the protected session id goes back as the bearer the app stores, the
-                // way /api/auth/token and /api/auth/device-token hand it over.
-                return Results.Ok(new AccessTokenResponse(
-                    cookieService.Protect(session.Id), "Bearer", session.ExpiresAtUtc));
-            })
-            .WithName("WebAuthnAuthenticateNativeComplete");
-
         return app;
     }
 
     /// <summary>
-    /// A refused passkey sign-in, on both the cookie and the native flow. A passkey this server no
-    /// longer has (removed here, still in the password manager) gets its own code, so the client
-    /// can tell the password manager to drop it (the browser's
-    /// <c>PublicKeyCredential.signalUnknownCredential</c>, Android's
-    /// <c>SignalUnknownCredentialRequest</c>). Older clients treat any 400 as a failed sign-in.
+    /// A refused passkey sign-in. A passkey this server no longer has (removed here, still in the
+    /// password manager) gets its own code, so the browser can tell the password manager to drop it
+    /// (<c>PublicKeyCredential.signalUnknownCredential</c>). Older clients treat any 400 as a failed
+    /// sign-in.
     /// </summary>
     private static IResult SignInRefused(PasskeySignInFailure failure) =>
         Results.Json(
             new { error = failure == PasskeySignInFailure.UnknownCredential ? "unknown_credential" : "invalid_assertion" },
             statusCode: 400);
-
-    /// <summary>
-    /// Wraps the in-flight challenge for a client that has to hold it itself. Time-limited, so an
-    /// intercepted blob cannot be replayed as a fresh challenge after <see cref="ChallengeTtl"/> —
-    /// which the cookie variant gets from the cookie's own expiry, and a body field has no
-    /// equivalent of.
-    /// </summary>
-    private static string ProtectChallenge(IDataProtectionProvider dp, string payload) =>
-        dp.CreateProtector(ProtectorPurpose).ToTimeLimitedDataProtector().Protect(payload, ChallengeTtl);
-
-    private static string? UnprotectChallenge(IDataProtectionProvider dp, string? blob)
-    {
-        if (string.IsNullOrWhiteSpace(blob)) return null;
-        try
-        {
-            return dp.CreateProtector(ProtectorPurpose).ToTimeLimitedDataProtector().Unprotect(blob);
-        }
-        catch
-        {
-            // Tampered, expired, or protected by a key this instance no longer holds.
-            return null;
-        }
-    }
 
     private static void WriteChallengeCookie(HttpContext ctx, IDataProtectionProvider dp, string name, string payload)
     {
@@ -271,12 +199,3 @@ public static class WebAuthnEndpoints
 
 public sealed record RegisterCompleteBody(AuthenticatorAttestationRawResponse Attestation, string? DisplayName);
 
-/// <summary>
-/// The <c>authenticate/native/begin</c> reply. <paramref name="RequestJson"/> is the WebAuthn
-/// request options verbatim — the same JSON the browser endpoint returns as its body, handed to
-/// Android's Credential Manager as-is. <paramref name="State"/> is the opaque challenge blob to
-/// send straight back.
-/// </summary>
-public sealed record NativeAssertionChallenge(string State, string RequestJson);
-
-public sealed record NativeAssertionCompleteBody(string State, AuthenticatorAssertionRawResponse Assertion);

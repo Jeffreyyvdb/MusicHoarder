@@ -57,7 +57,7 @@
       }))
     );
     // Settings and the account for everyone. A member's nav has no Settings item (it lives under
-    // Manage), yet their passkeys, phone pairing and sign-out are there — and on a phone the only
+    // Manage), yet their passkeys and sign-out are there — and on a phone the only
     // other way in is the avatar, so the palette must find them too.
     if (!commands.some((c) => c.href === '/settings')) {
       commands.push({

@@ -6,8 +6,8 @@
   import { isIosSafari } from '#lib/ios-safari.ts';
 
   /**
-   * The iPhone/iPad half of "use it like an app" — PairDeviceCard is the Android half. Safari
-   * never offers to install a web app by itself, so without this the Home Screen app (manifest,
+   * "Use it like an app" on an iPhone or iPad without the store app (mobile/). Safari never
+   * offers to install a web app by itself, so without this the Home Screen app (manifest,
    * icons, offline page and all) is invisible to the people it was built for.
    *
    * Shown only in Safari on iOS/iPadOS, and not inside the installed app itself. Dismissal is a

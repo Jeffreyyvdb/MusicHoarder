@@ -2,8 +2,18 @@
 // every binary field as base64url and matches the standard WebAuthn camelCase contract. These
 // helpers convert that shape to/from the `ArrayBuffer`s the `navigator.credentials` API needs.
 
+import { isNativeShell } from './native/shell.ts';
+
+/**
+ * Whether this page can sign in with, or enrol, a passkey. Never inside the app shell (mobile/):
+ * a web view gets a site's passkeys only when the app vouches for the site — on iOS by listing
+ * its domain in the Associated Domains entitlement at build time, which a store app cannot do for
+ * servers people host themselves — and WebKit there answers every request with NotAllowedError.
+ * Offering the button would only produce that error.
+ */
 export function isPasskeySupported(): boolean {
   return (
+    !isNativeShell() &&
     typeof window !== 'undefined' &&
     typeof window.PublicKeyCredential !== 'undefined' &&
     typeof navigator !== 'undefined' &&

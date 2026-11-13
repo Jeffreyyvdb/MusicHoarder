@@ -22,6 +22,11 @@
           (mode !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
         if (dark) {
           document.querySelector('meta[name="theme-color"]').setAttribute('content', '#000000');
+          // The dark tokens hang off `.dark` (app.css), which mode-watcher sets. On an SSR page
+          // its head script does that before the first frame; the (app) pages are ssr = false, so
+          // nothing does until the bundle runs, and their first frame was #ffffff in dark mode —
+          // a white flash on every cold load and hard reload (the app shell's launch, sign-in).
+          document.documentElement.classList.add('dark');
         }
         // Native controls (inputs, scrollbars, <select> popups) follow color-scheme; claim it at
         // first paint too, so they don't render light inside a dark shell until mode-watcher runs.
@@ -31,7 +36,7 @@
         // which the Content-Security-Policy refuses; this one carries the nonce.
         document.documentElement.classList.toggle('dark', dark);
       } catch (_) {}
-      // Marks the installed iOS app (the same test as isInstalledApp + isIosDevice) before the
+      // Marks the installed iOS app (the same test as isHomeScreenWebApp + isIosDevice) before the
       // first paint, so the login page's action blocks can wait for the client only there. It lives
       // here, not on that page, because an inline script needs this script's CSP nonce.
       try {

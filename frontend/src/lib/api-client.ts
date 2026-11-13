@@ -229,8 +229,7 @@ export interface ApiSong {
    * Whether you asked for this track or album completion added it because you already owned another
    * track from the same album. A stored column, unlike the derived `origin*` fields above.
    *
-   * Prefer {@link isAlbumFill}: this one is the enum's name, kept on the wire because shipped
-   * Android builds read it.
+   * Prefer {@link isAlbumFill}: this one is the enum's name.
    */
   acquisitionIntent?: SongAcquisitionIntent | null
   /**
@@ -640,7 +639,7 @@ const UNKNOWN_ARTIST = "Unknown Artist"
  * One album card exactly as `GET /api/albums` groups it.
  *
  * The grouping rules live on the server now. They used to live here, in full, and in a second full
- * copy in the Android client — which is how the same album added-date rule came to need fixing twice
+ * copy in the retired native Android client — which is how the same album added-date rule came to need fixing twice
  * and two separate `each_key_duplicate` crashes came to ship. Anything below this line that looks
  * like a grouping decision is a bug: the client's remaining job is to join the track ids against the
  * songs it already holds.
@@ -1315,8 +1314,8 @@ export async function fetchSongsIfChanged(etag: string | null): Promise<Revalida
  * What to play once the queue runs dry — ids ordered by similarity to `seedSongId`.
  *
  * The ranking lives on the server (`MusicHoarder.Api/Library/RadioRanker.cs`) rather than here,
- * for the same reason album grouping moved: a rule implemented in both `frontend/` and `android/`
- * becomes two rules that drift, and a station has to sound the same on the phone and in the tab.
+ * for the same reason album grouping moved: a rule implemented in two clients becomes two rules that
+ * drift.
  * Ids only — the caller already holds every row from {@link fetchSongs} and joins against it.
  */
 export async function fetchRadio(
@@ -1331,8 +1330,8 @@ export async function fetchRadio(
 }
 
 // ── Playback sync ("Connect": one session per account, one active device) ──────
-// The wire types and their validation live in $lib/playback-sync/wire.ts (the rules the Android
-// client ports); these are just the four calls. Every one is refused for the demo account, and a
+// The wire types and their validation live in $lib/playback-sync/wire.ts; these are just the four
+// calls. Every one is refused for the demo account, and a
 // shipped API without the feature answers 404 — the store treats both as "feature off".
 
 /** The account's session and its reachable devices, as they stand now. */
@@ -3149,7 +3148,7 @@ export interface FriendView {
   isDisabled: boolean
   createdAtUtc: string
   lastLoginAtUtc?: string | null
-  /** Legacy wire vocabulary ("Owner" | "Demo" | "Friend"). Prefer `isAdmin`. */
+  /** "Admin" | "Demo" | "Member", for display. Prefer `isAdmin`. */
   role?: string
   isAdmin?: boolean
   /** EFFECTIVE capabilities — an admin lists every one regardless of what is stored. */
@@ -4065,7 +4064,7 @@ export async function removePlaylistSong(id: number, songId: number): Promise<Li
 // Auth API
 // ---------------------------------------------------------------------------
 
-export type AuthRole = "Owner" | "Demo" | "Friend"
+export type AuthRole = "Admin" | "Demo" | "Member"
 
 export interface AuthMe {
   id: string
@@ -4097,11 +4096,16 @@ export async function updateDisplayName(displayName: string | null): Promise<Aut
   })
 }
 
-export async function requestMagicLink(email: string): Promise<RequestLinkResult> {
+export async function requestMagicLink(
+  email: string,
+  options: { fromApp?: boolean } = {},
+): Promise<RequestLinkResult> {
   const response = await fetch(`${API_PREFIX}/api/auth/request-link`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ email }),
+    // `client: "app"` makes the emailed link open a page that hands the token to the app
+    // (`musichoarder://auth`) instead of signing in the browser the mail app opened.
+    body: JSON.stringify(options.fromApp ? { email, client: "app" } : { email }),
     cache: "no-store",
   })
   if (response.status === 503) return { ok: false }
@@ -4158,22 +4162,6 @@ export async function switchAccount(userId: string): Promise<AccountView | null>
   if (!response.ok) throw new Error(`auth/switch failed: ${response.status}`)
   const body = (await response.json()) as { user: AccountView }
   return body.user
-}
-
-/** A bearer token minted for a native client (Android app), plus when it stops working. */
-export interface DeviceTokenResult {
-  accessToken: string
-  tokenType: string
-  expiresAtUtc: string
-}
-
-/**
- * Mints a bearer token for a native client from the current browser session. The token rides its
- * own server-side session row, so signing the browser out does not unpair the phone — "Sign out
- * everywhere" does.
- */
-export async function createDeviceToken(): Promise<DeviceTokenResult> {
-  return requestJson<DeviceTokenResult>("/api/auth/device-token", { method: "POST" })
 }
 
 export async function signInAsDemo(): Promise<void> {
