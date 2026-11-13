@@ -417,10 +417,10 @@ public sealed class DeezerCatalogService(
 
             if (response.StatusCode == HttpStatusCode.TooManyRequests)
             {
-                var retryAfter = response.Headers.RetryAfter?.Delta ?? RateLimitDefaultDelay;
+                var retryAfter = RetryAfterHeader.Read(response, DateTimeOffset.UtcNow) ?? RateLimitDefaultDelay;
                 logger.LogWarning("Deezer rate limited (HTTP 429). Retry after {Delay}s (attempt {Attempt}/{Max})",
                     retryAfter.TotalSeconds, attempt + 1, MaxRetries);
-                if (attempt < MaxRetries)
+                if (attempt < MaxRetries && retryAfter <= RetryAfterHeader.MaxInlineWait)
                 {
                     await Task.Delay(retryAfter, ct);
                     continue;
