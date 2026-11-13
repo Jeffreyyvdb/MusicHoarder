@@ -10,16 +10,26 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
         guard let windowScene = scene as? UIWindowScene else { return }
 
-        let controller = CAPBridgeViewController()
-        bridgeController = controller
         window = UIWindow(windowScene: windowScene)
-        window?.rootViewController = controller
+        loadBridge()
         window?.makeKeyAndVisible()
-        controller.loadViewIfNeeded()
-        followThemeColor()
+        // The bundled page chose (or forgot) a server: build the web view again for it.
+        NotificationCenter.default.addObserver(
+            forName: Notification.Name("MusicHoarderServerChanged"), object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.loadBridge()
+        }
 
         SceneDelegateProxy.shared.scene(scene, willConnectTo: session, options: connectionOptions)
         connectionOptions.urlContexts.forEach { open($0.url) }
+    }
+
+    private func loadBridge() {
+        let controller = ServerBridgeViewController()
+        bridgeController = controller
+        window?.rootViewController = controller
+        controller.loadViewIfNeeded()
+        followThemeColor()
     }
 
     func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
@@ -86,5 +96,24 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             return
         }
         bridge.statusBarStyle = white < 0.5 ? .lightContent : .darkContent
+    }
+}
+
+/// The bridge, pointed at the server the user chose on the bundled page (stored by the plugin's
+/// `ShellServerPlugin`, under the same key). Without a choice it keeps the build's own
+/// `server.url`, and without that it shows the bundled page, which asks for one.
+final class ServerBridgeViewController: CAPBridgeViewController {
+    static let storageKey = "MusicHoarderServerURL"
+
+    override func instanceDescriptor() -> InstanceDescriptor {
+        let descriptor = super.instanceDescriptor()
+        if let chosen = UserDefaults.standard.string(forKey: Self.storageKey),
+           let url = URL(string: chosen), url.scheme?.lowercased() == "https", url.host != nil {
+            descriptor.serverURL = chosen
+            // The signed-in home, as for a build's own server (capacitor.config.ts). iOS also
+            // wants the file at this path in the bundle (www/overview).
+            descriptor.appStartPath = "/overview"
+        }
+        return descriptor
     }
 }

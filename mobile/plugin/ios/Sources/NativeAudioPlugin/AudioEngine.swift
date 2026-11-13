@@ -80,6 +80,8 @@ final class AudioEngine: NSObject {
 
     private var artwork: (url: URL, image: MPMediaItemArtwork)?
     private var artworkTask: URLSessionDataTask?
+    /// The lock-screen handlers added here, so `shutdown()` can take them off again.
+    private var remoteTargets: [(MPRemoteCommand, Any)] = []
 
     override init() {
         super.init()
@@ -111,6 +113,22 @@ final class AudioEngine: NSObject {
     deinit {
         if let timeObserver { player.removeTimeObserver(timeObserver) }
         NotificationCenter.default.removeObserver(self)
+    }
+
+    /// Stop for good: the app is about to build its web view again (another server was chosen),
+    /// and that web view's plugin brings an engine of its own. The lock-screen handlers live on
+    /// the shared command center, so they are taken off here; left on, every press would reach
+    /// two engines.
+    func shutdown() {
+        stop()
+        for (command, target) in remoteTargets { command.removeTarget(target) }
+        remoteTargets = []
+        observations.forEach { $0.invalidate() }
+        observations = []
+        if let timeObserver { player.removeTimeObserver(timeObserver) }
+        timeObserver = nil
+        NotificationCenter.default.removeObserver(self)
+        delegate = nil
     }
 
     // MARK: - What the page asks for
@@ -604,16 +622,15 @@ final class AudioEngine: NSObject {
 
     private func registerRemoteCommands() {
         let commands = MPRemoteCommandCenter.shared()
-        commands.playCommand.addTarget { [weak self] _ in self?.remote("play") ?? .commandFailed }
-        commands.pauseCommand.addTarget { [weak self] _ in self?.remote("pause") ?? .commandFailed }
-        commands.togglePlayPauseCommand.addTarget { [weak self] _ in
-            self?.remote("toggle") ?? .commandFailed
+        func add(_ command: MPRemoteCommand, _ handler: @escaping (MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus) {
+            remoteTargets.append((command, command.addTarget(handler: handler)))
         }
-        commands.nextTrackCommand.addTarget { [weak self] _ in self?.remote("next") ?? .commandFailed }
-        commands.previousTrackCommand.addTarget { [weak self] _ in
-            self?.remote("previous") ?? .commandFailed
-        }
-        commands.changePlaybackPositionCommand.addTarget { [weak self] event in
+        add(commands.playCommand) { [weak self] _ in self?.remote("play") ?? .commandFailed }
+        add(commands.pauseCommand) { [weak self] _ in self?.remote("pause") ?? .commandFailed }
+        add(commands.togglePlayPauseCommand) { [weak self] _ in self?.remote("toggle") ?? .commandFailed }
+        add(commands.nextTrackCommand) { [weak self] _ in self?.remote("next") ?? .commandFailed }
+        add(commands.previousTrackCommand) { [weak self] _ in self?.remote("previous") ?? .commandFailed }
+        add(commands.changePlaybackPositionCommand) { [weak self] event in
             guard let event = event as? MPChangePlaybackPositionCommandEvent else {
                 return .commandFailed
             }

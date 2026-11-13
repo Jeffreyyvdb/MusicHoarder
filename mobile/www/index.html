@@ -6,9 +6,11 @@
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
     <title>MusicHoarder</title>
-    <!-- The one page bundled with the app: shown when the server cannot be reached, or when the
-         app was built without one. Everything else is loaded from the server. The colours are the
-         hex copies of the app.css tokens the frontend's own handoff pages use. -->
+    <!-- The one page bundled with the app. It asks for the server's address when the app has none
+         (the store builds name none), and says so when the server cannot be reached. Everything
+         else is loaded from the server. The address goes to the ShellServer plugin
+         (mobile/plugin), which checks it is a MusicHoarder server before the app loads it. The
+         colours are the hex copies of the app.css tokens. -->
     <style>
       :root {
         color-scheme: light dark;
@@ -17,6 +19,8 @@
         --muted: #5f5f64;
         --tint: #006b1f;
         --on-tint: #ffffff;
+        --error: #b71824;
+        --field: rgb(118 118 128 / 0.12);
       }
       @media (prefers-color-scheme: dark) {
         :root {
@@ -25,21 +29,27 @@
           --muted: #a1a1a6;
           --tint: #2fbd55;
           --on-tint: #000000;
+          --error: #ff6961;
+          --field: rgb(118 118 128 / 0.24);
         }
       }
       body {
         margin: 0;
         min-height: 100dvh;
         display: grid;
-        place-items: center;
+        /* The top third, not the centre: the keyboard opens with the address field focused, and
+           would cover a vertically centred Continue button. */
+        place-items: start center;
         background: var(--bg);
         color: var(--fg);
         font-family: system-ui, -apple-system, sans-serif;
         text-align: center;
       }
       main {
-        padding: 32px 24px;
-        max-width: 380px;
+        box-sizing: border-box;
+        width: 100%;
+        padding: calc(env(safe-area-inset-top) + 12vh) 24px calc(32px + env(safe-area-inset-bottom));
+        max-width: 400px;
       }
       h1 {
         font-size: 1.25rem;
@@ -47,13 +57,36 @@
       }
       p {
         color: var(--muted);
-        font-size: 0.9rem;
+        font-size: 0.9375rem;
         line-height: 1.5;
         margin: 0 0 24px;
+      }
+      label {
+        display: block;
+        text-align: left;
+        font-size: 0.8125rem;
+        color: var(--muted);
+        margin: 0 0 6px 4px;
+      }
+      input {
+        box-sizing: border-box;
+        display: block;
+        width: 100%;
+        min-height: 48px;
+        padding: 12px 16px;
+        margin: 0 0 12px;
+        border: 0;
+        border-radius: 12px;
+        background: var(--field);
+        color: var(--fg);
+        /* 16px or more: iOS zooms into a smaller field on focus. */
+        font: inherit;
+        font-size: 17px;
       }
       button {
         display: block;
         width: 100%;
+        min-height: 48px;
         padding: 14px 20px;
         border: 0;
         border-radius: 999px;
@@ -62,33 +95,137 @@
         font: inherit;
         font-weight: 600;
       }
+      input:focus-visible,
+      button:focus-visible {
+        outline: 2px solid var(--tint);
+        outline-offset: 2px;
+      }
+      button:disabled {
+        opacity: 0.6;
+      }
+      button.quiet {
+        margin-top: 12px;
+        background: transparent;
+        color: var(--tint);
+      }
+      #error {
+        color: var(--error);
+        font-size: 0.9375rem;
+        margin: 0 0 12px;
+        min-height: 1.5em;
+      }
       [hidden] {
-        display: none;
+        display: none !important;
       }
     </style>
-    <script src="server.js"></script>
   </head>
   <body>
     <main>
-      <h1 id="title">Can't reach your library</h1>
-      <p id="text">Check your connection. MusicHoarder plays from your own server.</p>
-      <button id="retry" type="button">Try again</button>
+      <section id="offline" hidden>
+        <h1>Can't reach your library</h1>
+        <p>Check your connection. MusicHoarder plays from <span id="server-name">your own server</span>.</p>
+        <button id="retry" type="button">Try again</button>
+        <button id="other" class="quiet" type="button">Use another server</button>
+      </section>
+
+      <form id="connect" hidden novalidate>
+        <h1>Connect to your library</h1>
+        <p>MusicHoarder plays from your own server. Enter the address you open it at in a browser.</p>
+        <label for="address">Server address</label>
+        <input
+          id="address"
+          name="address"
+          type="url"
+          inputmode="url"
+          enterkeyhint="go"
+          autocomplete="url"
+          autocapitalize="off"
+          autocorrect="off"
+          spellcheck="false"
+          placeholder="music.example.com"
+          required
+        />
+        <div id="error" role="alert" aria-live="polite"></div>
+        <button id="submit" type="submit">Continue</button>
+        <button id="cancel" class="quiet" type="button" hidden>Back</button>
+      </form>
     </main>
     <script>
       (function () {
-        var server = window.MH_SERVER_URL;
-        if (!server) {
-          document.getElementById('title').textContent = 'No server set';
-          document.getElementById('text').textContent =
-            'This build was made without a server address. Build it again with MH_SERVER_URL set.';
-          document.getElementById('retry').hidden = true;
-          return;
+        var cap = window.Capacitor;
+        function plugin(method, options) {
+          if (!cap || typeof cap.nativePromise !== 'function') {
+            return Promise.reject({ code: 'no_app' });
+          }
+          return cap.nativePromise('ShellServer', method, options || {});
         }
+
+        var offline = document.getElementById('offline');
+        var form = document.getElementById('connect');
+        var input = document.getElementById('address');
+        var error = document.getElementById('error');
+        var submit = document.getElementById('submit');
+        var cancel = document.getElementById('cancel');
+        var server = null;
+
+        function showConnect(canGoBack) {
+          offline.hidden = true;
+          form.hidden = false;
+          cancel.hidden = !canGoBack;
+          error.textContent = '';
+          input.focus();
+        }
+
+        function showOffline() {
+          form.hidden = true;
+          offline.hidden = false;
+          document.getElementById('server-name').textContent = new URL(server).host;
+        }
+
+        var MESSAGES = {
+          invalid: 'Enter an address like music.example.com. It has to use https.',
+          unreachable: 'Could not reach that address. Check it, and your connection.',
+          not_musichoarder: 'That address does not answer as a MusicHoarder server.',
+          no_app: 'Open this page in the MusicHoarder app.'
+        };
+
+        form.addEventListener('submit', function (event) {
+          event.preventDefault();
+          error.textContent = '';
+          submit.disabled = true;
+          submit.textContent = 'Connecting…';
+          // On success the app loads the server, which replaces this page.
+          plugin('setServer', { url: input.value }).catch(function (failure) {
+            var code = failure && failure.code;
+            error.textContent = MESSAGES[code] || MESSAGES.unreachable;
+            submit.disabled = false;
+            submit.textContent = 'Continue';
+          });
+        });
+
+        cancel.addEventListener('click', showOffline);
+        document.getElementById('other').addEventListener('click', function () {
+          showConnect(true);
+        });
+
         function retry() {
-          location.replace(server + '/overview');
+          if (server) location.replace(server + '/overview');
         }
         document.getElementById('retry').addEventListener('click', retry);
-        window.addEventListener('online', retry);
+        window.addEventListener('online', function () {
+          if (!offline.hidden) retry();
+        });
+
+        plugin('getServer').then(
+          function (state) {
+            server = state && state.url;
+            if (server) showOffline();
+            else showConnect(false);
+          },
+          function () {
+            showConnect(false);
+          }
+        );
       })();
     </script>
   </body>
