@@ -1,11 +1,7 @@
-using System.Net;
-using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Options;
-using MusicHoarder.Api.RateLimiting;
 
 namespace MusicHoarder.Api.Quality;
 
@@ -40,11 +36,16 @@ public class OpenAiCompatibleChatClient(
             request.Temperature,
             request.MaxTokens,
             request.JsonResponse ? new ResponseFormat("json_object") : null,
-            opts.ReasoningMaxTokens > 0 ? new ReasoningConfig(opts.ReasoningMaxTokens) : null);
+            opts.ReasoningMaxTokens > 0 ? new ReasoningConfig(opts.ReasoningMaxTokens) : null,
+            // OpenRouter's usage accounting: puts the request's USD cost in usage.cost. Other
+            // OpenAI-compatible endpoints may reject unknown fields, so it is sent to OpenRouter only.
+            IsOpenRouter(opts.BaseUrl) ? new UsageConfig(true) : null);
         // Serialize once; the body is identical across retries.
         var bodyJson = JsonSerializer.Serialize(payload, Json);
 
-        var parsed = await SendWithRetryAsync(url, bodyJson, opts, ct);
+        var (body, httpAttempts) = await RetryingJsonPost.SendAsync(
+            httpClient, url, bodyJson, opts, opts.MaxRetries, opts.TimeoutSeconds, "Chat completion", logger, ct);
+        var parsed = JsonSerializer.Deserialize<ChatResponseBody>(body, Json);
         var choice = parsed?.Choices?.FirstOrDefault();
         var content = choice?.Message?.Content;
 
@@ -73,146 +74,13 @@ public class OpenAiCompatibleChatClient(
 
         return new ChatCompletionResult(
             content, parsed?.Usage?.PromptTokens, parsed?.Usage?.CompletionTokens, choice?.FinishReason, fromReasoning,
-            parsed?.Provider);
+            parsed?.Provider, parsed?.Usage?.Cost, httpAttempts);
     }
 
-    /// <summary>
-    /// Posts the (already-serialized) request, retrying transient failures — HTTP 429/5xx, a per-call
-    /// timeout, or a dropped connection — up to <see cref="QualityGradingOptions.MaxRetries"/> times.
-    /// Honors <c>Retry-After</c> when present, otherwise backs off exponentially with jitter. Caller
-    /// cancellation (host shutdown / request abort) is never retried.
-    /// </summary>
-    private async Task<ChatResponseBody?> SendWithRetryAsync(string url, string bodyJson, QualityGradingOptions opts, CancellationToken ct)
-    {
-        var maxAttempts = Math.Max(0, opts.MaxRetries) + 1;
-        for (var attempt = 0; ; attempt++)
-        {
-            ct.ThrowIfCancellationRequested();
-
-            using var httpReq = new HttpRequestMessage(HttpMethod.Post, url)
-            {
-                Content = new StringContent(bodyJson, System.Text.Encoding.UTF8, "application/json"),
-            };
-            httpReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", opts.ApiKey);
-            if (!string.IsNullOrWhiteSpace(opts.Referer))
-                httpReq.Headers.TryAddWithoutValidation("HTTP-Referer", opts.Referer);
-            if (!string.IsNullOrWhiteSpace(opts.AppTitle))
-                httpReq.Headers.TryAddWithoutValidation("X-Title", opts.AppTitle);
-
-            // Each attempt gets its own timeout clock so a retry isn't starved by a prior attempt.
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            cts.CancelAfter(TimeSpan.FromSeconds(opts.TimeoutSeconds));
-
-            HttpStatusCode failureStatus;
-            string? failureDetail = null;
-            try
-            {
-                using var resp = await httpClient.SendAsync(httpReq, cts.Token);
-                if (resp.IsSuccessStatusCode)
-                    return await resp.Content.ReadFromJsonAsync<ChatResponseBody>(Json, cts.Token);
-
-                var body = await resp.Content.ReadAsStringAsync(cts.Token);
-                // Never log the Authorization header; the URL/body here carry no secret.
-                logger.LogWarning("Chat completion failed: {Status} {Body}", (int)resp.StatusCode, Truncate(body, 512));
-                failureDetail = ExtractErrorMessage(body);
-
-                if (attempt < maxAttempts - 1 && IsRetryableStatus(resp.StatusCode))
-                {
-                    var delay = ComputeBackoff(resp, attempt);
-                    logger.LogWarning(
-                        "Retrying chat completion after {Status} (attempt {Attempt}/{Max}) in {DelayMs}ms.",
-                        (int)resp.StatusCode, attempt + 1, maxAttempts, (int)delay.TotalMilliseconds);
-                    await Task.Delay(delay, ct);
-                    continue;
-                }
-
-                // Non-retryable status, or retries exhausted. Captured here and thrown after the
-                // try/catch so the transient-exception handler below doesn't re-catch it.
-                failureStatus = resp.StatusCode;
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                // Host shutdown / request abort — propagate, never retry.
-                throw;
-            }
-            catch (Exception ex) when (ex is OperationCanceledException or HttpRequestException or IOException)
-            {
-                // Per-attempt timeout (our linked CTS fired, the caller's token did not) or a
-                // dropped/refused connection — transient. Retry until the budget is exhausted.
-                if (attempt >= maxAttempts - 1)
-                {
-                    if (ex is OperationCanceledException)
-                        throw new TimeoutException(
-                            $"Chat completion timed out after {opts.TimeoutSeconds}s ({maxAttempts} attempt(s)).", ex);
-                    throw;
-                }
-
-                var delay = ComputeBackoff(null, attempt);
-                logger.LogWarning(ex,
-                    "Transient error calling chat completion (attempt {Attempt}/{Max}); retrying in {DelayMs}ms.",
-                    attempt + 1, maxAttempts, (int)delay.TotalMilliseconds);
-                await Task.Delay(delay, ct);
-                continue;
-            }
-
-            // Carry the provider's own explanation (e.g. "maximum context length is 131072 tokens")
-            // into the message: it is stored on the grading run and shown in the UI's error banner,
-            // where a bare status code says nothing about what to fix.
-            var detail = string.IsNullOrWhiteSpace(failureDetail) ? "" : $" {failureDetail}";
-            throw new HttpRequestException($"Chat completion returned {(int)failureStatus}.{detail}", null, failureStatus);
-        }
-    }
-
-    private static bool IsRetryableStatus(HttpStatusCode status) => (int)status switch
-    {
-        429 => true,                 // Too Many Requests — back off and retry
-        >= 500 and <= 599 => true,   // transient server-side (502/503/504, …)
-        _ => false,
-    };
-
-    /// <summary>Honors <c>Retry-After</c> when the server sent one, else exponential backoff with full jitter, capped.</summary>
-    private static TimeSpan ComputeBackoff(HttpResponseMessage? resp, int attempt)
-    {
-        if (resp is not null && RetryAfterHeader.Read(resp, DateTimeOffset.UtcNow) is { } wait && wait >= TimeSpan.Zero)
-            return Cap(wait);
-
-        var baseMs = 500.0 * Math.Pow(2, attempt);
-        var jittered = Random.Shared.NextDouble() * baseMs;
-        return Cap(TimeSpan.FromMilliseconds(jittered));
-    }
-
-    private static readonly TimeSpan MaxBackoff = TimeSpan.FromSeconds(10);
-    private static TimeSpan Cap(TimeSpan t) => t > MaxBackoff ? MaxBackoff : t;
-
-    private static string Truncate(string s, int max) => s.Length <= max ? s : s[..max];
-
-    /// <summary>
-    /// Pulls the human-readable reason out of an OpenAI-compatible error body
-    /// (<c>{"error":{"message":"…"}}</c>), falling back to the raw body. Trimmed short — it ends up
-    /// in an exception message that is persisted and rendered in the UI.
-    /// </summary>
-    private static string? ExtractErrorMessage(string body)
-    {
-        if (string.IsNullOrWhiteSpace(body)) return null;
-        try
-        {
-            using var doc = JsonDocument.Parse(body);
-            if (doc.RootElement.ValueKind == JsonValueKind.Object
-                && doc.RootElement.TryGetProperty("error", out var err)
-                && err.ValueKind == JsonValueKind.Object
-                && err.TryGetProperty("message", out var msg)
-                && msg.GetString() is { Length: > 0 } text)
-            {
-                return Truncate(text, 400);
-            }
-        }
-        catch (JsonException)
-        {
-            // Not JSON (an HTML error page from a proxy, say) — fall through to the raw body.
-        }
-
-        return Truncate(body.Trim(), 400);
-    }
+    internal static bool IsOpenRouter(string baseUrl) =>
+        Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri)
+        && (uri.Host.Equals("openrouter.ai", StringComparison.OrdinalIgnoreCase)
+            || uri.Host.EndsWith(".openrouter.ai", StringComparison.OrdinalIgnoreCase));
 
     private record ChatRequestBody(
         string Model,
@@ -220,7 +88,10 @@ public class OpenAiCompatibleChatClient(
         double Temperature,
         [property: JsonPropertyName("max_tokens")] int MaxTokens,
         [property: JsonPropertyName("response_format")] ResponseFormat? ResponseFormat,
-        [property: JsonPropertyName("reasoning")] ReasoningConfig? Reasoning);
+        [property: JsonPropertyName("reasoning")] ReasoningConfig? Reasoning,
+        [property: JsonPropertyName("usage")] UsageConfig? Usage);
+
+    private record UsageConfig([property: JsonPropertyName("include")] bool Include);
 
     private record ChatRequestMessage(string Role, string Content);
 
@@ -245,5 +116,6 @@ public class OpenAiCompatibleChatClient(
 
     private record ChatUsage(
         [property: JsonPropertyName("prompt_tokens")] int? PromptTokens,
-        [property: JsonPropertyName("completion_tokens")] int? CompletionTokens);
+        [property: JsonPropertyName("completion_tokens")] int? CompletionTokens,
+        [property: JsonPropertyName("cost")] decimal? Cost);
 }

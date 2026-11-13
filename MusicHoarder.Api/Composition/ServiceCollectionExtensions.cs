@@ -26,6 +26,7 @@ using MusicHoarder.Api.Playback;
 using MusicHoarder.Api.Chat;
 using MusicHoarder.Api.Notifications;
 using MusicHoarder.Api.Quality;
+using MusicHoarder.Api.Quality.Jev;
 using MusicHoarder.Api.Scanner;
 using MusicHoarder.Api.Settings;
 using MusicHoarder.Api.Snapshots;
@@ -59,6 +60,11 @@ public static class ServiceCollectionExtensions
             .ValidateDataAnnotations()
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<QualityGradingOptions>, QualityGradingOptionsValidator>();
+        services
+            .AddOptions<JevGradingOptions>()
+            .BindConfiguration(JevGradingOptions.SectionName)
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
 
         services
             .AddOptions<LyricsTranscriptionOptions>()
@@ -434,6 +440,19 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IAlbumGradingDossierFactory, AlbumGradingDossierFactory>();
         services.AddSingleton<IAlbumGradingService, AlbumGradingService>();
         services.AddHostedService<AlbumGradingBackgroundService>();
+
+        // The grader trial (Quality/Jev): decision models grade the same dossiers in shadow, into
+        // GraderComparisonRuns only. Shares the QualityGrading OpenRouter key.
+        services.AddSingleton<IDecisionClient>(sp => new OpenRouterDecisionsClient(
+            new HttpClient { Timeout = Timeout.InfiniteTimeSpan },
+            sp.GetRequiredService<IOptionsMonitor<JevGradingOptions>>(),
+            sp.GetRequiredService<IOptionsMonitor<QualityGradingOptions>>(),
+            sp.GetRequiredService<ILogger<OpenRouterDecisionsClient>>()));
+        services.AddSingleton<IJevGradingService, JevGradingService>();
+        services.AddSingleton<IGraderTrialRecorder, GraderTrialRecorder>();
+        services.AddSingleton<GraderTrialRunner>();
+        services.AddScoped<GraderTrialService>();
+        services.AddHostedService<JevShadowGradingBackgroundService>();
 
         services.AddHealthChecks()
             .AddCheck<LibraryDirectoriesHealthCheck>("library-directories", tags: ["pipeline"])
