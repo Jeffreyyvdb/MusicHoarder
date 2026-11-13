@@ -45,7 +45,7 @@ public class MemberWriteGuardMiddlewareTests
     [InlineData("POST", "/songs/1/video/fetch")]
     [InlineData("DELETE", "/songs/1/video")]
     [InlineData("POST", "/songs/1/unlock")]
-    [InlineData("DELETE", "/api/shared/songs")]
+    [InlineData("POST", "/api/shared/songs/1/like")] // the retired alias is just another write now
     public async Task Allowing_like_did_not_open_up_neighbouring_song_writes(string method, string path)
     {
         // THE test for this middleware. Allowing a member to like a track means allowing a write
@@ -74,7 +74,6 @@ public class MemberWriteGuardMiddlewareTests
     [InlineData("GET", "/songs")]
     [InlineData("GET", "/songs/1/stream")]
     [InlineData("GET", "/songs/1/cover")]
-    [InlineData("GET", "/api/shared/songs")]
     [InlineData("GET", "/api/auth/me")]
     [InlineData("HEAD", "/songs")]
     public async Task Member_safe_request_passes_through(string method, string path)
@@ -89,22 +88,18 @@ public class MemberWriteGuardMiddlewareTests
 
     [Theory]
     [InlineData("/api/auth/logout")]
-    [InlineData("/api/auth/device-token")]
     [InlineData("/api/auth/switch")]
     [InlineData("/api/auth/webauthn/authenticate/begin")]
     [InlineData("/api/auth/webauthn/authenticate/complete")]
-    [InlineData("/api/auth/webauthn/authenticate/native/begin")]
-    [InlineData("/api/auth/webauthn/authenticate/native/complete")]
     [InlineData("/api/auth/webauthn/register/begin")]
     [InlineData("/api/auth/webauthn/register/complete")]
     [InlineData("/api/invite/accept")]
-    [InlineData("/api/auth/request-link")] // "Add an account" by email, web and phone
+    [InlineData("/api/auth/request-link")] // "Add an account" by email
     [InlineData("/api/auth/consume")]
-    [InlineData("/api/auth/token")]
     public async Task Member_may_manage_their_own_session_without_any_capability(string path)
     {
-        // These need no granted capability: they end the caller's own session, pair the caller's
-        // own phone, or enrol a passkey on the caller's own account. Revoking every capability
+        // These need no granted capability: they end the caller's own session or enrol a passkey
+        // on the caller's own account. Revoking every capability
         // must not lock someone out of their own login.
         var (_, nextCalled) = await InvokeAsync(NoCapabilities, "POST", path);
 
@@ -228,9 +223,6 @@ public class MemberWriteGuardMiddlewareTests
     [InlineData("POST", "/songs/1/like")]
     [InlineData("DELETE", "/songs/1/like")]
     [InlineData("POST", "/songs/1/played")]
-    [InlineData("POST", "/api/shared/songs/1/like")]     // deprecated alias
-    [InlineData("DELETE", "/api/shared/songs/1/like")]
-    [InlineData("POST", "/api/shared/songs/1/played")]
     public async Task Listening_writes_are_allowed_with_the_capability(string method, string path)
     {
         var (_, nextCalled) = await InvokeAsync(Listener, method, path);
@@ -241,7 +233,6 @@ public class MemberWriteGuardMiddlewareTests
     [Theory]
     [InlineData("POST", "/songs/1/like")]
     [InlineData("POST", "/songs/1/played")]
-    [InlineData("POST", "/api/shared/songs/1/like")]
     public async Task Listening_writes_are_denied_without_the_capability(string method, string path)
     {
         // The admin can switch a member's like and play tracking off; the guard is where that

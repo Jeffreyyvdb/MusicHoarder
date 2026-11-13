@@ -46,7 +46,7 @@ public class MultiTenancyIsolationTests
         }
 
         // A friend is a tenant like any other: the normal filter shows them zero owner songs —
-        // shared music flows exclusively through the grant-scoped /api/shared endpoints.
+        // shared music flows exclusively through the grant-scoped library scope (ILibraryScopeResolver).
         await using (var asFriend = new MusicHoarderDbContext(options, new TestCurrentUserAccessor(TestCurrentUserAccessor.FriendUser)))
         {
             Assert.Empty(await asFriend.Songs.ToListAsync());

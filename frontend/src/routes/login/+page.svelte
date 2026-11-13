@@ -294,8 +294,8 @@
     </h1>
     <!-- Static, so it cannot reflow after hydration. -->
     <p class="text-callout text-muted-foreground mt-1.5 md:text-sm">
-      Sign in to your MusicHoarder library with an emailed link or a passkey — there are no
-      passwords.
+      Sign in to your MusicHoarder library with an emailed link{data.inApp ? '' : ' or a passkey'} —
+      there are no passwords.
     </p>
 
     {#if data.switching && data.currentUser}

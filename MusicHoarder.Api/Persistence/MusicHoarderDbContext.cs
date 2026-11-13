@@ -590,7 +590,7 @@ public class MusicHoarderDbContext : DbContext
             entity.HasIndex(e => new { e.OwnerUserId, e.GranteeUserId, e.RevokedAtUtc });
 
             // Both parties see exactly their rows: the owner for management, the grantee for
-            // resolution — so the /api/shared endpoints need no IgnoreQueryFilters() on grants
+            // resolution — so the library scope needs no IgnoreQueryFilters() on grants
             // (only on the subsequent Song reads, which are re-scoped to the grant's owner).
             entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId || e.GranteeUserId == userId);
         });

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { personHref, requestedSection, resolveSettingsView, visibleSections } from './sections';
 
-const admin = { role: 'Owner', isAdmin: true } as const;
+const admin = { role: 'Admin', isAdmin: true } as const;
 const demo = { role: 'Demo', isAdmin: false } as const;
-const member = { role: 'Friend', isAdmin: false } as const;
+const member = { role: 'Member', isAdmin: false } as const;
 
 const at = (path: string) => new URL(path, 'http://x');
 

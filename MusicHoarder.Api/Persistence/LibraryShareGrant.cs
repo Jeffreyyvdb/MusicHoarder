@@ -14,8 +14,8 @@ public enum ShareGrantScope
 /// <summary>
 /// An account-to-account share: the owner grants one friend read access to an album, an artist,
 /// or the whole library. Unlike <see cref="SongShare"/> there is no capability token — the
-/// grantee's session is the capability, and the read-only <c>/api/shared</c> endpoints resolve
-/// the caller's grants and re-scope every song read to the grant's own <see cref="OwnerUserId"/>
+/// grantee's session is the capability, and the ordinary song endpoints (through
+/// <c>ILibraryScopeResolver</c>) resolve the caller's grants and re-scope every song read to the grant's own <see cref="OwnerUserId"/>
 /// plus membership, mirroring the anonymous-share pattern. Membership keys use the exact same
 /// derivation as <c>SharesEndpoints.LoadSongsInScopeAsync</c>: lowercased
 /// <c>(AlbumArtist ?? Artist, Album)</c>, deliberately not year (per-track enrichment can leave

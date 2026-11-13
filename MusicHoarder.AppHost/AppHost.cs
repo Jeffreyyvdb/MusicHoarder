@@ -64,20 +64,6 @@ var publicUmamiWebsiteId = builder.AddParameter("public-umami-website-id", build
 var publicUmamiRecorderSrc = builder.AddParameter("public-umami-recorder-src", builder.Configuration["Parameters:public-umami-recorder-src"] ?? "")
     .WithDescription("Optional Umami session-recorder URL ending in /recorder.js. Blank disables the recorder.");
 
-// Android App Links: the frontend serves /.well-known/assetlinks.json from this so share/invite
-// links open the native app, and Credential Manager reads the same file to decide whether the app
-// may use this origin's passkeys. Blank → the endpoint 404s, links open in the browser, and the
-// app's passkey sign-in finds nothing.
-var androidAssetlinksFingerprints = builder.AddParameter("android-assetlinks-fingerprints", builder.Configuration["Parameters:android-assetlinks-fingerprints"] ?? "")
-    .WithDescription("Comma-separated SHA-256 signing-cert fingerprint(s) of the Android app allowed to open this host's share/invite links and use its passkeys (keytool -list -v | grep SHA256:). Blank disables /.well-known/assetlinks.json.");
-
-// The same certificate again, in the encoding that appears INSIDE an Android assertion:
-// `android:apk-key-hash:<base64url-sha256>`. FIDO2 compares non-URL origins as exact strings, so
-// the app's assertions are rejected on origin until this is set — the assetlinks file alone is not
-// enough for passkeys. Blank → passkey sign-in works in the browser only.
-var androidApkKeyHashOrigin = builder.AddParameter("android-apk-key-hash-origin", builder.Configuration["Parameters:android-apk-key-hash-origin"] ?? "")
-    .WithDescription("The Android app's signing certificate as `android:apk-key-hash:<base64url-sha256>` — the origin Credential Manager puts in an in-app assertion. Blank → the app's passkey sign-in is rejected on origin.");
-
 // AI quality grading calls an OpenAI-compatible endpoint (OpenRouter by default). The key is the
 // only required secret; with it blank the grader degrades to a no-op like the other providers.
 var qualityGradingApiKey = builder.AddParameter("quality-grading-api-key", builder.Configuration["Parameters:quality-grading-api-key"] ?? "", secret: true)
@@ -181,9 +167,6 @@ var api = builder.AddProject<Projects.MusicHoarder_Api>("api")
     .WithEnvironment("Slskd__ApiKey", slskdApiKey)
     .WithEnvironment("Slskd__DownloadsDirectory", slskdDownloadsDirectory)
     .WithEnvironment("StreamingFlac__SidecarUrl", streamingFlacSidecarUrl)
-    // Index 0 of the FIDO2 allowed-origins list: the web origin is derived from
-    // Frontend__PublicBaseUrl, so this slot is only ever the Android app's.
-    .WithEnvironment("WebAuthn__Origins__0", androidApkKeyHashOrigin)
     .WithExternalHttpEndpoints()
     .WithUrl("/scalar", "Scalar");
 #pragma warning disable ASPIRECOMPUTE003
@@ -209,7 +192,6 @@ var frontend = builder.AddViteApp("frontend", "../frontend")
     .WithEnvironment("PUBLIC_UMAMI_SRC", publicUmamiSrc)
     .WithEnvironment("PUBLIC_UMAMI_WEBSITE_ID", publicUmamiWebsiteId)
     .WithEnvironment("PUBLIC_UMAMI_RECORDER_SRC", publicUmamiRecorderSrc)
-    .WithEnvironment("ANDROID_ASSETLINKS_FINGERPRINTS", androidAssetlinksFingerprints)
     .WaitForStart(api)
     .WithExternalHttpEndpoints()
     .PublishAsNodeServer(entryPoint: "build/index.js", outputPath: "build");

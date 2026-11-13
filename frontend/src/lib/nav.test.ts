@@ -222,8 +222,8 @@ describe('resolveNav', () => {
 });
 
 describe('what each account may see', () => {
-  const admin = { role: 'Owner' as const, isAdmin: true };
-  const member = { role: 'Friend' as const, isAdmin: false, capabilities: [] };
+  const admin = { role: 'Admin' as const, isAdmin: true };
+  const member = { role: 'Member' as const, isAdmin: false, capabilities: [] };
 
   const allowed = (path: string, user: Parameters<typeof allowedPathPrefixesFor>[0]) =>
     isPathAllowed(path, allowedPathPrefixesFor(user));
@@ -314,20 +314,19 @@ describe('what each account may see', () => {
     expect(allowed('/pipeline', null)).toBe(false);
   });
 
-  it('reads isAdmin, not the legacy role string', () => {
-    // The wire still says 'Friend' for a member and 'Owner' for an admin, but that vocabulary is
-    // scheduled to change; nothing here may depend on it.
-    expect(navGroupsFor({ role: 'Friend', isAdmin: true })).toHaveLength(NAV_GROUPS.length);
-    expect(navGroupsFor({ role: 'Owner', isAdmin: false }).map((g) => g.id)).toEqual([
+  it('reads isAdmin, not the role string', () => {
+    // The role is for display; what a person may reach follows isAdmin alone.
+    expect(navGroupsFor({ role: 'Member', isAdmin: true })).toHaveLength(NAV_GROUPS.length);
+    expect(navGroupsFor({ role: 'Admin', isAdmin: false }).map((g) => g.id)).toEqual([
       'listen',
       'chats'
     ]);
   });
 });
 
-const admin = { role: 'Owner' as const, isAdmin: true };
+const admin = { role: 'Admin' as const, isAdmin: true };
 const demo = { role: 'Demo' as const, isAdmin: false, capabilities: [] };
-const member = { role: 'Friend' as const, isAdmin: false, capabilities: [] };
+const member = { role: 'Member' as const, isAdmin: false, capabilities: [] };
 
 describe('isInboxHub', () => {
   it('is a bare /inbox only', () => {

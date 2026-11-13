@@ -35,6 +35,14 @@ public class NativeAudioPlugin: CAPPlugin, CAPBridgedPlugin, AudioEngineDelegate
             engine.delegate = self
             self.engine = engine
         }
+        // Another server was chosen: the app builds a new web view, whose plugin starts its own
+        // engine. This one must let go of the audio and the lock screen first.
+        NotificationCenter.default.addObserver(
+            forName: ShellServerPlugin.changedNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.engine?.shutdown()
+            self?.engine = nil
+        }
     }
 
     // MARK: - AudioEngineDelegate

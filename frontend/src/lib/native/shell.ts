@@ -41,6 +41,23 @@ export interface NativePlugin {
   listen(event: string, handler: (data: unknown) => void): void;
 }
 
+/**
+ * Whether the app can be pointed at another server (the `ShellServer` plugin, `mobile/plugin`):
+ * the app asks for its server on first start, and this lets the user go back to that question.
+ */
+export function canChangeServer(): boolean {
+  return nativePlugin('ShellServer') !== null;
+}
+
+/**
+ * Forget the server this app loads and show its bundled page, which asks for another. The app
+ * rebuilds its web view, so nothing after this call runs; the account stays signed in on the
+ * server it leaves, for when the user comes back to it.
+ */
+export async function changeServer(): Promise<void> {
+  await nativePlugin('ShellServer')?.call('clearServer');
+}
+
 /** The shell's plugin of that name, or null outside the shell or in a build without it. */
 export function nativePlugin(name: string): NativePlugin | null {
   const cap = bridge();

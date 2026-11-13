@@ -34,7 +34,7 @@
  * warning-text · primary (tappable things and the now-playing title). Contrast (WCAG 2) is noted
  * next to each; the dim tier never sits on a fill.
  *
- * Mirrored as sRGB hex in the Android client (ui/theme/Color.kt) — keep the two in step.
+ * The app shell's bundled page (mobile/www/index.html) copies a few of these as hex.
  */
 :root {
   /* Mirrored as hex for the theme-color meta and the manifest — app.html, routes/+layout.svelte

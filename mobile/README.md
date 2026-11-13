@@ -2,7 +2,8 @@
 
 The web app in a native shell: a [Capacitor](https://capacitorjs.com) web view that loads your
 MusicHoarder instance, with a native audio player behind the transport. One project, built for
-both systems.
+both systems. On first start it asks for your server's address, so one store build serves every
+instance.
 
 It exists for one reason. A web page cannot be trusted to start the next song once the phone is
 locked: iOS suspends a silent page within seconds, and an Android web view has no foreground
@@ -12,35 +13,44 @@ already holds the tracks that follow, so the next one starts whether the page is
 Everything else is the web app as it is: same pages, same account, same session cookie. A change
 to a page reaches the apps with the next deploy of the frontend, with no app release.
 
-> The repo also has a native Android client in [`android/`](../android), which is the one on
-> Google Play today. This shell does not replace it by itself; see [Replacing the native Android
-> client](#replacing-the-native-android-client).
+> This shell replaced the native Android client (`android/`, a Kotlin/Compose app) in November
+> 2026. See [Replacing the native Android client](#replacing-the-native-android-client) for what
+> that changed for people who had it installed.
 
 ## Layout
 
 | Path | What |
 | --- | --- |
-| `capacitor.config.ts` | The shell's config. Reads `MH_SERVER_URL`. |
-| `plugin/ios` | The audio plugin for iOS (Swift, `AVQueuePlayer`). |
-| `plugin/android` | The audio plugin for Android (Java, Media3 in a media session service). |
+| `capacitor.config.ts` | The shell's config. Reads the optional `MH_SERVER_URL`. |
+| `plugin/ios` | The plugins for iOS (Swift): `NativeAudio` (an `AVQueuePlayer`) and `ShellServer`. |
+| `plugin/android` | The plugins for Android (Java): `NativeAudio` (Media3 in a media session service) and `ShellServer`. |
 | `ios/` | The Xcode project. `ios/App/App.xcodeproj` is what you open. |
 | `android/` | The Gradle project. |
-| `www/` | The one bundled page, shown when the server cannot be reached. |
+| `www/` | The one bundled page: it asks for the server, and says when it cannot be reached. |
 
-The web side of the plugin lives in the frontend: `frontend/src/lib/native/`. It and the two
-plugins are one protocol and change together.
+The web side of the plugins lives in the frontend: `frontend/src/lib/native/`. It and the two
+platforms' plugins are one protocol and change together. An installed app keeps the plugins it was
+built with while the pages change with every deploy, so add to the protocol rather than change it.
 
 ## Building
 
 ```bash
 cd mobile
 bun install
-MH_SERVER_URL=https://music.example.com bun run sync   # your instance's public address
+bun run sync
 ```
 
-`MH_SERVER_URL` is the address your browser uses, with `https`: both systems refuse plain `http`.
-It is written into generated, untracked files only, so run `bun run sync` again after a fresh
-clone, and whenever the address or a plugin changes.
+Run `bun run sync` again after a fresh clone, and whenever a plugin or `www/` changes.
+
+The app asks for the server on its first start: the address the browser uses, with `https` (both
+systems refuse plain `http`). The `ShellServer` plugin checks it natively before taking it: it must
+answer over `https`, and its `/manifest.webmanifest` must name MusicHoarder, so a typo that happens
+to load cannot leave the app on a page with no way back. **Change server** in the account menu, or
+"Use another server" on the "can't reach" page, asks again.
+
+A build of your own can open on one server straight away instead:
+`MH_SERVER_URL=https://music.example.com bun run sync`. It is written into generated, untracked
+files only. The store builds name none.
 
 The server needs no configuration for the apps. It has to run a MusicHoarder version that includes
 `frontend/src/lib/native/`; an older one still loads, but plays through the web view.
@@ -66,25 +76,32 @@ cd android && ./gradlew :app:assembleDebug   # → app/build/outputs/apk/debug/a
 bun run open:android                         # or open it in Android Studio
 ```
 
-A debug build is `com.musichoarder.app.shell`, so it installs next to the native client rather
-than being refused for its signature. CI attaches a debug APK to every run of the `Mobile`
-workflow, built against a placeholder address: useful to see that it builds, not to use.
+The Android Gradle Plugin does not run on newer JDKs: with JDK 25 the build stops with
+"Unsupported class file major version 69". Point `JAVA_HOME` at a JDK 21 (for example
+`mise install java@temurin-21`, then `JAVA_HOME=$(mise where java@temurin-21)`).
 
-A release build takes the same inputs as the native client: `-PmhVersionName`, `-PmhVersionCode`
-and a keystore through `MH_KEYSTORE_PATH`, `MH_KEYSTORE_PASSWORD`, `MH_KEY_ALIAS`,
-`MH_KEY_PASSWORD`.
+A debug build is `com.musichoarder.app.shell`, so it installs next to the store app rather than
+being refused for its signature. CI attaches a debug APK to every run of the `Mobile` workflow.
+
+A release build takes `-PmhVersionName`, `-PmhVersionCode` and a keystore through
+`MH_KEYSTORE_PATH`, `MH_KEYSTORE_PASSWORD`, `MH_KEY_ALIAS`, `MH_KEY_PASSWORD`. `release.yml` builds
+one on every release and uploads it to Google Play (see the root `CLAUDE.md`, "Releases").
 
 ## Signing in
 
 - **Email link.** Asked for inside the app, the emailed link opens a page in the browser with an
-  "Open the MusicHoarder app" button, which hands the sign-in over (`musichoarder://auth`). With
-  the native Android client installed as well, Android asks which app to open.
+  "Open the MusicHoarder app" button, which hands the sign-in over (`musichoarder://auth`).
   The app takes that hand-over only for a link asked for inside it, within 20 minutes: anything
   on the phone can open a `musichoarder://` link, and one carrying somebody else's token would
   sign the app in to their account. A link asked for elsewhere says it did not work.
 - **Demo.** Works as on the web.
-- **Passkeys do not work yet.** A web view only offers a site's passkeys to an app the site vouches
-  for (an associated domain on iOS, Digital Asset Links plus a web-view setting on Android).
+- **No passkeys in the app.** A web view gets a site's passkeys only when the app vouches for the
+  site. On iOS that means listing the domain in the app's Associated Domains entitlement at build
+  time (paid developer program), which a store app cannot do for servers people host themselves;
+  in the app WebKit answers every request with NotAllowedError. So the pages hide passkeys inside
+  the app (`isPasskeySupported()`; the login page also words its sign-in without them, from the
+  `MusicHoarderApp` user agent). Android could do it (Digital Asset Links served by each server,
+  plus a web-view setting), but it is not built: it needs a phone with a Google account to test.
 
 ## How playback works
 
@@ -112,25 +129,29 @@ device carries the command out itself.
 
 ## Replacing the native Android client
 
-The shell can take over the Play listing, since a release build has the same application id. That
-is a decision with a cost, so it is not made here:
+Until November 2026 the repo had a native Android client in `android/` (Kotlin, Compose, Media3),
+a line-by-line port of the web app's library and player. Keeping every rule in two copies kept
+failing, so this shell replaced it, and the native client and the server parts only it used were
+removed (device-token pairing, bearer authentication, the `/api/shared` alias, the cookie-free
+passkey ceremony, Android App Links and the old role words on the wire).
 
-- It must be signed with the same key and carry a higher version code than the last native release.
-- Installed apps are signed in with a device token the web view cannot use, so everyone signs in
-  once more after the update.
-- It gives up what only the native client has: the QR pairing, several servers on one phone,
-  `https` share links opening in the app, and in-app passkeys.
-- `release.yml` builds and uploads `android/` today, and would have to build `mobile/android`
-  instead.
+The shell's release build has the same application id (`com.musichoarder.app`), signing key and
+version-code scheme, so Google Play delivers it as an update. What that means for someone who had
+the native app installed:
 
-Until then both exist, and a change to a shared rule still has to reach `android/` (see "Two
-clients, one product" in the root `CLAUDE.md`).
+- They sign in once more. The native app held a bearer token, which the server no longer accepts;
+  the shell signs in through its web view and asks for the server's address first.
+- They lose what only the native client had: QR pairing, several servers on one phone at once
+  (Change server switches between them instead), `https` share and invite links opening in the app,
+  and in-app passkeys.
+- An install that does not update stops working against a server that has the change: its bearer
+  token and routes are gone.
 
 ## Testing on a device
 
-The app runs whatever frontend `MH_SERVER_URL` serves, so a change to `frontend/src/lib/native/`
-can only be tried on a phone against a server that runs it. Production does not until it is
-deployed.
+The app runs whatever frontend its server serves, so a change to `frontend/src/lib/native/` can
+only be tried on a phone against a server that runs it. Production does not until it is deployed.
+Enter that server's address on the app's first start, or build with `MH_SERVER_URL` set to it.
 
 ### Which server
 
@@ -220,7 +241,12 @@ first install trust the developer under Settings → General → VPN & Device Ma
   `www/overview` that once made every launch exit) shows up only on a device or a simulator.
 - A reload shows a black (or white) frame for about a second and closes Now Playing, as it does in
   a browser; the music itself carries on.
-- The Android shell has not been run on a device yet.
+- The Android shell has been run on an emulator only (Android 16, API 36): the server picker,
+  sign-in through the `musichoarder://auth` hand-off, native playback, track changes with the app
+  in the background, and Change server (which stops the music). Not yet on a phone.
+- The server picker has been tried on the iOS simulator, not yet on an iPhone.
+- The white first frame in dark mode is fixed (`frontend/src/app.html`). Recorded against a
+  production build on the iOS simulator: no frame of the launch is lighter than the dark page.
 - Swiping the Android app away stops the music: the page is what knows the queue.
 - How the pages sit around Android's system bars has not been looked at on a device.
 - Music videos and anything else the pages play through their own `<video>` or `<audio>` elements
