@@ -138,6 +138,18 @@ public class OpenRouterDecisionsClientTests
             new QualityGradingOptions { ApiKey = "sk-test" }));
     }
 
+    [Fact]
+    public void Never_sends_a_key_for_another_provider_to_openrouter()
+    {
+        // A QualityGrading key for OpenAI (or Groq, Ollama…) must not go to the Decisions API.
+        Assert.False(OpenRouterDecisionsClient.IsTrialConfigured(
+            new JevGradingOptions(),
+            new QualityGradingOptions { ApiKey = "sk-openai", BaseUrl = "https://api.openai.com/v1" }));
+        Assert.False(OpenRouterDecisionsClient.IsTrialConfigured(
+            new JevGradingOptions { BaseUrl = "https://decisions.example.com/api" },
+            new QualityGradingOptions { ApiKey = "sk-test" }));
+    }
+
     private static DecisionRequest Request() => new(
         "typesafe/jev-1.14-20261014", new JsonObject { ["x"] = 1 },
         new Dictionary<string, DecisionQuestion>

@@ -138,7 +138,8 @@ public static class JevQuestions
     {
         var whole = Envelope(SongAudit, SongRules, dossier);
         var fullBytes = Bytes(whole);
-        if (fullBytes <= maxBytes)
+        // Over the limit with no change log to shed: send it whole; StateBytes records it as over.
+        if (fullBytes <= maxBytes || dossier.ChangeLog.Count == 0)
             return new JevState(whole, fullBytes, fullBytes, Shed: false);
 
         // Shed the change log (oldest first), halving until the state fits; everything else is fixed-size.

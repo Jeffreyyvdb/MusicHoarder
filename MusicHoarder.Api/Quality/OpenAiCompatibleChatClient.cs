@@ -43,7 +43,7 @@ public class OpenAiCompatibleChatClient(
         // Serialize once; the body is identical across retries.
         var bodyJson = JsonSerializer.Serialize(payload, Json);
 
-        var (body, _) = await RetryingJsonPost.SendAsync(
+        var (body, httpAttempts) = await RetryingJsonPost.SendAsync(
             httpClient, url, bodyJson, opts, opts.MaxRetries, opts.TimeoutSeconds, "Chat completion", logger, ct);
         var parsed = JsonSerializer.Deserialize<ChatResponseBody>(body, Json);
         var choice = parsed?.Choices?.FirstOrDefault();
@@ -74,7 +74,7 @@ public class OpenAiCompatibleChatClient(
 
         return new ChatCompletionResult(
             content, parsed?.Usage?.PromptTokens, parsed?.Usage?.CompletionTokens, choice?.FinishReason, fromReasoning,
-            parsed?.Provider, parsed?.Usage?.Cost);
+            parsed?.Provider, parsed?.Usage?.Cost, httpAttempts);
     }
 
     internal static bool IsOpenRouter(string baseUrl) =>

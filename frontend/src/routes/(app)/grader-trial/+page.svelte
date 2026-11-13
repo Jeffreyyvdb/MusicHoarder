@@ -43,17 +43,20 @@
   let saving = $state<string | null>(null);
 
   async function load() {
+    // A tab switch mid-load must not let the slower, older kind land on the newer tab.
+    const forKind = kind;
     loading = true;
     try {
-      const [s, r, q] = await Promise.all([fetchGraderTrialStatus(), fetchGraderTrialReport(kind), fetchGraderTrialQueue(kind)]);
+      const [s, r, q] = await Promise.all([fetchGraderTrialStatus(), fetchGraderTrialReport(forKind), fetchGraderTrialQueue(forKind)]);
+      if (forKind !== kind) return;
       status = s;
       report = r;
       queue = q;
       error = null;
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to load the grader trial';
+      if (forKind === kind) error = e instanceof Error ? e.message : 'Failed to load the grader trial';
     } finally {
-      loading = false;
+      if (forKind === kind) loading = false;
     }
   }
 
@@ -96,7 +99,9 @@
       queue = queue.filter((q) => key(q) !== k);
       if (queue.length < 5) {
         // Keep a few ready, and pick up the new label in the report's numbers.
-        const [r, q] = await Promise.all([fetchGraderTrialReport(kind), fetchGraderTrialQueue(kind)]);
+        const forKind = kind;
+        const [r, q] = await Promise.all([fetchGraderTrialReport(forKind), fetchGraderTrialQueue(forKind)]);
+        if (forKind !== kind) return;
         report = r;
         queue = q;
       }

@@ -182,7 +182,13 @@ public sealed class GraderTrialService(
 
     private async Task<List<TrialRow>> LoadRowsAsync(GraderSubjectKind kind, CancellationToken ct, int? subjectId = null)
     {
-        var query = db.GraderComparisonRuns.AsNoTracking().Where(r => r.SubjectKind == kind);
+        // Only answers to the current prompt and question wording: after a version bump the old
+        // answers describe questions nobody asks any more, and would pair ahead of the new ones.
+        var promptVersion = kind == GraderSubjectKind.Song ? QualityGradingPrompt.Version : AlbumGradingPrompt.Version;
+        var questionVersion = GraderTrialRunner.QuestionVersion(kind);
+        var query = db.GraderComparisonRuns.AsNoTracking().Where(r => r.SubjectKind == kind
+            && ((r.Arm == GraderArm.Incumbent && r.Version == promptVersion)
+                || (r.Arm == GraderArm.Decision && r.Version == questionVersion)));
         if (subjectId is { } id) query = query.Where(r => r.SubjectId == id);
         return await query
             .Select(r => new TrialRow(

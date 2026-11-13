@@ -143,6 +143,28 @@ public class GraderTrialIsolationTests
     }
 
     [Fact]
+    public async Task A_failed_answer_is_asked_again_up_to_the_attempt_cap()
+    {
+        var db = TrialTestKit.CreateDb();
+        var a = TrialTestKit.AddSong(db);
+        await db.SaveChangesAsync();
+        db.SongQualityGrades.Add(TrialTestKit.Grade(a.Id, Fingerprint(a)));
+        await db.SaveChangesAsync();
+
+        var decisions = new TrialTestKit.FakeDecisionClient(_ => throw new HttpRequestException("busy", null, System.Net.HttpStatusCode.ServiceUnavailable));
+        // A zero-length back-off window, so each pass may ask again.
+        var runner = Runner(db, decisions, new JevGradingOptions { Concurrency = 1, RequestsPerSecond = 50, FailureBackoffSeconds = 30 });
+        for (var i = 0; i < GraderTrialRunner.MaxDecisionAttempts + 2; i++)
+        {
+            await runner.RunAsync(GraderSubjectKind.Song, 10, GraderRunSource.Shadow, default);
+            runner = Runner(db, decisions, new JevGradingOptions { Concurrency = 1, RequestsPerSecond = 50 }); // a fresh back-off
+        }
+
+        Assert.Equal(GraderTrialRunner.MaxDecisionAttempts, decisions.Requests.Count);
+        Assert.Equal(GraderTrialRunner.MaxDecisionAttempts, await db.GraderComparisonRuns.CountAsync(r => r.Arm == GraderArm.Decision));
+    }
+
+    [Fact]
     public async Task A_zero_sample_rate_grades_nothing()
     {
         var db = TrialTestKit.CreateDb();

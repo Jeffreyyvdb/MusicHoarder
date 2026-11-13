@@ -96,9 +96,9 @@ public static class GradingCompletion
 }
 
 /// <summary>
-/// What one grade cost: requests made, tokens and USD, summed over the replies that came back. A
-/// request that failed outright (HTTP error, timeout) is not in it — the provider reports no usage
-/// for those.
+/// What one grade cost: HTTP requests made (transient retries included, as the decision arm counts
+/// them), tokens and USD, summed over the replies that came back. A grade that failed outright
+/// (HTTP error, timeout) adds nothing — the provider reports no usage for those.
 /// </summary>
 public sealed class GradingCallStats
 {
@@ -109,7 +109,7 @@ public sealed class GradingCallStats
 
     public void Add(ChatCompletionResult reply)
     {
-        Attempts++;
+        Attempts += Math.Max(1, reply.HttpAttempts);
         if (reply.PromptTokens is { } p) PromptTokens = (PromptTokens ?? 0) + p;
         if (reply.CompletionTokens is { } c) CompletionTokens = (CompletionTokens ?? 0) + c;
         if (reply.CostUsd is { } cost) CostUsd = (CostUsd ?? 0) + cost;

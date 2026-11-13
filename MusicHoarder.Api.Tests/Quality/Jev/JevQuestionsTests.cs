@@ -111,6 +111,16 @@ public class JevQuestionsTests
         Assert.Equal(400, (int?)state.State["dossier"]!["truncation"]!["changeLogTotal"]);
     }
 
+    [Fact]
+    public void An_oversized_dossier_with_no_change_log_is_not_marked_shed()
+    {
+        var state = JevQuestions.SongState(Dossier(changes: 0), maxBytes: 500);
+
+        Assert.False(state.Shed);
+        Assert.True(state.SentBytes > 500);
+        Assert.Null(state.State["dossier"]!["truncation"]);
+    }
+
     internal static SongGradingDossier Dossier(int changes)
     {
         var now = new DateTime(2026, 11, 1, 0, 0, 0, DateTimeKind.Utc);

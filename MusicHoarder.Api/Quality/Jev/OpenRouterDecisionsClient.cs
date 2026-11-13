@@ -17,11 +17,16 @@ public sealed class OpenRouterDecisionsClient(
 {
     public bool IsConfigured => IsTrialConfigured(options.CurrentValue, gradingOptions.CurrentValue);
 
-    /// <summary>The trial runs only while quality grading itself is configured: it shares its key.</summary>
+    /// <summary>
+    /// The trial runs only while quality grading itself is configured, because it shares its key —
+    /// and only when both point at OpenRouter: a key for another provider (OpenAI, Groq…) must never
+    /// be sent to the Decisions API.
+    /// </summary>
     public static bool IsTrialConfigured(JevGradingOptions jev, QualityGradingOptions grading) =>
         jev.Enabled
         && grading.IsConfigured
-        && !string.IsNullOrWhiteSpace(jev.BaseUrl)
+        && OpenAiCompatibleChatClient.IsOpenRouter(grading.BaseUrl)
+        && OpenAiCompatibleChatClient.IsOpenRouter(jev.BaseUrl)
         && jev.ModelList.Count > 0;
 
     public async Task<DecisionResult> DecideAsync(DecisionRequest request, CancellationToken ct = default)

@@ -15,6 +15,7 @@ public record ChatCompletionRequest(
 /// </param>
 /// <param name="Provider">Which upstream served the request, when a router such as OpenRouter says so.</param>
 /// <param name="CostUsd">What the request cost in USD (<c>usage.cost</c>), when the endpoint reports it (OpenRouter does).</param>
+/// <param name="HttpAttempts">HTTP requests this reply took, transient-failure retries included.</param>
 public record ChatCompletionResult(
     string Content,
     int? PromptTokens,
@@ -22,7 +23,8 @@ public record ChatCompletionResult(
     string? FinishReason = null,
     bool FromReasoning = false,
     string? Provider = null,
-    decimal? CostUsd = null);
+    decimal? CostUsd = null,
+    int HttpAttempts = 1);
 
 /// <summary>
 /// Minimal client for an OpenAI-compatible <c>/chat/completions</c> endpoint. One method, no

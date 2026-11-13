@@ -29,7 +29,18 @@ public sealed class GraderTrialRunner(
     IOptionsMonitor<JevGradingOptions> options,
     ILogger<GraderTrialRunner> logger)
 {
+    /// <summary>
+    /// Failed decision calls per subject and input before the sweep stops asking (each retry waits
+    /// out the back-off). A transient failure gets another chance; a dossier the model rejects every
+    /// time does not keep writing failure rows.
+    /// </summary>
+    public const int MaxDecisionAttempts = 3;
+
     private readonly RequestRateGate _rateGate = new();
+
+    // One pass at a time: the background sweep and the admin "run now" would otherwise pick the same
+    // unanswered subjects and pay for each twice.
+    private readonly SemaphoreSlim _passGate = new(1, 1);
 
     // Subjects whose decision call failed, or whose dossier moved on from their grade. In memory only.
     private readonly FailureBackoffTracker _backoff = new();
@@ -38,6 +49,13 @@ public sealed class GraderTrialRunner(
 
     /// <summary>Grades up to <paramref name="limit"/> subjects of <paramref name="kind"/> per configured decision model.</summary>
     public async Task<TrialPassResult> RunAsync(GraderSubjectKind kind, int limit, GraderRunSource source, CancellationToken ct)
+    {
+        await _passGate.WaitAsync(ct);
+        try { return await RunCoreAsync(kind, limit, source, ct); }
+        finally { _passGate.Release(); }
+    }
+
+    private async Task<TrialPassResult> RunCoreAsync(GraderSubjectKind kind, int limit, GraderRunSource source, CancellationToken ct)
     {
         var opts = options.CurrentValue;
         var total = TrialPassResult.None;
@@ -66,6 +84,13 @@ public sealed class GraderTrialRunner(
     /// again too — that costs real chat calls, which is why it is opt-in.
     /// </summary>
     public async Task<TrialPassResult> RunStabilityAsync(GraderSubjectKind kind, int limit, bool includeIncumbent, CancellationToken ct)
+    {
+        await _passGate.WaitAsync(ct);
+        try { return await RunStabilityCoreAsync(kind, limit, includeIncumbent, ct); }
+        finally { _passGate.Release(); }
+    }
+
+    private async Task<TrialPassResult> RunStabilityCoreAsync(GraderSubjectKind kind, int limit, bool includeIncumbent, CancellationToken ct)
     {
         var opts = options.CurrentValue;
         if (opts.PrimaryModel is not { } model) return TrialPassResult.None;
@@ -163,7 +188,10 @@ public sealed class GraderTrialRunner(
                 && g.SongId % 100 < percent
                 && !runs.Any(r => r.SubjectKind == GraderSubjectKind.Song && r.SubjectId == g.SongId
                     && r.InputFingerprint == g.InputFingerprint && r.Arm == GraderArm.Decision
-                    && r.Model == model && r.Version == JevQuestions.SongVersion))
+                    && r.Model == model && r.Version == JevQuestions.SongVersion && r.ErrorCode == null)
+                && runs.Count(r => r.SubjectKind == GraderSubjectKind.Song && r.SubjectId == g.SongId
+                    && r.InputFingerprint == g.InputFingerprint && r.Arm == GraderArm.Decision
+                    && r.Model == model && r.Version == JevQuestions.SongVersion && r.ErrorCode != null) < MaxDecisionAttempts)
             .OrderByDescending(g => g.GradedAtUtc)
             // Subjects in back-off are dropped below; take enough rows that they can never fill the page.
             .Take(limit + _backoff.Count)
@@ -196,7 +224,10 @@ public sealed class GraderTrialRunner(
                 && g.CanonicalAlbumId % 100 < percent
                 && !runs.Any(r => r.SubjectKind == GraderSubjectKind.Album && r.SubjectId == g.CanonicalAlbumId
                     && r.InputFingerprint == g.InputFingerprint && r.Arm == GraderArm.Decision
-                    && r.Model == model && r.Version == JevQuestions.AlbumVersion))
+                    && r.Model == model && r.Version == JevQuestions.AlbumVersion && r.ErrorCode == null)
+                && runs.Count(r => r.SubjectKind == GraderSubjectKind.Album && r.SubjectId == g.CanonicalAlbumId
+                    && r.InputFingerprint == g.InputFingerprint && r.Arm == GraderArm.Decision
+                    && r.Model == model && r.Version == JevQuestions.AlbumVersion && r.ErrorCode != null) < MaxDecisionAttempts)
             .OrderByDescending(g => g.GradedAtUtc)
             // Subjects in back-off are dropped below; take enough rows that they can never fill the page.
             .Take(limit + _backoff.Count)
