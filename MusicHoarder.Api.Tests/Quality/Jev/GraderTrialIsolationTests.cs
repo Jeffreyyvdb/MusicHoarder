@@ -180,5 +180,7 @@ public class GraderTrialIsolationTests
     private static QualityGradingService Incumbent(MusicHoarderDbContext db, IChatCompletionClient chat, bool trialEnabled) => new(
         new TrialTestKit.ScopeFactory(db), chat, Factory(), Grading,
         NullLogger<QualityGradingService>.Instance,
-        new TrialTestKit.Monitor<JevGradingOptions>(new JevGradingOptions { Enabled = trialEnabled }));
+        new GraderTrialRecorder(new TrialTestKit.ScopeFactory(db),
+            new TrialTestKit.Monitor<JevGradingOptions>(new JevGradingOptions { Enabled = trialEnabled }),
+            NullLogger<GraderTrialRecorder>.Instance));
 }

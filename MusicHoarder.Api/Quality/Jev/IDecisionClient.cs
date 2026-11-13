@@ -1,4 +1,3 @@
-using System.Text.Json;
 using System.Text.Json.Nodes;
 
 namespace MusicHoarder.Api.Quality.Jev;
@@ -48,9 +47,7 @@ public sealed record DecisionResult(
     string? Provider,
     int? InputTokens,
     int? OutputTokens,
-    decimal? CostUsd,
-    /// <summary>The response body, kept for debugging the mapping.</summary>
-    JsonElement Raw)
+    decimal? CostUsd)
 {
     /// <summary>Requests the client made for this result, retries included.</summary>
     public int Attempts { get; init; } = 1;

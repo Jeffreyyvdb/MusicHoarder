@@ -449,6 +449,7 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<IOptionsMonitor<QualityGradingOptions>>(),
             sp.GetRequiredService<ILogger<OpenRouterDecisionsClient>>()));
         services.AddSingleton<IJevGradingService, JevGradingService>();
+        services.AddSingleton<IGraderTrialRecorder, GraderTrialRecorder>();
         services.AddSingleton<GraderTrialRunner>();
         services.AddScoped<GraderTrialService>();
         services.AddHostedService<JevShadowGradingBackgroundService>();

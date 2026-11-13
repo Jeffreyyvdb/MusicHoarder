@@ -53,7 +53,7 @@ public static class GraderTrialRows
     /// <summary>A decision model's answer, or its failure when <paramref name="grade"/> is null.</summary>
     public static GraderComparisonRun Decision(
         GraderSubjectKind kind, int subjectId, Guid ownerUserId, string model, int questionVersion, string fingerprint,
-        JevState state, JevGrade? grade, DecisionResult? result, int latencyMs, int? attempts,
+        JevState state, JevGrade? grade, DecisionResult? result, int latencyMs,
         string? errorCode, string? error, GraderRunSource source) => new()
     {
         SubjectKind = kind,
@@ -75,7 +75,7 @@ public static class GraderTrialRows
         ProbabilitiesJson = grade?.ProbabilitiesJson,
         Summary = Clip(grade?.Summary, 1024),
         LatencyMs = latencyMs,
-        Attempts = attempts,
+        Attempts = result?.Attempts,
         InputTokens = result?.InputTokens,
         OutputTokens = result?.OutputTokens,
         CostUsd = result?.CostUsd,

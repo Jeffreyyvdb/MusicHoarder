@@ -22,7 +22,9 @@ public sealed record TrialRow(
     int? FullStateBytes,
     int? StateBytes,
     bool StateShed,
-    DateTime CreatedAtUtc)
+    DateTime CreatedAtUtc,
+    long Id = 0,
+    Guid OwnerUserId = default)
 {
     public bool Answered => ErrorCode is null && Verdict is not null;
 }
@@ -134,7 +136,8 @@ public static class GraderTrialReport
     /// <summary>How far below the incumbent's recall the challenger may fall (2 points) and still pass.</summary>
     public const double RecallTolerance = 0.02;
 
-    public static bool IsFlagged(SongQualityVerdict v) => v is SongQualityVerdict.Wrong or SongQualityVerdict.Questionable;
+    /// <summary>Flagged means what the Inbox's AI-flagged queue means, so the trial measures that queue.</summary>
+    public static bool IsFlagged(SongQualityVerdict v) => VerdictSeverity.IsAiFlagged(v);
 
     public static GraderTrialReportDto Build(
         GraderSubjectKind kind,

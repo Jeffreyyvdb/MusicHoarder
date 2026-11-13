@@ -1,10 +1,10 @@
 using System.Net;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging.Abstractions;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Quality.Jev;
+using MusicHoarder.Api.Tests.Spotify;
 
 namespace MusicHoarder.Api.Tests.Quality.Jev;
 
@@ -89,31 +89,30 @@ public class OpenRouterDecisionsClientTests
     [Fact]
     public async Task Retries_a_429_then_reports_two_attempts()
     {
-        using var handler = new QueueHandler(
-            new HttpResponseMessage(HttpStatusCode.TooManyRequests) { Content = new StringContent("{}") },
-            Ok(ReferenceResponse));
+        using var handler = new ScriptedHttpHandler();
+        handler.Enqueue(HttpStatusCode.TooManyRequests, "{}", retryAfter: TimeSpan.Zero);
+        handler.EnqueueJson(ReferenceResponse);
         var client = Create(handler);
 
         var result = await client.DecideAsync(Request());
 
-        Assert.Equal(2, handler.Calls);
+        Assert.Equal(2, handler.SendCount);
         Assert.Equal(2, result.Attempts);
-        Assert.Equal("https://openrouter.ai/api/alpha/decisions", handler.LastUrl);
-        Assert.Equal("Bearer sk-test", handler.LastAuthorization);
+        Assert.Equal("https://openrouter.ai/api/alpha/decisions", handler.Requests[^1].Url);
+        Assert.Equal("Bearer", handler.Requests[^1].AuthScheme);
+        Assert.Equal("sk-test", handler.Requests[^1].AuthParameter);
     }
 
     [Fact]
     public async Task A_400_is_not_retried_and_carries_the_providers_reason()
     {
-        using var handler = new QueueHandler(new HttpResponseMessage(HttpStatusCode.BadRequest)
-        {
-            Content = new StringContent("""{"error":{"message":"box questions need jev-1.14"}}"""),
-        });
+        using var handler = new ScriptedHttpHandler();
+        handler.Enqueue(HttpStatusCode.BadRequest, """{"error":{"message":"box questions need jev-1.14"}}""");
         var client = Create(handler);
 
         var ex = await Assert.ThrowsAsync<HttpRequestException>(() => client.DecideAsync(Request()));
 
-        Assert.Equal(1, handler.Calls);
+        Assert.Equal(1, handler.SendCount);
         Assert.Contains("box questions need jev-1.14", ex.Message);
     }
 
@@ -151,23 +150,4 @@ public class OpenRouterDecisionsClientTests
         new TrialTestKit.Monitor<JevGradingOptions>(new JevGradingOptions { MaxRetries = 2 }),
         new TrialTestKit.Monitor<QualityGradingOptions>(new QualityGradingOptions { ApiKey = "sk-test" }),
         NullLogger<OpenRouterDecisionsClient>.Instance);
-
-    private static HttpResponseMessage Ok(string body) =>
-        new(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
-
-    private sealed class QueueHandler(params HttpResponseMessage[] responses) : HttpMessageHandler
-    {
-        private readonly Queue<HttpResponseMessage> _responses = new(responses);
-        public int Calls { get; private set; }
-        public string? LastUrl { get; private set; }
-        public string? LastAuthorization { get; private set; }
-
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            Calls++;
-            LastUrl = request.RequestUri?.ToString();
-            LastAuthorization = request.Headers.Authorization?.ToString();
-            return Task.FromResult(_responses.Dequeue());
-        }
-    }
 }

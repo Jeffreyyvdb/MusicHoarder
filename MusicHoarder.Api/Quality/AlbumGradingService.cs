@@ -18,7 +18,7 @@ public sealed class AlbumGradingService(
     IOptions<MusicEnricherOptions> enricherOptions,
     IOptionsMonitor<QualityGradingOptions> options,
     ILogger<AlbumGradingService> logger,
-    IOptionsMonitor<JevGradingOptions>? trialOptions = null) : IAlbumGradingService
+    IGraderTrialRecorder? trialRecorder = null) : IAlbumGradingService
 {
     private static readonly JsonSerializerOptions CompactJson = new(JsonSerializerDefaults.Web);
 
@@ -80,8 +80,8 @@ public sealed class AlbumGradingService(
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Album grading failed for canonical album {AlbumId}", canonicalAlbumId);
-            var code = ClassifyError(ex);
-            await RecordTrialRunAsync(db, GraderTrialRows.Incumbent(
+            var code = GradingErrorCode.Of(ex);
+            await RecordTrialAsync(GraderTrialRows.Incumbent(
                 GraderSubjectKind.Album, album.Id, owner, opts.Model, AlbumGradingPrompt.Version, fingerprint,
                 null, stats, (int)Math.Min(int.MaxValue, sw.ElapsedMilliseconds), code, ex.Message), ct);
             return new GradeAlbumResult(GradeOutcome.Failed, latest, ex.Message, code);
@@ -111,31 +111,11 @@ public sealed class AlbumGradingService(
         db.CanonicalAlbumQualityGrades.Add(grade);
         await db.SaveChangesAsync(ct);
 
-        await RecordTrialRunAsync(db, GraderTrialRows.Incumbent(
+        await RecordTrialAsync(GraderTrialRows.Incumbent(
             GraderSubjectKind.Album, album.Id, owner, opts.Model, AlbumGradingPrompt.Version, fingerprint,
             parsed, stats, grade.DurationMs, null, null), ct);
 
         return new GradeAlbumResult(GradeOutcome.Graded, grade);
-    }
-
-    /// <summary>Records the incumbent's answer for the grader trial; never allowed to fail the grade.</summary>
-    private async Task RecordTrialRunAsync(MusicHoarderDbContext db, GraderComparisonRun run, CancellationToken ct)
-    {
-        if (trialOptions?.CurrentValue.Enabled != true) return;
-        try
-        {
-            db.GraderComparisonRuns.Add(run);
-            await db.SaveChangesAsync(ct);
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            db.Entry(run).State = EntityState.Detached;
-            logger.LogWarning(ex, "Could not record the grader-trial row for album {AlbumId}", run.SubjectId);
-        }
     }
 
     public async Task<AlbumGradingDossier?> BuildDossierAsync(int canonicalAlbumId, CancellationToken ct = default)
@@ -196,12 +176,6 @@ public sealed class AlbumGradingService(
             .ToDictionary(grp => grp.Key, grp => grp.OrderByDescending(x => x.GradedAtUtc).First().Verdict);
     }
 
-    private static string ClassifyError(Exception ex) => ex switch
-    {
-        HttpRequestException { StatusCode: System.Net.HttpStatusCode.PaymentRequired } => "out_of_credits",
-        HttpRequestException => "http_error",
-        JsonException => "bad_response",
-        InvalidOperationException => "empty_response",
-        _ => "error",
-    };
+    private Task RecordTrialAsync(GraderComparisonRun run, CancellationToken ct) =>
+        trialRecorder?.RecordAsync(run, ct) ?? Task.CompletedTask;
 }

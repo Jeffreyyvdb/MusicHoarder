@@ -108,20 +108,18 @@ public sealed class GraderTrialRunner(
     {
         var backfilled = source == GraderRunSource.Stability ? 0 : await BackfillIncumbentAsync(candidates, ct);
 
-        var graded = 0;
-        var failed = 0;
-        var stale = 0;
+        var results = new System.Collections.Concurrent.ConcurrentBag<TrialPassResult>();
         await Parallel.ForEachAsync(candidates,
             new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, opts.Concurrency), CancellationToken = ct },
             async (c, token) =>
             {
                 await _rateGate.WaitAsync(opts.RequestsPerSecond, token);
-                TrialRunResult r;
+                TrialPassResult counted;
                 try
                 {
-                    r = c.Kind == GraderSubjectKind.Song
+                    counted = Count(c.Kind == GraderSubjectKind.Song
                         ? await jev.GradeSongAsync(c.SubjectId, model, c.Fingerprint, source, token)
-                        : await jev.GradeAlbumAsync(c.SubjectId, model, c.Fingerprint, source, token);
+                        : await jev.GradeAlbumAsync(c.SubjectId, model, c.Fingerprint, source, token));
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested)
                 {
@@ -130,18 +128,15 @@ public sealed class GraderTrialRunner(
                 catch (Exception ex)
                 {
                     logger.LogWarning(ex, "Grader trial failed on {Kind} {SubjectId}", c.Kind, c.SubjectId);
-                    r = new TrialRunResult(TrialRunStatus.Recorded, new GraderComparisonRun { ErrorCode = "error" });
+                    counted = new TrialPassResult(0, 1, 0, 0);
                 }
 
-                var counted = Count(r);
-                if (counted.Graded > 0) Interlocked.Increment(ref graded);
-                if (counted.Failed > 0) Interlocked.Increment(ref failed);
-                if (counted.Stale > 0) Interlocked.Increment(ref stale);
                 if (counted.Failed > 0 || counted.Stale > 0)
                     _backoff.MarkFailed(Key(c), TimeSpan.FromSeconds(opts.FailureBackoffSeconds));
+                results.Add(counted);
             });
 
-        return new TrialPassResult(graded, failed, stale, backfilled);
+        return results.Aggregate(new TrialPassResult(0, 0, 0, backfilled), (sum, r) => sum.Add(r));
     }
 
     private static TrialPassResult Count(TrialRunResult r) => r.Status switch
@@ -170,7 +165,8 @@ public sealed class GraderTrialRunner(
                     && r.InputFingerprint == g.InputFingerprint && r.Arm == GraderArm.Decision
                     && r.Model == model && r.Version == JevQuestions.SongVersion))
             .OrderByDescending(g => g.GradedAtUtc)
-            .Take(limit * 2)
+            // Subjects in back-off are dropped below; take enough rows that they can never fill the page.
+            .Take(limit + _backoff.Count)
             .ToListAsync(ct);
 
         var now = DateTime.UtcNow;
@@ -202,7 +198,8 @@ public sealed class GraderTrialRunner(
                     && r.InputFingerprint == g.InputFingerprint && r.Arm == GraderArm.Decision
                     && r.Model == model && r.Version == JevQuestions.AlbumVersion))
             .OrderByDescending(g => g.GradedAtUtc)
-            .Take(limit * 2)
+            // Subjects in back-off are dropped below; take enough rows that they can never fill the page.
+            .Take(limit + _backoff.Count)
             .ToListAsync(ct);
 
         var now = DateTime.UtcNow;

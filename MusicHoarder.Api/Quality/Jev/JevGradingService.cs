@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Text.Json;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Options;
@@ -152,7 +151,7 @@ public sealed class JevGradingService(
         catch (Exception ex)
         {
             run = GraderTrialRows.Incumbent(kind, subjectId, owner, opts.Model, version, expectedFingerprint,
-                null, stats, Elapsed(sw), ErrorCode(ex), ex.Message, GraderRunSource.Stability);
+                null, stats, Elapsed(sw), GradingErrorCode.Of(ex), ex.Message, GraderRunSource.Stability);
         }
 
         db.GraderComparisonRuns.Add(run);
@@ -172,7 +171,7 @@ public sealed class JevGradingService(
             var result = await decisionClient.DecideAsync(new DecisionRequest(model, state.State, questions), ct);
             var grade = map(result.Answers);
             return GraderTrialRows.Decision(kind, subjectId, owner, model, version, fingerprint,
-                state, grade, result, Elapsed(sw), result.Attempts, null, null, source);
+                state, grade, result, Elapsed(sw), null, null, source);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -182,20 +181,9 @@ public sealed class JevGradingService(
         {
             logger.LogWarning(ex, "Decision model {Model} failed on {Kind} {SubjectId}", model, kind, subjectId);
             return GraderTrialRows.Decision(kind, subjectId, owner, model, version, fingerprint,
-                state, null, null, Elapsed(sw), null, ErrorCode(ex), ex.Message, source);
+                state, null, null, Elapsed(sw), GradingErrorCode.Of(ex), ex.Message, source);
         }
     }
 
     private static int Elapsed(Stopwatch sw) => (int)Math.Min(int.MaxValue, sw.ElapsedMilliseconds);
-
-    /// <summary>The same codes the grading runs record, so the two arms' failures compare.</summary>
-    internal static string ErrorCode(Exception ex) => ex switch
-    {
-        HttpRequestException { StatusCode: System.Net.HttpStatusCode.PaymentRequired } => "out_of_credits",
-        HttpRequestException => "http_error",
-        TimeoutException => "timeout",
-        JsonException => "bad_response",
-        InvalidOperationException => "empty_response",
-        _ => "error",
-    };
 }

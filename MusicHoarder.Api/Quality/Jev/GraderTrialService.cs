@@ -85,19 +85,18 @@ public sealed class GraderTrialService(
             else picked.Add((disagree[d++], GraderTrialStratum.Disagreement));
         }
 
-        var raw = await db.GraderComparisonRuns.AsNoTracking()
-            .Where(r => r.SubjectKind == kind)
-            .Select(r => new { r.SubjectId, r.InputFingerprint, r.Arm, r.Model, r.CreatedAtUtc, r.Summary, r.IssueCodesJson })
-            .ToListAsync(ct);
-        var details = raw.ToLookup(r => (r.SubjectId, r.InputFingerprint, r.Arm, r.Model));
+        // The prose columns are read only for the rows on the page, not for every row of the report.
+        var rowIds = picked.SelectMany(p => new[] { p.Pair.Incumbent.Id, p.Pair.Challenger.Id }).ToList();
+        var details = await db.GraderComparisonRuns.AsNoTracking()
+            .Where(r => rowIds.Contains(r.Id))
+            .ToDictionaryAsync(r => r.Id, r => new { r.Summary, r.IssueCodesJson }, ct);
 
         var ids = picked.Select(p => p.Pair.Challenger.SubjectId).Distinct().ToList();
         var names = await SubjectNamesAsync(kind, ids, ct);
 
         TrialArmAnswer Answer(TrialRow r)
         {
-            var extra = details[(r.SubjectId, r.Fingerprint, r.Arm, r.Model)]
-                .OrderBy(x => Math.Abs((x.CreatedAtUtc - r.CreatedAtUtc).Ticks)).FirstOrDefault();
+            var extra = details.GetValueOrDefault(r.Id);
             return new TrialArmAnswer(r.Model, r.Verdict?.ToString(), r.Score, r.FlagProbability, r.UnsupportedIdentity,
                 extra?.Summary, ParseCodes(extra?.IssueCodesJson), r.LatencyMs, r.CostUsd);
         }
@@ -126,12 +125,6 @@ public sealed class GraderTrialService(
             .FirstOrDefault(p => p.Challenger.Fingerprint == request.Fingerprint);
         if (pair is null) return null;
 
-        var owner = await db.GraderComparisonRuns
-            .Where(r => r.SubjectKind == kind && r.SubjectId == request.SubjectId && r.InputFingerprint == request.Fingerprint)
-            .Select(r => (Guid?)r.OwnerUserId)
-            .FirstOrDefaultAsync(ct);
-        if (owner is null) return null;
-
         var label = await db.GraderTrialLabels.FirstOrDefaultAsync(l =>
             l.SubjectKind == kind && l.SubjectId == request.SubjectId && l.InputFingerprint == request.Fingerprint, ct);
         if (label is null)
@@ -140,7 +133,7 @@ public sealed class GraderTrialService(
             {
                 SubjectKind = kind,
                 SubjectId = request.SubjectId,
-                OwnerUserId = owner.Value,
+                OwnerUserId = pair.Challenger.OwnerUserId,
                 InputFingerprint = request.Fingerprint,
             };
             db.GraderTrialLabels.Add(label);
@@ -195,7 +188,7 @@ public sealed class GraderTrialService(
             .Select(r => new TrialRow(
                 r.SubjectId, r.InputFingerprint, r.Arm, r.Model, r.Source, r.Verdict, r.Score,
                 r.FlagProbability, r.UnsupportedIdentity, r.LatencyMs, r.Attempts, r.InputTokens, r.OutputTokens,
-                r.CostUsd, r.ErrorCode, r.FullStateBytes, r.StateBytes, r.StateShed, r.CreatedAtUtc))
+                r.CostUsd, r.ErrorCode, r.FullStateBytes, r.StateBytes, r.StateShed, r.CreatedAtUtc, r.Id, r.OwnerUserId))
             .ToListAsync(ct);
     }
 

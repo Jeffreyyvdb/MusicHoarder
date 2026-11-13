@@ -136,9 +136,10 @@ public static class JevQuestions
 
     public static JevState SongState(SongGradingDossier dossier, int maxBytes)
     {
-        var fullBytes = Bytes(Envelope(SongAudit, SongRules, dossier));
+        var whole = Envelope(SongAudit, SongRules, dossier);
+        var fullBytes = Bytes(whole);
         if (fullBytes <= maxBytes)
-            return new JevState(Envelope(SongAudit, SongRules, dossier), fullBytes, fullBytes, Shed: false);
+            return new JevState(whole, fullBytes, fullBytes, Shed: false);
 
         // Shed the change log (oldest first), halving until the state fits; everything else is fixed-size.
         var total = dossier.ChangeLog.Count;
@@ -260,15 +261,8 @@ public static class JevQuestions
         if (!answers.TryGetValue("verdict", out var v) || v.Choice is null)
             throw new JsonException("Decisions response held no verdict.");
 
-        var verdict = v.Choice switch
-        {
-            Excellent => SongQualityVerdict.Excellent,
-            Good => SongQualityVerdict.Good,
-            Questionable => SongQualityVerdict.Questionable,
-            Wrong => SongQualityVerdict.Wrong,
-            Ungradeable => SongQualityVerdict.Ungradeable,
-            _ => throw new JsonException($"Decisions response named an unknown verdict '{v.Choice}'."),
-        };
+        var verdict = QualityGradingPrompt.ParseVerdictWord(v.Choice)
+            ?? throw new JsonException($"Decisions response named an unknown verdict '{v.Choice}'.");
 
         double? flag = v.Probabilities is { } probs
             ? probs.GetValueOrDefault(Wrong) + probs.GetValueOrDefault(Questionable)

@@ -14,7 +14,7 @@ public class QualityGradingService(
     IQualityDossierFactory dossierFactory,
     IOptionsMonitor<QualityGradingOptions> options,
     ILogger<QualityGradingService> logger,
-    IOptionsMonitor<JevGradingOptions>? trialOptions = null) : IQualityGradingService
+    IGraderTrialRecorder? trialRecorder = null) : IQualityGradingService
 {
     private static readonly JsonSerializerOptions CompactJson = new(JsonSerializerDefaults.Web);
 
@@ -68,8 +68,8 @@ public class QualityGradingService(
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Quality grading failed for song {SongId}", songId);
-            var code = ClassifyError(ex);
-            await RecordTrialRunAsync(db, GraderTrialRows.Incumbent(
+            var code = GradingErrorCode.Of(ex);
+            await RecordTrialAsync(GraderTrialRows.Incumbent(
                 GraderSubjectKind.Song, song.Id, song.OwnerUserId, opts.Model, QualityGradingPrompt.Version, fingerprint,
                 null, stats, (int)Math.Min(int.MaxValue, sw.ElapsedMilliseconds), code, ex.Message), ct);
             return new GradeSongResult(GradeOutcome.Failed, latest, ex.Message, code);
@@ -99,7 +99,7 @@ public class QualityGradingService(
         db.SongQualityGrades.Add(grade);
         await db.SaveChangesAsync(ct);
 
-        await RecordTrialRunAsync(db, GraderTrialRows.Incumbent(
+        await RecordTrialAsync(GraderTrialRows.Incumbent(
             GraderSubjectKind.Song, song.Id, song.OwnerUserId, opts.Model, QualityGradingPrompt.Version, fingerprint,
             parsed, stats, grade.DurationMs, null, null), ct);
 
@@ -128,36 +128,6 @@ public class QualityGradingService(
         return (song, dossierFactory.Build(song, changes));
     }
 
-    /// <summary>
-    /// Records the incumbent's answer for the grader trial while it runs. Written after the grade
-    /// and never allowed to fail it: the trial only observes.
-    /// </summary>
-    private async Task RecordTrialRunAsync(MusicHoarderDbContext db, GraderComparisonRun run, CancellationToken ct)
-    {
-        if (trialOptions?.CurrentValue.Enabled != true) return;
-        try
-        {
-            db.GraderComparisonRuns.Add(run);
-            await db.SaveChangesAsync(ct);
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            db.Entry(run).State = EntityState.Detached;
-            logger.LogWarning(ex, "Could not record the grader-trial row for song {SongId}", run.SubjectId);
-        }
-    }
-
-    /// <summary>Maps a grading failure to a machine-readable code the UI can act on (e.g. show an "out of credits" banner).</summary>
-    private static string ClassifyError(Exception ex) => ex switch
-    {
-        HttpRequestException { StatusCode: System.Net.HttpStatusCode.PaymentRequired } => "out_of_credits",
-        HttpRequestException => "http_error",
-        JsonException => "bad_response",
-        InvalidOperationException => "empty_response",
-        _ => "error",
-    };
+    private Task RecordTrialAsync(GraderComparisonRun run, CancellationToken ct) =>
+        trialRecorder?.RecordAsync(run, ct) ?? Task.CompletedTask;
 }

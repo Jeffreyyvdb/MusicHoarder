@@ -52,7 +52,7 @@ internal static class TrialTestKit
                 ["identity_changed"] = new("choice", Choice: "none", Probabilities: new Dictionary<string, double> { ["none"] = 0.9 }),
                 ["single_source"] = new("noul", Noul: 0.1),
             },
-            "typesafe/jev-1.14-20261014", "TypeSafe", 6000, 70, cost, default);
+            "typesafe/jev-1.14-20261014", "TypeSafe", 6000, 70, cost);
 
     public static SongQualityGrade Grade(int songId, string fingerprint, SongQualityVerdict verdict = SongQualityVerdict.Good, Guid? owner = null) => new()
     {
