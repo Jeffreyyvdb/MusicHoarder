@@ -1,4 +1,6 @@
+using System.Net;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -8,6 +10,7 @@ using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Spotify;
 using MusicHoarder.Api.Tests.Auth;
+using MusicHoarder.Api.Tests.Spotify;
 
 namespace MusicHoarder.Api.Tests.Enrichment;
 
@@ -471,6 +474,55 @@ public class SpotifyApiEnrichmentProviderTests
         var matched = Assert.IsType<ProviderMatched>(await provider.TryEnrichAsync(song));
         Assert.Equal("Tyler, The Creator", matched.Result.AlbumArtist);
         Assert.Equal("Tyler, The Creator", matched.Result.Artists);
+    }
+
+    [Fact]
+    public async Task TryEnrichAsync_AlbumDetailQuotaExceeded_ReturnsTheMatchAtOnce()
+    {
+        // Issue #550: /v1/search answered, /v1/albums/{id} said 429 QUOTA_EXCEEDED with a 21 h
+        // Retry-After. The optional album extras used to hold the worker for that whole wait.
+        var handler = new ScriptedHttpHandler();
+        handler.EnqueueToken();
+        handler.EnqueueJson(
+            """{"tracks":{"items":[{"id":"track1","name":"Song","duration_ms":200000,"artists":[{"name":"Artist"}],"album":{"id":"alb1","name":"Album","release_date":"2020"}}]}}""");
+        handler.Enqueue(HttpStatusCode.TooManyRequests,
+            """{"error":{"status":429,"reason":"QUOTA_EXCEEDED"}}""", TimeSpan.FromSeconds(76242));
+
+        var cache = new MemoryCache(new MemoryCacheOptions());
+        var opts = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
+        {
+            SourceDirectory = "/s",
+            DestinationDirectory = "/d",
+            SpotifyApiRequestsPerSecond = 20,
+        });
+        var client = new SpotifyClientCredentialsClient(
+            new HttpClient(handler), cache, opts, NullLogger<SpotifyClientCredentialsClient>.Instance, TimeProvider.System);
+        await using var db = CreateDb();
+        var provider = CreateProvider(db, new SpotifyCatalogSearchService(client, cache, opts), opts,
+            Microsoft.Extensions.Options.Options.Create(new SpotifyOptions { ClientId = "cid", ClientSecret = "sec" }));
+
+        var song = new SongMetadata
+        {
+            OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.OwnerId,
+            SourcePath = "/a.mp3",
+            FileName = "a.mp3",
+            Extension = ".mp3",
+            FileSizeBytes = 1,
+            LastModifiedUtc = DateTime.UtcNow,
+            IndexedAtUtc = DateTime.UtcNow,
+            Artist = "Artist",
+            Title = "Song",
+            Album = "Album",
+            DurationSeconds = 200,
+            EnrichmentStatus = EnrichmentStatus.Pending,
+        };
+
+        var call = provider.TryEnrichAsync(song);
+        var finished = await Task.WhenAny(call, Task.Delay(TimeSpan.FromSeconds(10)));
+
+        Assert.Same(call, finished);
+        Assert.IsType<ProviderMatched>(await call);
+        Assert.Contains(handler.Requests, r => r.Url.EndsWith("/v1/albums/alb1"));
     }
 
     private static MusicHoarderDbContext CreateDb()
