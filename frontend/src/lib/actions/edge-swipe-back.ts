@@ -1,4 +1,5 @@
 import { isInstalledApp } from '#lib/hooks/viewport-insets.svelte.ts';
+import { nativePlatform } from '#lib/native/shell.ts';
 import { DISMISS_VELOCITY, EASE_OUT, EASE_PRESENT, prefersReducedMotion } from '#lib/motion.ts';
 import { navBack } from '#lib/stores/nav-back.svelte.ts';
 
@@ -93,6 +94,8 @@ export function edgeSwipeBack(
       enabled &&
       navBack.current !== null &&
       isInstalledApp() &&
+      // Android has its own back gesture on this edge, in the app shell as anywhere else.
+      nativePlatform() !== 'android' &&
       document.querySelector(OPEN_MODAL) === null
     );
   }

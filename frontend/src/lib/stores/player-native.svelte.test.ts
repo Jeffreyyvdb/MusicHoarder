@@ -3,7 +3,7 @@ import type { PlayerSong } from './player.svelte';
 
 /**
  * The player store inside the native app shell, where the device's own player stands in for the
- * audio element (`$lib/native/native-audio`). The device moves to the next track by itself when a
+ * audio element (`#lib/native/native-audio`). The device moves to the next track by itself when a
  * song ends, with the page asleep or not, so what these pin is the store catching up with it:
  * one track or several, counted and queued as if the page had been awake, and never loaded twice.
  */

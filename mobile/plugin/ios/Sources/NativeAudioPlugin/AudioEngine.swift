@@ -130,6 +130,7 @@ final class AudioEngine: NSObject {
             // Already there when the song before it ended a moment ago, one behind otherwise.
             let arrived = items.first === next.item
             if arrived || items.dropFirst().first === next.item {
+                loadPending = false // an earlier load still waiting for cookies is superseded
                 upcoming.removeFirst()
                 if let old = current { forget(old) }
                 current = next
@@ -154,10 +155,14 @@ final class AudioEngine: NSObject {
     }
 
     /// The tracks that follow the current one, in order. Sent again whenever the queue changes.
-    func setUpcoming(_ tracks: [Track], loadId: Int) {
+    /// `index` is the place in `trail` of the track the page takes to be current: a list made for
+    /// a track the queue has since moved on from is dropped, and the page sends the right one once
+    /// it has caught up.
+    func setUpcoming(_ tracks: [Track], loadId: Int, after index: Int?) {
         guard loadId == self.loadId else { return }
         withCookies { [weak self] cookies in
             guard let self, self.loadId == loadId, let current = self.current else { return }
+            if let index, index != self.trail.count - 1 { return }
             let wanted = Array(tracks.prefix(Self.maxUpcoming))
 
             // Keep what already matches: the next item is usually buffered by now.
@@ -272,9 +277,10 @@ final class AudioEngine: NSObject {
         refreshRemoteCommands()
     }
 
-    /// The page picked a lock-screen command up, so it is not carried out here as well.
-    func acknowledgeRemote(_ id: Int) {
-        pendingRemotes.remove(id)
+    /// The page picked a lock-screen command up, so it is not carried out here as well. False
+    /// when it already has been: the page was too slow, and must leave it at that.
+    func acknowledgeRemote(_ id: Int) -> Bool {
+        pendingRemotes.remove(id) != nil
     }
 
     func state() -> [String: Any] {
@@ -359,6 +365,8 @@ final class AudioEngine: NSObject {
     }
 
     private func startPlayback() {
+        // iOS does not promise an end to every interruption: playing again is the end of one.
+        interrupted = false
         endBackgroundTask()
         activateSession()
         player.play()

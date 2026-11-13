@@ -174,7 +174,7 @@ function remoteView(): PlayerRemote | null {
 let audioEl: PlayerAudio | null = null;
 /**
  * The same object as `audioEl` inside the native app shell, where the device's own player stands
- * in for the audio element (see `$lib/native/native-audio`); null in a browser.
+ * in for the audio element (see `#lib/native/native-audio`); null in a browser.
  */
 let nativeEl: NativeAudio | null = null;
 /** Whether the loaded source is the server's decoded stream rather than the file as it is. */
@@ -375,7 +375,7 @@ function refreshActionHandlers() {
 
 // ── The native app shell ───────────────────────────────────────────────────
 // There the device's player holds the loaded track and the ones that follow it, so a song's end
-// needs nothing from the page (see `$lib/native/native-audio`). The store's part is to keep the
+// needs nothing from the page (see `#lib/native/native-audio`). The store's part is to keep the
 // device told what follows, and to take the lock screen's commands from it: the page's own Media
 // Session describes an audio element, and in the shell there is none.
 

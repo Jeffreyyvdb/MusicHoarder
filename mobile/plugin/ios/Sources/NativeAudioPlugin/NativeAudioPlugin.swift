@@ -74,7 +74,8 @@ public class NativeAudioPlugin: CAPPlugin, CAPBridgedPlugin, AudioEngineDelegate
             return Self.track { object[$0] }
         }
         let loadId = call.getInt("loadId") ?? 0
-        onMain(call) { $0.setUpcoming(tracks, loadId: loadId) }
+        let index = call.getInt("at")
+        onMain(call) { $0.setUpcoming(tracks, loadId: loadId, after: index) }
     }
 
     @objc func setMetadata(_ call: CAPPluginCall) {
@@ -124,7 +125,14 @@ public class NativeAudioPlugin: CAPPlugin, CAPBridgedPlugin, AudioEngineDelegate
 
     @objc func ackRemote(_ call: CAPPluginCall) {
         let id = call.getInt("id") ?? 0
-        onMain(call) { $0.acknowledgeRemote(id) }
+        DispatchQueue.main.async {
+            guard let engine = self.engine else {
+                call.reject("The player is not ready.")
+                return
+            }
+            // `expired`: the command was already carried out here, so the page must not repeat it.
+            call.resolve(["expired": !engine.acknowledgeRemote(id)])
+        }
     }
 
     @objc func getState(_ call: CAPPluginCall) {

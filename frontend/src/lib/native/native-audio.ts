@@ -75,7 +75,7 @@ const MEDIA_ERR_SRC_NOT_SUPPORTED = 4;
 const HAVE_ENOUGH_DATA = 4;
 
 /**
- * What each system's player cannot open; the server decodes these (see `$lib/audio-formats`).
+ * What each system's player cannot open; the server decodes these (see `#lib/audio-formats`).
  * AVFoundation has no Ogg or WebM; ExoPlayer plays every format the library holds but WMA.
  */
 const UNPLAYABLE_TYPE: Record<NativePlatform, RegExp> = {
@@ -129,6 +129,17 @@ export class NativeAudio extends EventTarget implements PlayerAudio {
   private last: NativeState | null = null;
   private lastError: { index: number; kind: string } | null = null;
   private tailHandled = false;
+  /**
+   * A page that has just started has not asked the device for anything yet, and the device may
+   * still be playing what the page before it asked for (the web view reloaded under it: iOS
+   * reclaimed its process, or a new version of the app was fetched). Until the device has said
+   * where it is, the first load waits, so it can be taken over instead of started again.
+   */
+  private fresh = true;
+  private takingOver = false;
+  private readonly atStart: Promise<NativeState | null>;
+  /** How many of the device's trail came before the track this page took over at. */
+  private offset = 0;
   private expect: { position: number; until: number } | null = null;
   private quietSeek = false;
 
@@ -157,9 +168,19 @@ export class NativeAudio extends EventTarget implements PlayerAudio {
     plugin.listen('remote', (data) =>
       this.onRemoteEvent(data as { id: number; command: RemoteCommand; time?: number })
     );
-    // A reload destroys a page's audio element; the device's player outlives the page, so it is
-    // stopped here and the store's reload snapshot puts the song back.
-    this.send('stop');
+    // A reload destroys a page's audio element, but the device's player outlives the page. The
+    // store's reload snapshot loads its song in the same turn this is made in: that load takes
+    // over what the device is playing where it can (see `takeOver`). With no such load, nothing
+    // here knows the music, so it stops.
+    this.atStart = plugin.call('getState').then(
+      (data) => data as NativeState | null,
+      () => null
+    );
+    void this.atStart.then((state) => {
+      if (!this.fresh || this.takingOver) return;
+      this.fresh = false;
+      if (Array.isArray(state?.trail) && state.trail.length > 0) this.send('stop');
+    });
     if (typeof document !== 'undefined') {
       // Reports sent while the page slept may not have arrived: ask where the device is.
       document.addEventListener('visibilitychange', () => {
@@ -354,6 +375,7 @@ export class NativeAudio extends EventTarget implements PlayerAudio {
 
   private resetTrail(url: string): void {
     this.loadId += 1;
+    this.offset = 0;
     this.trail = url ? [url] : [];
     this.adopted = this.trail.length;
     this.catchingUp = false;
@@ -374,6 +396,16 @@ export class NativeAudio extends EventTarget implements PlayerAudio {
     const settlers = this.settlers;
     this.settlers = [];
     let landedPaused = false;
+
+    if (this.pending && this.fresh) {
+      // The first load of a new page: the device says where it is before anything is sent.
+      if (!this.takingOver) {
+        this.takingOver = true;
+        void this.atStart.then((state) => this.takeOver(state));
+      }
+      for (const settler of settlers) settler.resolve();
+      return;
+    }
 
     if (this.pending) {
       const { position, autoplay } = this.pending;
@@ -404,7 +436,13 @@ export class NativeAudio extends EventTarget implements PlayerAudio {
     // While the store is behind, its idea of what follows is behind too.
     if (this.upcomingDirty && this.url && !this.catchingUp && !this.stale) {
       this.upcomingDirty = false;
-      this.send('setUpcoming', { items: this.upcoming, loadId: this.loadId });
+      // `at` names the track this list follows, as the device counts them: one that has moved on
+      // by itself since must not take the list as following where it is now.
+      this.send('setUpcoming', {
+        items: this.upcoming,
+        loadId: this.loadId,
+        at: this.offset + this.adopted - 1
+      });
     }
 
     for (const settler of settlers) {
@@ -423,6 +461,37 @@ export class NativeAudio extends EventTarget implements PlayerAudio {
     };
   }
 
+  /**
+   * The first load of a new page, now that the device has said where it is. If it is playing the
+   * track being loaded, or has played on past it, nothing is loaded: this page follows the device
+   * from that track on, as it would have had it been awake all along. Otherwise the load is sent.
+   */
+  private takeOver(state: NativeState | null): void {
+    this.fresh = false;
+    this.takingOver = false;
+    if (!this.pending) return;
+    const playing = state && Array.isArray(state.trail) && state.status !== 'paused';
+    const at = playing && this.url ? state.trail.lastIndexOf(this.url) : -1;
+    if (!state || at < 0 || at > state.index) {
+      this.scheduleFlush(); // sent as any load is, replacing whatever the device holds
+      return;
+    }
+    this.pending = null;
+    this.expect = null;
+    this.loadId = state.loadId;
+    this.offset = at;
+    this.trail = [this.url];
+    this.adopted = 1;
+    if (at === state.index) {
+      this.position = state.position;
+      this.positionAt = this.now();
+    }
+    this.upcomingDirty = true;
+    this.commandsDirty = true;
+    this.onState(state);
+    this.scheduleFlush();
+  }
+
   // ── Following the device ─────────────────────────────────────────────────
 
   private refresh(): void {
@@ -432,10 +501,14 @@ export class NativeAudio extends EventTarget implements PlayerAudio {
     );
   }
 
-  private onState(state: NativeState): void {
-    if (!state || state.loadId !== this.loadId || this.pending || !Array.isArray(state.trail)) {
+  private onState(report: NativeState): void {
+    if (!report || report.loadId !== this.loadId || this.pending || !Array.isArray(report.trail)) {
       return;
     }
+    const state =
+      this.offset > 0
+        ? { ...report, trail: report.trail.slice(this.offset), index: report.index - this.offset }
+        : report;
     this.last = state;
     if (state.trail.length > this.trail.length) this.trail = state.trail;
     if (this.adopted < this.trail.length) {
@@ -449,20 +522,24 @@ export class NativeAudio extends EventTarget implements PlayerAudio {
 
   private onEnded(data: { loadId: number; index: number }): void {
     if (data.loadId !== this.loadId || this.pending || this.catchingUp || this.stale) return;
-    if (data.index === this.adopted - 1) this.tail();
+    if (data.index - this.offset === this.adopted - 1) this.tail();
   }
 
   private onError(data: { loadId: number; index: number; kind: string }): void {
     if (data.loadId !== this.loadId || this.pending) return;
-    this.lastError = { index: data.index, kind: data.kind };
-    if (this.catchingUp || this.stale || data.index !== this.adopted - 1) return;
+    const index = data.index - this.offset;
+    this.lastError = { index, kind: data.kind };
+    if (this.catchingUp || this.stale || index !== this.adopted - 1) return;
     this.fail(data.kind);
   }
 
   private onRemoteEvent(data: { id: number; command: RemoteCommand; time?: number }): void {
-    // Answered first: unanswered, the device carries the command out itself.
-    this.send('ackRemote', { id: data.id });
-    this.onRemote?.(data.command, data.time);
+    // Answered first: unanswered, the device carries the command out itself. Its answer says
+    // whether it already has (this page was too slow), and then it must not happen twice.
+    const carryOut = () => this.onRemote?.(data.command, data.time);
+    void this.plugin.call('ackRemote', { id: data.id }).then((answer) => {
+      if ((answer as { expired?: boolean } | null)?.expired !== true) carryOut();
+    }, carryOut);
   }
 
   private fire(type: string): void {
@@ -493,6 +570,8 @@ export class NativeAudio extends EventTarget implements PlayerAudio {
     }
     // Older than the last thing asked of the device: its position and status are yesterday's.
     if (state.seq < this.seq) return;
+    // Playing again after the tail (Play on a queue that had run out): its next end is news.
+    if (!state.ended) this.tailHandled = false;
 
     let believe = true;
     if (this.expect) {
@@ -501,7 +580,8 @@ export class NativeAudio extends EventTarget implements PlayerAudio {
       else believe = false; // still on its way to where it was sent
     }
     if (believe) {
-      if (state.position + REWIND_S < this.currentTime && this.onRemote) {
+      // A track that played out reports no position worth comparing (iOS has let go of it).
+      if (!state.ended && state.position + REWIND_S < this.currentTime && this.onRemote) {
         // The device moved back by itself (Previous or a scrub, carried out while the page
         // slept). Told to the store as the seek it is, or the jump would read as a song's end.
         this.quietSeek = true;

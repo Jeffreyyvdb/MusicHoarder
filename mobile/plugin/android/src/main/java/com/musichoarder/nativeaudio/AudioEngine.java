@@ -169,9 +169,15 @@ final class AudioEngine implements Player.Listener {
         emitState();
     }
 
-    /** The tracks that follow the current one, in order. Sent again whenever the queue changes. */
-    void setUpcoming(List<Track> tracks, int loadId) {
+    /**
+     * The tracks that follow the current one, in order. Sent again whenever the queue changes.
+     * `at` is the place in `trail` of the track the page takes to be current (negative when it
+     * did not say): a list made for a track the player has since moved on from is dropped, and
+     * the page sends the right one once it has caught up.
+     */
+    void setUpcoming(List<Track> tracks, int loadId, int at) {
         if (!loaded || loadId != this.loadId || player.getMediaItemCount() == 0) return;
+        if (at >= 0 && at != trail.size() - 1) return;
         int first = player.getCurrentMediaItemIndex() + 1;
         int count = player.getMediaItemCount();
         int wanted = Math.min(tracks.size(), MAX_UPCOMING);
@@ -245,9 +251,12 @@ final class AudioEngine implements Player.Listener {
         player.clearMediaItems();
     }
 
-    /** The page picked a notification command up, so it is not carried out here as well. */
-    void acknowledgeRemote(int id) {
-        pendingRemotes.remove(Integer.valueOf(id));
+    /**
+     * The page picked a notification command up, so it is not carried out here as well. False
+     * when it already has been: the page was too slow, and must leave it at that.
+     */
+    boolean acknowledgeRemote(int id) {
+        return pendingRemotes.remove(Integer.valueOf(id));
     }
 
     JSObject state() {

@@ -69,7 +69,8 @@ public class NativeAudioPlugin extends Plugin implements AudioEngine.Listener {
             if (track != null) tracks.add(track);
         }
         int loadId = call.getInt("loadId", 0);
-        withEngine(call, false, engine -> engine.setUpcoming(tracks, loadId));
+        int at = call.getInt("at", -1);
+        withEngine(call, false, engine -> engine.setUpcoming(tracks, loadId, at));
     }
 
     @PluginMethod
@@ -131,7 +132,13 @@ public class NativeAudioPlugin extends Plugin implements AudioEngine.Listener {
     @PluginMethod
     public void ackRemote(PluginCall call) {
         int id = call.getInt("id", 0);
-        withEngine(call, false, engine -> engine.acknowledgeRemote(id));
+        main.post(() -> {
+            AudioEngine engine = PlaybackService.engine();
+            // `expired`: the command was already carried out there, so the page must not repeat it.
+            JSObject answer = new JSObject();
+            answer.put("expired", engine == null || !engine.acknowledgeRemote(id));
+            call.resolve(answer);
+        });
     }
 
     @PluginMethod
