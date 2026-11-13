@@ -22,7 +22,8 @@ const config: CapacitorConfig = {
     ? {
         server: {
           url: serverUrl,
-          // The signed-in home; a signed-out visit is sent on to /login from there.
+          // The signed-in home; a signed-out visit is sent on to /login from there. iOS also
+          // demands a bundled file at this path (it exits at launch without one): www/overview.
           appStartPath: '/overview',
           errorPath: 'index.html'
         }
