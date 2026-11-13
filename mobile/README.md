@@ -126,6 +126,86 @@ is a decision with a cost, so it is not made here:
 Until then both exist, and a change to a shared rule still has to reach `android/` (see "Two
 clients, one product" in the root `CLAUDE.md`).
 
+## Testing on a device
+
+The app runs whatever frontend `MH_SERVER_URL` serves, so a change to `frontend/src/lib/native/`
+can only be tried on a phone against a server that runs it. Production does not until it is
+deployed.
+
+### Which server
+
+- **A PR preview** (`https://pr-<n>.…`, from the PR's "Preview environment live" comment) runs the
+  branch, but its demo account cannot play: the demo songs have no audio files there, and every
+  stream answers 404. The demo account also cannot count a listen (it is read-only). A preview is
+  enough to see the app start and sign in, not to test playback.
+- **A local stack behind an https tunnel** tests everything. Aspire does not suit it: it sets the
+  API's `Frontend__PublicBaseUrl` to the frontend's own `https://localhost:<port>`, so every
+  sign-in link points somewhere the phone cannot open. Run the parts by hand instead.
+
+### A local stack for the phone
+
+1. Start a tunnel to a fixed local port, and note its `https` address. A
+   [cloudflared quick tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/)
+   needs no account (`cloudflared tunnel --url http://localhost:5199`). Its address changes every
+   time it starts, and the app has to be synced and built again for a new one.
+2. Start a throwaway Postgres, for example
+   `docker run -d --name mh-device-pg -e POSTGRES_PASSWORD=<pw> -p 55499:5432 postgres:17.6`.
+3. Start the API from `MusicHoarder.Api` with `dotnet run --no-launch-profile` and these
+   environment variables:
+
+   | Variable | Value |
+   | --- | --- |
+   | `ASPNETCORE_ENVIRONMENT` | `Development` (the sign-in link is then also returned to the page) |
+   | `ASPNETCORE_URLS` | `http://localhost:5198` |
+   | `ConnectionStrings__musichoarderdb` | `Host=localhost;Port=55499;Username=postgres;Password=<pw>;Database=musichoarderdb` |
+   | `MusicEnricher__SourceDirectory`, `MusicEnricher__DestinationDirectory` | Two folders: a few test files, and an empty one. |
+   | `MusicEnricher__EnableBuildNeedsReview` | `true`, so unmatched test files are built anyway. |
+   | `Auth__OwnerEmail`, `Auth__DemoUserEmail`, `Auth__DataProtectionKeysPath` | Required at start. |
+   | `Frontend__PublicBaseUrl` | The tunnel's address. |
+
+   `fpcalc` must be on `PATH`, or nothing gets past fingerprinting.
+4. Start the frontend from `frontend/`:
+   `MUSICHOARDER_API_URL=http://localhost:5198 __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=.trycloudflare.com bun run dev -- --port 5199 --strictPort`.
+   Without the allowed host, Vite refuses requests that arrive through the tunnel. A dev server
+   loads its CSS through JavaScript, so a first-frame effect (a flash) needs a production build to
+   confirm.
+5. Sign in as the owner (`POST /api/mh/api/auth/request-link` returns the link in Development),
+   start a build (`POST /api/mh/api/enrichment/build`), and wait until the songs are built.
+
+Test files are easy to make with ffmpeg: give each track of an album its own pitch and a short
+higher beep at its start, so every track change, and any gap or stall in it, can be heard. Add an
+Ogg/Opus file to test the decoded `?format=wav` path, and a FLAC file.
+
+### Build and install without changing the project
+
+The team and bundle identifier can go to `xcodebuild` as build settings, which leaves the tracked
+Xcode project alone:
+
+```bash
+cd mobile && MH_SERVER_URL=https://<tunnel> bun run sync
+cd ios/App && xcodebuild -project App.xcodeproj -scheme App -configuration Debug \
+  -destination 'id=<device UDID>' -derivedDataPath <a scratch folder> -allowProvisioningUpdates \
+  DEVELOPMENT_TEAM=<team id> PRODUCT_BUNDLE_IDENTIFIER=<your own id> CODE_SIGN_STYLE=Automatic build
+xcrun devicectl device install app --device <UDID> <scratch folder>/Build/Products/Debug-iphoneos/App.app
+```
+
+`xcrun devicectl list devices` gives the UDID. On the phone, turn on Developer Mode, and after the
+first install trust the developer under Settings → General → VPN & Device Management.
+
+### Watching it
+
+- `xcrun devicectl device process launch --device <UDID> --console --terminate-existing <bundle id>`
+  starts the app and prints its console: every plugin call (`To Native -> NativeAudio loadTrack`)
+  and every event the plugin sends the page (`TO JS {"status":"playing", "index":…}`). A `waiting`
+  status while a track changes is a stall. The recording ends when the app is closed, reinstalled
+  or started again.
+- Safari → Develop → the phone → the app's page gives Web Inspector on the web view (turn on Web
+  Inspector under the phone's Settings → Apps → Safari → Advanced). Pausing the script there
+  (Sources → ⏸) is how to test the device acting alone: lock-screen commands are then carried out
+  by the plugin after half a second.
+- The local database shows what the server saw: `Songs.PlayCount` and `LastPlayedAtUtc` for
+  listens, `MagicLinkTokens.ConsumedAtUtc` for which sign-in links were spent.
+
 ## Known limits
 
 - iOS has been run on one device (an iPhone on iOS 27.2, a free-account build). These held there:
