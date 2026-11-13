@@ -1,6 +1,4 @@
 using System.Diagnostics;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -8,6 +6,7 @@ using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Matching;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Quality.Jev;
 
 namespace MusicHoarder.Api.Quality;
 
@@ -18,7 +17,8 @@ public sealed class AlbumGradingService(
     IOwnerLookupService ownerLookup,
     IOptions<MusicEnricherOptions> enricherOptions,
     IOptionsMonitor<QualityGradingOptions> options,
-    ILogger<AlbumGradingService> logger) : IAlbumGradingService
+    ILogger<AlbumGradingService> logger,
+    IGraderTrialRecorder? trialRecorder = null) : IAlbumGradingService
 {
     private static readonly JsonSerializerOptions CompactJson = new(JsonSerializerDefaults.Web);
 
@@ -42,7 +42,7 @@ public sealed class AlbumGradingService(
         var latestVerdicts = await LoadLatestSongVerdictsAsync(db, ownedSongs, ct);
 
         var dossier = dossierFactory.Build(album, ownedSongs, latestVerdicts, enricherOptions.Value.IdentityTitleThreshold);
-        var fingerprint = Fingerprint(dossier);
+        var fingerprint = DossierFingerprint.Of(dossier);
 
         var latest = await db.CanonicalAlbumQualityGrades
             .IgnoreQueryFilters()
@@ -66,11 +66,12 @@ public sealed class AlbumGradingService(
 
         GradingResult parsed;
         string rawContent;
+        var stats = new GradingCallStats();
         var sw = Stopwatch.StartNew();
         try
         {
             (parsed, rawContent) = await GradingCompletion.RequestGradeAsync(
-                chatClient, AlbumGradingPrompt.BuildMessages(dossier), opts, logger, ct);
+                chatClient, AlbumGradingPrompt.BuildMessages(dossier), opts, logger, ct, stats);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -79,7 +80,11 @@ public sealed class AlbumGradingService(
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Album grading failed for canonical album {AlbumId}", canonicalAlbumId);
-            return new GradeAlbumResult(GradeOutcome.Failed, latest, ex.Message, ClassifyError(ex));
+            var code = GradingErrorCode.Of(ex);
+            await RecordTrialAsync(GraderTrialRows.Incumbent(
+                GraderSubjectKind.Album, album.Id, owner, opts.Model, AlbumGradingPrompt.Version, fingerprint,
+                null, stats, (int)Math.Min(int.MaxValue, sw.ElapsedMilliseconds), code, ex.Message), ct);
+            return new GradeAlbumResult(GradeOutcome.Failed, latest, ex.Message, code);
         }
         sw.Stop();
 
@@ -105,6 +110,10 @@ public sealed class AlbumGradingService(
 
         db.CanonicalAlbumQualityGrades.Add(grade);
         await db.SaveChangesAsync(ct);
+
+        await RecordTrialAsync(GraderTrialRows.Incumbent(
+            GraderSubjectKind.Album, album.Id, owner, opts.Model, AlbumGradingPrompt.Version, fingerprint,
+            parsed, stats, grade.DurationMs, null, null), ct);
 
         return new GradeAlbumResult(GradeOutcome.Graded, grade);
     }
@@ -167,18 +176,6 @@ public sealed class AlbumGradingService(
             .ToDictionary(grp => grp.Key, grp => grp.OrderByDescending(x => x.GradedAtUtc).First().Verdict);
     }
 
-    private static string ClassifyError(Exception ex) => ex switch
-    {
-        HttpRequestException { StatusCode: System.Net.HttpStatusCode.PaymentRequired } => "out_of_credits",
-        HttpRequestException => "http_error",
-        JsonException => "bad_response",
-        InvalidOperationException => "empty_response",
-        _ => "error",
-    };
-
-    private static string Fingerprint(AlbumGradingDossier dossier)
-    {
-        var json = JsonSerializer.Serialize(dossier, CompactJson);
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json)));
-    }
+    private Task RecordTrialAsync(GraderComparisonRun run, CancellationToken ct) =>
+        trialRecorder?.RecordAsync(run, ct) ?? Task.CompletedTask;
 }

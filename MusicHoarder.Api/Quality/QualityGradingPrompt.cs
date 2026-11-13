@@ -243,7 +243,8 @@ public static class QualityGradingPrompt
             ? value.GetString()
             : null;
 
-    private static SongQualityVerdict? ParseVerdictWord(string? raw) => raw?.Trim().ToLowerInvariant() switch
+    /// <summary>A verdict word ("good", "Wrong "…) as a verdict; null when it is not one. Shared with the grader trial.</summary>
+    internal static SongQualityVerdict? ParseVerdictWord(string? raw) => raw?.Trim().ToLowerInvariant() switch
     {
         "excellent" => SongQualityVerdict.Excellent,
         "good" => SongQualityVerdict.Good,

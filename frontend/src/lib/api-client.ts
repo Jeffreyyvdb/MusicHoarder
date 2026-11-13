@@ -1790,6 +1790,176 @@ export async function fetchAlbumQualityProgress(): Promise<QualityProgress> {
   return requestJson<QualityProgress>("/api/albums/quality/progress")
 }
 
+// ---------------------------------------------------------------- grader trial (admin)
+// The chat grader against decision models (Jev) on the same dossiers. Nothing here changes a
+// song's or album's grade; see MusicHoarder.Api/Quality/Jev.
+
+export type GraderTrialKind = "song" | "album"
+
+export interface GraderTrialStatus {
+  enabled: boolean
+  configured: boolean
+  models: string[]
+  primaryModel: string | null
+  incumbentModel: string
+  shadowSampleRate: number
+  gradeAlbums: boolean
+  maxStateBytes: number
+  songQuestionVersion: number
+  albumQuestionVersion: number
+}
+
+export interface GraderTrialArmSummary {
+  arm: string
+  model: string
+  isIncumbent: boolean
+  answers: number
+  errors: number
+  noGradeRate: number
+  latencyP50Ms: number | null
+  latencyP95Ms: number | null
+  averageAttempts: number | null
+  costKnown: number
+  costPerSubjectUsd: number | null
+  costPer1000Usd: number | null
+  averageInputTokens: number | null
+  averageOutputTokens: number | null
+  coverage: {
+    requests: number
+    fitWithoutShedding: number
+    fitAfterShedding: number
+    averageStateBytes: number
+    maxStateBytes: number
+  } | null
+  stability: { pairs: number; flips: number; flipRate: number | null }
+}
+
+export interface GraderTrialQuality {
+  labelled: number
+  labelledWrong: number
+  precision: number | null
+  recall: number | null
+  unsupportedLabelled: number
+  unsupportedRecall: number | null
+  brier: number | null
+  calibration: { from: number; to: number; count: number; meanPredicted: number | null; observed: number | null }[]
+}
+
+export type GraderTrialCheckStatus = "pass" | "fail" | "insufficient"
+
+export interface GraderTrialComparison {
+  arm: string
+  model: string
+  pairs: number
+  /** Rows: incumbent verdict; columns: this model's verdict; both in the report's verdictOrder. */
+  confusion: number[][]
+  kappa: number | null
+  scoreMae: number | null
+  flagAgreement: number | null
+  disagreements: number
+  incumbent: GraderTrialQuality
+  challenger: GraderTrialQuality
+  checks: { name: string; status: GraderTrialCheckStatus; detail: string }[]
+  recommendation: "switch" | "keep-incumbent" | "need-more-data" | "rerun-with-fewer-questions"
+}
+
+export interface GraderTrialReport {
+  kind: string
+  generatedAtUtc: string
+  primaryModel: string | null
+  verdictOrder: QualityVerdict[]
+  arms: GraderTrialArmSummary[]
+  comparisons: GraderTrialComparison[]
+  labels: {
+    labelled: number
+    disagreements: number
+    disagreementsLabelled: number
+    agreements: number
+    agreementsLabelled: number
+  }
+}
+
+export interface GraderTrialAnswer {
+  model: string
+  verdict: QualityVerdict | null
+  score: number | null
+  flagProbability: number | null
+  unsupportedIdentity: number | null
+  summary: string | null
+  issues: string[]
+  latencyMs: number | null
+  costUsd: number | null
+}
+
+export interface GraderTrialQueueItem {
+  kind: string
+  subjectId: number
+  fingerprint: string
+  stratum: "Disagreement" | "Agreement"
+  title: string | null
+  artist: string | null
+  album: string | null
+  fileName: string | null
+  incumbent: GraderTrialAnswer
+  challenger: GraderTrialAnswer
+}
+
+export type GraderTrialLabelValue = "right" | "wrong" | "unsure"
+
+export interface GraderTrialPass {
+  graded: number
+  failed: number
+  stale: number
+  backfilled: number
+  touched: number
+}
+
+export async function fetchGraderTrialStatus(): Promise<GraderTrialStatus> {
+  return requestJson<GraderTrialStatus>("/api/quality/trial/status")
+}
+
+export async function fetchGraderTrialReport(kind: GraderTrialKind): Promise<GraderTrialReport> {
+  return requestJson<GraderTrialReport>(`/api/quality/trial/report?kind=${kind}`)
+}
+
+export async function fetchGraderTrialQueue(kind: GraderTrialKind, limit = 20): Promise<GraderTrialQueueItem[]> {
+  return requestJson<GraderTrialQueueItem[]>(`/api/quality/trial/labels/queue?kind=${kind}&limit=${limit}`)
+}
+
+export async function saveGraderTrialLabel(
+  item: Pick<GraderTrialQueueItem, "subjectId" | "fingerprint">,
+  kind: GraderTrialKind,
+  label: GraderTrialLabelValue,
+  unsupportedIdentity: boolean
+): Promise<void> {
+  await requestJson<unknown>("/api/quality/trial/labels", {
+    method: "PUT",
+    body: JSON.stringify({ kind, subjectId: item.subjectId, fingerprint: item.fingerprint, label, unsupportedIdentity }),
+  })
+}
+
+/** Grades up to `limit` subjects with each decision model now, paired with their existing grades. */
+export async function runGraderTrial(kind: GraderTrialKind, limit = 50): Promise<GraderTrialPass> {
+  return requestJson<GraderTrialPass>(`/api/quality/trial/run?kind=${kind}&limit=${limit}`, { method: "POST" })
+}
+
+/** Grades already-answered subjects again on the same input; `includeIncumbent` also re-asks the chat grader. */
+export async function runGraderTrialStability(
+  kind: GraderTrialKind,
+  limit = 100,
+  includeIncumbent = false
+): Promise<GraderTrialPass> {
+  return requestJson<GraderTrialPass>(
+    `/api/quality/trial/stability?kind=${kind}&limit=${limit}&includeIncumbent=${includeIncumbent}`,
+    { method: "POST" }
+  )
+}
+
+/** Same-origin URL of the trial's CSV export (a plain link downloads it). */
+export function graderTrialCsvUrl(kind: GraderTrialKind): string {
+  return `${API_PREFIX}/api/quality/trial/export.csv?kind=${kind}`
+}
+
 /** Fetches one album's dossier + grade and copies the pretty-printed JSON to the clipboard. */
 export async function copyAlbumDossier(artist: string, album: string): Promise<void> {
   const qs = new URLSearchParams({ artist, album }).toString()
