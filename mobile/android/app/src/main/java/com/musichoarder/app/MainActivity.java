@@ -15,8 +15,10 @@ public class MainActivity extends BridgeActivity {
     /**
      * `musichoarder://auth?token=…&url=…`, the link on the page an emailed sign-in link opens in
      * the browser when it was asked for from this app (the frontend's `/auth/callback`). The web
-     * view has its own cookies, so the token is spent here: the same callback, loaded in the web
-     * view, sets the session cookie where the app can use it. BridgeActivity passes the launch
+     * view has its own cookies, so the token is spent there: `/auth/app`, loaded in the web view,
+     * passes it to the callback, which sets the session cookie where the app can use it. That
+     * page does so only when a link was asked for from this app, since anything on the phone can
+     * open a `musichoarder://` link with a token of its own. BridgeActivity passes the launch
      * intent through `onNewIntent` too, so a cold start takes the same path.
      */
     private void openSignInLink(Intent intent) {
@@ -30,14 +32,14 @@ public class MainActivity extends BridgeActivity {
         if (server.getScheme() == null || !server.getScheme().toLowerCase().startsWith("http")) return;
 
         // The link names the server it was made for. The app only ever loads its own, so a link
-        // made for another one (or made up) goes nowhere.
+        // made for another one, or naming none, goes nowhere.
         String named = link.getQueryParameter("url");
-        if (named != null && !named.isEmpty() && !sameOrigin(Uri.parse(named), server)) return;
+        if (named == null || named.isEmpty() || !sameOrigin(Uri.parse(named), server)) return;
 
         Uri callback = new Uri.Builder()
             .scheme(server.getScheme())
             .encodedAuthority(server.getEncodedAuthority())
-            .path("/auth/callback")
+            .path("/auth/app")
             .appendQueryParameter("token", token)
             .build();
         bridge.getWebView().loadUrl(callback.toString());

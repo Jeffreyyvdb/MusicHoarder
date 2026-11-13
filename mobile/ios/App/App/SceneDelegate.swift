@@ -33,8 +33,10 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     /// `musichoarder://auth?token=…&url=…`, the link on the page an emailed sign-in link opens in
     /// Safari when it was asked for from this app (the frontend's `/auth/callback`). The web view
-    /// has its own cookies, so the token is spent here: the same callback, loaded in the web view,
-    /// sets the session cookie where the app can use it.
+    /// has its own cookies, so the token is spent there: `/auth/app`, loaded in the web view,
+    /// passes it to the callback, which sets the session cookie where the app can use it. That
+    /// page does so only when a link was asked for from this app, since anything on the phone can
+    /// open a `musichoarder://` link with a token of its own.
     private func open(_ url: URL) {
         guard url.scheme?.lowercased() == "musichoarder", url.host?.lowercased() == "auth",
               let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
@@ -45,12 +47,12 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         else { return }
 
         // The link names the server it was made for. The app only ever loads its own, so a link
-        // made for another one (or made up) goes nowhere.
-        if let named = items.first(where: { $0.name == "url" })?.value, !named.isEmpty {
-            guard let other = URL(string: named), Self.sameOrigin(other, server) else { return }
-        }
+        // made for another one, or naming none, goes nowhere.
+        guard let named = items.first(where: { $0.name == "url" })?.value,
+              let other = URL(string: named), Self.sameOrigin(other, server)
+        else { return }
 
-        callback.path = "/auth/callback"
+        callback.path = "/auth/app"
         callback.queryItems = [URLQueryItem(name: "token", value: token)]
         callback.fragment = nil
         guard let target = callback.url else { return }

@@ -7,6 +7,7 @@
   import { isPasskeySupported } from '#lib/webauthn-client.ts';
   import { isInstalledApp } from '#lib/hooks/viewport-insets.svelte.ts';
   import { isNativeShell } from '#lib/native/shell.ts';
+  import { noteAppSignInRequested } from '#lib/native/app-sign-in.ts';
   import { isIosDevice } from '#lib/ios-safari.ts';
   import { APP_HOME } from '#lib/app-home.ts';
   import {
@@ -120,8 +121,11 @@
     isSending = true;
     result = null;
     try {
-      const r = await requestMagicLink(value, { fromApp: isNativeShell() });
+      const fromApp = isNativeShell();
+      const r = await requestMagicLink(value, { fromApp });
       if (r.ok) {
+        // The app takes the link's token only while this web view is waiting for one.
+        if (fromApp) noteAppSignInRequested();
         result = {
           ok: true,
           sent: true,
