@@ -128,8 +128,19 @@ clients, one product" in the root `CLAUDE.md`).
 
 ## Known limits
 
-- Not yet run on a device by the project: both plugins compile in CI
-  (`.github/workflows/mobile.yml`) and the web side is unit-tested against a stand-in for them.
+- iOS has been run on one device (an iPhone on iOS 27.2, a free-account build). These held there:
+  sign-in by emailed link and its guard against unrequested tokens; native playback, including
+  Ogg/Opus through `?format=wav`; four track changes in a row on a locked phone with no stall, each
+  counted as a listen, with the page on the right track and position after unlocking; lock screen
+  and Control Center commands, each carried out once, by the page when it answers and by the
+  device when it does not; and a reload while playing, which takes the music over without a
+  break. Not yet tried on a device: interruptions (Siri, calls), headphones and the AirPlay
+  button, a queue running out (with or without radio), and the edge swipe and safe areas.
+- CI builds the iOS app but never starts it. A start-time failure (such as the missing
+  `www/overview` that once made every launch exit) shows up only on a device or a simulator.
+- A reload shows a black (or white) frame for about a second and closes Now Playing, as it does in
+  a browser; the music itself carries on.
+- The Android shell has not been run on a device yet.
 - Swiping the Android app away stops the music: the page is what knows the queue.
 - How the pages sit around Android's system bars has not been looked at on a device.
 - Music videos and anything else the pages play through their own `<video>` or `<audio>` elements
