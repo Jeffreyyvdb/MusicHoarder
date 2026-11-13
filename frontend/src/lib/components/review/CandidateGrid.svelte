@@ -73,7 +73,7 @@
           onclick={() => onpick(c)}
           disabled={readonly}
           {...radioProps(i, picked)}
-          class="group/cand after:bg-separator focus-visible:ring-ring/50 enabled:active:bg-accent relative grid min-h-11 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-2.5 text-left transition-colors duration-100 outline-none after:absolute after:right-0 after:bottom-0 after:left-4 after:h-(--hairline) last:after:hidden focus-visible:ring-3 focus-visible:ring-inset"
+          class="group/cand after:bg-separator focus-visible:ring-ring/50 enabled:active:bg-accent relative grid min-h-11 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-2.5 text-left transition-colors duration-100 focus-visible:outline-hidden after:absolute after:right-0 after:bottom-0 after:left-4 after:h-(--hairline) last:after:hidden focus-visible:ring-3 focus-visible:ring-inset"
         >
           <span class="min-w-0">
             <span class="text-body block truncate">{c.title}</span>

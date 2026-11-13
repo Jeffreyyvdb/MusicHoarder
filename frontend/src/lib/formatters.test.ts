@@ -4,6 +4,7 @@ import {
   formatDate,
   formatDateTime,
   formatFileSize,
+  formatRelativeTime,
   formatReleaseDate,
   formatTotalDuration
 } from './formatters';
@@ -65,5 +66,25 @@ describe('formatReleaseDate', () => {
     expect(formatReleaseDate('2021')).toBe('2021');
     expect(formatReleaseDate(2021)).toBe('2021');
     expect(formatReleaseDate(null)).toBe('—');
+  });
+});
+
+describe('formatRelativeTime', () => {
+  const now = Date.parse('2026-11-13T12:00:00Z');
+
+  it('counts recent times', () => {
+    expect(formatRelativeTime('2026-11-13T11:59:30Z', now)).toBe('just now');
+    expect(formatRelativeTime('2026-11-13T11:48:00Z', now)).toBe('12 min ago');
+    expect(formatRelativeTime('2026-11-09T12:00:00Z', now)).toBe('4d ago');
+  });
+
+  it('gives a date without the year past a month in the same year', () => {
+    const out = formatRelativeTime('2026-09-03T12:00:00Z', now);
+    expect(out).not.toMatch(/2026/);
+    expect(out).toMatch(/3/);
+  });
+
+  it('adds the year to a date from another year', () => {
+    expect(formatRelativeTime('2025-09-03T12:00:00Z', now)).toMatch(/2025/);
   });
 });

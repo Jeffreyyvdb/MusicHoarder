@@ -206,7 +206,7 @@
     data-album-key={shelf ? undefined : album.key}
     oncontextmenu={menu ? (e) => onTileContextMenu(e, album) : undefined}
     class={cn(
-      'group focus-visible:ring-ring flex flex-col rounded-lg outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2',
+      'group focus-visible:ring-ring flex flex-col rounded-lg focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2',
       shelf
         ? 'w-[150px] shrink-0 snap-start md:w-[168px]'
         : 'p-1 transition-transform [contain-intrinsic-size:auto_13rem] [content-visibility:auto] hover:-translate-y-0.5'

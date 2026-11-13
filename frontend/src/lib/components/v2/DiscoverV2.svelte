@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isSubmitEnter } from '#lib/keyboard.ts';
   import { untrack } from 'svelte';
   import { page } from '$app/state';
   import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
@@ -724,7 +725,7 @@
         resolveError = null;
       }}
       onkeydown={(e) => {
-        if (e.key === 'Enter') void onResolve();
+        if (isSubmitEnter(e)) void onResolve();
       }}
     />
 

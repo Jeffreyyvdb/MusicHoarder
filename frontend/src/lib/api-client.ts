@@ -1,4 +1,11 @@
-import { createPasskey, getPasskeyAssertion } from "#lib/webauthn-client.ts"
+import {
+  createPasskey,
+  getPasskeyAssertion,
+  signalAccountPasskeys,
+  signalUnknownPasskey,
+  type AssertionMode,
+  type PasskeySignalInfo,
+} from "#lib/webauthn-client.ts"
 import { formatOf } from "#lib/audio-formats.ts"
 import type { PlayerSong } from "#lib/stores/player.svelte.ts"
 import type { LyricsProvenance, LyricsSyncStatus } from "#lib/types.ts"
@@ -4212,13 +4219,37 @@ export async function registerPasskey(displayName: string): Promise<PasskeyView>
   return (await completeRes.json()) as PasskeyView
 }
 
-/** Signs in with an existing passkey. On success the session cookie is set; caller should navigate. */
-export async function loginWithPasskey(): Promise<void> {
-  const beginRes = await fetch(`${WEBAUTHN_PREFIX}/authenticate/begin`, { method: "POST", cache: "no-store" })
+/** The server refused the passkey that was picked (as opposed to a cancelled or failed request). */
+export class PasskeyRefusedError extends Error {
+  constructor(message = "Passkey sign-in failed.") {
+    super(message)
+    this.name = "PasskeyRefusedError"
+  }
+}
+
+/** The passkey this sign-in used is not on any account (it was removed here). */
+export class UnknownPasskeyError extends PasskeyRefusedError {
+  constructor() {
+    super("That passkey was removed from its account. Sign in another way, then add a new one.")
+    this.name = "UnknownPasskeyError"
+  }
+}
+
+/**
+ * Signs in with an existing passkey. On success the session cookie is set; caller should navigate.
+ * `mode.mediation: "conditional"` waits for the person to pick a passkey from the email field's
+ * autofill instead of opening a sheet; abort it through `mode.signal` before starting another.
+ */
+export async function loginWithPasskey(mode: AssertionMode = {}): Promise<void> {
+  const beginRes = await fetch(`${WEBAUTHN_PREFIX}/authenticate/begin`, {
+    method: "POST",
+    cache: "no-store",
+    signal: mode.signal,
+  })
   if (!beginRes.ok) throw new Error(`Could not start passkey sign-in (${beginRes.status}).`)
   const options = (await beginRes.json()) as Record<string, unknown>
 
-  const assertion = await getPasskeyAssertion(options)
+  const assertion = await getPasskeyAssertion(options, mode)
 
   const completeRes = await fetch(`${WEBAUTHN_PREFIX}/authenticate/complete`, {
     method: "POST",
@@ -4226,7 +4257,29 @@ export async function loginWithPasskey(): Promise<void> {
     body: JSON.stringify(assertion),
     cache: "no-store",
   })
-  if (!completeRes.ok) throw new Error("Passkey sign-in failed.")
+  if (!completeRes.ok) {
+    const body = (await completeRes.json().catch(() => ({}))) as { error?: string }
+    if (body.error === "unknown_credential") {
+      // Tell the password manager, so it stops offering a passkey that can never work.
+      await signalUnknownPasskey(typeof options.rpId === "string" ? options.rpId : "", assertion.id)
+      throw new UnknownPasskeyError()
+    }
+    throw new PasskeyRefusedError()
+  }
+}
+
+/**
+ * Brings the password manager in line with this account's passkeys and name (WebAuthn Signal
+ * API). A hint only: it does nothing where unsupported and never throws.
+ */
+export async function syncPasskeysWithPasswordManager(): Promise<void> {
+  try {
+    const response = await fetch(`${WEBAUTHN_PREFIX}/credentials/signal`, { cache: "no-store" })
+    if (!response.ok) return
+    await signalAccountPasskeys((await response.json()) as PasskeySignalInfo)
+  } catch {
+    // Nothing for the person to act on.
+  }
 }
 
 export async function listPasskeys(): Promise<PasskeyView[]> {

@@ -79,7 +79,7 @@
 	aria-current={selected && tag === "a" ? "page" : undefined}
 	onclick={disabled ? undefined : onclick}
 	class={cn(
-		"group/grouped-row relative grid w-full grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] items-center px-4 py-2 text-left outline-none",
+		"group/grouped-row relative grid w-full grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] items-center px-4 py-2 text-left focus-visible:outline-hidden",
 		sublabel ? "min-h-14" : "min-h-11",
 		"after:bg-separator after:col-start-2 after:col-end-6 after:row-start-1 after:-mr-4 after:-mb-2 after:h-(--hairline) after:self-end last:after:hidden",
 		interactive &&

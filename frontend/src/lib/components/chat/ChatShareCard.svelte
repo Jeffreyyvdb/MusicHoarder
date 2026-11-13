@@ -80,7 +80,7 @@
     {#if share.token}
       <button
         type="button"
-        class="text-muted-foreground hover:text-foreground focus-visible:ring-ring grid size-11 shrink-0 place-items-center rounded-full outline-none focus-visible:ring-2 md:size-9"
+        class="text-muted-foreground hover:text-foreground focus-visible:ring-ring grid size-11 shrink-0 place-items-center rounded-full focus-visible:outline-hidden focus-visible:ring-2 md:size-9"
         aria-label={`Open ${share.title}`}
         onclick={() => void goto(`/share/${encodeURIComponent(share.token ?? '')}`)}
       >
@@ -89,7 +89,7 @@
     {/if}
     <button
       type="button"
-      class="bg-primary text-primary-foreground focus-visible:ring-ring grid size-11 shrink-0 place-items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-60 md:size-9"
+      class="bg-primary text-primary-foreground focus-visible:ring-ring grid size-11 shrink-0 place-items-center rounded-full focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-60 md:size-9"
       aria-label={playing ? `Pause ${share.title}` : `Play ${share.title}`}
       disabled={starting}
       onclick={play}

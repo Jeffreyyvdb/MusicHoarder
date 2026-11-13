@@ -32,7 +32,7 @@
     href={link.url}
     target="_blank"
     rel="noopener noreferrer"
-    class="focus-visible:ring-ring flex items-center gap-3 p-2.5 outline-none focus-visible:ring-2 focus-visible:ring-inset"
+    class="focus-visible:ring-ring flex items-center gap-3 p-2.5 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset"
   >
     {#if link.imageUrl && !imageFailed}
       <img
@@ -65,7 +65,7 @@
         {@const songId = link.librarySongId}
         <button
           type="button"
-          class="bg-secondary text-primary hover:bg-secondary-hover focus-visible:ring-ring inline-flex h-11 items-center gap-1.5 rounded-full px-4 text-[15px] font-medium outline-none focus-visible:ring-2 md:h-8 md:px-3 md:text-sm"
+          class="bg-secondary text-primary hover:bg-secondary-hover focus-visible:ring-ring inline-flex h-11 items-center gap-1.5 rounded-full px-4 text-[15px] font-medium focus-visible:outline-hidden focus-visible:ring-2 md:h-8 md:px-3 md:text-sm"
           onclick={() => void playLibrarySong(songId)}
         >
           <Play class="size-4 fill-current" aria-hidden="true" /> Play from your library
@@ -73,7 +73,7 @@
       {:else if canAdd}
         <button
           type="button"
-          class="bg-secondary text-primary hover:bg-secondary-hover focus-visible:ring-ring inline-flex h-11 items-center gap-1.5 rounded-full px-4 text-[15px] font-medium outline-none focus-visible:ring-2 md:h-8 md:px-3 md:text-sm"
+          class="bg-secondary text-primary hover:bg-secondary-hover focus-visible:ring-ring inline-flex h-11 items-center gap-1.5 rounded-full px-4 text-[15px] font-medium focus-visible:outline-hidden focus-visible:ring-2 md:h-8 md:px-3 md:text-sm"
           onclick={() => onadd?.(link.url)}
         >
           <Download class="size-4" aria-hidden="true" /> Add to library

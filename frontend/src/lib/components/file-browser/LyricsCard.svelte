@@ -35,7 +35,7 @@
     {#if expandable}
       <button
         type="button"
-        class="text-muted-foreground hover:text-foreground focus-visible:ring-ring flex size-11 items-center justify-center rounded-full outline-none focus-visible:ring-2"
+        class="text-muted-foreground hover:text-foreground focus-visible:ring-ring flex size-11 items-center justify-center rounded-full focus-visible:outline-hidden focus-visible:ring-2"
         aria-label="Show fullscreen lyrics"
         onclick={onExpand}
       >

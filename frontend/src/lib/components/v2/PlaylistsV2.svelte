@@ -57,7 +57,7 @@
     {#each list as playlist (playlist.id)}
       <a
         href="/playlists/{playlist.id}"
-        class="group focus-visible:ring-ring rounded-lg p-1 transition-transform outline-none hover:-translate-y-0.5 focus-visible:ring-2 active:scale-[0.97]"
+        class="group focus-visible:ring-ring rounded-lg p-1 transition-transform focus-visible:outline-hidden hover:-translate-y-0.5 focus-visible:ring-2 active:scale-[0.97]"
         aria-label="Open playlist {playlist.name}"
       >
         <div class="flex flex-col gap-2">

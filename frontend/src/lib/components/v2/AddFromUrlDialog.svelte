@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isSubmitEnter } from '#lib/keyboard.ts';
   import { untrack } from 'svelte';
   import {
     AlertTriangle,
@@ -175,7 +176,7 @@
   }
 
   function onKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter' && !resolving && url.trim()) {
+    if (isSubmitEnter(e) && !resolving && url.trim()) {
       e.preventDefault();
       void onResolve();
     }
@@ -194,7 +195,7 @@
 
   // A borderless field that fills its cell, as in an iOS form; the caret is its focus indicator.
   const cellInput =
-    'placeholder:text-muted-foreground text-body min-w-0 flex-1 bg-transparent py-2.5 outline-none disabled:opacity-50 md:py-1.5 md:text-sm';
+    'placeholder:text-muted-foreground text-body min-w-0 flex-1 bg-transparent py-2.5 focus-visible:outline-hidden disabled:opacity-50 md:py-1.5 md:text-sm';
   const cellLabel = 'text-body w-16 shrink-0 md:text-sm';
 </script>
 

@@ -259,11 +259,11 @@
   // ::before, inset 4px top and bottom, and the input over it is transparent.
   const DATE_TARGET =
     'relative -my-2 flex h-11 items-center before:pointer-events-none before:absolute before:inset-x-0 before:inset-y-1 before:rounded-lg before:bg-muted has-[input:focus-visible]:before:ring-3 before:ring-ring/50';
-  const DATE_FIELD = 'relative h-11 bg-transparent px-2.5 text-base outline-none';
+  const DATE_FIELD = 'relative h-11 bg-transparent px-2.5 text-base focus-visible:outline-hidden';
 
   // An in-row text link (track, album, artist): 44pt tall on touch via a pseudo-element.
   const INLINE_LINK =
-    'relative outline-none hover:underline focus-visible:underline pointer-coarse:after:absolute pointer-coarse:after:-inset-y-3 pointer-coarse:after:-inset-x-1';
+    'relative focus-visible:outline-hidden hover:underline focus-visible:underline pointer-coarse:after:absolute pointer-coarse:after:-inset-y-3 pointer-coarse:after:-inset-x-1';
 </script>
 
 <!-- ── desktop chip bands (a phone uses the sheet below) ───────────────────── -->
@@ -277,7 +277,7 @@
       bind:value={customFrom}
       max={customTo || today}
       aria-label="From date"
-      class="bg-input text-nav-sm focus-visible:ring-ring/50 h-8 shrink-0 rounded-full px-3 outline-none focus-visible:ring-3"
+      class="bg-input text-nav-sm focus-visible:ring-ring/50 h-8 shrink-0 rounded-full px-3 focus-visible:outline-hidden focus-visible:ring-3"
     />
     <span class="text-muted-foreground text-nav-xs shrink-0" aria-hidden="true">→</span>
     <input
@@ -286,7 +286,7 @@
       min={customFrom || undefined}
       max={today}
       aria-label="To date"
-      class="bg-input text-nav-sm focus-visible:ring-ring/50 h-8 shrink-0 rounded-full px-3 outline-none focus-visible:ring-3"
+      class="bg-input text-nav-sm focus-visible:ring-ring/50 h-8 shrink-0 rounded-full px-3 focus-visible:outline-hidden focus-visible:ring-3"
     />
   {/if}
   <span class="bg-separator mx-1 h-5 w-px shrink-0" aria-hidden="true"></span>

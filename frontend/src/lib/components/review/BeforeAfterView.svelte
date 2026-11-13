@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isSubmitEnter } from '#lib/keyboard.ts';
   import { ArrowRight, Plus } from '@lucide/svelte';
   import { Input } from '#lib/components/ui/input/index.ts';
   import * as Table from '#lib/components/ui/table/index.js';
@@ -62,7 +63,7 @@
   // The keyboard's return key walks the form (its label says "next"), and closes it on the last
   // field ("done") — a key that is labelled but does nothing reads as broken.
   function onFieldKeydown(e: KeyboardEvent, index: number) {
-    if (e.key !== 'Enter' || e.isComposing) return;
+    if (!isSubmitEnter(e)) return;
     e.preventDefault();
     const next = rows[index + 1];
     if (next) document.getElementById(`${uid}-${next.key}`)?.focus();
@@ -268,7 +269,7 @@
               <button
                 type="button"
                 aria-label={`Use the embedded ${row.label.toLowerCase()}`}
-                class="text-primary relative z-10 shrink-0 font-medium outline-none after:absolute after:-inset-x-2 after:-top-1.5 after:-bottom-5 focus-visible:underline"
+                class="text-primary relative z-10 shrink-0 font-medium focus-visible:outline-hidden after:absolute after:-inset-x-2 after:-top-1.5 after:-bottom-5 focus-visible:underline"
                 onclick={() => oncopy(row.key, row.embedded)}>Use</button
               >
             {/if}

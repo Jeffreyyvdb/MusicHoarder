@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { LinearProgress } from '#lib/components/ui/progress/index.ts';
   import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
   import { onMount } from 'svelte';
   import { Disc3, History, Loader2, RefreshCw, Sparkles, TriangleAlert } from '@lucide/svelte';
@@ -178,19 +179,11 @@
       {#if progress}
         <!-- A determinate bar while a run drains (progress-indicators: prefer determinate). -->
         <div class="px-8 md:px-4">
-          <span
-            role="progressbar"
-            aria-label="Album grading progress"
-            aria-valuemin={0}
-            aria-valuemax={progress.total}
-            aria-valuenow={progress.processed}
-            class="bg-muted block h-1 w-full overflow-hidden rounded-full"
-          >
-            <span
-              class="bg-primary block h-full w-full origin-left transition-transform duration-300 ease-out"
-              style="transform: scaleX({progress.total > 0 ? Math.min(1, progress.processed / progress.total) : 0})"
-            ></span>
-          </span>
+          <LinearProgress
+            label="Album grading progress"
+            value={progress.processed}
+            max={progress.total}
+          />
         </div>
       {/if}
 

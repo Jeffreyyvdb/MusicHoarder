@@ -1,3 +1,4 @@
+using System.Buffers.Text;
 using Fido2NetLib;
 using Fido2NetLib.Objects;
 using Microsoft.EntityFrameworkCore;
@@ -25,7 +26,7 @@ public interface IWebAuthnService
 
     AssertionOptions BeginAuthentication();
 
-    Task<Session?> CompleteAuthenticationAsync(
+    Task<PasskeySignInResult> CompleteAuthenticationAsync(
         AuthenticatorAssertionRawResponse assertion,
         AssertionOptions originalOptions,
         string? ip,
@@ -35,6 +36,48 @@ public interface IWebAuthnService
     Task<IReadOnlyList<WebAuthnCredentialView>> ListCredentialsAsync(Guid userId, CancellationToken ct);
 
     Task<bool> DeleteCredentialAsync(Guid userId, Guid credentialId, CancellationToken ct);
+
+    /// <summary>
+    /// What the browser's WebAuthn Signal API needs to bring a password manager in line with the
+    /// server: the RP id, the user handle and the account names the passkeys were made with, and
+    /// the ids of the passkeys this user still has. Null for an unknown or disabled user.
+    /// </summary>
+    Task<PasskeySignalInfo?> GetSignalInfoAsync(Guid userId, CancellationToken ct);
+}
+
+/// <summary>
+/// Base64url-encoded, the way the browser's Signal API takes them. <see cref="CredentialIds"/> is
+/// null for a user handle shared across instances (<see cref="WebAuthnService.IsSharedUserHandle"/>):
+/// this instance does not know all of that user's passkeys, so the client must not send the full
+/// list (`signalAllAcceptedCredentials` hides every passkey the list leaves out).
+/// </summary>
+public sealed record PasskeySignalInfo(
+    string RpId,
+    string UserId,
+    string Name,
+    string DisplayName,
+    IReadOnlyList<string>? CredentialIds);
+
+/// <summary>How a passkey sign-in ended.</summary>
+public enum PasskeySignInFailure
+{
+    None,
+
+    /// <summary>
+    /// No stored credential has this id, and the passkey's user handle is not a shared one: the
+    /// passkey was removed here, so the client may tell the password manager to drop it.
+    /// </summary>
+    UnknownCredential,
+
+    /// <summary>Any other refusal (bad signature, disabled user, a shared user handle).</summary>
+    Rejected,
+}
+
+public sealed record PasskeySignInResult(Session? Session, PasskeySignInFailure Failure)
+{
+    public static PasskeySignInResult Ok(Session session) => new(session, PasskeySignInFailure.None);
+    public static readonly PasskeySignInResult Unknown = new(null, PasskeySignInFailure.UnknownCredential);
+    public static readonly PasskeySignInResult Rejected = new(null, PasskeySignInFailure.Rejected);
 }
 
 public sealed record WebAuthnCredentialView(
@@ -167,7 +210,7 @@ public sealed class WebAuthnService : IWebAuthnService
             UserVerification = UserVerificationRequirement.Preferred,
         });
 
-    public async Task<Session?> CompleteAuthenticationAsync(
+    public async Task<PasskeySignInResult> CompleteAuthenticationAsync(
         AuthenticatorAssertionRawResponse assertion,
         AssertionOptions originalOptions,
         string? ip,
@@ -181,8 +224,18 @@ public sealed class WebAuthnService : IWebAuthnService
             .Include(c => c.User)
             .FirstOrDefaultAsync(c => c.CredentialId == assertion.RawId, ct)
             .ConfigureAwait(false);
-        if (credential is null || credential.User is null || credential.User.IsDisabled)
-            return null;
+        if (credential is null)
+        {
+            // The passkey's user handle says whose it was. A shared handle (the frozen owner/demo
+            // ids every instance seeds) may own passkeys on another instance with the same RP id,
+            // so "unknown here" does not mean "unknown"; only report it for a handle of this
+            // instance's own.
+            var handle = assertion.Response?.UserHandle;
+            var shared = handle is { Length: 16 } && IsSharedUserHandle(new Guid(handle));
+            return shared ? PasskeySignInResult.Rejected : PasskeySignInResult.Unknown;
+        }
+        if (credential.User is null || credential.User.IsDisabled)
+            return PasskeySignInResult.Rejected;
 
         var ownerUserId = credential.UserId;
 
@@ -209,7 +262,7 @@ public sealed class WebAuthnService : IWebAuthnService
         catch (Fido2VerificationException ex)
         {
             _logger.LogWarning(ex, "Passkey assertion verification failed.");
-            return null;
+            return PasskeySignInResult.Rejected;
         }
 
         var nowUtc = DateTime.UtcNow;
@@ -228,7 +281,44 @@ public sealed class WebAuthnService : IWebAuthnService
         };
         db.Sessions.Add(session);
         await db.SaveChangesAsync(ct).ConfigureAwait(false);
-        return session;
+        return PasskeySignInResult.Ok(session);
+    }
+
+    /// <summary>
+    /// The user ids every instance seeds with the same frozen value (<see cref="WellKnownUsers"/>).
+    /// Per-PR previews share the production RP id and seed the owner with a passkey, so passkeys
+    /// with these user handles can live on several instances at once, and no one instance may tell
+    /// a password manager which of them are gone. Every other user id exists on one instance only.
+    /// </summary>
+    public static bool IsSharedUserHandle(Guid userId) =>
+        userId == WellKnownUsers.OwnerId || userId == WellKnownUsers.DemoId;
+
+    public async Task<PasskeySignalInfo?> GetSignalInfoAsync(Guid userId, CancellationToken ct)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId && !u.IsDisabled, ct)
+            .ConfigureAwait(false);
+        if (user is null) return null;
+
+        var ids = await db.WebAuthnCredentials
+            .Where(c => c.UserId == userId)
+            .Select(c => c.CredentialId)
+            .ToListAsync(ct).ConfigureAwait(false);
+
+        // The RP id the ceremonies use. IFido2 does not expose its configuration, but every
+        // options object it builds carries it; building one is cheap and has no side effects.
+        var rpId = _fido2.GetAssertionOptions(new GetAssertionOptionsParams { AllowedCredentials = [] }).RpId
+            ?? string.Empty;
+
+        // Same user handle and names as BeginRegistrationAsync puts into a new passkey.
+        return new PasskeySignalInfo(
+            rpId,
+            Base64Url.EncodeToString(userId.ToByteArray()),
+            user.Email,
+            user.DisplayName ?? user.Email,
+            IsSharedUserHandle(userId) ? null : ids.Select(id => Base64Url.EncodeToString(id)).ToList());
     }
 
     public async Task<IReadOnlyList<WebAuthnCredentialView>> ListCredentialsAsync(Guid userId, CancellationToken ct)

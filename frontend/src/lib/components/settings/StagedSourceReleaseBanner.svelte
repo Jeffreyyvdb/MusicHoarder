@@ -15,6 +15,7 @@
 </script>
 
 <script lang="ts">
+  import { LinearProgress } from '#lib/components/ui/progress/index.ts';
   import { CircleAlert, CircleCheck, CircleStop, Loader2 } from '@lucide/svelte';
   import { formatFileSize } from '#lib/formatters.ts';
 
@@ -52,19 +53,7 @@
         <span class="tabular-nums">{snapshot.released.toLocaleString()}</span> released,
         {formatBytes(snapshot.bytesReclaimed)} reclaimed.
       </p>
-      <span
-        role="progressbar"
-        aria-label="Release progress"
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={Math.round(pct)}
-        class="bg-muted mt-2 block h-1 w-full overflow-hidden rounded-full"
-      >
-        <span
-          class="bg-primary block h-full w-full origin-left transition-transform duration-300"
-          style="transform: scaleX({pct / 100})"
-        ></span>
-      </span>
+      <LinearProgress label="Release progress" value={pct} max={100} class="mt-2" />
     </div>
   {:else if snapshot.status === 'completed'}
     <CircleCheck class="text-primary mt-0.5 size-5 shrink-0" aria-hidden="true" />

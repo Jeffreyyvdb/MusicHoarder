@@ -104,7 +104,7 @@
   );
 </script>
 
-<ModeWatcher defaultMode="system" />
+<ModeWatcher defaultMode="system" disableHeadScriptInjection />
 <Analytics />
 <!-- Top offsets are the library defaults plus the status-bar inset an installed (home-screen) app
      draws under; in a browser tab the inset is 0. On a phone inside the app, toasts rise from the

@@ -155,6 +155,7 @@ CI reflects the split: `ci.yml` (dotnet + frontend) is required on `main`, and `
 
 - **Non-destructive by default**: the library builder only reads from source and writes new copies to the destination — it must never modify source files. Use soft-delete (`SoftDelete()` / derived `IsDeleted`) for removed/missing files; never physically delete rows.
 - **Safe paths in dev**: point scanners/builders at local test directories, not real NAS shares, unless explicitly configured.
+- **Response headers and CSP (frontend)**: `hooks.server.ts` sets the security headers on every response (`#lib/server/security-headers`: nosniff, `Referrer-Policy`, `frame-ancestors 'none'` + `X-Frame-Options`, COOP, `Permissions-Policy`, a short HSTS to raise later). The Content-Security-Policy is **report-only** for now (`csp` in `vite.config.ts`, nonce mode); violations post to `/api/csp-report`, which logs one redacted `csp-violation` line each — move the directives to enforced once those are quiet. So: an inline `<script>` must carry the nonce, which only `app.html`'s script can (`%sveltekit.nonce%`) — that is why the theme and iOS-app markers live there and mode-watcher's head script is off (`disableHeadScriptInjection`); a new third-party origin needs its directive; and `style-src` keeps `'unsafe-inline'` because Svelte and bits-ui write style attributes.
 - **External services**: respect rate limits and set appropriate user agents when scraping trackers or calling APIs; use retries with backoff for transient failures and stop at error thresholds.
 
 ## Branches and commits

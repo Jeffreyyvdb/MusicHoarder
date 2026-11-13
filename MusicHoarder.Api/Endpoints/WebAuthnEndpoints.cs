@@ -84,6 +84,17 @@ public static class WebAuthnEndpoints
             .RequireNonDemo()
             .WithName("WebAuthnListCredentials");
 
+        group.MapGet("/credentials/signal", async (
+                ICurrentUserAccessor accessor,
+                IWebAuthnService webAuthn,
+                CancellationToken ct) =>
+            {
+                var info = await webAuthn.GetSignalInfoAsync(accessor.User!.Id, ct);
+                return info is null ? Results.NotFound(new { error = "user_unavailable" }) : Results.Ok(info);
+            })
+            .RequireNonDemo()
+            .WithName("WebAuthnCredentialSignalInfo");
+
         group.MapDelete("/credentials/{id:guid}", async (
                 Guid id,
                 ICurrentUserAccessor accessor,
@@ -123,14 +134,14 @@ public static class WebAuthnEndpoints
                     return Results.Json(new { error = "challenge_expired" }, statusCode: 400);
 
                 var originalOptions = AssertionOptions.FromJson(stored);
-                var session = await webAuthn.CompleteAuthenticationAsync(
+                var result = await webAuthn.CompleteAuthenticationAsync(
                     assertion,
                     originalOptions,
                     ctx.Connection.RemoteIpAddress?.ToString(),
                     ctx.Request.Headers.UserAgent.ToString(),
                     ct);
-                if (session is null)
-                    return Results.Json(new { error = "invalid_assertion" }, statusCode: 400);
+                if (result.Session is not { } session)
+                    return SignInRefused(result.Failure);
 
                 await accountSwitch.SignInAsync(ctx, session, ct);
                 return Results.Ok(new { ok = true });
@@ -167,14 +178,14 @@ public static class WebAuthnEndpoints
                     return Results.Json(new { error = "challenge_expired" }, statusCode: 400);
 
                 var originalOptions = AssertionOptions.FromJson(stored);
-                var session = await webAuthn.CompleteAuthenticationAsync(
+                var result = await webAuthn.CompleteAuthenticationAsync(
                     body.Assertion,
                     originalOptions,
                     ctx.Connection.RemoteIpAddress?.ToString(),
                     ctx.Request.Headers.UserAgent.ToString(),
                     ct);
-                if (session is null)
-                    return Results.Json(new { error = "invalid_assertion" }, statusCode: 400);
+                if (result.Session is not { } session)
+                    return SignInRefused(result.Failure);
 
                 // No cookie: the protected session id goes back as the bearer the app stores, the
                 // way /api/auth/token and /api/auth/device-token hand it over.
@@ -185,6 +196,18 @@ public static class WebAuthnEndpoints
 
         return app;
     }
+
+    /// <summary>
+    /// A refused passkey sign-in, on both the cookie and the native flow. A passkey this server no
+    /// longer has (removed here, still in the password manager) gets its own code, so the client
+    /// can tell the password manager to drop it (the browser's
+    /// <c>PublicKeyCredential.signalUnknownCredential</c>, Android's
+    /// <c>SignalUnknownCredentialRequest</c>). Older clients treat any 400 as a failed sign-in.
+    /// </summary>
+    private static IResult SignInRefused(PasskeySignInFailure failure) =>
+        Results.Json(
+            new { error = failure == PasskeySignInFailure.UnknownCredential ? "unknown_credential" : "invalid_assertion" },
+            statusCode: 400);
 
     /// <summary>
     /// Wraps the in-flight challenge for a client that has to hold it itself. Time-limited, so an

@@ -6,6 +6,12 @@ import {
 } from '#lib/server/content-negotiation.ts';
 import { resolveSiteUrl } from '#lib/server/site-url.ts';
 import {
+  applySecurityHeaders,
+  originOf,
+  requestIsHttps
+} from '#lib/server/security-headers.ts';
+import { PUBLIC_UMAMI_RECORDER_SRC, PUBLIC_UMAMI_SRC } from '$app/env/public';
+import {
   canonicalizePath,
   isMarkdownUrl,
   markdownFor,
@@ -18,6 +24,35 @@ const MARKDOWN_TYPE = 'text/markdown; charset=utf-8';
 /** The representations a negotiable URL can produce, best-default first. */
 const PRODUCES = ['text/html', 'text/markdown'];
 
+/** Every response: security headers (`#lib/server/security-headers`) over the negotiation below. */
+export const handle: Handle = async (input) => {
+  const response = await negotiate(input);
+  const { url, request } = input.event;
+  const context = {
+    https: requestIsHttps(url, request.headers.get('x-forwarded-proto')),
+    hostname: url.hostname,
+    analyticsOrigins: ANALYTICS_ORIGINS
+  };
+  try {
+    applySecurityHeaders(response.headers, context);
+    return response;
+  } catch {
+    // A response passed through from fetch() has immutable headers; copy it once.
+    const copy = new Response(response.body, response);
+    applySecurityHeaders(copy.headers, context);
+    return copy;
+  }
+};
+
+/** The Umami script origins, for the CSP. The env is read once at start, so this is computed once. */
+const ANALYTICS_ORIGINS: string[] = [
+  ...new Set(
+    [originOf(PUBLIC_UMAMI_SRC), originOf(PUBLIC_UMAMI_RECORDER_SRC)].filter(
+      (o): o is string => o !== null
+    )
+  )
+];
+
 /**
  * Markdown content negotiation for agents (acceptmarkdown.com) plus an agent-recoverable 404.
  *
@@ -29,7 +64,7 @@ const PRODUCES = ['text/html', 'text/markdown'];
  *  2. The Markdown 404 body only replaces SvelteKit's own HTML page-404, never a route handler's
  *     JSON 404 (the API proxy relays upstream 404s that the frontend parses).
  */
-export const handle: Handle = async ({ event, resolve }) => {
+const negotiate: Handle = async ({ event, resolve }) => {
   const siteUrl = resolveSiteUrl();
   const pathname = event.url.pathname;
   const accept = event.request.headers.get('accept');

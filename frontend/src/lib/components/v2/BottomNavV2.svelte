@@ -81,7 +81,7 @@
           aria-current={isActive ? 'page' : undefined}
           aria-label={extras.length ? `${tab.label}, ${extras.join(', ')}` : undefined}
           class={cn(
-            'relative flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-full outline-none',
+            'relative flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-full focus-visible:outline-hidden',
             'text-foreground data-[active=true]:bg-foreground/[0.08] data-[active=true]:text-tab-active',
             'focus-visible:ring-ring focus-visible:ring-2 focus-visible:ring-inset'
           )}
@@ -113,7 +113,7 @@
     <button
       type="button"
       aria-label="Search"
-      class="mh-glass mh-chrome text-foreground focus-visible:ring-ring pointer-events-auto grid size-(--mh-tabbar-h) shrink-0 place-items-center rounded-full outline-none focus-visible:ring-2"
+      class="mh-glass mh-chrome text-foreground focus-visible:ring-ring pointer-events-auto grid size-(--mh-tabbar-h) shrink-0 place-items-center rounded-full focus-visible:outline-hidden focus-visible:ring-2"
       onpointerdown={() => songsStore.ensureLoaded()}
       onfocus={() => songsStore.ensureLoaded()}
       onclick={() => commandPalette.setOpen(true)}

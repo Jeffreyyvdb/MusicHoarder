@@ -95,7 +95,7 @@
         title={card.explain}
         aria-pressed={active === card.id}
         class={cn(
-          'group bg-card focus-visible:ring-ring/50 flex items-center gap-3 rounded-xl p-3 text-left ring-1 ring-transparent outline-none transition-[box-shadow,transform] duration-150 active:scale-[0.99] focus-visible:ring-3',
+          'group bg-card focus-visible:ring-ring/50 flex items-center gap-3 rounded-xl p-3 text-left ring-1 ring-transparent focus-visible:outline-hidden transition-[box-shadow,transform] duration-150 active:scale-[0.99] focus-visible:ring-3',
           active === card.id ? 'ring-primary' : 'hover:ring-border'
         )}
       >

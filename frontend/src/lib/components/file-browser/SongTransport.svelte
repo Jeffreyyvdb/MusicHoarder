@@ -86,7 +86,7 @@
           {...props}
           type="button"
           class={cn(
-            "text-caption-1 relative inline-flex h-5 items-center rounded-full px-2 font-semibold tabular-nums outline-none after:absolute after:-inset-x-3 after:top-0 after:-bottom-3 after:content-[''] focus-visible:ring-2 focus-visible:ring-ring",
+            "text-caption-1 relative inline-flex h-5 items-center rounded-full px-2 font-semibold tabular-nums focus-visible:outline-hidden after:absolute after:-inset-x-3 after:top-0 after:-bottom-3 after:content-[''] focus-visible:ring-2 focus-visible:ring-ring",
             playerStore.playbackRate === 1
               ? cn('bg-secondary', media ? 'text-foreground' : 'text-muted-foreground')
               : 'bg-primary/15 text-primary'

@@ -158,7 +158,8 @@ class MusicHoarderApi(
     /**
      * Finishes a passkey sign-in and returns the bearer this phone will keep. [assertionJson] is
      * Credential Manager's response, spliced in as an object rather than a string because the API
-     * binds it to a typed WebAuthn assertion.
+     * binds it to a typed WebAuthn assertion. Throws [UnknownPasskeyException] when the server no
+     * longer has that passkey, so the caller can tell Credential Manager to drop it.
      */
     suspend fun completePasskeySignIn(baseUrl: String, state: String, assertionJson: String): String =
         withContext(Dispatchers.IO) {
@@ -170,7 +171,18 @@ class MusicHoarderApi(
                 .url("$baseUrl$API_PREFIX/api/auth/webauthn/authenticate/native/complete")
                 .post(body)
                 .build()
-            execute(request) { json.decodeFromStream<AccessTokenResponse>(it).accessToken }
+            // As [execute], but a 400 is read for its error code: `unknown_credential` is the one
+            // refusal the app acts on. (Older servers answer every refusal `invalid_assertion`.)
+            client.newCall(request).execute().use { response ->
+                if (response.code == 401) throw UnauthorizedException()
+                if (response.code == 400 &&
+                    PasskeySignal.errorCode(response.body.string()) == "unknown_credential"
+                ) {
+                    throw UnknownPasskeyException()
+                }
+                if (!response.isSuccessful) throw ApiException(response.code, "Request failed: ${response.code}")
+                json.decodeFromStream<AccessTokenResponse>(response.body.byteStream()).accessToken
+            }
         }
 
     /** The whole library: your own rows plus anything shared with you, and who shared it. */

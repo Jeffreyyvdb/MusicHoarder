@@ -4,11 +4,15 @@
 @custom-variant dark (&:is(.dark *));
 
 /* Hide the scrollbar while keeping the element scrollable (e.g. horizontal tab
- * strips that swipe-scroll on mobile, the sidebar content, the command list). */
+ * strips that swipe-scroll on mobile, the sidebar content, the command list) — on touch-only
+ * devices, where a swipe scrolls and the bar is noise. With a mouse the bar stays: it is the only
+ * way to scroll a horizontal row without a trackpad or Shift+wheel. */
 @utility no-scrollbar {
-  scrollbar-width: none;
-  &::-webkit-scrollbar {
-    display: none;
+  @media (hover: none) and (pointer: coarse) {
+    scrollbar-width: none;
+    &::-webkit-scrollbar {
+      display: none;
+    }
   }
 }
 

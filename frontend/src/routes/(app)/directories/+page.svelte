@@ -373,7 +373,7 @@
                   <button
                     type="button"
                     onclick={() => (filter = target)}
-                    class="text-foreground focus-visible:ring-ring/50 relative inline-flex items-center gap-1.5 rounded-sm font-medium outline-none hover:underline focus-visible:ring-3 pointer-coarse:after:absolute pointer-coarse:after:-inset-x-1.5 pointer-coarse:after:-inset-y-[13px]"
+                    class="text-foreground focus-visible:ring-ring/50 relative inline-flex items-center gap-1.5 rounded-sm font-medium focus-visible:outline-hidden hover:underline focus-visible:ring-3 pointer-coarse:after:absolute pointer-coarse:after:-inset-x-1.5 pointer-coarse:after:-inset-y-[13px]"
                   >
                     <span class={cn('size-2 shrink-0 rounded-full', s.cls)} aria-hidden="true"></span>
                     {s.label}

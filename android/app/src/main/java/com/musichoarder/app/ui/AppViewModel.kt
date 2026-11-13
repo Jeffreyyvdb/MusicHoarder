@@ -29,6 +29,7 @@ import com.musichoarder.app.data.PasskeyUnavailableException
 import com.musichoarder.app.data.PlaybackCommand
 import com.musichoarder.app.data.PlaybackMode
 import com.musichoarder.app.data.Playlist
+import com.musichoarder.app.data.UnknownPasskeyException
 import com.musichoarder.app.data.hydratePlaylists
 import com.musichoarder.app.data.RowTap
 import com.musichoarder.app.data.ShareLink
@@ -670,9 +671,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val challenge = graph.api.beginPasskeySignIn(normalized)
                 val assertion = PasskeySignIn.authenticate(activityContext, challenge.requestJson)
-                val bearer = graph.api.completePasskeySignIn(normalized, challenge.state, assertion)
+                val bearer = try {
+                    graph.api.completePasskeySignIn(normalized, challenge.state, assertion)
+                } catch (e: UnknownPasskeyException) {
+                    // Removed on the server but still on this phone: tell Credential Manager, so the
+                    // sheet stops offering a passkey that can never sign in.
+                    PasskeySignIn.forgetUnknownPasskey(activityContext, challenge.requestJson, assertion)
+                    throw e
+                }
                 _emailLinkSentTo.value = null
                 pair(ServerSession(normalized, bearer))
+            } catch (e: UnknownPasskeyException) {
+                _pairError.value = e.message
             } catch (e: PasskeyCancelledException) {
                 // Backing out of the system sheet is a decision, not a failure. Saying nothing is
                 // the whole point — an error pane here would read as if the passkey were broken.

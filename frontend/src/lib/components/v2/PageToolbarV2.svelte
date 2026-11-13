@@ -367,7 +367,7 @@
             href={backTarget.href}
             aria-label="Back to {backTarget.label}"
             onclick={(e) => goBack(e, backTarget)}
-            class="mh-glass mh-chrome text-foreground focus-visible:ring-ring grid size-11 place-items-center rounded-full transition-transform duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] outline-none focus-visible:ring-2 active:scale-[0.94]"
+            class="mh-glass mh-chrome text-foreground focus-visible:ring-ring grid size-11 place-items-center rounded-full transition-transform duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] focus-visible:outline-hidden focus-visible:ring-2 active:scale-[0.94]"
           >
             <!-- Nudged left a hair: a chevron's visual centre is right of its box's. -->
             <ChevronLeft

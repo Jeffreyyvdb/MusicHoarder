@@ -166,7 +166,7 @@
       tabindex="-1"
       data-mh-content
       use:edgeSwipeBack
-      class="flex min-h-0 flex-1 flex-col overflow-hidden outline-none"
+      class="flex min-h-0 flex-1 flex-col overflow-hidden focus-visible:outline-hidden"
     >
       {@render children()}
     </div>

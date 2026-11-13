@@ -94,7 +94,7 @@
       type="button"
       onclick={dismiss}
       aria-label="Dismiss update notice"
-      class="hover:bg-secondary-hover hover:text-foreground focus-visible:ring-ring/60 relative -mr-2 grid size-8 shrink-0 place-items-center rounded-full outline-none transition-colors after:absolute after:-inset-1.5 after:content-[''] focus-visible:ring-2"
+      class="hover:bg-secondary-hover hover:text-foreground focus-visible:ring-ring/60 relative -mr-2 grid size-8 shrink-0 place-items-center rounded-full focus-visible:outline-hidden transition-colors after:absolute after:-inset-1.5 after:content-[''] focus-visible:ring-2"
     >
       <X class="size-3.5" />
     </button>

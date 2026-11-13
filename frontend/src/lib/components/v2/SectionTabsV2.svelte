@@ -170,7 +170,7 @@
         'relative flex min-h-7 shrink-0 items-center gap-1.5 rounded-full px-3 whitespace-nowrap transition-colors',
         'text-footnote font-medium sm:text-nav',
         'after:absolute after:inset-x-0 after:inset-y-0 pointer-coarse:after:-inset-y-2',
-        'focus-visible:ring-ring outline-none focus-visible:ring-2',
+        'focus-visible:ring-ring focus-visible:outline-hidden focus-visible:ring-2',
         isActive
           ? 'bg-segmented-thumb text-foreground shadow-[0_1px_2px_rgb(0_0_0/0.12),0_0_0_0.5px_rgb(0_0_0/0.04)]'
           : 'text-muted-foreground hover:text-foreground'

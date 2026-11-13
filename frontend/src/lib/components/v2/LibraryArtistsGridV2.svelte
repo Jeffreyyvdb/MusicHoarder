@@ -150,7 +150,7 @@
                 <a
                   href={hrefFor(group)}
                   class={cn(
-                    'focus-visible:ring-ring active:bg-accent relative flex min-h-14 items-center gap-3 px-4 py-1.5 transition-colors duration-100 outline-none focus-visible:ring-2 focus-visible:ring-inset',
+                    'focus-visible:ring-ring active:bg-accent relative flex min-h-14 items-center gap-3 px-4 py-1.5 transition-colors duration-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset',
                     // Inset hairline from the name (16 + 44 portrait + 12), none after a section's last.
                     gi < section.groups.length - 1 &&
                       "after:bg-separator after:absolute after:right-0 after:bottom-0 after:left-[72px] after:h-(--hairline) after:content-['']"
@@ -205,7 +205,7 @@
             class={cn(
               // 16pt a letter (the iOS index pitch), shrinking evenly on a short screen. Centred in
               // the column, the run of 27 clears the search field on a 393×852 phone.
-              'text-caption-2 flex h-4 min-h-0 w-full shrink items-center justify-center leading-none font-semibold outline-none focus-visible:underline',
+              'text-caption-2 flex h-4 min-h-0 w-full shrink items-center justify-center leading-none font-semibold focus-visible:outline-hidden focus-visible:underline',
               present ? 'text-primary' : 'text-muted-foreground-dim'
             )}
           >
@@ -280,7 +280,7 @@
       {#each filtered as group (group.key)}
         <a
           href={hrefFor(group)}
-          class="group focus-visible:ring-ring flex flex-col items-center gap-2 rounded-lg p-1 outline-hidden transition-transform [contain-intrinsic-size:auto_11rem] [content-visibility:auto] hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-offset-2"
+          class="group focus-visible:ring-ring flex flex-col items-center gap-2 rounded-lg p-1 focus-visible:outline-hidden transition-transform [contain-intrinsic-size:auto_11rem] [content-visibility:auto] hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-offset-2"
           aria-label={`Browse ${group.label}`}
         >
           <Cover

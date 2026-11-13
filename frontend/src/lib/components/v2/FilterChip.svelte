@@ -43,7 +43,7 @@
   {title}
   aria-pressed={pressed}
   class={cn(
-    'relative flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3.5 whitespace-nowrap outline-none select-none',
+    'relative flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3.5 whitespace-nowrap focus-visible:outline-hidden select-none',
     'text-subheadline md:text-nav-sm font-medium transition-[background-color,color,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97]',
     'focus-visible:ring-ring focus-visible:ring-2',
     'after:absolute after:inset-x-0 after:-inset-y-1.5 md:after:inset-y-0',

@@ -23,7 +23,7 @@
 			autocorrect="off"
 			spellcheck={false}
 			class={cn(
-				"w-full text-base md:text-sm outline-hidden disabled:cursor-not-allowed disabled:opacity-50",
+				"w-full text-base md:text-sm focus-visible:outline-hidden disabled:cursor-not-allowed disabled:opacity-50",
 				className
 			)}
 			{...restProps}

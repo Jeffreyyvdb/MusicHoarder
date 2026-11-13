@@ -5,6 +5,7 @@ import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.GetPublicKeyCredentialOption
 import androidx.credentials.PublicKeyCredential
+import androidx.credentials.SignalUnknownCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialException
 import androidx.credentials.exceptions.NoCredentialException
@@ -51,5 +52,22 @@ object PasskeySignIn {
         val credential = response.credential as? PublicKeyCredential
             ?: throw PasskeyUnavailableException("The phone returned a credential that is not a passkey.")
         return credential.authenticationResponseJson
+    }
+
+    /**
+     * Tells Credential Manager that the passkey in [assertionJson] is gone from the server, so the
+     * provider stops offering it (the Signal API; the web's twin is `signalUnknownCredential`).
+     * A hint only: where the provider or the OS does not support it, nothing happens, and a failure
+     * is never shown. The server only reports a passkey as unknown for a user handle of its own.
+     */
+    suspend fun forgetUnknownPasskey(context: Context, requestJson: String, assertionJson: String) {
+        val signal = PasskeySignal.unknownCredentialRequestJson(requestJson, assertionJson) ?: return
+        try {
+            CredentialManager.create(context).signalCredentialState(SignalUnknownCredentialRequest(signal))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Unsupported provider, rate limit, older Play services: the passkey just stays listed.
+        }
     }
 }

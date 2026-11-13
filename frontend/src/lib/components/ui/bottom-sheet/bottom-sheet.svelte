@@ -258,7 +258,7 @@
 			data-elevated=""
 			data-compact={compact || undefined}
 			class={cn(
-				"text-foreground fixed flex flex-col outline-none",
+				"text-foreground fixed flex flex-col focus-visible:outline-hidden",
 				nested ? "z-[70]" : "z-50",
 				surface === "plain" ? "bg-card-elevated dark:bg-sheet" : "bg-sheet",
 				compact
@@ -277,7 +277,7 @@
 					     pushing the header down — or partly down, near the top of the screen (grabUp). -->
 					<DialogPrimitive.Close
 						style="--grab-up: {grabUp}px; --grab-down: {GRAB_REACH - grabUp}px"
-						class="relative z-10 mx-auto flex h-4 w-24 justify-center outline-none after:absolute after:inset-x-0 after:top-[calc(var(--grab-up)*-1)] after:bottom-[calc(var(--grab-down)*-1)] focus-visible:[&>span]:ring-2 focus-visible:[&>span]:ring-ring"
+						class="relative z-10 mx-auto flex h-4 w-24 justify-center focus-visible:outline-hidden after:absolute after:inset-x-0 after:top-[calc(var(--grab-up)*-1)] after:bottom-[calc(var(--grab-down)*-1)] focus-visible:[&>span]:ring-2 focus-visible:[&>span]:ring-ring"
 					>
 						<span aria-hidden="true" class="bg-muted-foreground/40 mt-[5px] block h-[5px] w-9 rounded-full"></span>
 						<span class="sr-only">Close</span>
