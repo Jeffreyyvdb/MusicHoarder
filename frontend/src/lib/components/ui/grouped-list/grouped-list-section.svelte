@@ -45,7 +45,7 @@
 <div
 	bind:this={ref}
 	data-slot="grouped-list-section"
-	class={cn("mx-4 md:mx-0 md:in-data-[slot=bottom-sheet-body]:mx-4", className)}
+	class={cn("mx-4 md:mx-0 md:in-data-[slot=bottom-sheet-content]:mx-4", className)}
 	{...restProps}
 >
 	{#if header}

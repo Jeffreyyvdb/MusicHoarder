@@ -4,7 +4,7 @@
   import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
   import { Badge, type BadgeVariant } from '#lib/components/ui/badge/index.ts';
   import { Button } from '#lib/components/ui/button/index.ts';
-  import { Input } from '#lib/components/ui/input/index.ts';
+  import * as InputGroup from '#lib/components/ui/input-group/index.ts';
   import { Switch } from '#lib/components/ui/switch/index.ts';
   import {
     getSongVideoCandidates,
@@ -134,8 +134,14 @@
     else candidatesError = 'Could not start the download.';
   }
 
-  async function onFetch() {
-    const ok = await video.fetch(urlInput.trim() || undefined);
+  // A fetch waits for the video status: without it the backend cannot tell a refetch from a
+  // first fetch, so neither the automatic search nor a link may start until it is back.
+  const fetchBlocked = $derived(video.busy || (video.infoUnavailable && !info));
+
+  async function onFetchLink() {
+    const url = urlInput.trim();
+    if (!url) return;
+    const ok = await video.fetch(url);
     if (ok) urlInput = '';
   }
 
@@ -255,6 +261,16 @@
           <GroupedList.Row onclick={onBrowse} disabled={video.busy}>
             <span class="text-body text-primary md:text-sm">Choose video…</span>
           </GroupedList.Row>
+          <GroupedList.Row onclick={() => void video.fetch()} disabled={fetchBlocked}>
+            <span
+              class={cn(
+                'text-body md:text-sm',
+                fetchBlocked ? 'text-muted-foreground-dim' : 'text-primary'
+              )}
+            >
+              {info ? 'Replace with the best match' : 'Download the best match'}
+            </span>
+          </GroupedList.Row>
         {:else if candidatesLoading}
           <GroupedList.Row label="Searching and checking candidates…">
             {#snippet trailing()}<Loader2
@@ -354,34 +370,40 @@
         header="From a link"
         footer={video.infoUnavailable && !info
           ? 'Video status is unavailable right now — retrying before a fetch is allowed.'
-          : 'Leave it empty to search automatically.'}
+          : undefined}
       >
+        <!-- The field IS the cell, as in iOS Settings: no fill of its own on the cell's fill,
+             and the action sits inside it at the trailing edge. -->
         <form
-          class="flex items-center gap-2 px-4 py-2"
           onsubmit={(e) => {
             e.preventDefault();
-            void onFetch();
+            void onFetchLink();
           }}
         >
-          <Input
-            bind:value={urlInput}
-            type="url"
-            inputmode="url"
-            enterkeyhint="go"
-            autocapitalize="off"
-            autocorrect="off"
-            spellcheck={false}
-            placeholder="YouTube URL (optional)"
-            aria-label="YouTube URL"
-            class="min-w-0 flex-1"
-          />
-          <Button
-            type="submit"
-            class="h-11 rounded-full px-4 md:h-8"
-            disabled={video.busy || (video.infoUnavailable && !info)}
-          >
-            {info ? 'Refetch' : 'Fetch'}
-          </Button>
+          <InputGroup.Root class="h-11 rounded-xl bg-transparent md:h-11">
+            <InputGroup.Input
+              bind:value={urlInput}
+              type="url"
+              inputmode="url"
+              enterkeyhint="go"
+              autocapitalize="off"
+              autocorrect="off"
+              spellcheck={false}
+              placeholder="Paste a YouTube link"
+              aria-label="YouTube link"
+              class="px-4 md:px-4"
+            />
+            <InputGroup.Addon align="inline-end">
+              <InputGroup.Button
+                type="submit"
+                variant="tinted"
+                class="h-8 rounded-full px-3 pointer-coarse:h-9 pointer-coarse:px-4"
+                disabled={fetchBlocked || !urlInput.trim()}
+              >
+                {info ? 'Refetch' : 'Fetch'}
+              </InputGroup.Button>
+            </InputGroup.Addon>
+          </InputGroup.Root>
         </form>
       </GroupedList.Section>
     {/if}
