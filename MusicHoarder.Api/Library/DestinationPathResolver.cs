@@ -151,7 +151,9 @@ public class DestinationPathResolver(IOptions<MusicEnricherOptions> options) : I
     private static string NormalizeSegment(string? value, string fallback)
     {
         var sanitized = Sanitize(value ?? string.Empty);
-        if (string.IsNullOrWhiteSpace(sanitized))
+        // A segment of only dots ("." / ".." / "...") is a directory reference, not a name: left in,
+        // Path.Combine would walk out of the destination root. Treat it like a blank value.
+        if (string.IsNullOrWhiteSpace(sanitized) || sanitized.All(c => c == '.'))
         {
             sanitized = fallback;
         }
