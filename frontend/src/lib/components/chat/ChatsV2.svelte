@@ -216,7 +216,7 @@
                         {conversationTitle(conversation)}
                       </span>
                       <span class={cn('text-footnote shrink-0 tabular-nums md:text-xs', unreadHere ? 'text-primary' : 'text-muted-foreground')}>
-                        {listTimeLabel(conversation.lastMessageAtUtc)}
+                        {conversation.lastMessage ? listTimeLabel(conversation.lastMessageAtUtc) : ''}
                       </span>
                     </span>
                     <span class="flex items-center gap-2">

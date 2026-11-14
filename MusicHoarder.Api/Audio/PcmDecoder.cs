@@ -28,6 +28,22 @@ public interface IPcmDecoder
     /// decoder. Throws when the decoder cannot be started.
     /// </summary>
     Stream? Open(string path, long startFrame);
+
+    /// <summary>
+    /// As <see cref="Open(string, long)"/>, drawing the decode slot from <paramref name="pool"/>. A decoder
+    /// without separate pools ignores it.
+    /// </summary>
+    Stream? Open(string path, long startFrame, DecodePool pool) => Open(path, startFrame);
+}
+
+/// <summary>Which share of the decode capacity a stream draws on.</summary>
+public enum DecodePool
+{
+    /// <summary>The signed-in owner's and members' streams.</summary>
+    Library,
+
+    /// <summary>Anonymous public share-link streams: a small pool of their own, so a flood on a link cannot take the library's.</summary>
+    Share,
 }
 
 /// <summary>
@@ -50,6 +66,10 @@ public sealed class FfmpegPcmDecoder(IOptions<MusicEnricherOptions> options, ILo
     private readonly ConcurrentDictionary<string, long> frameCounts = new(StringComparer.Ordinal);
 
     private readonly SemaphoreSlim decodes = new(options.Value.StreamDecodeConcurrency, options.Value.StreamDecodeConcurrency);
+
+    private readonly SemaphoreSlim shareDecodes = new(
+        Math.Min(options.Value.ShareStreamDecodeConcurrency, options.Value.StreamDecodeConcurrency),
+        Math.Min(options.Value.ShareStreamDecodeConcurrency, options.Value.StreamDecodeConcurrency));
 
     /// <summary>
     /// Asks ffprobe, since ffmpeg does the decoding: for Ogg Opus its duration less the encoder's
@@ -162,8 +182,11 @@ public sealed class FfmpegPcmDecoder(IOptions<MusicEnricherOptions> options, ILo
         return string.IsNullOrEmpty(directory) ? name : Path.Combine(directory, name);
     }
 
-    public Stream? Open(string path, long startFrame)
+    public Stream? Open(string path, long startFrame) => Open(path, startFrame, DecodePool.Library);
+
+    public Stream? Open(string path, long startFrame, DecodePool pool)
     {
+        var decodes = pool == DecodePool.Share ? shareDecodes : this.decodes;
         if (!decodes.Wait(0))
             return null;
         var preroll = Math.Min(startFrame, PrerollFrames);

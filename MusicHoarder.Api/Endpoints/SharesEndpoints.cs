@@ -376,7 +376,7 @@ public static class SharesEndpoints
         string token, int id, string? format, MusicHoarderDbContext db, IPcmDecoder decoder, CancellationToken ct)
     {
         var song = await ResolveSongInScopeAsync(db, token, id, ct);
-        return song is null ? ShareNotFound() : await SongsEndpoints.StreamSongFileAsync(song, format, decoder, ct);
+        return song is null ? ShareNotFound() : await SongsEndpoints.StreamSongFileAsync(song, format, decoder, ct, decodePool: DecodePool.Share);
     }
 
     internal static async Task<IResult> GetSharedSongCover(

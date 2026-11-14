@@ -14,6 +14,7 @@ public class ArtistImageServiceTests
     public async Task VerifiedDeezerHitWinsAndIsCached()
     {
         using var db = CreateDbContext();
+        SeedLibraryArtist(db, "Daft Punk");
         var deezer = new StubDeezer { Candidates = [new DeezerArtistCandidate("Daft Punk", "https://cdn.deezer.example/dp.jpg")] };
         var service = CreateService(db, deezer);
 
@@ -33,6 +34,7 @@ public class ArtistImageServiceTests
     public async Task UnverifiedDeezerHitFallsThroughToSpotify()
     {
         using var db = CreateDbContext();
+        SeedLibraryArtist(db, "Drake");
         var deezer = new StubDeezer { Candidates = [new DeezerArtistCandidate("Drake Bell", "https://cdn.deezer.example/wrong.jpg")] };
         var spotify = new StubSpotify { Candidates = [new SpotifyArtistCandidate("Drake", "https://i.scdn.example/drake.jpg")] };
         var service = CreateService(db, deezer, spotify);
@@ -47,6 +49,7 @@ public class ArtistImageServiceTests
     public async Task SpotifyIsSkippedWithoutCredentials()
     {
         using var db = CreateDbContext();
+        SeedLibraryArtist(db, "Drake");
         var spotify = new StubSpotify { Candidates = [new SpotifyArtistCandidate("Drake", "https://i.scdn.example/drake.jpg")] };
         var service = CreateService(db, new StubDeezer(), spotify, hasSpotifyCredentials: false);
 
@@ -60,6 +63,7 @@ public class ArtistImageServiceTests
     public async Task NotFoundIsNegativeCachedUntilRetryWindow()
     {
         using var db = CreateDbContext();
+        SeedLibraryArtist(db, "Unknown Artist");
         var deezer = new StubDeezer();
         var service = CreateService(db, deezer);
 
@@ -83,6 +87,7 @@ public class ArtistImageServiceTests
     public async Task RefreshThatFindsNothingKeepsTheOldUrl()
     {
         using var db = CreateDbContext();
+        SeedLibraryArtist(db, "Daft Punk");
         db.ArtistImages.Add(new ArtistImage
         {
             NormalizedName = "daft punk",
@@ -112,6 +117,21 @@ public class ArtistImageServiceTests
         Assert.Equal(0, deezer.SearchCalls);
     }
 
+    private static void SeedLibraryArtist(MusicHoarderDbContext db, string artist)
+    {
+        db.Songs.Add(new SongMetadata
+        {
+            SourcePath = $"/source/{artist}.mp3",
+            FileSizeBytes = 1,
+            FileName = $"{artist}.mp3",
+            Extension = ".mp3",
+            LastModifiedUtc = DateTime.UtcNow,
+            IndexedAtUtc = DateTime.UtcNow,
+            Artist = artist,
+        });
+        db.SaveChanges();
+    }
+
     private static ArtistImageService CreateService(
         MusicHoarderDbContext db,
         StubDeezer deezer,
@@ -131,6 +151,7 @@ public class ArtistImageServiceTests
             deezer,
             spotify ?? new StubSpotify(),
             new StubCredentials(hasSpotifyCredentials),
+            Sharing.TestLibraryScope.For(),
             Microsoft.Extensions.Options.Options.Create(options),
             NullLogger<ArtistImageService>.Instance);
     }

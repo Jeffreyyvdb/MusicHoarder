@@ -827,6 +827,14 @@ public class MusicEnricherOptions
     [Range(1, 256)]
     public int StreamDecodeConcurrency { get; set; } = 16;
 
+    /// <summary>
+    /// How many of those decodes anonymous public share-link streams may hold at once (capped at
+    /// <see cref="StreamDecodeConcurrency"/>). It is a pool of its own, so a visitor reading share streams
+    /// slowly can exhaust only this one and never the slots the owner's and members' playback needs.
+    /// </summary>
+    [Range(1, 256)]
+    public int ShareStreamDecodeConcurrency { get; set; } = 4;
+
     /// <summary>Number of concurrent downloads.</summary>
     [Range(1, 16)]
     public int DownloadConcurrency { get; set; } = 2;

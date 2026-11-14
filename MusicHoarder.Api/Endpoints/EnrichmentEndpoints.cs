@@ -434,8 +434,13 @@ public static class EnrichmentEndpoints
             .WithName("GetEnrichmentStatus")
             .WithSummary("Get the current job status and a progress snapshot.");
 
-        group.MapGet("/library-availability", (IDirectoryAvailability availability) =>
-                Results.Ok(availability.Current))
+        group.MapGet("/library-availability", (IDirectoryAvailability availability, ICurrentUserAccessor currentUser) =>
+            {
+                var current = availability.Current;
+                return currentUser.User?.IsAdmin == true
+                    ? Results.Ok(current)
+                    : Results.Ok(current with { SourceDirectory = string.Empty, DestinationDirectory = string.Empty });
+            })
             .WithName("GetLibraryAvailability")
             .WithSummary("Whether the configured source/destination directories are currently reachable.");
 

@@ -1083,7 +1083,8 @@ public static class SongsEndpoints
         string? format,
         IPcmDecoder decoder,
         CancellationToken ct,
-        bool includePaths = false)
+        bool includePaths = false,
+        DecodePool decodePool = DecodePool.Library)
     {
         if (!StreamFormats.TryParse(format, out var streamFormat))
             return Results.BadRequest(new { message = "Unknown stream format." });
@@ -1112,7 +1113,7 @@ public static class SongsEndpoints
                 return Results.Problem(
                     detail: "This track is too long to convert for playback.",
                     statusCode: StatusCodes.Status422UnprocessableEntity);
-            return new WavStreamResult(filePath, frames.Value, decoder);
+            return new WavStreamResult(filePath, frames.Value, decoder, decodePool);
         }
 
         var mimeType = Path.GetExtension(filePath)?.ToLowerInvariant() switch

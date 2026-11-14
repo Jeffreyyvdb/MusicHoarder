@@ -23,6 +23,7 @@
   import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
   import { Button } from '#lib/components/ui/button/index.ts';
   import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
+  import { isAdmin } from '#lib/auth/capabilities.ts';
   import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
   import { replaceUrl } from '#lib/navigation/replace-url.ts';
   import { prefersReducedMotion } from '#lib/motion.ts';
@@ -72,10 +73,14 @@
 
   async function loadOverview() {
     try {
-      const [ov, progress] = await Promise.all([fetchQualityOverview(), fetchQualityProgress()]);
+      // Grading progress is the admin's to see; everyone else (the demo account) gets the rollups alone.
+      const [ov, progress] = await Promise.all([
+        fetchQualityOverview(),
+        isAdmin(page.data.user) ? fetchQualityProgress() : null
+      ]);
       overview = ov;
-      gradingConfigured = progress.aiGradingConfigured ?? true;
-      gradingError = progress.lastError ?? null;
+      gradingConfigured = progress?.aiGradingConfigured ?? true;
+      gradingError = progress?.lastError ?? null;
       error = null;
       if (!categoryInit) {
         categoryInit = true;

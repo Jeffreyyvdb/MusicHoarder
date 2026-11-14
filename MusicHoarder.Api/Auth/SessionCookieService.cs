@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Options;
 
 namespace MusicHoarder.Api.Auth;
 
@@ -46,9 +47,14 @@ public sealed class SessionCookieService : ISessionCookieService
     private readonly IDataProtector _protector;
     private readonly IDataProtector _altsProtector;
     private readonly IOptionsMonitor<AuthOptions> _options;
+    private readonly IOptions<FrontendOptions>? _frontend;
 
-    public SessionCookieService(IDataProtectionProvider dpProvider, IOptionsMonitor<AuthOptions> options)
+    public SessionCookieService(
+        IDataProtectionProvider dpProvider,
+        IOptionsMonitor<AuthOptions> options,
+        IOptions<FrontendOptions>? frontend = null)
     {
+        _frontend = frontend;
         _protector = dpProvider.CreateProtector(ProtectorPurpose);
         _altsProtector = dpProvider.CreateProtector(AltsProtectorPurpose);
         _options = options;
@@ -115,12 +121,18 @@ public sealed class SessionCookieService : ISessionCookieService
 
     public void ClearAlts(HttpContext context) => Delete(context, AltsCookieName);
 
-    private static void Delete(HttpContext context, string cookieName)
+    // The API sits behind the frontend on plain HTTP, so the request scheme says nothing about the
+    // browser-facing scheme. An https public origin forces Secure; otherwise fall back to the request.
+    private bool IsSecure(HttpContext context) =>
+        context.Request.IsHttps
+        || (_frontend?.Value.PublicBaseUrl?.TrimStart().StartsWith("https://", StringComparison.OrdinalIgnoreCase) ?? false);
+
+    private void Delete(HttpContext context, string cookieName)
     {
         context.Response.Cookies.Delete(cookieName, new CookieOptions
         {
             Path = "/",
-            Secure = context.Request.IsHttps,
+            Secure = IsSecure(context),
             HttpOnly = true,
             SameSite = SameSiteMode.Lax,
         });
@@ -129,7 +141,7 @@ public sealed class SessionCookieService : ISessionCookieService
     private CookieOptions BuildCookieOptions(HttpContext context) => new()
     {
         Path = "/",
-        Secure = context.Request.IsHttps,
+        Secure = IsSecure(context),
         HttpOnly = true,
         SameSite = SameSiteMode.Lax,
         Expires = DateTime.UtcNow.AddDays(_options.CurrentValue.SessionLifetimeDays),

@@ -62,20 +62,32 @@ public sealed class ShareVisitTracker : IDisposable
     /// <summary>Recorded visits per share per minute before the rest are dropped.</summary>
     public const int PerShareMinuteCap = 120;
 
+    /// <summary>Recorded visits per share and client address per minute, whatever the user agent.</summary>
+    public const int PerAddressMinuteCap = 10;
+
     private readonly TimeProvider _time;
     private readonly PartitionedRateLimiter<int> _limiter;
+    private readonly PartitionedRateLimiter<string> _addressLimiter;
     private readonly Lock _saltLock = new();
     private DateOnly _saltDay;
     private byte[] _salt = [];
 
     public ShareVisitTracker()
-        : this(TimeProvider.System, PerShareMinuteCap)
+        : this(TimeProvider.System, PerShareMinuteCap, PerAddressMinuteCap)
     {
     }
 
-    internal ShareVisitTracker(TimeProvider time, int perShareMinuteCap)
+    internal ShareVisitTracker(TimeProvider time, int perShareMinuteCap, int perAddressMinuteCap = PerAddressMinuteCap)
     {
         _time = time;
+        _addressLimiter = PartitionedRateLimiter.Create<string, string>(partition =>
+            RateLimitPartition.GetFixedWindowLimiter(partition, _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = perAddressMinuteCap,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true,
+            }));
         _limiter = PartitionedRateLimiter.Create<int, int>(shareId =>
             RateLimitPartition.GetFixedWindowLimiter(shareId, _ => new FixedWindowRateLimiterOptions
             {
@@ -116,6 +128,11 @@ public sealed class ShareVisitTracker : IDisposable
                 && v.VisitorKey == key
                 && v.OccurredAtUtc >= since, ct);
         if (repeat)
+            return false;
+
+        // One client address cannot use up the share's whole budget by changing its user agent.
+        using var addressLease = _addressLimiter.AttemptAcquire($"{share.Id}\n{visitor.IpAddress}");
+        if (!addressLease.IsAcquired)
             return false;
 
         using var lease = _limiter.AttemptAcquire(share.Id);
@@ -159,5 +176,9 @@ public sealed class ShareVisitTracker : IDisposable
         }
     }
 
-    public void Dispose() => _limiter.Dispose();
+    public void Dispose()
+    {
+        _limiter.Dispose();
+        _addressLimiter.Dispose();
+    }
 }

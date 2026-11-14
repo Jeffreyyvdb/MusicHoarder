@@ -14,7 +14,7 @@ namespace MusicHoarder.Api.Auth.EndpointFilters;
 /// <item>404 unless this instance is configured as a receiver — the surface is invisible on every
 /// other deployment, indistinguishable from the route not existing.</item>
 /// <item>401 unless the <c>X-Sync-Key</c> header matches (fixed-time compare).</item>
-/// <item>429 with per-IP damping after repeated failures — the endpoint is internet-facing by
+/// <item>429 with per-IP damping after repeated failures (wrong keys only; a correct key is never throttled) — the endpoint is internet-facing by
 /// design (no VPN), so cheap brute-force resistance on top of the 32+ char random key.</item>
 /// </list>
 /// </summary>
@@ -38,22 +38,25 @@ public sealed class SyncApiKeyFilter(
         var ip = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         var failureKey = $"sync_auth_failures:{ip}";
 
-        if (cache.TryGetValue(failureKey, out int failures) && failures >= MaxFailuresPerWindow)
+        // The presented key is checked first: the failure budget is keyed by a transport address
+        // that a proxy can share between callers (or a caller can influence), so a correct key must
+        // never be refused because of someone else's failures. Only requests that fail the
+        // fixed-time compare are throttled.
+        var presented = http.Request.Headers[HeaderName].ToString();
+        if (KeysMatch(presented, opts.ApiKey))
+            return await next(context);
+
+        cache.TryGetValue(failureKey, out int failures);
+        if (failures >= MaxFailuresPerWindow)
         {
             logger.LogWarning("Sync auth throttled for {Ip} ({Failures} recent failures)", ip, failures);
             return Results.StatusCode(StatusCodes.Status429TooManyRequests);
         }
 
-        var presented = http.Request.Headers[HeaderName].ToString();
-        if (!KeysMatch(presented, opts.ApiKey))
-        {
-            cache.Set(failureKey, failures + 1, FailureWindow);
-            logger.LogWarning("Sync auth failed from {Ip} (key {State})", ip,
-                string.IsNullOrEmpty(presented) ? "missing" : "mismatch");
-            return Results.Json(new { error = "invalid_sync_key" }, statusCode: StatusCodes.Status401Unauthorized);
-        }
-
-        return await next(context);
+        cache.Set(failureKey, failures + 1, FailureWindow);
+        logger.LogWarning("Sync auth failed from {Ip} (key {State})", ip,
+            string.IsNullOrEmpty(presented) ? "missing" : "mismatch");
+        return Results.Json(new { error = "invalid_sync_key" }, statusCode: StatusCodes.Status401Unauthorized);
     }
 
     private static bool KeysMatch(string presented, string expected)

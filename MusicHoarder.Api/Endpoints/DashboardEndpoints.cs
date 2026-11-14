@@ -25,7 +25,8 @@ public static class DashboardEndpoints
 
     private static async Task<IResult> GetDirectoryTree(
         MusicHoarderDbContext db,
-        IOptions<MusicEnricherOptions> options)
+        IOptions<MusicEnricherOptions> options,
+        ICurrentUserAccessor currentUser)
     {
         var rows = await db.Songs
             .Where(s => s.DeletedAtUtc == null)
@@ -42,7 +43,8 @@ public static class DashboardEndpoints
         var root = BuildMatchTree(
             rows.Select(r => new MatchTreeRow(r.SourcePath, r.EnrichmentStatus, r.LibraryBuildStatus, r.FileSizeBytes)),
             options.Value.SourceDirectory,
-            expectedLow);
+            expectedLow,
+            rootLabel: currentUser.User?.IsAdmin == true ? null : "/");
 
         return Results.Ok(root.ToDto());
     }
@@ -170,11 +172,12 @@ public static class DashboardEndpoints
     internal static DirectoryMatchNode BuildMatchTree(
         IEnumerable<MatchTreeRow> rows,
         string? sourceDirectory,
-        IReadOnlySet<string>? expectedLowPaths = null)
+        IReadOnlySet<string>? expectedLowPaths = null,
+        string? rootLabel = null)
     {
         var sourceRoot = NormalizePath(sourceDirectory);
         var root = new DirectoryMatchNode(
-            string.IsNullOrEmpty(sourceDirectory) ? "/" : sourceDirectory,
+            rootLabel ?? (string.IsNullOrEmpty(sourceDirectory) ? "/" : sourceDirectory),
             string.Empty);
 
         foreach (var row in rows)
@@ -560,9 +563,12 @@ public static class DashboardEndpoints
         IOptions<MusicEnricherOptions> options,
         ScanProgressTracker scanTracker,
         FingerprintProgressTracker fingerprintTracker,
-        EnrichmentProgressTracker enrichmentTracker)
+        EnrichmentProgressTracker enrichmentTracker,
+        ICurrentUserAccessor currentUser)
     {
         var opts = options.Value;
+        // Host paths and process-wide pipeline state are for admins only, as in the settings endpoint.
+        var isAdmin = currentUser.User?.IsAdmin == true;
         var active = db.Songs.Where(s => s.DeletedAtUtc == null);
 
         var counts = await PipelineSnapshot.ComputeCountsAsync(active);
@@ -575,11 +581,11 @@ public static class DashboardEndpoints
             })
             .SingleOrDefaultAsync();
 
-        var scanState = scanTracker.GetCurrent();
+        var scanState = isAdmin ? scanTracker.GetCurrent() : null;
         var scanRunning = scanState is { IsComplete: false };
-        var fingerprintState = fingerprintTracker.GetCurrent();
+        var fingerprintState = isAdmin ? fingerprintTracker.GetCurrent() : null;
         var fingerprintRunning = fingerprintState is { IsComplete: false };
-        var enrichmentState = enrichmentTracker.GetCurrent();
+        var enrichmentState = isAdmin ? enrichmentTracker.GetCurrent() : null;
         var enrichmentRunning = enrichmentState is { IsComplete: false };
 
         var now = DateTime.UtcNow;
@@ -589,8 +595,8 @@ public static class DashboardEndpoints
 
         var overview = new
         {
-            SourcePath = opts.SourceDirectory,
-            DestinationPath = opts.DestinationDirectory,
+            SourcePath = isAdmin ? opts.SourceDirectory : string.Empty,
+            DestinationPath = isAdmin ? opts.DestinationDirectory : string.Empty,
             Scan = scanState == null ? null : new
             {
                 scanState.ScanId,

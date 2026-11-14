@@ -157,9 +157,11 @@ public sealed class ChatService(
                     others.Where(p => people.ContainsKey(p.UserId)).Select(p => ToPerson(people[p.UserId], me)).ToList(),
                     last,
                     unread.GetValueOrDefault(c.Id),
-                    last?.CreatedAtUtc ?? c.CreatedAtUtc,
+                    // With nothing visible to the viewer, the other side's read mark and the row's
+                    // creation time would reveal a conversation they are not meant to know about.
+                    last is null ? DateTime.UnixEpoch : last.CreatedAtUtc,
                     mine?.LastReadAtUtc,
-                    others.Count == 1 ? others[0].LastReadAtUtc : null);
+                    last is not null && others.Count == 1 ? others[0].LastReadAtUtc : null);
             })
             .OrderByDescending(c => c.LastMessageAtUtc)
             .ToList();
@@ -289,8 +291,17 @@ public sealed class ChatService(
         }
 
         var evt = new ChatReadEvent(conversationId, me.Id, mine.LastReadAtUtc!.Value);
+        // Another participant is told only when they can see a message here.
+        var others = participants.Where(p => p.UserId != me.Id).Select(p => p.UserId).ToList();
+        var seeing = await db.ChatMessages.IgnoreQueryFilters().AsNoTracking()
+            .Where(m => m.ConversationId == conversationId && (m.VisibleToUserId == null || others.Contains(m.VisibleToUserId.Value)))
+            .Select(m => m.VisibleToUserId)
+            .ToListAsync(ct);
         foreach (var p in participants)
-            hub.Publish(p.UserId, new ChatStreamEvent(ChatEventTypes.Read, evt));
+        {
+            var canSee = p.UserId == me.Id || seeing.Contains(null) || seeing.Contains(p.UserId);
+            if (canSee) hub.Publish(p.UserId, new ChatStreamEvent(ChatEventTypes.Read, evt));
+        }
         return evt;
     }
 
