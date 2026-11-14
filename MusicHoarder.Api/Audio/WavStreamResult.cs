@@ -48,7 +48,7 @@ public static class StreamFormats
 /// cost is bandwidth, about 1.5 Mbps.
 /// </para>
 /// </summary>
-internal sealed class WavStreamResult(string sourcePath, long frames, IPcmDecoder decoder) : IResult
+internal sealed class WavStreamResult(string sourcePath, long frames, IPcmDecoder decoder, DecodePool pool = DecodePool.Library) : IResult
 {
     public const int SampleRate = 48_000;
     public const int Channels = 2;
@@ -96,7 +96,7 @@ internal sealed class WavStreamResult(string sourcePath, long frames, IPcmDecode
             var dataOffset = Math.Max(start, HeaderLength) - HeaderLength;
             try
             {
-                pcm = decoder.Open(sourcePath, dataOffset / BlockAlign);
+                pcm = decoder.Open(sourcePath, dataOffset / BlockAlign, pool);
             }
             catch (InvalidOperationException)
             {
