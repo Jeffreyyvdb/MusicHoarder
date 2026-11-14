@@ -58,8 +58,8 @@
                 >
                   <a
                     href={link.href}
-                    target={link.href.startsWith('/') ? null : '_blank'}
-                    rel={link.href.startsWith('/') ? null : 'noopener noreferrer'}
+                    target={link.href.startsWith('http') ? '_blank' : null}
+                    rel={link.href.startsWith('http') ? 'noopener noreferrer' : null}
                     class="text-primary font-medium hover:underline">{link.label}</a
                   >{#if link.note}<span>&nbsp;— {link.note}</span>{/if}
                 </li>

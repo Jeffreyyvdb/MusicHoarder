@@ -79,7 +79,14 @@ describe('homeMarkdown', () => {
 
   it('points at the sitemap, the agent guide, and the trust pages', () => {
     const body = homeMarkdown(SITE);
-    for (const path of ['/sitemap.xml', '/llms.txt', '/about', '/contact', '/privacy']) {
+    for (const path of [
+      '/sitemap.xml',
+      '/llms.txt',
+      '/about',
+      '/contact',
+      '/privacy',
+      '/delete-account'
+    ]) {
       expect(body, path).toContain(`${SITE}${path}`);
     }
   });

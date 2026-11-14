@@ -62,8 +62,13 @@ describe('absoluteUrl', () => {
 });
 
 describe('trust anchor pages', () => {
-  it('covers about, contact, and privacy', () => {
-    expect(prosePages.map((page) => page.path)).toEqual(['/about', '/contact', '/privacy']);
+  it('covers about, contact, privacy, and delete-account', () => {
+    expect(prosePages.map((page) => page.path)).toEqual([
+      '/about',
+      '/contact',
+      '/privacy',
+      '/delete-account'
+    ]);
   });
 
   it.each(prosePages.map((page) => [page.path, page] as const))(
@@ -92,5 +97,25 @@ describe('trust anchor pages', () => {
     expect(markdown).toContain('umami');
     expect(markdown).toContain('mh_session');
     expect(markdown).toContain('cookie');
+  });
+
+  it('gives the delete-account page what Google Play asks of it', () => {
+    const page = prosePages.find((candidate) => candidate.path === '/delete-account');
+    const markdown = renderProseMarkdown(page!, SITE);
+    // The app name as listed, the steps, a private channel, the deadline, and what is kept.
+    expect(markdown).toContain('MusicHoarder');
+    expect(markdown).toContain('## How to ask');
+    expect(markdown).toContain('mailto:');
+    expect(markdown).toContain('within 30 days');
+    expect(markdown).toContain('## What is deleted');
+    expect(markdown).toContain('## What may be kept');
+    expect(markdown).toContain('## Self-hosted instances');
+  });
+
+  it('links the delete-account page from privacy and contact', () => {
+    for (const path of ['/privacy', '/contact']) {
+      const page = prosePages.find((candidate) => candidate.path === path);
+      expect(renderProseMarkdown(page!, SITE), path).toContain(`${SITE}/delete-account`);
+    }
   });
 });

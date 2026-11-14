@@ -56,12 +56,15 @@ describe('markdown content negotiation', () => {
     expect(resolve).not.toHaveBeenCalled();
   });
 
-  it.each(['/about', '/contact', '/privacy'])('serves markdown for %s', async (path) => {
-    const { response } = await run(path, 'text/markdown');
-    expect(response.status).toBe(200);
-    expect(response.headers.get('content-type')).toBe('text/markdown; charset=utf-8');
-    await expect(response.text()).resolves.toContain('# ');
-  });
+  it.each(['/about', '/contact', '/privacy', '/delete-account'])(
+    'serves markdown for %s',
+    async (path) => {
+      const { response } = await run(path, 'text/markdown');
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toBe('text/markdown; charset=utf-8');
+      await expect(response.text()).resolves.toContain('# ');
+    }
+  );
 
   it('serves markdown from the .md sibling whatever the Accept header says', async () => {
     const { response, resolve } = await run('/about.md', 'text/html');
