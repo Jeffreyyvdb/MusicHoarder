@@ -1,6 +1,6 @@
 services:
   compose-dashboard:
-    image: "mcr.microsoft.com/dotnet/nightly/aspire-dashboard:13.5"
+    image: "mcr.microsoft.com/dotnet/nightly/aspire-dashboard:13.6"
     expose:
       - "18889"
       - "18890"
@@ -141,6 +141,9 @@ services:
     deploy:
       replicas: 1
       mode: "replicated"
+      resources:
+        limits:
+          memory: "${API_MEMORY_LIMIT:-3g}"
       update_config:
         parallelism: 1
         delay: "5s"
@@ -150,9 +153,6 @@ services:
       restart_policy:
         condition: "any"
         delay: "5s"
-      resources:
-        limits:
-          memory: "${API_MEMORY_LIMIT:-3g}"
     healthcheck:
       test:
         - "CMD-SHELL"
