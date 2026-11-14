@@ -14,8 +14,10 @@ namespace MusicHoarder.Api.Auth.EndpointFilters;
 /// <item>404 unless this instance is configured as a receiver — the surface is invisible on every
 /// other deployment, indistinguishable from the route not existing.</item>
 /// <item>401 unless the <c>X-Sync-Key</c> header matches (fixed-time compare).</item>
-/// <item>429 with per-IP damping after repeated failures (wrong keys only; a correct key is never throttled) — the endpoint is internet-facing by
-/// design (no VPN), so cheap brute-force resistance on top of the 32+ char random key.</item>
+/// <item>429 instead of 401 once one address has sent repeated wrong keys. A correct key is never
+/// throttled, so this does not limit guessing: what makes the internet-facing endpoint (no VPN, by
+/// design) hard to brute-force is the key's length — at least 32 characters, enforced by
+/// <c>SyncOptionsValidator</c>.</item>
 /// </list>
 /// </summary>
 public sealed class SyncApiKeyFilter(
