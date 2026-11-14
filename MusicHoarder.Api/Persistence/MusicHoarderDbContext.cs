@@ -61,6 +61,7 @@ public class MusicHoarderDbContext : DbContext
     public DbSet<DedupDismissal> DedupDismissals { get; set; } = null!;
     public DbSet<SongProviderAttempt> SongProviderAttempts { get; set; } = null!;
     public DbSet<SongMusicVideo> SongMusicVideos { get; set; } = null!;
+    public DbSet<SongVideoCandidateSet> SongVideoCandidateSets { get; set; } = null!;
     public DbSet<CanonicalAlbum> CanonicalAlbums { get; set; } = null!;
     public DbSet<AlbumCoverFetchAttempt> AlbumCoverFetchAttempts { get; set; } = null!;
     public DbSet<ArtistImage> ArtistImages { get; set; } = null!;
@@ -212,6 +213,20 @@ public class MusicHoarderDbContext : DbContext
             entity.HasOne(e => e.Song)
                 .WithOne(s => s.MusicVideo)
                 .HasForeignKey<SongMusicVideo>(e => e.SongId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Mirror Song's tenancy filter (see SongProviderAttempt above).
+            entity.HasQueryFilter(e => !hasUser || e.Song.OwnerUserId == userId);
+        });
+
+        modelBuilder.Entity<SongVideoCandidateSet>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.SongId).IsUnique();
+
+            entity.HasOne(e => e.Song)
+                .WithMany()
+                .HasForeignKey(e => e.SongId)
                 .OnDelete(DeleteBehavior.Cascade);
 
             // Mirror Song's tenancy filter (see SongProviderAttempt above).

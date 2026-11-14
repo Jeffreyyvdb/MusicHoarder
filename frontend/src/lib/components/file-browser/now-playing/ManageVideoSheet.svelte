@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
+  import { toast } from 'svelte-sonner';
   import { Check, ImageOff, Loader2, RotateCcw } from '@lucide/svelte';
   import * as BottomSheet from '#lib/components/ui/bottom-sheet/index.ts';
   import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
@@ -53,12 +55,18 @@
   let urlInput = $state('');
   let confirmRemoveOpen = $state(false);
   // Candidate picker: what the search WOULD download, with each option's measured motion and size,
-  // so a static album cover can be recognised and skipped before it costs any disk.
+  // so a static album cover can be recognised and skipped before it costs any disk. The server
+  // remembers each song's list (searched ahead of time for new songs), and the sheet asks for it
+  // as soon as it opens, so "Choose video…" shows the list instead of a search.
   let pickerOpen = $state(false);
   let candidates = $state<SongVideoCandidate[] | null>(null);
   let candidatesLoading = $state(false);
   let candidatesError = $state<string | null>(null);
   let probing = $state<Set<string>>(new Set());
+  /** The song whose list is loaded or loading; a new song starts over. */
+  let listFor = $state<number | null>(null);
+  /** Bumped by every load and by a song change, so a late answer for another song is dropped. */
+  let listRequest = 0;
 
   // A new song starts the picker over (the sheet can stay mounted across songs).
   let pickerForSong: number | null = null;
@@ -66,33 +74,53 @@
     const id = video.songId;
     if (pickerForSong === id) return;
     pickerForSong = id;
+    listRequest += 1;
+    listFor = null;
     pickerOpen = false;
     candidates = null;
+    candidatesLoading = false;
     candidatesError = null;
     urlInput = '';
   });
 
-  async function onBrowse() {
+  // Ask for the list when the sheet opens, before anyone taps "Choose video…".
+  $effect(() => {
+    const id = video.songId;
+    if (!open || id === null || listFor === id || info?.status === 'Fetching') return;
+    untrack(() => void loadCandidates(false));
+  });
+
+  async function loadCandidates(refresh: boolean) {
     const songId = video.songId;
-    pickerOpen = true;
-    if (candidatesLoading || songId === null) return;
+    if (songId === null) return;
+    const request = ++listRequest;
+    listFor = songId;
     candidatesLoading = true;
     candidatesError = null;
+    if (refresh) candidates = null;
     try {
-      const result = await getSongVideoCandidates(songId);
-      if (video.songId !== songId) return;
+      const result = await getSongVideoCandidates(songId, { refresh });
+      if (request !== listRequest) return;
       candidates = result.candidates;
-      // The list arrives unmeasured — one flat search, so it is quick. Measuring is a request per
-      // candidate: fire the leading few in PARALLEL and let each row settle on its own, so one
+      // A remembered list arrives measured. Whatever is still unmeasured among the leading few is
+      // a request per candidate: fire them in PARALLEL and let each row settle on its own, so one
       // slow video delays only its own verdict instead of the whole picker.
       void Promise.all(
-        result.candidates.slice(0, result.probeLimit).map((c) => onCheck(c.videoId))
+        result.candidates
+          .slice(0, result.probeLimit)
+          .filter((c) => c.motion === 'Unknown')
+          .map((c) => onCheck(c.videoId))
       );
     } catch {
-      candidatesError = 'Search failed — try again.';
+      if (request === listRequest) candidatesError = 'Search failed — try again.';
     } finally {
-      candidatesLoading = false;
+      if (request === listRequest) candidatesLoading = false;
     }
+  }
+
+  function onBrowse() {
+    pickerOpen = true;
+    if (candidatesError || listFor !== video.songId) void loadCandidates(false);
   }
 
   async function onCheck(videoId: string) {
@@ -126,12 +154,30 @@
     }
   }
 
+  /**
+   * Start a download and get out of the way: the fetch runs on the server and takes a minute, so
+   * the sheet closes and a toast says the video will appear by itself (the backdrop and Video mode
+   * pick it up when it is ready) rather than holding the owner on a spinner.
+   */
+  async function startFetch(url?: string): Promise<boolean> {
+    const ok = await video.fetch(url);
+    if (!ok) {
+      toast.error('Could not start the download', { description: 'Try again in a moment.' });
+      return false;
+    }
+    open = false;
+    // The list marks the attached video as current: ask again on the next open.
+    listFor = null;
+    toast("We'll get the video for you", {
+      description: 'It shows up behind the player as soon as it has downloaded.'
+    });
+    return true;
+  }
+
   async function onPick(videoId: string) {
     // An explicit pick is honored verbatim by the backend, motion verdict notwithstanding — the
     // owner looked at the measurement and chose anyway.
-    const ok = await video.fetch(`https://www.youtube.com/watch?v=${videoId}`);
-    if (ok) pickerOpen = false;
-    else candidatesError = 'Could not start the download.';
+    if (await startFetch(`https://www.youtube.com/watch?v=${videoId}`)) pickerOpen = false;
   }
 
   // A fetch waits for the video status: without it the backend cannot tell a refetch from a
@@ -141,8 +187,7 @@
   async function onFetchLink() {
     const url = urlInput.trim();
     if (!url) return;
-    const ok = await video.fetch(url);
-    if (ok) urlInput = '';
+    if (await startFetch(url)) urlInput = '';
   }
 
   function formatBytes(bytes: number | null): string {
@@ -261,7 +306,7 @@
           <GroupedList.Row onclick={onBrowse} disabled={video.busy}>
             <span class="text-body text-primary md:text-sm">Choose video…</span>
           </GroupedList.Row>
-          <GroupedList.Row onclick={() => void video.fetch()} disabled={fetchBlocked}>
+          <GroupedList.Row onclick={() => void startFetch()} disabled={fetchBlocked}>
             <span
               class={cn(
                 'text-body md:text-sm',
@@ -272,7 +317,7 @@
             </span>
           </GroupedList.Row>
         {:else if candidatesLoading}
-          <GroupedList.Row label="Searching and checking candidates…">
+          <GroupedList.Row label="Searching YouTube…">
             {#snippet trailing()}<Loader2
                 class="text-muted-foreground size-4 animate-spin"
               />{/snippet}
@@ -283,6 +328,9 @@
           </GroupedList.Row>
         {:else if candidates && candidates.length === 0}
           <GroupedList.Row label="No candidates found for this song" />
+          <GroupedList.Row onclick={() => void loadCandidates(true)}>
+            <span class="text-body text-primary md:text-sm">Search again</span>
+          </GroupedList.Row>
         {:else if candidates}
           {#each candidates as candidate (candidate.videoId)}
             {@const motion = MOTION_LABELS[candidate.motion]}
@@ -360,6 +408,9 @@
               {/snippet}
             </GroupedList.Row>
           {/each}
+          <GroupedList.Row onclick={() => void loadCandidates(true)}>
+            <span class="text-body text-primary md:text-sm">Search again</span>
+          </GroupedList.Row>
           <GroupedList.Row onclick={() => (pickerOpen = false)}>
             <span class="text-body text-primary md:text-sm">Close the list</span>
           </GroupedList.Row>

@@ -2663,15 +2663,25 @@ export interface SongVideoCandidates {
   /** How many leading candidates the client should measure via {@link probeSongVideoCandidate}. */
   probeLimit: number
   candidates: SongVideoCandidate[]
+  /** When this list was searched (ISO). */
+  searchedAtUtc: string
+  /** Served from the list the server remembers for the song, not searched just now. */
+  remembered: boolean
 }
 
 /**
- * Search YouTube for this song's music video without downloading anything. Every candidate comes
- * back with `motion: "Unknown"` — measuring is a separate request per candidate, because probing
- * several inline made this call exceed the gateway timeout in production.
+ * The song's music-video candidates, without downloading anything. The server remembers each
+ * song's list (searched ahead of time for new songs, and by every earlier open) and serves it with
+ * whatever was already measured; `refresh` searches YouTube again. A candidate still `"Unknown"` is
+ * measured by a separate request ({@link probeSongVideoCandidate}), because probing several inline
+ * made this call exceed the gateway timeout in production.
  */
-export async function getSongVideoCandidates(songId: number): Promise<SongVideoCandidates> {
-  return requestJson<SongVideoCandidates>(`/songs/${songId}/video/candidates`)
+export async function getSongVideoCandidates(
+  songId: number,
+  options: { refresh?: boolean } = {}
+): Promise<SongVideoCandidates> {
+  const query = options.refresh ? "?refresh=true" : ""
+  return requestJson<SongVideoCandidates>(`/songs/${songId}/video/candidates${query}`)
 }
 
 export interface StoredVideoAuditRow {
@@ -2705,8 +2715,8 @@ export async function auditStoredVideos(limit = 50): Promise<StoredVideoAudit> {
 }
 
 /**
- * Measure one candidate on demand. {@link getSongVideoCandidates} probes only its top few, so this
- * fills in a verdict for a hit further down the list that the owner is considering.
+ * Measure one candidate on demand: the leading few the list arrived without a verdict for, or a hit
+ * further down the owner is considering. The server remembers the verdict with the song's list.
  */
 export async function probeSongVideoCandidate(
   songId: number,

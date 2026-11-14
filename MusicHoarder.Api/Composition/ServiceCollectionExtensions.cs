@@ -342,6 +342,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<MusicVideoChannel>();
         services.AddScoped<MusicVideoAlignmentService>();
         services.AddHostedService<MusicVideoBackgroundService>();
+        // Remembered "Choose video…" candidates, searched ahead of time for newly added songs.
+        services.AddScoped<MusicVideoCandidateCache>();
+        services.AddScoped<MusicVideoCandidatePrefetch>();
+        services.AddHostedService<MusicVideoCandidatePrefetchService>();
         // Album completion: queues the tracks missing from albums the owner already holds part of, as
         // ordinary (lower-priority) wishlist items. Its own slow loop, so the throttle stays predictable.
         // The identity resolver stamps each queued track with its Spotify id — without one the lossless
