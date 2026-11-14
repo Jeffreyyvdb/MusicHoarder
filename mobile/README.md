@@ -27,6 +27,7 @@ to a page reaches the apps with the next deploy of the frontend, with no app rel
 | `ios/` | The Xcode project. `ios/App/App.xcodeproj` is what you open. |
 | `android/` | The Gradle project. |
 | `www/` | The one bundled page: it asks for the server, and says when it cannot be reached. |
+| `store/` | What the app has declared to Google Play and what Apple will need, with the reasons, and the Data safety export. Check it before a change that alters what the app collects or shows. |
 
 The web side of the plugins lives in the frontend: `frontend/src/lib/native/`. It and the two
 platforms' plugins are one protocol and change together. An installed app keeps the plugins it was

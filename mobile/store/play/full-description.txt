@@ -1,0 +1,29 @@
+MusicHoarder is the app for your own music collection. It plays the library on your MusicHoarder server, the free and open-source app that identifies, tags and organises your music files, so the songs you own come with you on your phone.
+
+You need a MusicHoarder server to use the app. Enter its address on the first screen and sign in. Want to look around first? Enter musichoarder.app and tap "Try the demo".
+
+LISTEN
+• Albums, artists, tracks, favourites and playlists from your own library
+• Full-screen Now Playing with time-synced lyrics and music videos
+• Radio that keeps playing similar songs from your library when the queue runs out
+• Search across everything as you type
+
+PLAYS LIKE A MUSIC APP SHOULD
+• Keeps playing when the screen is off, and moves on to the next song by itself
+• Controls on the lock screen, in the notification and from your headphones
+• Lossless and high-resolution files play in their original quality
+• Pick up where you left off on another device
+
+SHARE
+• Invite family and friends to their own account on your server
+• Share a song or album with anyone through a link
+• Chat with the people you share your music with
+
+YOURS
+• Your music and your listening history stay on your own server
+• No ads, no subscription
+• Free and open source under the MIT license
+
+MusicHoarder does not sell or stream music. It plays files you already own, from a server you run.
+
+Source code and setup guide: github.com/Jeffreyyvdb/MusicHoarder
