@@ -118,6 +118,10 @@ For **LAN-only** use without a proxy, set `PUBLIC_BASE_URL=http://<host-ip>:3000
 that address directly. Some features that depend on HTTPS (e.g. passkeys, certain OAuth flows)
 are limited over plain HTTP.
 
+When `PUBLIC_BASE_URL` is `https://…`, session cookies are marked Secure, so signing in only works
+over HTTPS: if you also reach the same instance over plain HTTP (a LAN address, say), you won't stay
+signed in there. For LAN-only use, set `PUBLIC_BASE_URL` to the `http://` address as above.
+
 ## Portainer / TrueNAS / Synology
 
 Rather than an `.env` file, these UIs let you paste a Compose stack and set the variables in the
