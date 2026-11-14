@@ -122,9 +122,10 @@ public class AlbumCoverWriter(
             return false;
         }
 
-        // Some taggers embed garbage (the resolver's mime fallback masks it as image/jpeg). Don't
-        // propagate undecodable bytes to the destination — treating them as "no source art" lets the
-        // external fetch supply a real cover instead.
+        // The resolver already skips an embedded picture whose bytes are not a recognised image, but a
+        // folder image (cover.jpg and friends) is taken by file name, so its bytes may still be anything.
+        // Don't propagate undecodable bytes to the destination — treating them as "no source art" lets
+        // the external fetch supply a real cover instead.
         if (CoverArtResolver.SniffImageMime(bytes) is null)
         {
             logger.LogDebug("Skipping unrecognizable source art for {SourcePath}", sourceAudioPath);
