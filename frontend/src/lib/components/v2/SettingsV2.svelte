@@ -1038,8 +1038,10 @@
     </GroupedList.Section>
   {/if}
 
+  <!-- The version only on the root list: an edge build's "v2.5.1-edge.g9b8feac" is wider than
+       the pane list leaves beside the label, which then ran under it. The Updates pane shows it. -->
   <GroupedList.Section>
-    {@render row('updates', CircleArrowUp, version ? `v${version}` : undefined)}
+    {@render row('updates', CircleArrowUp, version && !pane ? `v${version}` : undefined)}
   </GroupedList.Section>
 {/snippet}
 
@@ -1958,9 +1960,11 @@
     <ScrollArea class="min-h-0 min-w-0 flex-1" viewportClass="overscroll-contain">
       <PageToolbarV2 title={barTitle} back={barBack} {largeTitle} grouped />
 
-      <!-- md+ padding stays modest until lg: at 768–1023 the app sidebar and the pane list
-           already take ~470px of the window. -->
-      <div class="mx-auto flex w-full max-w-2xl flex-col gap-8 pt-2 pb-8 md:px-5 md:pt-6 lg:px-8">
+      <!-- At md+ the column starts on the nav bar's 28px gutter, so the cards line up under the
+           title (or the Back button) as inset-grouped cells do under an iOS large title. It is
+           not centred: in a wide window a centred column drifted hundreds of pixels away from a
+           title pinned to the left. -->
+      <div class="flex w-full max-w-2xl flex-col gap-8 pt-2 pb-8 md:px-7 md:pt-6">
         {#if section === null}
           {@render sectionList(false)}
         {:else if section === 'account'}
