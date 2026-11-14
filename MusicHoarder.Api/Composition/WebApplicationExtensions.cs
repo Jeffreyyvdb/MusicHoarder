@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Endpoints;
 using MusicHoarder.Api.Persistence;
 
@@ -14,6 +15,13 @@ public static class WebApplicationExtensions
         using var scope = app.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
         await dbContext.Database.MigrateAsync();
+
+        var protectedRows = await LegacySecretColumns.ProtectAsync(
+            scope.ServiceProvider.GetRequiredService<DbContextOptions<MusicHoarderDbContext>>(),
+            scope.ServiceProvider.GetRequiredService<ICurrentUserAccessor>(),
+            scope.ServiceProvider.GetRequiredService<ISecretColumnProtector>());
+        if (protectedRows > 0)
+            app.Logger.LogInformation("Encrypted the credential columns of {Count} Spotify settings rows", protectedRows);
     }
 
     public static WebApplication MapMusicHoarderEndpoints(this WebApplication app)

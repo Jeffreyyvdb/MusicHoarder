@@ -211,9 +211,11 @@ Two named volumes hold state worth backing up:
 
 - **`postgres-data`** — your catalog: scan results, matches, review decisions, lyrics. Back this
   up (e.g. `docker compose exec postgres pg_dump -U musichoarder musichoarderdb > backup.sql`).
-- **`musichoarder-dpkeys`** — the DataProtection keys that sign session cookies. Losing it just
-  logs everyone out (they sign in again); it's not catastrophic, but persisting it keeps sessions
-  valid across restarts.
+- **`musichoarder-dpkeys`** — the DataProtection keys that sign session cookies and encrypt the
+  Spotify credentials stored in the database. Losing it logs everyone out and disconnects Spotify
+  (sign in and connect again); it's not catastrophic, but persisting it keeps both across restarts.
+  Back it up next to the database, but keep the two apart: a database dump alone holds no usable
+  Spotify token.
 
 Your **source** library is read-only and never touched. The **destination** library is fully
 regenerable from the source + catalog, so it doesn't strictly need backing up.
