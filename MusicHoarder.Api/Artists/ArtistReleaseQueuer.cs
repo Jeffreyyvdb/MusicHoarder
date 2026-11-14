@@ -82,8 +82,7 @@ public sealed class ArtistReleaseQueuer(
 
         // What the owner has: the album's own tracks (under its album key), and for a single or an EP
         // anything of the artist's by that title — a single is usually a cut of an album already owned.
-        var artistSongs = await ArtistSongs.LoadAsync(
-            db.Songs.IgnoreQueryFilters().Where(s => s.OwnerUserId == ownerId), artistName, ct);
+        var artistSongs = await ArtistSongsAsync(ownerId, artistName, ct);
         var albumKey = canonical.AlbumKey;
         var albumSongs = artistSongs
             .Where(s => TitleNormalizer.NormalizeForSearch(s.Album) == albumKey)
@@ -118,7 +117,7 @@ public sealed class ArtistReleaseQueuer(
 
         // Any acquisition of the same recording already in flight, whatever asked for it — the cross-
         // album claim album completion keeps, widened to every origin.
-        var claims = await LoadClaimsAsync(ownerId, ct);
+        var claims = await ClaimsAsync(ownerId, ct);
 
         var trackArtists = detail.Tracks
             .Where(t => !string.IsNullOrWhiteSpace(t.Title))
@@ -272,6 +271,32 @@ public sealed class ArtistReleaseQueuer(
         // The tracks need their ids before the matcher can pair them with owned songs.
         await db.SaveChangesAsync(ct);
         return row;
+    }
+
+    // "Get discography" and a monitor pass queue many releases through one (scoped) queuer. The
+    // artist's songs and the owner's claims are the same for each, so they are read once: the song
+    // read is an unindexable LIKE scan, and the claims are every wishlist row the owner has. The
+    // claim sets stay true across releases because each queued track is added to them as it is made.
+    private (Guid Owner, string Artist, List<ArtistSongFacts> Songs)? _songs;
+    private (Guid Owner, Claims Claims)? _claims;
+
+    private async Task<List<ArtistSongFacts>> ArtistSongsAsync(Guid ownerId, string artistName, CancellationToken ct)
+    {
+        if (_songs is { } cached && cached.Owner == ownerId && cached.Artist == artistName)
+            return cached.Songs;
+        var songs = await ArtistSongs.LoadAsync(
+            db.Songs.IgnoreQueryFilters().Where(s => s.OwnerUserId == ownerId), artistName, ct);
+        _songs = (ownerId, artistName, songs);
+        return songs;
+    }
+
+    private async Task<Claims> ClaimsAsync(Guid ownerId, CancellationToken ct)
+    {
+        if (_claims is { } cached && cached.Owner == ownerId)
+            return cached.Claims;
+        var claims = await LoadClaimsAsync(ownerId, ct);
+        _claims = (ownerId, claims);
+        return claims;
     }
 
     private sealed record Claims(HashSet<(string, string)> Tracks, HashSet<string> SpotifyIds, HashSet<string> DeezerIds);

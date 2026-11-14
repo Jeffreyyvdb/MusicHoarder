@@ -4,13 +4,15 @@ import {
   acquirableReleases,
   acquireSummary,
   availableFilters,
+  catalogArtistCaption,
   discographySummary,
   filterReleases,
   followSummary,
   popularSongs,
   releaseCaption,
   releaseState,
-  releaseStatusLabel
+  releaseStatusLabel,
+  toggleReleaseKind
 } from './artist-discography';
 
 function release(overrides: Partial<ArtistRelease> = {}): ArtistRelease {
@@ -117,6 +119,7 @@ describe('acquireSummary', () => {
   const result = (overrides: Partial<AcquireReleasesResult>): AcquireReleasesResult => ({
     queued: 0,
     capped: 0,
+    skippedReleases: 0,
     jobStarted: true,
     results: [],
     ...overrides
@@ -219,5 +222,20 @@ describe('popularSongs', () => {
       d: { plays: 0, lastPlayed: 5, liked: false }
     };
     expect(popularSongs(['a', 'b', 'c', 'd'], (s) => stats[s], 3)).toEqual(['b', 'c', 'a']);
+  });
+});
+
+describe('shared follow helpers', () => {
+  it('switches a kind on or off, and refuses to leave none', () => {
+    expect(toggleReleaseKind(['album'], 'ep', true)).toEqual(['album', 'ep']);
+    expect(toggleReleaseKind(['album', 'ep'], 'ep', false)).toEqual(['album']);
+    expect(toggleReleaseKind(['album'], 'album', false)).toBeNull();
+  });
+
+  it('writes a catalog artist the same way everywhere', () => {
+    expect(catalogArtistCaption({ fans: 5_237_894, albumCount: 39 })).toBe(
+      '5.2M fans · 39 releases'
+    );
+    expect(catalogArtistCaption({ fans: 120, albumCount: 0 })).toBe('120 fans');
   });
 });

@@ -4,7 +4,12 @@
   import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
   import { Spinner } from '#lib/components/ui/spinner/index.ts';
   import type { ArtistReleaseKind } from '#lib/api-client.ts';
-  import { ALL_KINDS, followSummary, KIND_PLURAL } from '#lib/artist-discography.ts';
+  import {
+    ALL_KINDS,
+    followSummary,
+    KIND_PLURAL,
+    toggleReleaseKind
+  } from '#lib/artist-discography.ts';
   import type { ArtistPageState } from '#lib/stores/artist-page.svelte.ts';
 
   type Props = {
@@ -21,13 +26,8 @@
   const canFollow = $derived(Boolean(page && (follow || page.catalogArtistId)));
 
   function toggleKind(kind: ArtistReleaseKind, on: boolean) {
-    if (!page || !follow) return;
-    const next = on
-      ? [...new Set([...follow.releaseKinds, kind])]
-      : follow.releaseKinds.filter((k) => k !== kind);
-    // At least one kind: a follow that watches nothing is an unfollow, which has its own item.
-    if (next.length === 0) return;
-    void page.updateFollow({ releaseKinds: next });
+    const next = follow && toggleReleaseKind(follow.releaseKinds, kind, on);
+    if (next) void page?.updateFollow({ releaseKinds: next });
   }
 </script>
 

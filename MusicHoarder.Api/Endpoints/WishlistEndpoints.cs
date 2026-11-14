@@ -58,8 +58,7 @@ public static class WishlistEndpoints
                     // Origin first, mirroring the downloader's claim order — and because album-fill rows
                     // carry a null SpotifyAddedAtUtc, which Postgres sorts NULLS FIRST on DESC and would
                     // otherwise float them to the top of the list.
-                    .OrderBy(w => w.Origin == WishlistItemOrigin.UserRequested || w.Origin == WishlistItemOrigin.ArtistRequest ? 0
-                        : w.Origin == WishlistItemOrigin.ArtistMonitor ? 1 : 2)
+                    .OrderBy(WishlistItemOrigins.ClaimOrder)
                     // An artist release has no Spotify save date; it sorts by when it was queued.
                     .ThenByDescending(w => w.SpotifyAddedAtUtc ?? w.CreatedAtUtc)
                     .ThenByDescending(w => w.Id)

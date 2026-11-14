@@ -142,8 +142,42 @@ export function acquireSummary(result: AcquireReleasesResult): string {
   if (owned > 0 && result.queued > 0) parts.push(`${owned} already in your library`);
   if (onItsWay > 0 && result.queued > 0) parts.push(`${onItsWay} already on the way`);
   if (result.capped > 0) parts.push(`${result.capped} left for another time (request limit)`);
+  if (result.skippedReleases > 0)
+    parts.push(
+      `${result.skippedReleases} release${result.skippedReleases === 1 ? '' : 's'} not started (request limit)`
+    );
   if (errors > 0) parts.push(`${errors} release${errors === 1 ? '' : 's'} could not be read`);
   return parts.length > 0 ? parts.join(' · ') : 'Nothing to download';
+}
+
+/**
+ * A follow's kinds with one switched on or off. Null when that would leave none: a follow that
+ * watches nothing is an unfollow, which has its own button.
+ */
+export function toggleReleaseKind(
+  kinds: readonly ArtistReleaseKind[],
+  kind: ArtistReleaseKind,
+  on: boolean
+): ArtistReleaseKind[] | null {
+  const next = on ? [...new Set([...kinds, kind])] : kinds.filter((k) => k !== kind);
+  return next.length > 0 ? next : null;
+}
+
+/** A catalog artist's second line: "5.2M fans · 39 releases". */
+export function catalogArtistCaption(artist: { fans: number; albumCount: number }): string {
+  const n = artist.fans;
+  const fans =
+    n >= 1_000_000
+      ? `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M fans`
+      : n >= 1_000
+        ? `${Math.round(n / 1_000)}K fans`
+        : `${n} fan${n === 1 ? '' : 's'}`;
+  return artist.albumCount > 0 ? `${fans} · ${artist.albumCount} releases` : fans;
+}
+
+/** An error's own message, else the fallback. */
+export function messageOf(err: unknown, fallback: string): string {
+  return err instanceof Error && err.message ? err.message : fallback;
 }
 
 /** The settings line on a followed artist: "Albums and EPs · downloads automatically". */

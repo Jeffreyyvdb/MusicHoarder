@@ -10,11 +10,7 @@ import {
   type ArtistRelease,
   type ArtistReleaseKind
 } from '#lib/api-client.ts';
-import { acquireSummary } from '#lib/artist-discography.ts';
-
-function messageOf(err: unknown, fallback: string): string {
-  return err instanceof Error && err.message ? err.message : fallback;
-}
+import { acquireSummary, messageOf } from '#lib/artist-discography.ts';
 
 /**
  * One artist page's catalog side: its discography, the follow, and the "Get" requests. Shared by the
@@ -37,15 +33,9 @@ export class ArtistPageState {
     return this.data?.follow ?? null;
   }
 
-  /** The catalog artist the page may follow: a proven, chosen or already followed one. */
+  /** The catalog artist the page may follow. The server sends an id only for one it trusts. */
   get catalogArtistId(): string | null {
-    const catalog = this.data?.catalog;
-    if (!catalog) return null;
-    return catalog.status === 'linked' ||
-      catalog.status === 'chosen' ||
-      catalog.status === 'followed'
-      ? catalog.deezerArtistId
-      : null;
+    return this.data?.catalog.deezerArtistId ?? null;
   }
 
   async load(artist: string, opts: { quiet?: boolean } = {}): Promise<void> {

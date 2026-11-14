@@ -203,9 +203,7 @@ public sealed class ArtistDiscographyService(
     {
         var newReleases = await db.FollowedArtistReleases.AsNoTracking()
             .CountAsync(r => r.FollowedArtistId == follow.Id
-                && (r.Decision == FollowedReleaseDecision.Queued
-                    || r.Decision == FollowedReleaseDecision.AlreadyOwned
-                    || r.Decision == FollowedReleaseDecision.Noticed), ct);
+                && FollowedReleaseDecisions.News.Contains(r.Decision), ct);
         return ToDto(follow, newReleases);
     }
 
@@ -234,7 +232,7 @@ public sealed class ArtistDiscographyService(
         foreach (var name in names ?? [])
         {
             if (string.IsNullOrWhiteSpace(name)) continue;
-            kinds |= ArtistDiscography.ParseKind(name);
+            kinds |= ArtistDiscography.KindOf(name);
         }
 
         return kinds;

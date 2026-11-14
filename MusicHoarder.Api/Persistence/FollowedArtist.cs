@@ -91,6 +91,17 @@ public enum FollowedReleaseDecision
     Failed = 5,
 }
 
+public static class FollowedReleaseDecisions
+{
+    /// <summary>
+    /// The decisions that are news to the owner — a new release, whatever was done about it. The
+    /// baseline, a back-fill and a failure are bookkeeping. One list, so a follow's count, the
+    /// Following page and the History feed cannot disagree.
+    /// </summary>
+    public static readonly FollowedReleaseDecision[] News =
+        [FollowedReleaseDecision.Queued, FollowedReleaseDecision.AlreadyOwned, FollowedReleaseDecision.Noticed];
+}
+
 /// <summary>
 /// One release the monitor has seen for a <see cref="FollowedArtist"/>, and what it decided. The seen
 /// set is what makes a check idempotent: a release with a row is never decided again, the way album

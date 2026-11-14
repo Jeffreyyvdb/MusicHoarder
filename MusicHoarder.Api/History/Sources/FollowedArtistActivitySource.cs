@@ -16,9 +16,7 @@ public sealed class FollowedArtistActivitySource(MusicHoarderDbContext db) : IAc
         var rows = await db.FollowedArtistReleases
             .AsNoTracking()
             .Where(r => r.DecidedAtUtc >= window.FromUtc && r.DecidedAtUtc <= window.ToUtc
-                && (r.Decision == FollowedReleaseDecision.Queued
-                    || r.Decision == FollowedReleaseDecision.AlreadyOwned
-                    || r.Decision == FollowedReleaseDecision.Noticed))
+                && FollowedReleaseDecisions.News.Contains(r.Decision))
             .OrderByDescending(r => r.DecidedAtUtc)
             .Take(window.MaxRowsPerSource)
             .Select(r => new { r.Id, r.Title, r.Decision, r.TracksQueued, r.DecidedAtUtc, Artist = r.FollowedArtist.Name })

@@ -12,6 +12,7 @@
     acquirableReleases,
     availableFilters,
     canAcquire,
+    catalogArtistCaption,
     DISCOGRAPHY_FILTERS,
     discographySummary,
     filterReleases,
@@ -43,7 +44,8 @@
   });
 
   const shown = $derived(filterReleases(releases, filter, missingOnly));
-  // A desktop grid shows two rows' worth first (Spotify's "Show all"); a phone shelf scrolls them all.
+  // Two rows' worth of a desktop grid, or a first stretch of a phone shelf, then "Show all": a
+  // prolific artist has hundreds of releases, and every card is a cover and a button to mount.
   const GRID_PREVIEW = 12;
   let showAll = $state(false);
   const gridShown = $derived(showAll ? shown : shown.slice(0, GRID_PREVIEW));
@@ -58,12 +60,6 @@
 
   let confirmAll = $state(false);
   const filterLabel = $derived(DISCOGRAPHY_FILTERS.find((f) => f.id === filter)?.label ?? 'All');
-
-  function fans(n: number): string {
-    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M fans`;
-    if (n >= 1_000) return `${Math.round(n / 1_000)}K fans`;
-    return `${n} fan${n === 1 ? '' : 's'}`;
-  }
 </script>
 
 <section aria-labelledby="artist-discography-heading" class="flex flex-col gap-2">
@@ -140,9 +136,7 @@
               <span class="min-w-0 flex-1">
                 <span class="text-body block truncate md:text-sm">{candidate.name}</span>
                 <span class="text-muted-foreground text-footnote block md:text-xs">
-                  {fans(candidate.fans)}{candidate.albumCount > 0
-                    ? ` · ${candidate.albumCount} releases`
-                    : ''}
+                  {catalogArtistCaption(candidate)}
                 </span>
               </span>
               <span class="text-primary text-subheadline md:text-sm">This one</span>
@@ -196,9 +190,20 @@
         class="[&>[data-slot=scroll-area-viewport]]:snap-x [&>[data-slot=scroll-area-viewport]]:scroll-px-4"
       >
         <ul class="flex gap-3 px-4 pt-1 pb-3">
-          {#each shown as release (release.key)}
+          {#each gridShown as release (release.key)}
             <li class="w-[148px] shrink-0 snap-start">{@render card(release)}</li>
           {/each}
+          {#if shown.length > gridShown.length}
+            <li class="flex w-[148px] shrink-0 snap-start">
+              <button
+                type="button"
+                class="bg-secondary hover:bg-secondary-hover text-subheadline aspect-square w-full rounded-md font-semibold"
+                onclick={() => (showAll = true)}
+              >
+                Show all {shown.length}
+              </button>
+            </li>
+          {/if}
         </ul>
       </ScrollArea>
     {:else}
@@ -327,7 +332,7 @@
         shown are added to the wishlist and downloaded{missingTracksHint > 0
           ? ` — at least ${missingTracksHint} tracks`
           : ''}. Tracks you already have, or that are already on their way, are skipped. One request
-        queues up to 500 tracks; run it again for the rest.
+        has a track limit; run it again for the rest.
       </AlertDialog.Description>
     </AlertDialog.Header>
     <AlertDialog.Footer>

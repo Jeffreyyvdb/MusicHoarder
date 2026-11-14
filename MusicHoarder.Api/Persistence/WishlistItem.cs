@@ -56,19 +56,19 @@ public static class WishlistItemOrigins
 {
     /// <summary>
     /// The download queue's order: what a person asked for, then what a follow found, then album
-    /// completion. The enum's numbers are stored and cannot be reordered, so the order lives here — use
-    /// it rather than ordering by the enum.
+    /// completion. The enum's numbers are stored and cannot be reordered (ArtistMonitor = 3 must still
+    /// beat AlbumCompletion = 1), so the order lives here, as an expression EF translates —
+    /// <c>.OrderBy(WishlistItemOrigins.ClaimOrder)</c>, never <c>OrderBy(w => w.Origin)</c>.
     /// </summary>
-    public static int ClaimPriority(WishlistItemOrigin origin) => origin switch
-    {
-        WishlistItemOrigin.UserRequested or WishlistItemOrigin.ArtistRequest => 0,
-        WishlistItemOrigin.ArtistMonitor => 1,
-        _ => 2,
-    };
+    public static readonly System.Linq.Expressions.Expression<Func<WishlistItem, int>> ClaimOrder = w =>
+        w.Origin == WishlistItemOrigin.UserRequested || w.Origin == WishlistItemOrigin.ArtistRequest ? 0
+        : w.Origin == WishlistItemOrigin.ArtistMonitor ? 1
+        : 2;
 
-    /// <summary>Whether the item came from an artist's discography — a request or a follow.</summary>
-    public static bool IsArtistRelease(WishlistItemOrigin origin) =>
-        origin is WishlistItemOrigin.ArtistRequest or WishlistItemOrigin.ArtistMonitor;
+    private static readonly Func<WishlistItem, int> CompiledClaimOrder = ClaimOrder.Compile();
+
+    /// <summary><see cref="ClaimOrder"/> for one origin, outside a query.</summary>
+    public static int ClaimPriority(WishlistItemOrigin origin) => CompiledClaimOrder(new WishlistItem { Origin = origin });
 }
 
 /// <summary>

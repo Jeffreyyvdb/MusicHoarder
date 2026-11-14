@@ -46,10 +46,7 @@ public class WishlistDownloadProcessor(
             // ahead of the queue, and the EF in-memory provider orders nulls the other way, so a test
             // written against it would happily agree. Within an origin, fresh Pending rows go before
             // scheduled retries (Pending sorts below Failed).
-            // ClaimPriority as an expression EF can translate: the enum's numbers are stored, so the
-            // order cannot simply be the enum's (ArtistMonitor = 3 must still beat AlbumCompletion = 1).
-            .OrderBy(w => w.Origin == WishlistItemOrigin.UserRequested || w.Origin == WishlistItemOrigin.ArtistRequest ? 0
-                : w.Origin == WishlistItemOrigin.ArtistMonitor ? 1 : 2)
+            .OrderBy(WishlistItemOrigins.ClaimOrder)
             .ThenBy(w => w.Status)
             .ThenByDescending(w => w.SpotifyAddedAtUtc)
             .ThenBy(w => w.Id)

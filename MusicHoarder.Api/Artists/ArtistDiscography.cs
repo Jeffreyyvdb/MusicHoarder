@@ -60,8 +60,6 @@ public static class ArtistDiscography
         _ => "album",
     };
 
-    public static ArtistReleaseKinds ParseKind(string? wire) => KindOf(wire);
-
     /// <summary>
     /// Kind plus the search-normalized title. That normalization drops parenthesized and bracketed
     /// qualifiers, so "Album", "Album (Deluxe Edition)" and "Album [Explicit]" are one release — the

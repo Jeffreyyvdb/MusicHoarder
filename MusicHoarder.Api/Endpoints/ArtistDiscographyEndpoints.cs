@@ -39,8 +39,6 @@ public static class ArtistDiscographyEndpoints
         group.MapDelete("/following/{id:int}", Unfollow);
         group.MapPost("/following/{id:int}/check", CheckOne)
             .WithSummary("Checks one followed artist for new releases now.");
-        group.MapPost("/following/check", CheckDue)
-            .WithSummary("Runs one monitor pass now over every followed artist that is due.");
 
         return app;
     }
@@ -88,8 +86,16 @@ public static class ArtistDiscographyEndpoints
 
         var budget = Math.Max(1, opts.ArtistRequestMaxTracks);
         var results = new List<AcquireReleaseResult>(body.Releases.Count);
+        var skipped = 0;
         foreach (var release in body.Releases.Take(200))
         {
+            // Budget spent: reading the rest from the catalog would only be to report them as capped.
+            if (budget <= 0)
+            {
+                skipped++;
+                continue;
+            }
+
             if (release.EditionIds is not { Count: > 0 })
             {
                 results.Add(new AcquireReleaseResult(release.Key, null, 0, 0, 0, 0, 0, "No edition ids."));
@@ -97,7 +103,7 @@ public static class ArtistDiscographyEndpoints
             }
 
             var result = await queuer.QueueAsync(
-                currentUser.UserId, body.Artist.Trim(), release.EditionIds, ArtistDiscography.ParseKind(release.Kind),
+                currentUser.UserId, body.Artist.Trim(), release.EditionIds, ArtistDiscography.KindOf(release.Kind),
                 WishlistItemOrigin.ArtistRequest, budget, requeueFailed: true, ct);
             budget -= result.Queued;
             results.Add(new AcquireReleaseResult(
@@ -111,6 +117,7 @@ public static class ArtistDiscographyEndpoints
         {
             queued,
             capped = results.Sum(r => r.Capped),
+            skippedReleases = skipped,
             jobStarted,
             results,
         });
@@ -146,7 +153,7 @@ public static class ArtistDiscographyEndpoints
         MusicHoarderDbContext db, IOptions<MusicEnricherOptions> options, CancellationToken ct)
     {
         var follows = await db.FollowedArtists.AsNoTracking().OrderBy(f => f.Name).ToListAsync(ct);
-        var news = new[] { FollowedReleaseDecision.Queued, FollowedReleaseDecision.AlreadyOwned, FollowedReleaseDecision.Noticed };
+        var news = FollowedReleaseDecisions.News;
         var counts = await db.FollowedArtistReleases.AsNoTracking()
             .Where(r => news.Contains(r.Decision))
             .GroupBy(r => r.FollowedArtistId)
@@ -262,9 +269,6 @@ public static class ArtistDiscographyEndpoints
         if (!await db.FollowedArtists.AnyAsync(f => f.Id == id, ct)) return Results.NotFound();
         return Results.Ok(await monitor.CheckAsync(id, DateTime.UtcNow, ct));
     }
-
-    internal static async Task<IResult> CheckDue(ArtistMonitorSweep monitor, CancellationToken ct) =>
-        Results.Ok(await monitor.SweepAsync(ct));
 
     private static string DecisionName(FollowedReleaseDecision decision) => decision switch
     {

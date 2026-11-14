@@ -24,10 +24,13 @@
   } from '#lib/api-client.ts';
   import {
     ALL_KINDS,
+    catalogArtistCaption,
     decisionLabel,
     followSummary,
     KIND_PLURAL,
-    releaseCaption
+    messageOf,
+    releaseCaption,
+    toggleReleaseKind
   } from '#lib/artist-discography.ts';
   import { formatRelativeTime } from '#lib/formatters.ts';
   import { cn } from '#lib/utils.ts';
@@ -40,10 +43,6 @@
   let loading = $state(true);
   let loadError = $state<string | null>(null);
   let busy = $state.raw<ReadonlySet<number | string>>(new Set());
-
-  function messageOf(err: unknown, fallback: string): string {
-    return err instanceof Error && err.message ? err.message : fallback;
-  }
 
   async function load() {
     try {
@@ -129,10 +128,8 @@
   }
 
   function toggleKind(f: FollowedArtist, kind: ArtistReleaseKind, on: boolean) {
-    const next = on
-      ? [...new Set([...f.releaseKinds, kind])]
-      : f.releaseKinds.filter((k) => k !== kind);
-    if (next.length > 0) patch(f, { releaseKinds: next });
+    const next = toggleReleaseKind(f.releaseKinds, kind, on);
+    if (next) patch(f, { releaseKinds: next });
   }
 
   function checkNow(f: FollowedArtist) {
@@ -207,9 +204,7 @@
                 <div class="min-w-0 flex-1">
                   <p class="text-body truncate md:text-sm md:font-medium">{artist.name}</p>
                   <p class="text-muted-foreground text-footnote md:text-xs">
-                    {artist.fans.toLocaleString()} fans{artist.albumCount > 0
-                      ? ` · ${artist.albumCount} releases`
-                      : ''}
+                    {catalogArtistCaption(artist)}
                   </p>
                 </div>
                 <button

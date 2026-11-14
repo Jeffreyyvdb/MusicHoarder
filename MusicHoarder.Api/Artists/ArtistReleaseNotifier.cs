@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Chat;
+using MusicHoarder.Api.History;
 using MusicHoarder.Api.Matching;
 using MusicHoarder.Api.Notifications;
 using MusicHoarder.Api.Persistence;
@@ -32,15 +34,9 @@ public sealed class ArtistReleaseNotifier(
             .ToListAsync(ct);
         if (subscriptions.Count == 0) return;
 
-        var kind = ArtistDiscography.WireKind(notice.Kind) switch
-        {
-            "ep" => "EP",
-            "single" => "single",
-            "compilation" => "compilation",
-            _ => "album",
-        };
+        var kind = notice.Kind == ArtistReleaseKinds.Ep ? "EP" : ArtistDiscography.WireKind(notice.Kind);
         var body = notice.Queued
-            ? $"{notice.Title} ({kind}) — downloading {notice.TracksQueued} track{(notice.TracksQueued == 1 ? "" : "s")}"
+            ? $"{notice.Title} ({kind}) — downloading {ActivityText.Plural(notice.TracksQueued, "track")}"
             : $"{notice.Title} ({kind})";
         var payload = new ReleasePushPayload(
             "release",
@@ -54,8 +50,22 @@ public sealed class ArtistReleaseNotifier(
         foreach (var subscription in subscriptions)
         {
             var outcome = await sender.SendAsync(subscription.Endpoint, subscription.P256dh, subscription.Auth, push, ct);
-            if (outcome == WebPushOutcome.Gone) db.WebPushSubscriptions.Remove(subscription);
-            else if (outcome == WebPushOutcome.Delivered) subscription.LastDeliveredAtUtc = DateTime.UtcNow;
+            // The same pruning rule chat notifications apply, so a subscription lives or dies alike
+            // whichever feature pushed last.
+            switch (outcome)
+            {
+                case WebPushOutcome.Delivered:
+                    subscription.LastDeliveredAtUtc = DateTime.UtcNow;
+                    subscription.FailureCount = 0;
+                    break;
+                case WebPushOutcome.Gone:
+                    db.WebPushSubscriptions.Remove(subscription);
+                    break;
+                default:
+                    if (++subscription.FailureCount >= ChatPushService.MaxConsecutiveFailures)
+                        db.WebPushSubscriptions.Remove(subscription);
+                    break;
+            }
         }
 
         await db.SaveChangesAsync(ct);

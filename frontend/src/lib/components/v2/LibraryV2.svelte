@@ -518,7 +518,7 @@
   });
 
   // The catalog side is administration (it queues downloads), so only an admin's page asks for it.
-  const showCatalog = $derived(isArtistView && !isFriend && isAdmin(page.data.user));
+  const showCatalog = $derived(isArtistView && isAdmin(page.data.user));
   const artistPage = new ArtistPageState();
   $effect(() => {
     if (showCatalog && artistName && untrack(() => artistPage.artist) !== artistName) {
@@ -621,13 +621,12 @@
     const tracks = `${artistSongs.length} track${artistSongs.length === 1 ? '' : 's'}`;
     return `${albums} · ${tracks}${unreleasedActive ? ' · Unreleased only' : ''}`;
   });
+  /** Loaded, and none of this artist's songs are here: a followed artist's page is catalog only. */
+  const ownsNothing = $derived(artistSongs.length === 0 && !albumFilterLoading && !isLoading);
   /** The hero's line: what you have of them (or that you have nothing yet), and the follow. */
   const heroMeta = $derived.by(() => {
     const following = showCatalog && artistPage.data?.follow ? 'Following' : null;
-    const have =
-      artistSongs.length === 0 && !albumFilterLoading && !isLoading
-        ? 'Not in your library yet'
-        : artistMeta;
+    const have = ownsNothing ? 'Not in your library yet' : artistMeta;
     return [have, following].filter(Boolean).join(' · ');
   });
 </script>
@@ -1244,7 +1243,7 @@
       {/if}
 
       <!-- An artist you follow but own nothing of has only the catalog to show; no empty grid. -->
-      {#if !(showCatalog && artistSongs.length === 0 && !isLoading && !albumFilterLoading)}
+      {#if !(showCatalog && ownsNothing)}
         <section aria-labelledby="artist-albums-heading">
           <h2 id="artist-albums-heading" class="text-title-2 mb-2 px-4 md:px-0 md:text-lg">
             {showCatalog ? 'In your library' : 'Albums'}

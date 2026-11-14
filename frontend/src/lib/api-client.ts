@@ -5470,6 +5470,8 @@ export interface AcquireReleaseResult {
 export interface AcquireReleasesResult {
   queued: number
   capped: number
+  /** Releases not looked at because the request's track limit was already spent. */
+  skippedReleases: number
   jobStarted: boolean
   results: AcquireReleaseResult[]
 }

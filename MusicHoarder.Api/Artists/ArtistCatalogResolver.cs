@@ -45,9 +45,15 @@ public sealed class ArtistCatalogResolver(
         if (link is { Status: ArtistCatalogLinkStatus.Linked or ArtistCatalogLinkStatus.Chosen })
             return new ArtistCatalogResolution(link, []);
 
+        // Inside the retry window nothing is re-proven. A not-found answer needs no search at all;
+        // an unconfirmed one still shows its candidates.
+        var waiting = link is not null && link.NextCheckAfterUtc is { } next && next > now;
+        if (waiting && link!.Status == ArtistCatalogLinkStatus.NotFound)
+            return new ArtistCatalogResolution(link, []);
+
         var candidates = await CandidatesAsync(artistName, ct);
-        if (link is not null && link.NextCheckAfterUtc is { } next && next > now)
-            return new ArtistCatalogResolution(link, candidates);
+        if (waiting)
+            return new ArtistCatalogResolution(link!, candidates);
 
         link ??= db.ArtistCatalogLinks.Add(new ArtistCatalogLink { ArtistKey = key }).Entity;
         link.CheckedAtUtc = now;
