@@ -36,6 +36,12 @@ public enum SongOriginSource
     /// legitimately disappear (soft-delete, upgrade merge, wishlist deletion).
     /// </summary>
     AlbumCompletion,
+
+    /// <summary>The owner asked for this release from an artist's discography.</summary>
+    ArtistRequest,
+
+    /// <summary>A new release of an artist the owner follows, queued when it came out.</summary>
+    FollowedArtist,
 }
 
 /// <summary>
@@ -87,6 +93,9 @@ public static class SongOriginResolver
             // Album completion carries no WishlistSource (there's no remote collection to sync), so it
             // is identified by the item's own origin discriminator instead.
             null when l.Origin == WishlistItemOrigin.AlbumCompletion => (SongOriginSource.AlbumCompletion, l.Album),
+            // Artist releases carry no WishlistSource either; the album they were asked for is the detail.
+            null when l.Origin == WishlistItemOrigin.ArtistRequest => (SongOriginSource.ArtistRequest, l.Album),
+            null when l.Origin == WishlistItemOrigin.ArtistMonitor => (SongOriginSource.FollowedArtist, l.Album),
             // No wishlist source — a one-off "add from URL", where the link IS the provenance.
             _ => (SongOriginSource.DirectUrl, HostOf(l.SourceUrl)),
         };

@@ -390,6 +390,7 @@ public sealed class StorageUsageCalculator(
         SongOriginSource.YouTubePlaylist => OriginKeys.YouTubePlaylist,
         SongOriginSource.DirectUrl => OriginKeys.DirectUrl,
         SongOriginSource.AlbumCompletion => OriginKeys.AlbumCompletion,
+        SongOriginSource.ArtistRequest or SongOriginSource.FollowedArtist => OriginKeys.ArtistRelease,
         _ => origin.Kind switch
         {
             SongOriginKind.Synced => OriginKeys.Synced,

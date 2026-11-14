@@ -257,6 +257,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<History.IActivitySource, History.Sources.SyncActivitySource>();
         services.AddScoped<History.IActivitySource, History.Sources.CurationActivitySource>();
         services.AddScoped<History.IActivitySource, History.Sources.PipelineActivitySource>();
+        services.AddScoped<History.IActivitySource, History.Sources.FollowedArtistActivitySource>();
         services.AddSingleton<ICanonicalAlbumConsolidator, CanonicalAlbumConsolidator>();
         services.AddSingleton<IFingerprintSimilarityGate, FingerprintSimilarityGate>();
         services.AddSingleton<DuplicateCandidateGenerator>();
@@ -348,6 +349,14 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IAlbumCompletionIdentityResolver, SpotifyAlbumCompletionIdentityResolver>();
         services.AddScoped<AlbumCompletionSweep>();
         services.AddHostedService<AlbumCompletionBackgroundService>();
+
+        // Artist discographies, "Get album", and following artists for their new releases.
+        services.AddScoped<Artists.ArtistCatalogResolver>();
+        services.AddScoped<Artists.ArtistReleaseQueuer>();
+        services.AddScoped<Artists.ArtistDiscographyService>();
+        services.AddScoped<Artists.IArtistReleaseNotifier, Artists.ArtistReleaseNotifier>();
+        services.AddScoped<Artists.ArtistMonitorSweep>();
+        services.AddHostedService<Artists.ArtistMonitorBackgroundService>();
         // Staged-source release: deletes a download's staged copy once its library copy is verified,
         // so downloads stop being stored twice. Own tracker (not a JobType) so the hourly sweep never
         // opens ingest runs; the purge service cancels it before deleting destination files.

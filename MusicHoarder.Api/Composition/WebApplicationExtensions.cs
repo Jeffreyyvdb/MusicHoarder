@@ -49,6 +49,7 @@ public static class WebApplicationExtensions
         app.MapChatEndpoints();
         app.MapPushEndpoints();
         app.MapArtistsEndpoints();
+        app.MapArtistDiscographyEndpoints();
         app.MapQualityEndpoints();
         app.MapAlbumQualityEndpoints();
         app.MapQualityTrialEndpoints();

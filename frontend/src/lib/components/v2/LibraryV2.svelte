@@ -34,6 +34,11 @@
   import LibraryArtistsGridV2 from '#lib/components/v2/LibraryArtistsGridV2.svelte';
   import TrackRowMenu, { activateTrack } from '#lib/components/v2/TrackRowMenu.svelte';
   import TrackRowText from '#lib/components/v2/TrackRowText.svelte';
+  import ArtistActionsV2 from '#lib/components/v2/ArtistActionsV2.svelte';
+  import ArtistDiscographyV2 from '#lib/components/v2/ArtistDiscographyV2.svelte';
+  import { ArtistPageState } from '#lib/stores/artist-page.svelte.ts';
+  import { popularSongs, releaseCaption } from '#lib/artist-discography.ts';
+  import type { ArtistRelease } from '#lib/api-client.ts';
   import { longpress, type LongPressPoint } from '#lib/actions/long-press.ts';
   import {
     CHIP_KEYS,
@@ -485,10 +490,49 @@
     compact ? undefined : tabMemory.backTarget(page.url, page.data.user)
   );
 
-  function activateArtistSong(song: ApiSong, index: number) {
-    const play = () => playQueue(artistSongs, index);
+  function activateArtistSong(song: ApiSong, index: number, list: ApiSong[] = artistSongs) {
+    const play = () => playQueue(list, index);
     if (compact) activateTrack(song.id, play);
     else selectTrack(song);
+  }
+
+  // ── the artist page's Spotify half: Popular, what you liked, the discography, Follow ──
+  // "Popular" is your own most-played songs of theirs: the only listener counted here is you.
+  function statsFor(song: ApiSong) {
+    const stats = songsStore.playStatsOf(song);
+    return {
+      plays: stats.playCount ?? 0,
+      lastPlayed: stats.lastPlayedAtUtc ? Date.parse(stats.lastPlayedAtUtc) || 0 : 0,
+      liked: Boolean(song.likedAtUtc)
+    };
+  }
+  let popularExpanded = $state(false);
+  let artistHeroTitle = $state<HTMLElement | null>(null);
+  const popularAll = $derived(isArtistView ? popularSongs(artistSongs, statsFor, 10) : []);
+  const popular = $derived(popularExpanded ? popularAll : popularAll.slice(0, 5));
+  const likedArtistSongs = $derived(artistSongs.filter((s) => s.likedAtUtc));
+  $effect(() => {
+    // A new artist starts collapsed.
+    void artistName;
+    popularExpanded = false;
+  });
+
+  // The catalog side is administration (it queues downloads), so only an admin's page asks for it.
+  const showCatalog = $derived(isArtistView && !isFriend && isAdmin(page.data.user));
+  const artistPage = new ArtistPageState();
+  $effect(() => {
+    if (showCatalog && artistName && untrack(() => artistPage.artist) !== artistName) {
+      void artistPage.load(artistName);
+    }
+  });
+  /** The newest release that is out — Spotify's "Artist pick" spot. */
+  const latestRelease = $derived(
+    showCatalog ? (artistPage.data?.releases.find((r) => !r.upcoming) ?? null) : null
+  );
+  function releaseHref(release: ArtistRelease): string | null {
+    const name = (release.libraryAlbum ?? release.title).toLowerCase();
+    const album = artistAlbums.find((a) => a.title.toLowerCase() === name);
+    return album ? albumHref(album) : null;
   }
 
   type RowMenu = { openAt: (point: LongPressPoint) => void };
@@ -912,8 +956,14 @@
 
 <!-- An artist's song row: the phone row design (48pt art, title over album, ⋯), not virtualized —
      an artist's songs are a few dozen at most. -->
-{#snippet artistSongRow(song: ApiSong, index: number)}
+{#snippet artistSongRow(
+  song: ApiSong,
+  index: number,
+  list: ApiSong[] = artistSongs,
+  ranked = false
+)}
   {@const isLoaded = playerStore.currentSong?.id === song.id}
+  {@const plays = ranked ? (songsStore.playStatsOf(song).playCount ?? 0) : 0}
   <li
     use:longpress={{ onlongpress: (p) => artistMenus[song.id]?.openAt(p) }}
     oncontextmenu={(e) => {
@@ -922,17 +972,26 @@
     }}
     class={cn(
       'group has-[[data-row-main]:active]:bg-accent md:hover:bg-accent relative flex min-h-16 items-center pr-1 transition-colors duration-100 md:min-h-14 md:rounded-lg',
-      index < artistSongs.length - 1 &&
-        "after:bg-separator after:absolute after:right-0 after:bottom-0 after:left-[76px] after:h-(--hairline) after:content-[''] md:after:left-[68px]"
+      index < list.length - 1 &&
+        "after:bg-separator after:absolute after:right-0 after:bottom-0 after:left-[76px] after:h-(--hairline) after:content-[''] md:after:left-[68px]",
+      ranked && index < list.length - 1 && 'after:left-[104px] md:after:left-[96px]'
     )}
   >
     <button
       type="button"
       data-row-main=""
-      onclick={() => activateArtistSong(song, index)}
+      onclick={() => activateArtistSong(song, index, list)}
       aria-current={isLoaded ? 'true' : undefined}
-      class="focus-visible:ring-ring flex min-h-16 min-w-0 flex-1 items-center gap-3 pl-4 text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset md:min-h-14 md:pl-2"
+      class="focus-visible:ring-ring flex min-h-16 min-w-0 flex-1 items-center gap-3 pl-4 text-left focus-visible:ring-2 focus-visible:outline-hidden focus-visible:ring-inset md:min-h-14 md:pl-2"
     >
+      {#if ranked}
+        <span
+          class="text-muted-foreground text-body w-4 shrink-0 text-center tabular-nums md:text-sm"
+          aria-hidden="true"
+        >
+          {index + 1}
+        </span>
+      {/if}
       <span class="relative shrink-0">
         <Cover
           artist={fallbackArtist(song)}
@@ -963,7 +1022,9 @@
         {song}
         loaded={isLoaded}
         opensPlayer={isLoaded && compact}
-        secondary={`${song.album ?? '—'}${song.year ? ` · ${song.year}` : ''}`}
+        secondary={ranked
+          ? `${plays > 0 ? `${plays.toLocaleString()} play${plays === 1 ? '' : 's'} · ` : ''}${song.album ?? '—'}`
+          : `${song.album ?? '—'}${song.year ? ` · ${song.year}` : ''}`}
       />
       <span class="text-muted-foreground hidden text-xs tabular-nums md:inline">
         {formatDuration(song.durationSeconds)}
@@ -973,7 +1034,7 @@
       bind:this={() => artistMenus[song.id], (m) => (artistMenus[song.id] = m)}
       {song}
       showArtist={false}
-      onplay={() => playQueue(artistSongs, index)}
+      onplay={() => playQueue(list, index)}
     />
   </li>
 {/snippet}
@@ -1017,37 +1078,167 @@
 {:else if isArtistView && artistName}
   <!-- Artist view: a pushed page (Back → wherever you came from, else Artists). -->
   <ScrollArea bind:viewportRef={gridViewport} class="min-h-0 flex-1">
-    <PageToolbarV2 title={artistName} meta={artistMeta} back={desktopBack}>
+    <!-- The hero's name is the title (Apple Music's album page): the bar's inline title fades in
+         once it scrolls under, so the name is never shown twice at rest. -->
+    <PageToolbarV2
+      title={artistName}
+      back={desktopBack}
+      largeTitle={false}
+      collapseAfter={artistHeroTitle}
+    >
       {#snippet actions()}
         {@render albumsMenu()}
       {/snippet}
     </PageToolbarV2>
 
-    <div class="flex flex-col gap-6 pb-6 md:px-7">
-      <!-- Hero: a round portrait (falls back to an album cover), then the artist's Play/Shuffle. -->
-      <div class="flex flex-col items-center gap-4 pt-2 md:flex-row md:items-center md:gap-6">
-        <Cover
-          artist={artistAlbums[0]?.artist ?? artistName}
-          title={artistAlbums[0]?.title ?? artistName}
-          coverUrl={getArtistImageUrl(artistName)}
-          fallbackUrl={artistAlbums[0]?.coverUrl ?? null}
-          size={120}
-          corner={60}
-          caption={false}
-          dprCap={3}
-          class="shrink-0 shadow-[0_6px_20px_rgb(0_0_0/0.18)]"
+    <div class="flex flex-col gap-7 pb-6 md:gap-8 md:px-7">
+      <!-- Hero, after Spotify's artist header: a big round portrait, the name large, what you have
+           of them, then the action row (Play, Shuffle, Follow, More). -->
+      <div class="flex flex-col gap-5">
+        <div
+          class="flex flex-col items-center gap-4 pt-2 md:flex-row md:items-end md:gap-7 md:pt-4"
+        >
+          <Cover
+            artist={artistAlbums[0]?.artist ?? artistName}
+            title={artistAlbums[0]?.title ?? artistName}
+            coverUrl={getArtistImageUrl(artistName)}
+            fallbackUrl={artistPage.data?.catalog.pictureUrl ?? artistAlbums[0]?.coverUrl ?? null}
+            size={compact ? 160 : 208}
+            corner={compact ? 80 : 104}
+            caption={false}
+            dprCap={3}
+            class="shrink-0 shadow-[0_10px_30px_rgb(0_0_0/0.25)]"
+          />
+          <div
+            class="flex min-w-0 flex-col items-center gap-1 text-center md:items-start md:pb-2 md:text-left"
+          >
+            <h1
+              bind:this={artistHeroTitle}
+              class="max-w-full truncate text-[34px] leading-tight font-black tracking-tight md:text-5xl lg:text-7xl"
+            >
+              {artistName}
+            </h1>
+            <p class="text-muted-foreground text-subheadline md:text-sm">
+              {artistMeta}{#if artistPage.data?.follow && showCatalog}
+                · Following{/if}
+            </p>
+          </div>
+        </div>
+        <ArtistActionsV2
+          page={showCatalog ? artistPage : null}
+          canPlay={artistSongs.length > 0}
+          onplay={() => playQueue(artistSongs)}
+          onshuffle={() => playQueue(shuffle(artistSongs))}
         />
-        {#if artistSongs.length > 0}
-          {@render playPills(
-            () => playQueue(artistSongs),
-            () => playQueue(shuffle(artistSongs)),
-            'w-full md:w-auto md:px-0 md:[&>*]:flex-none'
-          )}
-        {/if}
       </div>
 
+      {#if popularAll.length > 0 || likedArtistSongs.length > 0 || latestRelease}
+        <div class="grid gap-7 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-10">
+          {#if popularAll.length > 0}
+            <section aria-labelledby="artist-popular-heading">
+              <h2 id="artist-popular-heading" class="text-title-2 mb-1 px-4 md:px-0 md:text-lg">
+                Popular
+              </h2>
+              <ul>
+                {#each popular as song, index (song.id)}
+                  {@render artistSongRow(song, index, popular, true)}
+                {/each}
+              </ul>
+              {#if popularAll.length > 5}
+                <button
+                  type="button"
+                  class="text-muted-foreground hover:text-foreground text-subheadline relative mt-1 ml-4 h-11 font-semibold md:ml-2 md:h-8 md:text-sm"
+                  onclick={() => (popularExpanded = !popularExpanded)}
+                >
+                  {popularExpanded ? 'Show less' : 'See more'}
+                </button>
+              {/if}
+            </section>
+          {/if}
+
+          {#if likedArtistSongs.length > 0 || latestRelease}
+            <div class="flex flex-col gap-7 px-4 md:px-0">
+              {#if likedArtistSongs.length > 0}
+                <section aria-labelledby="artist-liked-heading">
+                  <h2 id="artist-liked-heading" class="text-title-2 mb-3 md:text-lg">You liked</h2>
+                  <button
+                    type="button"
+                    class="hover:bg-accent focus-visible:ring-ring -mx-2 flex w-[calc(100%+1rem)] items-center gap-4 rounded-xl p-2 text-left focus-visible:ring-2 focus-visible:outline-hidden"
+                    onclick={() => playQueue(likedArtistSongs)}
+                    aria-label={`Play the ${likedArtistSongs.length} songs you liked by ${artistName}`}
+                  >
+                    <span class="relative shrink-0">
+                      <Cover
+                        artist={artistName}
+                        title={artistName}
+                        coverUrl={getArtistImageUrl(artistName)}
+                        fallbackUrl={artistAlbums[0]?.coverUrl ?? null}
+                        size={72}
+                        corner={36}
+                        caption={false}
+                      />
+                      <span
+                        class="bg-primary text-primary-foreground absolute -right-0.5 -bottom-0.5 grid size-6 place-items-center rounded-full ring-2 ring-(--background)"
+                      >
+                        <Heart class="size-3.5" fill="currentColor" aria-hidden="true" />
+                      </span>
+                    </span>
+                    <span class="min-w-0">
+                      <span class="text-headline block md:text-sm md:font-semibold">
+                        {likedArtistSongs.length} song{likedArtistSongs.length === 1 ? '' : 's'}
+                      </span>
+                      <span class="text-muted-foreground text-subheadline block truncate md:text-xs"
+                        >By {artistName}</span
+                      >
+                    </span>
+                  </button>
+                </section>
+              {/if}
+
+              {#if latestRelease}
+                {@const href = releaseHref(latestRelease)}
+                <section aria-labelledby="artist-latest-heading">
+                  <h2 id="artist-latest-heading" class="text-title-2 mb-3 md:text-lg">
+                    Latest release
+                  </h2>
+                  <svelte:element
+                    this={href ? 'a' : 'div'}
+                    {href}
+                    class="hover:bg-accent focus-visible:ring-ring -mx-2 flex items-center gap-4 rounded-xl p-2 focus-visible:ring-2 focus-visible:outline-hidden"
+                  >
+                    <Cover
+                      artist={artistName}
+                      title={latestRelease.title}
+                      coverUrl={latestRelease.coverUrl}
+                      size={72}
+                      corner={8}
+                      caption={false}
+                      class="shrink-0"
+                    />
+                    <span class="min-w-0">
+                      <span class="text-headline block truncate md:text-sm md:font-semibold"
+                        >{latestRelease.title}</span
+                      >
+                      <span class="text-muted-foreground text-subheadline block md:text-xs"
+                        >{releaseCaption(latestRelease)}</span
+                      >
+                    </span>
+                  </svelte:element>
+                </section>
+              {/if}
+            </div>
+          {/if}
+        </div>
+      {/if}
+
+      {#if showCatalog}
+        <ArtistDiscographyV2 state={artistPage} hrefFor={releaseHref} {compact} />
+      {/if}
+
       <section aria-labelledby="artist-albums-heading">
-        <h2 id="artist-albums-heading" class="text-title-2 mb-2 px-4 md:px-0 md:text-lg">Albums</h2>
+        <h2 id="artist-albums-heading" class="text-title-2 mb-2 px-4 md:px-0 md:text-lg">
+          {showCatalog ? 'In your library' : 'Albums'}
+        </h2>
         <div class="px-3 md:-mx-1 md:px-0">
           <LibraryAlbumsGridV2
             albums={artistAlbums}

@@ -380,6 +380,51 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.ToTable("ArtistAliases");
                 });
 
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.ArtistCatalogLink", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ArtistKey")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<DateTime>("CheckedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DeezerArtistId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("Fans")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<DateTime?>("NextCheckAfterUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PictureUrl")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ArtistKey")
+                        .IsUnique();
+
+                    b.ToTable("ArtistCatalogLinks");
+                });
+
             modelBuilder.Entity("MusicHoarder.Api.Persistence.ArtistImage", b =>
                 {
                     b.Property<int>("Id")
@@ -929,6 +974,125 @@ namespace MusicHoarder.Api.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("ExportedPlaylists");
+                });
+
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.FollowedArtist", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ArtistKey")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<bool>("AutoDownload")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("DeezerArtistId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime>("FollowedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastCheckedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<DateTime?>("NextCheckAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OwnerUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PictureUrl")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<int>("ReleaseKinds")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NextCheckAtUtc");
+
+                    b.HasIndex("OwnerUserId", "ArtistKey");
+
+                    b.HasIndex("OwnerUserId", "DeezerArtistId")
+                        .IsUnique();
+
+                    b.ToTable("FollowedArtists");
+                });
+
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.FollowedArtistRelease", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("CanonicalAlbumId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("CoverUrl")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<DateTime>("DecidedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Decision")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("DeezerAlbumId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("FollowedArtistId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer");
+
+                    b.Property<DateOnly?>("ReleaseDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("ReleaseKey")
+                        .IsRequired()
+                        .HasMaxLength(600)
+                        .HasColumnType("character varying(600)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<int>("TracksQueued")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DecidedAtUtc");
+
+                    b.HasIndex("FollowedArtistId", "ReleaseKey")
+                        .IsUnique();
+
+                    b.ToTable("FollowedArtistReleases");
                 });
 
             modelBuilder.Entity("MusicHoarder.Api.Persistence.GraderComparisonRun", b =>
@@ -2875,6 +3039,17 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Navigation("Snapshot");
                 });
 
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.FollowedArtistRelease", b =>
+                {
+                    b.HasOne("MusicHoarder.Api.Persistence.FollowedArtist", "FollowedArtist")
+                        .WithMany("Releases")
+                        .HasForeignKey("FollowedArtistId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("FollowedArtist");
+                });
+
             modelBuilder.Entity("MusicHoarder.Api.Persistence.LibraryWriteEvent", b =>
                 {
                     b.HasOne("MusicHoarder.Api.Persistence.SongMetadata", "Song")
@@ -3096,6 +3271,11 @@ namespace MusicHoarder.Api.Persistence.Migrations
             modelBuilder.Entity("MusicHoarder.Api.Persistence.EnrichmentSnapshot", b =>
                 {
                     b.Navigation("Songs");
+                });
+
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.FollowedArtist", b =>
+                {
+                    b.Navigation("Releases");
                 });
 
             modelBuilder.Entity("MusicHoarder.Api.Persistence.Playlist", b =>

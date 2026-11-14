@@ -98,6 +98,8 @@ public static class OriginKeys
     public const string YouTubePlaylist = "youtubePlaylist";
     public const string DirectUrl = "directUrl";
     public const string AlbumCompletion = "albumCompletion";
+    /// <summary>Releases asked for on an artist's page, or found by following an artist.</summary>
+    public const string ArtistRelease = "artistRelease";
     /// <summary>Downloaded, but no wishlist link says why — quality upgrades, for one.</summary>
     public const string OtherDownload = "otherDownload";
     public const string Synced = "synced";
@@ -106,7 +108,7 @@ public static class OriginKeys
 
     public static readonly IReadOnlyList<string> All =
     [
-        SpotifyLiked, SpotifyPlaylist, DeezerPlaylist, YouTubePlaylist, DirectUrl, AlbumCompletion, OtherDownload, Synced, Local,
+        SpotifyLiked, SpotifyPlaylist, DeezerPlaylist, YouTubePlaylist, DirectUrl, AlbumCompletion, ArtistRelease, OtherDownload, Synced, Local,
     ];
 }
 

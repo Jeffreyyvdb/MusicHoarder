@@ -261,7 +261,10 @@ internal static class DeezerCatalogJson
                             _ => null,
                         }
                         : null;
-                    tracks.Add(new DeezerAlbumTrackItem(disc, pos, tTitle, durSec * 1000, tId));
+                    string? tArtist = t.TryGetProperty("artist", out var taEl) && taEl.ValueKind == JsonValueKind.Object
+                        ? ReadString(taEl, "name")
+                        : null;
+                    tracks.Add(new DeezerAlbumTrackItem(disc, pos, tTitle, durSec * 1000, tId, tArtist));
                 }
             }
 
@@ -289,7 +292,7 @@ internal static class DeezerCatalogJson
                 if (item.ValueKind != JsonValueKind.Object) continue;
                 // Largest first: picture_xl is 1000x1000, picture_big 500x500.
                 var picture = ReadString(item, "picture_xl") ?? ReadString(item, "picture_big") ?? ReadString(item, "picture_medium");
-                candidates.Add(new DeezerArtistCandidate(ReadString(item, "name"), picture));
+                candidates.Add(ParseArtist(item, picture));
             }
 
             return candidates;
@@ -300,7 +303,69 @@ internal static class DeezerCatalogJson
         }
     }
 
+    private static DeezerArtistCandidate ParseArtist(JsonElement item, string? picture) =>
+        new(ReadString(item, "name"), picture, ReadIdAsString(item), ReadInt(item, "nb_fan"), ReadInt(item, "nb_album"));
+
+    /// <summary>One artist (<c>GET /artist/{id}</c>), or null for an error body.</summary>
+    internal static DeezerArtistCandidate? ParseArtistDetail(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object || ReadIdAsString(root) is null) return null;
+            var picture = ReadString(root, "picture_xl") ?? ReadString(root, "picture_big") ?? ReadString(root, "picture_medium");
+            return ParseArtist(root, picture);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// One page of an artist's releases, and whether another follows. Null for a body that is not a
+    /// page at all (an error object), so a caller can tell "nothing listed" from "could not read".
+    /// </summary>
+    internal static (IReadOnlyList<DeezerArtistRelease> Releases, bool HasNext)? ParseArtistReleasesPage(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object
+                || !root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+                return null;
+
+            var releases = new List<DeezerArtistRelease>();
+            foreach (var item in data.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object) continue;
+                var id = ReadIdAsString(item);
+                var title = ReadString(item, "title");
+                if (string.IsNullOrEmpty(id) || string.IsNullOrWhiteSpace(title)) continue;
+
+                DateOnly? date = DateOnly.TryParseExact(ReadString(item, "release_date"), "yyyy-MM-dd", out var d) ? d : null;
+                var cover = ReadString(item, "cover_xl") ?? ReadString(item, "cover_big") ?? ReadString(item, "cover_medium");
+                var isExplicit = item.TryGetProperty("explicit_lyrics", out var ex) && ex.ValueKind == JsonValueKind.True;
+                releases.Add(new DeezerArtistRelease(id, title.Trim(), ReadString(item, "record_type"), date, cover, isExplicit));
+            }
+
+            var hasNext = root.TryGetProperty("next", out var next) && next.ValueKind == JsonValueKind.String
+                && !string.IsNullOrEmpty(next.GetString());
+            return (releases, hasNext);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     // --- Field readers ---
+
+    private static int ReadInt(JsonElement obj, string property) =>
+        obj.TryGetProperty(property, out var el) && el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out var v) ? v : 0;
+
 
     private static string? ReadString(JsonElement obj, string property) =>
         obj.TryGetProperty(property, out var el) && el.ValueKind == JsonValueKind.String ? el.GetString() : null;

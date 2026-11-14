@@ -38,6 +38,37 @@ public enum WishlistItemOrigin
     /// Claimed by the downloader strictly after every <see cref="UserRequested"/> item.
     /// </summary>
     AlbumCompletion = 1,
+
+    /// <summary>
+    /// The owner asked for a whole release from an artist's discography ("Get album", "Get
+    /// discography"). Claimed with <see cref="UserRequested"/> work — a person asked for it.
+    /// </summary>
+    ArtistRequest = 2,
+
+    /// <summary>
+    /// A new release of an artist the owner follows, queued by <c>ArtistMonitorSweep</c>. Claimed after
+    /// what a person asked for and before album completion.
+    /// </summary>
+    ArtistMonitor = 3,
+}
+
+public static class WishlistItemOrigins
+{
+    /// <summary>
+    /// The download queue's order: what a person asked for, then what a follow found, then album
+    /// completion. The enum's numbers are stored and cannot be reordered, so the order lives here — use
+    /// it rather than ordering by the enum.
+    /// </summary>
+    public static int ClaimPriority(WishlistItemOrigin origin) => origin switch
+    {
+        WishlistItemOrigin.UserRequested or WishlistItemOrigin.ArtistRequest => 0,
+        WishlistItemOrigin.ArtistMonitor => 1,
+        _ => 2,
+    };
+
+    /// <summary>Whether the item came from an artist's discography — a request or a follow.</summary>
+    public static bool IsArtistRelease(WishlistItemOrigin origin) =>
+        origin is WishlistItemOrigin.ArtistRequest or WishlistItemOrigin.ArtistMonitor;
 }
 
 /// <summary>
@@ -65,8 +96,9 @@ public class WishlistItem
     public WishlistItemOrigin Origin { get; set; } = WishlistItemOrigin.UserRequested;
 
     /// <summary>
-    /// The album this item was queued to complete. Set only for
-    /// <see cref="WishlistItemOrigin.AlbumCompletion"/> items, where it is both the provenance and the
+    /// The album this item was queued to complete. Set for album-shaped origins
+    /// (<see cref="WishlistItemOrigin.AlbumCompletion"/>, <see cref="WishlistItemOrigin.ArtistRequest"/>,
+    /// <see cref="WishlistItemOrigin.ArtistMonitor"/>), where it is both the provenance and the
     /// dedupe key: the sweep loads every item for an album — <em>any</em> status — and skips canonical
     /// tracks it already has a row for, so terminal <see cref="WishlistItemStatus.Failed"/> /
     /// <see cref="WishlistItemStatus.NotFound"/> rows act as permanent tombstones. (A Failed row with a

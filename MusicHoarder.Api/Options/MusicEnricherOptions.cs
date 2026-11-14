@@ -1022,6 +1022,52 @@ public class MusicEnricherOptions
     [Range(0, 100000)]
     public int AlbumCompletionMaxPendingItems { get; set; } = 200;
 
+    // --- Artist discographies and follows (Artists/) ---
+
+    /// <summary>
+    /// Kill switch for the artist monitor (<c>ArtistMonitorBackgroundService</c>). Following an artist is
+    /// itself the opt-in, so this defaults on; downloads additionally need
+    /// <see cref="EnableWishlistDownloads"/> — without it a new release is only noticed.
+    /// </summary>
+    public bool EnableArtistMonitor { get; set; } = true;
+
+    /// <summary>Minutes between monitor passes. Each pass checks only the follows that are due.</summary>
+    [Range(1, 1440)]
+    public int ArtistMonitorSweepIntervalMinutes { get; set; } = 30;
+
+    /// <summary>Hours between two checks of the same followed artist.</summary>
+    [Range(1, 720)]
+    public int ArtistMonitorCheckIntervalHours { get; set; } = 12;
+
+    /// <summary>Followed artists checked per pass, so a long follow list spreads its catalog reads out.</summary>
+    [Range(1, 500)]
+    public int ArtistMonitorArtistsPerSweep { get; set; } = 20;
+
+    /// <summary>
+    /// The monitor queues nothing more while this many of its items are still Pending; a release left
+    /// undecided is simply found again on the next check. 0 disables the check.
+    /// </summary>
+    [Range(0, 100000)]
+    public int ArtistMonitorMaxPendingItems { get; set; } = 300;
+
+    /// <summary>Most tracks the monitor queues for one release (a 3-disc deluxe still fits).</summary>
+    [Range(1, 500)]
+    public int ArtistMonitorMaxTracksPerRelease { get; set; } = 100;
+
+    /// <summary>
+    /// A release that first appears after the follow but is dated more than this many days before it
+    /// is a catalog back-fill, not a new release, and is not downloaded.
+    /// </summary>
+    [Range(0, 3650)]
+    public int ArtistMonitorBackCatalogGraceDays { get; set; } = 14;
+
+    /// <summary>
+    /// Most tracks one "Get album" / "Get discography" request may queue. A discography past it is
+    /// queued release by release up to the budget, and the response says how much was left out.
+    /// </summary>
+    [Range(1, 10000)]
+    public int ArtistRequestMaxTracks { get; set; } = 500;
+
     /// <summary>Smallest canonical tracklist worth completing — stops the sweep "completing" singles.</summary>
     [Range(2, 100)]
     public int AlbumCompletionMinCanonicalTracks { get; set; } = 2;

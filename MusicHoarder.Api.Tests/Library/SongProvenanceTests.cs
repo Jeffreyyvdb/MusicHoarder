@@ -27,12 +27,29 @@ public class SongProvenanceTests
     [InlineData(SongOriginKind.Downloaded, SongOriginSource.DirectUrl, ProvenanceReason.Link)]
     [InlineData(SongOriginKind.Downloaded, SongOriginSource.AlbumCompletion, ProvenanceReason.AlbumFill)]
     [InlineData(SongOriginKind.Downloaded, SongOriginSource.None, ProvenanceReason.Downloaded)]
+    [InlineData(SongOriginKind.Downloaded, SongOriginSource.ArtistRequest, ProvenanceReason.ArtistRequest)]
+    [InlineData(SongOriginKind.Downloaded, SongOriginSource.FollowedArtist, ProvenanceReason.FollowedArtist)]
     public void ReasonFor_ExplicitSongs(SongOriginKind kind, SongOriginSource source, ProvenanceReason expected)
     {
         var reason = SongProvenanceService.ReasonFor(
             SongAcquisitionIntent.Explicit, new SongOrigin(kind, source, null, null));
 
         Assert.Equal(expected, reason);
+    }
+
+    [Theory]
+    [InlineData(WishlistItemOrigin.ArtistRequest, SongOriginSource.ArtistRequest, "You asked for “Discovery”")]
+    [InlineData(WishlistItemOrigin.ArtistMonitor, SongOriginSource.FollowedArtist, "New release “Discovery”")]
+    public void ArtistReleases_AreExplainedByTheReleaseTheyCameWith(
+        WishlistItemOrigin origin, SongOriginSource expectedSource, string expectedLabel)
+    {
+        var link = new WishlistLink(null, null, null, null, origin, "Discovery");
+        var resolved = SongOriginResolver.Resolve($"{DownloadDir}/x.flac", link, DownloadDir, SyncedDir);
+        Assert.Equal(expectedSource, resolved.Source);
+        Assert.Equal("Discovery", resolved.Detail);
+
+        var reason = SongProvenanceService.ReasonFor(SongAcquisitionIntent.Explicit, resolved);
+        Assert.Equal(expectedLabel, SongProvenanceService.Describe(reason, resolved.Detail).Label);
     }
 
     [Fact]

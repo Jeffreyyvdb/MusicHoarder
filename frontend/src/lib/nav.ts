@@ -29,6 +29,7 @@ import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal';
 import Sparkles from '@lucide/svelte/icons/sparkles';
 import Tags from '@lucide/svelte/icons/tags';
 import TrendingUp from '@lucide/svelte/icons/trending-up';
+import UserCheck from '@lucide/svelte/icons/user-check';
 import Users from '@lucide/svelte/icons/users';
 import Workflow from '@lucide/svelte/icons/workflow';
 import { APP_HOME } from '#lib/app-home.ts';
@@ -302,6 +303,15 @@ export const NAV_GROUPS: NavGroup[] = [
         keywords: 'playlists liked connect'
       },
       {
+        // Artists whose new releases are watched for (and downloaded). Following itself happens on an
+        // artist's page; this is where the follows are listed, searched for and managed.
+        id: 'following',
+        label: 'Following',
+        href: '/following',
+        icon: UserCheck,
+        keywords: 'follow artists new releases monitor discography radar subscribe'
+      },
+      {
         id: 'wishlist',
         label: 'Wishlist',
         href: '/wishlist',
@@ -437,11 +447,13 @@ export function navGroupsFor(user: NavAudience): NavGroup[] {
  * - `playlist-sync`: lists the Spotify account the instance is connected to.
  * - `grader-trial`: admin-only by design (the trial's costs and models).
  * - `performance`: snapshots record the instance's pipeline configuration.
+ * - `following`: reads a third-party catalog for the instance, and following queues downloads.
  *
  * Hiding an item here hides it from every nav surface, and the route guard
  * ({@link isPathAllowedFor}) follows for any path no visible item shares.
  */
 export const DEMO_HIDDEN_ITEMS: ReadonlySet<string> = new Set([
+  'following',
   'playlist-sync',
   'grader-trial',
   'performance'
