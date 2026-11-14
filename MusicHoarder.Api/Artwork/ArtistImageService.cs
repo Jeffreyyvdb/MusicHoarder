@@ -12,7 +12,7 @@ public interface IArtistImageService
 {
     /// <summary>
     /// The artist's portrait CDN URL, from the database cache or a live Deezer → Spotify lookup
-    /// (each hit verified by name before it's trusted). Null when disabled, the name is blank, or
+    /// (each hit verified by name before it's trusted). Null when disabled, the name is blank or over-long, the name matches no artist in the caller's library (cached value only), or
     /// no provider has a verified portrait — that outcome is negative-cached and retried after
     /// <c>MusicEnricher:ArtistImageNotFoundRetryDays</c>. Never throws (except on cancellation).
     /// </summary>
@@ -27,6 +27,9 @@ public sealed class ArtistImageService(
     IOptions<MusicEnricherOptions> options,
     ILogger<ArtistImageService> logger) : IArtistImageService
 {
+    /// <summary>Longest artist name that is looked up; longer input is rejected without a lookup.</summary>
+    internal const int MaxNameLength = 200;
+
     public async Task<string?> GetImageUrlAsync(string name, CancellationToken ct = default)
     {
         var opts = options.Value;
@@ -37,10 +40,18 @@ public sealed class ArtistImageService(
         if (normalized.Length == 0)
             return null;
 
+        if (name.Length > MaxNameLength)
+            return null;
+
         var now = DateTime.UtcNow;
         var cached = await db.ArtistImages.FirstOrDefaultAsync(a => a.NormalizedName == normalized, ct);
         if (cached is not null && !IsStale(cached, opts, now))
             return cached.ImageUrl;
+
+        // Only names of artists in a library the caller can read are looked up and stored; any
+        // other name gets what is already cached (possibly stale) and no provider call or new row.
+        if (!await IsLibraryArtistAsync(name, ct))
+            return cached?.ImageUrl;
 
         var (url, source) = await FetchAsync(name, ct);
 
@@ -63,6 +74,16 @@ public sealed class ArtistImageService(
         cached.FetchedAtUtc = now;
         await SaveBestEffortAsync(ct);
         return url;
+    }
+
+    private async Task<bool> IsLibraryArtistAsync(string name, CancellationToken ct)
+    {
+        var lowered = name.Trim().ToLower();
+        var needle = ";" + lowered + ";";
+        return await db.Songs.AnyAsync(s =>
+            (s.Artist != null && s.Artist.ToLower() == lowered)
+            || (s.AlbumArtist != null && s.AlbumArtist.ToLower() == lowered)
+            || (s.Artists != null && (";" + s.Artists + ";").Replace("; ", ";").ToLower().Contains(needle)), ct);
     }
 
     private static bool IsStale(ArtistImage cached, MusicEnricherOptions opts, DateTime now)
