@@ -117,6 +117,22 @@ public class ArtistMonitorSweepTests
     }
 
     [Fact]
+    public async Task AReleaseAnnouncedBeforeTheFollow_IsNotBaseline_AndDownloadsWhenOut()
+    {
+        await using var db = NewContext();
+        var deezer = Catalog(Release("old", "Discovery", date: "2001-03-12"), Release("f", "Coming Soon", date: "2026-12-01"));
+        deezer.Albums["f"] = Album("f", "Coming Soon", "Daft Punk", "Track");
+        var follow = await FollowAsync(db, followedAt: Now);
+        var (sweep, _) = Sweep(db, deezer);
+
+        await sweep.CheckAsync(follow.Id, Now, default);
+        Assert.Equal(["Discovery"], (await db.FollowedArtistReleases.IgnoreQueryFilters().ToListAsync()).Select(r => r.Title));
+
+        var result = await sweep.CheckAsync(follow.Id, new DateTime(2026, 12, 2, 0, 0, 0, DateTimeKind.Utc), default);
+        Assert.Equal(1, result.TracksQueued);
+    }
+
+    [Fact]
     public async Task WithAutoDownloadOff_ANewReleaseIsOnlyNoticed()
     {
         await using var db = NewContext();

@@ -86,7 +86,7 @@ public static class ArtistDiscographyEndpoints
 
         var budget = Math.Max(1, opts.ArtistRequestMaxTracks);
         var results = new List<AcquireReleaseResult>(body.Releases.Count);
-        var skipped = 0;
+        var skipped = Math.Max(0, body.Releases.Count - 200);
         foreach (var release in body.Releases.Take(200))
         {
             // Budget spent: reading the rest from the catalog would only be to report them as capped.

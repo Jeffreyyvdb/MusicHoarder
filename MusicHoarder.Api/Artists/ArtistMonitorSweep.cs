@@ -72,9 +72,23 @@ public sealed class ArtistMonitorSweep(
         foreach (var id in due)
         {
             ct.ThrowIfCancellationRequested();
-            var outcome = await CheckAsync(id, now, ct);
-            releases += outcome.NewReleases;
-            tracks += outcome.TracksQueued;
+            try
+            {
+                var outcome = await CheckAsync(id, now, ct);
+                releases += outcome.NewReleases;
+                tracks += outcome.TracksQueued;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // One artist's failure (a rate limit, a network error) must not end the pass for the
+                // rest, nor leave this follow first in line forever.
+                logger.LogWarning(ex, "Artist monitor: checking followed artist {Id} failed", id);
+                db.ChangeTracker.Clear();
+                await db.FollowedArtists.IgnoreQueryFilters().Where(f => f.Id == id)
+                    .ExecuteUpdateAsync(u => u
+                        .SetProperty(f => f.LastError, "The last check failed; it will be tried again.")
+                        .SetProperty(f => f.NextCheckAtUtc, now.AddHours(1)), ct);
+            }
         }
 
         return new ArtistMonitorResult(due.Count, releases, tracks);
@@ -115,6 +129,10 @@ public sealed class ArtistMonitorSweep(
             decided.TryGetValue(release.Key, out var row);
             if (row is not null && row.Decision != FollowedReleaseDecision.Failed) continue;
 
+            // Not out yet: undecided, even on the first check. An album already announced when the
+            // artist was followed is news the day it comes out, not part of the back catalog.
+            if (release.ReleaseDate is { } date && date > today) continue;
+
             if (isBaseline)
             {
                 Record(follow, release, FollowedReleaseDecision.Baseline, 0, null, now);
@@ -122,7 +140,6 @@ public sealed class ArtistMonitorSweep(
             }
 
             if (!follow.ReleaseKinds.HasFlag(release.Kind)) continue;
-            if (release.ReleaseDate is { } date && date > today) continue;
 
             if (release.ReleaseDate is { } dated && dated < oldestNews)
             {
