@@ -50,8 +50,22 @@ public sealed class AuthService : IAuthService
             return null;
         }
 
-        // Revoke any prior unconsumed tokens for this user.
         var nowUtc = DateTime.UtcNow;
+        var options = _options.CurrentValue;
+        var windowStartUtc = nowUtc.AddMinutes(-options.MagicLinkLimitWindowMinutes);
+        var sentInWindow = await db.MagicLinkTokens
+            .CountAsync(t => t.UserId == user.Id && t.IssuedAtUtc > windowStartUtc, ct)
+            .ConfigureAwait(false);
+        if (sentInWindow >= options.MagicLinkLimitPerWindow)
+        {
+            // Same answer as an unknown address, and the last link sent stays valid.
+            _logger.LogWarning(
+                "Magic-link request over the limit for user {UserId} ({Count} in {Minutes} min); nothing sent.",
+                user.Id, sentInWindow, options.MagicLinkLimitWindowMinutes);
+            return null;
+        }
+
+        // Revoke any prior unconsumed tokens for this user.
         var prior = await db.MagicLinkTokens
             .Where(t => t.UserId == user.Id && t.ConsumedAtUtc == null && t.ExpiresAtUtc > nowUtc)
             .ToListAsync(ct).ConfigureAwait(false);
@@ -65,7 +79,7 @@ public sealed class AuthService : IAuthService
             UserId = user.Id,
             TokenHash = Sha256(rawToken),
             IssuedAtUtc = nowUtc,
-            ExpiresAtUtc = nowUtc.AddMinutes(_options.CurrentValue.MagicLinkTtlMinutes),
+            ExpiresAtUtc = nowUtc.AddMinutes(options.MagicLinkTtlMinutes),
             RequestedFromIp = ip,
             RequestedUserAgent = userAgent,
         };

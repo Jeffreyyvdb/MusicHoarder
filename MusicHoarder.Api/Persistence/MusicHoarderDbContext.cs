@@ -22,11 +22,32 @@ public class MusicHoarderDbContext : DbContext
     }
 
     /// <summary>
+    /// The constructor DI uses: the two above plus the protector that encrypts credential columns
+    /// (<see cref="Persistence.SpotifySettings"/>' tokens and client secret). Contexts made without
+    /// one (tests, design-time tooling) store those columns as given.
+    /// </summary>
+    public MusicHoarderDbContext(
+        DbContextOptions options, ICurrentUserAccessor currentUser, ISecretColumnProtector secretProtector)
+        : base(options)
+    {
+        _currentUser = currentUser;
+        _secretProtector = secretProtector;
+    }
+
+    private readonly ISecretColumnProtector? _secretProtector;
+
+    /// <summary>
     /// Used by <see cref="UserAwareModelCacheKeyFactory"/> to vary the compiled-model cache by the
     /// captured user id. <c>"anon"</c> for design-time / background-service contexts.
     /// </summary>
     internal string ModelCacheKeySegment =>
-        _currentUser?.User is { } u ? u.Id.ToString("N") : "anon";
+        (_currentUser?.User is { } u ? u.Id.ToString("N") : "anon")
+        // The protector is baked into the model as a value converter, so a context must never
+        // share a cached model with one built for another protector (or for none). Production has
+        // one protector (a singleton), so this adds no models there.
+        + (_secretProtector is null
+            ? ":plain"
+            : ":protected-" + System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(_secretProtector));
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -329,6 +350,14 @@ public class MusicHoarderDbContext : DbContext
         {
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.OwnerUserId).IsUnique();
+
+            if (_secretProtector is not null)
+            {
+                var protectedString = new ProtectedStringConverter(_secretProtector);
+                entity.Property(e => e.ClientSecret).HasConversion(protectedString);
+                entity.Property(e => e.AccessToken).HasConversion(protectedString);
+                entity.Property(e => e.RefreshToken).HasConversion(protectedString);
+            }
 
             entity.HasQueryFilter(s => !hasUser || s.OwnerUserId == userId);
         });

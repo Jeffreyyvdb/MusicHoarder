@@ -301,6 +301,12 @@ internal static class ComposeFileExtensions
         frontend.Environment.Remove("API_HTTPS");
         frontend.Environment.Remove("services__api__http__0");
 
+        // Run the API as this user and group instead of root (docker/api-entrypoint.sh). Empty keeps
+        // root, which is what existing installs' volumes need; set both to the owner of the
+        // writable mounts (destination library, downloads, keys) to drop root.
+        api.Environment["PUID"] = "${PUID:-}";
+        api.Environment["PGID"] = "${PGID:-}";
+
         // No hosted demo on a self-host install — drop the demo-media dir (the seeder falls back to its
         // synthetic seed when unset).
         api.Environment.Remove("MusicEnricher__DemoMediaDirectory");

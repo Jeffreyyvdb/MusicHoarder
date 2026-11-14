@@ -46,7 +46,7 @@ declared_keys="$(
 
 # Keys a per-target shaper intentionally adds or drops, so they're skipped where they don't belong:
 PREVIEW_ONLY="MusicEnricher__AutoStartPipeline Spotify__WishlistSyncIntervalMinutes WebAuthn__RpId Auth__OwnerSeedCredentialJson"  # ConfigureForPreview only
-SELFHOST_ONLY="Spotify__OAuthRedirectBaseUrl"                                                                                     # ConfigureForSelfHost only
+SELFHOST_ONLY="Spotify__OAuthRedirectBaseUrl PUID PGID"                                                                                   # ConfigureForSelfHost only
 SELFHOST_DROPS="MusicEnricher__DemoMediaDirectory Spotify__OAuthRelayUrl Spotify__OAuthStateSigningKey SPOTIFY_OAUTH_STATE_SIGNING_KEY SPOTIFY_RETURN_ORIGIN_ALLOWLIST"  # relay/demo keys self-host removes (api + frontend)
 
 # present_in <compose-file> <key>  → 0 if the generated compose maps the key (`      Key: "..."`).

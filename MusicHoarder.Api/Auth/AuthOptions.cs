@@ -34,6 +34,20 @@ public class AuthOptions
     public int MagicLinkTtlMinutes { get; set; } = 15;
 
     /// <summary>
+    /// How many sign-in emails one account may be sent within <see cref="MagicLinkLimitWindowMinutes"/>.
+    /// A request over the limit answers exactly like any other (so it reveals nothing about the
+    /// address) but sends nothing and leaves the last link valid. It stops anyone who knows an
+    /// address from filling that inbox, and from spending the sender's reputation and quota.
+    /// Counted per account in the database, not per IP: every request reaches the API through the
+    /// frontend proxy, so the API has no client address it can trust.
+    /// </summary>
+    [Range(1, 100)]
+    public int MagicLinkLimitPerWindow { get; set; } = 5;
+
+    [Range(1, 1440)]
+    public int MagicLinkLimitWindowMinutes { get; set; } = 15;
+
+    /// <summary>
     /// How long a friend-invite link stays redeemable. Much longer than a magic link (the owner
     /// hands it over out-of-band and the recipient may not open it for days), still bounded so a
     /// forgotten link doesn't stay live forever. Default 7 days.

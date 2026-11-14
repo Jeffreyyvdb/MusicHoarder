@@ -167,6 +167,7 @@ public static class ServiceCollectionExtensions
             .PersistKeysToFileSystem(ResolveDataProtectionKeysDirectory(
                 Environment.GetEnvironmentVariable("Auth__DataProtectionKeysPath")
                 ?? "/data/dpkeys"));
+        services.AddSingleton<ISecretColumnProtector, SecretColumnProtector>();
 
         // FIDO2 relying-party config is derived from the frontend's public origin (which Aspire
         // injects) unless explicitly overridden in the WebAuthn section. Built lazily so the
