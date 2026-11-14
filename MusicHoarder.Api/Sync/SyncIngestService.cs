@@ -288,41 +288,73 @@ public sealed class SyncIngestService(
     private static async Task<string> WriteFileAsync(
         SyncTrackPayload payload, Stream file, SyncOptions opts, CancellationToken ct)
     {
-        var extension = payload.Extension.StartsWith('.') ? payload.Extension : "." + payload.Extension;
-        extension = extension.ToLowerInvariant();
+        var extension = NormalizeExtension(payload.Extension)
+            ?? throw new InvalidDataException("unsupported_extension");
 
+        var root = Path.GetFullPath(opts.SyncedSourceDirectory).TrimEnd('/', '\\') + Path.DirectorySeparatorChar;
         var incomingDir = Path.Combine(opts.SyncedSourceDirectory, IncomingSubdir);
         Directory.CreateDirectory(incomingDir);
-        var tempPath = Path.Combine(incomingDir, Guid.NewGuid().ToString("N") + extension);
+        var tempPath = Contained(Path.Combine(incomingDir, Guid.NewGuid().ToString("N") + extension), root);
+        var created = false;
 
         try
         {
             await using (var target = new FileStream(
                 tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, bufferSize: 128 * 1024))
             {
+                created = true;
                 await file.CopyToAsync(target, ct);
             }
 
-            var artistFolder = DestinationPathResolver.Sanitize(
-                FirstNonBlank(payload.AlbumArtist, payload.Artist) ?? "Unknown Artist");
-            var stem = DestinationPathResolver.Sanitize(
+            var artistFolder = SafeSegment(DestinationPathResolver.Sanitize(
+                FirstNonBlank(payload.AlbumArtist, payload.Artist) ?? "Unknown Artist"), "Unknown Artist");
+            var stem = SafeSegment(DestinationPathResolver.Sanitize(
                 Path.GetFileNameWithoutExtension(payload.FileName) is { Length: > 0 } s ? s
-                    : FirstNonBlank(payload.Title, "track")!);
-            var targetDir = Path.Combine(opts.SyncedSourceDirectory, artistFolder);
+                    : FirstNonBlank(payload.Title, "track")!), "track");
+            var targetDir = Contained(Path.Combine(opts.SyncedSourceDirectory, artistFolder), root);
             Directory.CreateDirectory(targetDir);
 
             // Unique suffix sidesteps both disk collisions and the (OwnerUserId, SourcePath) unique
             // index — the on-disk name is internal; user-facing naming happens at build time.
             var suffix = Guid.NewGuid().ToString("N")[..8];
-            var finalPath = Path.Combine(targetDir, $"{stem} [{suffix}]{extension}");
+            var finalPath = Contained(Path.Combine(targetDir, $"{stem} [{suffix}]{extension}"), root);
             File.Move(tempPath, finalPath);
             return finalPath;
         }
         catch
         {
-            try { File.Delete(tempPath); } catch (IOException) { /* best effort */ }
+            // Only a temp file this call created: a failed CreateNew must never delete a pre-existing file.
+            if (created)
+            {
+                try { File.Delete(tempPath); } catch (IOException) { /* best effort */ }
+            }
             throw;
         }
+    }
+
+    /// <summary>
+    /// A peer-supplied extension becomes part of a file name, so it must be one dotted segment from
+    /// the scanner's supported audio set. Returns null otherwise.
+    /// </summary>
+    internal static string? NormalizeExtension(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        var ext = (raw.StartsWith('.') ? raw : "." + raw).ToLowerInvariant();
+        if (ext.Length is < 2 or > 6) return null;
+        for (var i = 1; i < ext.Length; i++)
+            if (!(ext[i] is >= 'a' and <= 'z' or >= '0' and <= '9')) return null;
+        return Scanner.IndexService.SupportedExtensions.Contains(ext) ? ext : null;
+    }
+
+    private static string SafeSegment(string name, string fallback) =>
+        name.Trim() is "" or "." or ".." ? fallback : name;
+
+    private static string Contained(string path, string canonicalRootWithSeparator)
+    {
+        var full = Path.GetFullPath(path);
+        if (!full.StartsWith(canonicalRootWithSeparator, StringComparison.Ordinal))
+            throw new InvalidDataException("path_escapes_root");
+        return full;
     }
 
     private SongMetadata CreateSongRow(SyncTrackPayload payload, string finalPath, FileInfo fileInfo)

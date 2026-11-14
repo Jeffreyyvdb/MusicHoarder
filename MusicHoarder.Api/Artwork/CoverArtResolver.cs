@@ -50,11 +50,17 @@ public class CoverArtResolver(IFileSystem fileSystem, IEmbeddedPictureReader emb
         var embedded = embeddedReader.ReadFront(audioFilePath);
         if (embedded is not null)
         {
-            return new ResolvedCover
+            // The content type comes from the picture's bytes, never from the tag's mime string.
+            // A picture that is not a known raster format is not served.
+            var contentType = SniffImageMime(embedded.Data);
+            if (contentType is not null)
             {
-                Bytes = embedded.Data,
-                ContentType = NormalizeImageMime(embedded.MimeType, embedded.Data),
-            };
+                return new ResolvedCover
+                {
+                    Bytes = embedded.Data,
+                    ContentType = contentType,
+                };
+            }
         }
 
         return null;
@@ -121,18 +127,6 @@ public class CoverArtResolver(IFileSystem fileSystem, IEmbeddedPictureReader emb
         "image/bmp" => ".bmp",
         _ => ".jpg",
     };
-
-    // Some taggers store an empty or bogus picture mime; trust it only when it looks like an image,
-    // otherwise sniff the magic bytes and fall back to JPEG.
-    private static string NormalizeImageMime(string? mime, byte[] data)
-    {
-        if (!string.IsNullOrWhiteSpace(mime) && mime.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
-        {
-            return mime;
-        }
-
-        return SniffImageMime(data) ?? "image/jpeg";
-    }
 
     internal static string? SniffImageMime(byte[] data)
     {

@@ -113,6 +113,8 @@ public static class SyncEndpoints
         }
         if (payload is null || string.IsNullOrWhiteSpace(payload.Extension))
             return Results.UnprocessableEntity(new { error = "invalid_metadata" });
+        if (SyncIngestService.NormalizeExtension(payload.Extension) is null)
+            return Results.UnprocessableEntity(new { error = "unsupported_extension" });
 
         // A track with no identity at all can never be matched or meaningfully replaced later.
         var hasAnyIdentity = !string.IsNullOrWhiteSpace(payload.Fingerprint)
