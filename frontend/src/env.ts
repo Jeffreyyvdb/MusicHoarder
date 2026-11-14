@@ -10,6 +10,7 @@ const optional = (input: string | undefined) => input;
 export const variables = defineEnvVars({
   SPOTIFY_OAUTH_STATE_SIGNING_KEY: { schema: optional },
   SPOTIFY_RETURN_ORIGIN_ALLOWLIST: { schema: optional },
+  WEBMCP_ORIGIN_TRIAL_TOKEN: { schema: optional },
   PUBLIC_UMAMI_WEBSITE_ID: { public: true, schema: optional },
   PUBLIC_UMAMI_SRC: { public: true, schema: optional },
   PUBLIC_UMAMI_RECORDER_SRC: { public: true, schema: optional },

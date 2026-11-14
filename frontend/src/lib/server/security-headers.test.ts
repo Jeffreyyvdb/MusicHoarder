@@ -60,6 +60,22 @@ describe('applySecurityHeaders', () => {
     applySecurityHeaders(headers, PROD);
     expect(headers.has('Reporting-Endpoints')).toBe(false);
   });
+
+  it('sends origin-trial tokens only when some are configured', () => {
+    const none = new Headers();
+    applySecurityHeaders(none, PROD);
+    expect(none.has('Origin-Trial')).toBe(false);
+
+    const two = new Headers();
+    applySecurityHeaders(two, { ...PROD, originTrials: ['tokenA', 'tokenB'] });
+    expect(two.get('Origin-Trial')).toBe('tokenA, tokenB');
+  });
+
+  it('leaves the tools permission at its default, so the app can register WebMCP tools', () => {
+    const headers = new Headers();
+    applySecurityHeaders(headers, PROD);
+    expect(headers.get('Permissions-Policy')).not.toContain('tools');
+  });
 });
 
 describe('addSources', () => {

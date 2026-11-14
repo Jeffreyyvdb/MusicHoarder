@@ -7,6 +7,10 @@ vi.mock('$app/env/public', () => ({
   PUBLIC_UMAMI_RECORDER_SRC: undefined
 }));
 
+vi.mock('$app/env/private', () => ({
+  WEBMCP_ORIGIN_TRIAL_TOKEN: undefined
+}));
+
 const SITE = 'https://musichoarder.app';
 
 /** Minimal stand-in for the parts of `RequestEvent` the hook actually reads. */

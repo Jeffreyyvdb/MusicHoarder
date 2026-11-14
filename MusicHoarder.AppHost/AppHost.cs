@@ -64,6 +64,12 @@ var publicUmamiWebsiteId = builder.AddParameter("public-umami-website-id", build
 var publicUmamiRecorderSrc = builder.AddParameter("public-umami-recorder-src", builder.Configuration["Parameters:public-umami-recorder-src"] ?? "")
     .WithDescription("Optional Umami session-recorder URL ending in /recorder.js. Blank disables the recorder.");
 
+// Chrome's WebMCP origin-trial token for this deployment's origin (a token is valid for one origin
+// only). The frontend sends it as an `Origin-Trial` header; blank sends nothing, and WebMCP then
+// works only where a user turned on chrome://flags/#enable-webmcp-testing.
+var webMcpOriginTrialToken = builder.AddParameter("webmcp-origin-trial-token", builder.Configuration["Parameters:webmcp-origin-trial-token"] ?? "")
+    .WithDescription("Optional Chrome origin-trial token for WebMCP, registered for this deployment's origin. Blank disables the trial header.");
+
 // AI quality grading calls an OpenAI-compatible endpoint (OpenRouter by default). The key is the
 // only required secret; with it blank the grader degrades to a no-op like the other providers.
 var qualityGradingApiKey = builder.AddParameter("quality-grading-api-key", builder.Configuration["Parameters:quality-grading-api-key"] ?? "", secret: true)
@@ -192,6 +198,7 @@ var frontend = builder.AddViteApp("frontend", "../frontend")
     .WithEnvironment("PUBLIC_UMAMI_SRC", publicUmamiSrc)
     .WithEnvironment("PUBLIC_UMAMI_WEBSITE_ID", publicUmamiWebsiteId)
     .WithEnvironment("PUBLIC_UMAMI_RECORDER_SRC", publicUmamiRecorderSrc)
+    .WithEnvironment("WEBMCP_ORIGIN_TRIAL_TOKEN", webMcpOriginTrialToken)
     .WaitForStart(api)
     .WithExternalHttpEndpoints()
     .PublishAsNodeServer(entryPoint: "build/index.js", outputPath: "build");

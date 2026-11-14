@@ -11,6 +11,7 @@ import {
   requestIsHttps
 } from '#lib/server/security-headers.ts';
 import { PUBLIC_UMAMI_RECORDER_SRC, PUBLIC_UMAMI_SRC } from '$app/env/public';
+import { WEBMCP_ORIGIN_TRIAL_TOKEN } from '$app/env/private';
 import {
   canonicalizePath,
   isMarkdownUrl,
@@ -31,7 +32,8 @@ export const handle: Handle = async (input) => {
   const context = {
     https: requestIsHttps(url, request.headers.get('x-forwarded-proto')),
     hostname: url.hostname,
-    analyticsOrigins: ANALYTICS_ORIGINS
+    analyticsOrigins: ANALYTICS_ORIGINS,
+    originTrials: ORIGIN_TRIALS
   };
   try {
     applySecurityHeaders(response.headers, context);
@@ -52,6 +54,15 @@ const ANALYTICS_ORIGINS: string[] = [
     )
   )
 ];
+
+/**
+ * Origin-trial tokens, read once at start. Today only WebMCP's (`#lib/webmcp`): Chrome exposes the
+ * API to a page only while its origin carries a valid token. Several may be given, comma-separated.
+ */
+const ORIGIN_TRIALS: string[] = (WEBMCP_ORIGIN_TRIAL_TOKEN ?? '')
+  .split(',')
+  .map((token) => token.trim())
+  .filter((token) => token.length > 0);
 
 /**
  * Markdown content negotiation for agents (acceptmarkdown.com) plus an agent-recoverable 404.
