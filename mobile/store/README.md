@@ -49,6 +49,11 @@ demo is read-only and shared.
 
 **Ads:** none.
 
+**Advertising ID:** the app does not use it. No dependency declares
+`com.google.android.gms.permission.AD_ID` (there is no Play services or ads SDK, and the
+`google-services` plugin only applies when a `google-services.json` exists, which it does not).
+Play refuses every upload from an app targeting API 33+ until this form is answered.
+
 **Content rating** (IARC questionnaire, category *All other app types*). The app ships no media of
 its own, but it streams a library, lyrics and music videos, and Play counts that as the app's
 catalogue. So the questionnaire answers for what a music library can contain:
