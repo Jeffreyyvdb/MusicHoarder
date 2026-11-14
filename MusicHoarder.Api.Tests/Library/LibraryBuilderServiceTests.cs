@@ -1717,6 +1717,66 @@ public class LibraryBuilderServiceTests
         Assert.Equal("upgraded-bytes", fileSystem.File.ReadAllText(destinationPath));
     }
 
+    [Theory]
+    [InlineData("/outside/Artist/2026 - Album/01 - Escape.mp3")]
+    [InlineData("/dest/../outside/01 - Escape.mp3")]
+    [InlineData("/dest-sibling/Artist/01 - Escape.mp3")]
+    public async Task ProcessNextBatchAsync_RefusesDestinationOutsideLibraryRoot(string escapingPath)
+    {
+        var escapingSource = "/source/escape.mp3";
+        var normalSource = "/source/track.mp3";
+        var normalDestination = "/dest/Artist/2026 - Album/01 - Track.mp3";
+        var fileSystem = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [escapingSource] = new("abcde"),
+            [normalSource] = new("fghij")
+        });
+
+        await using var db = CreateDbContext();
+        db.Songs.Add(CreateMatchedSong(escapingSource, 5, title: "Escape", trackNumber: 1));
+        db.Songs.Add(CreateMatchedSong(normalSource, 5, title: "Track", trackNumber: 1));
+        await db.SaveChangesAsync();
+
+        // Whatever the tags said, the resolver hands back a path outside /dest for one song; the builder
+        // is the last line of defence before a directory or file is created.
+        var service = CreateService(db, fileSystem, new RecordingTagWriter(),
+            wrapPathResolver: real => new EscapingPathResolver(real, escapingSource, escapingPath));
+        var pathsBefore = fileSystem.AllPaths.ToHashSet(StringComparer.Ordinal);
+
+        var result = await service.ProcessNextBatchAsync(Guid.NewGuid());
+        var escaping = await db.Songs.SingleAsync(s => s.SourcePath == escapingSource);
+        var normal = await db.Songs.SingleAsync(s => s.SourcePath == normalSource);
+
+        Assert.Equal(1, result.Failed);
+        Assert.Equal(LibraryBuildStatus.Failed, escaping.LibraryBuildStatus);
+        Assert.Equal("Destination path escapes the library root", escaping.LibraryBuildError);
+        Assert.Null(escaping.DestinationPath);
+
+        Assert.Equal(1, result.Done);
+        Assert.Equal(LibraryBuildStatus.Done, normal.LibraryBuildStatus);
+        Assert.Equal(normalDestination, normal.DestinationPath);
+        Assert.True(fileSystem.File.Exists(normalDestination));
+
+        // Everything the run created is inside the library root.
+        Assert.All(fileSystem.AllPaths.Except(pathsBefore), path =>
+            Assert.True(path == "/dest" || path.StartsWith("/dest/", StringComparison.Ordinal), $"Created outside the library root: {path}"));
+        Assert.False(fileSystem.Directory.Exists("/outside"));
+        Assert.False(fileSystem.Directory.Exists("/dest-sibling"));
+    }
+
+    private sealed class EscapingPathResolver(
+        IDestinationPathResolver inner, string sourcePath, string escapingPath) : IDestinationPathResolver
+    {
+        public string ResolvePath(SongMetadata song) =>
+            song.SourcePath == sourcePath ? escapingPath : inner.ResolvePath(song);
+
+        public string ResolvePath(SongMetadata song, AlbumIdentity? albumIdentity) =>
+            song.SourcePath == sourcePath ? escapingPath : inner.ResolvePath(song, albumIdentity);
+
+        public string ResolveLegacyPath(SongMetadata song) =>
+            song.SourcePath == sourcePath ? escapingPath : inner.ResolveLegacyPath(song);
+    }
+
     private static LibraryBuilderService CreateService(
         MusicHoarderDbContext db,
         IFileSystem fileSystem,
@@ -1726,7 +1786,8 @@ public class LibraryBuilderServiceTests
         bool enableAlbumIdentityReconciliation = true,
         IExternalCoverArtFetcher? externalFetcher = null,
         bool enableBuildNeedsReview = false,
-        IServiceScopeFactory? scopeFactoryOverride = null)
+        IServiceScopeFactory? scopeFactoryOverride = null,
+        Func<IDestinationPathResolver, IDestinationPathResolver>? wrapPathResolver = null)
     {
         var options = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
         {
@@ -1739,7 +1800,9 @@ public class LibraryBuilderServiceTests
             EnableBuildNeedsReview = enableBuildNeedsReview
         });
 
-        var pathResolver = new DestinationPathResolver(options);
+        IDestinationPathResolver pathResolver = new DestinationPathResolver(options);
+        if (wrapPathResolver is not null)
+            pathResolver = wrapPathResolver(pathResolver);
         var scopeFactory = scopeFactoryOverride ?? new SingleScopeFactory(db, tagWriter);
 
         var cleaner = new LibraryDestinationCleaner(fileSystem);
