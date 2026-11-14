@@ -64,6 +64,8 @@
 	columns (leading · main · value · trailing · chevron; absent ones collapse to 0) so the hairline
 	separator — the ::after, placed as a grid item from the main column to the far edge — starts at
 	the label whatever the leading content is, like UITableView's; it is dropped after the last row.
+	The label and sublabel wrap a word too long for the column (an email, a path) rather than run
+	under the value and chevron.
 	The focus ring is the full-strength tint: it is the row's only focus indicator (no border), and a
 	50% ring measured 2.2–2.7:1 against the cell, under the 3:1 non-text minimum.
 -->
@@ -107,7 +109,7 @@
 		{#if label}
 			<span
 				class={cn(
-					"text-body md:text-sm",
+					"text-body break-words md:text-sm",
 					destructive ? "text-destructive-text" : disabled ? "text-muted-foreground-dim" : "text-foreground"
 				)}
 			>
@@ -115,7 +117,7 @@
 			</span>
 		{/if}
 		{#if sublabel}
-			<span class="text-subheadline text-muted-foreground md:text-xs">{sublabel}</span>
+			<span class="text-subheadline text-muted-foreground break-words md:text-xs">{sublabel}</span>
 		{/if}
 		{@render children?.()}
 	</span>
