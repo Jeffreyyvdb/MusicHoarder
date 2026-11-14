@@ -38,7 +38,7 @@ public static class MusicVideoEndpoints
             .RequireAdmin();
         app.MapGet("/songs/{id:int}/video/candidates", GetVideoCandidates)
             .WithName("GetSongVideoCandidates")
-            .WithSummary("Search YouTube for this song's music video and return the ranked candidates without downloading anything. Motion verdicts come from the per-candidate probe endpoint.")
+            .WithSummary("The ranked music-video candidates for this song, without downloading anything: the remembered list when there is one (prefetched for new songs), else a YouTube search (?refresh=true always searches). Missing motion verdicts come from the per-candidate probe endpoint.")
             .WithTags("MusicVideos")
             .RequireAdmin();
         app.MapGet("/songs/{id:int}/video/probe/{videoId}", ProbeVideoCandidate)
@@ -183,17 +183,20 @@ public static class MusicVideoEndpoints
         bool IsCurrent);
 
     /// <summary>
-    /// The ranked candidates, from one flat search. Nothing is downloaded and nothing is probed:
-    /// this is a synchronous request behind a reverse proxy, and a flat search is bounded work
-    /// whereas a full metadata extraction per candidate is not — probing three of them inline is
-    /// what made this endpoint exceed a 100 s gateway timeout in production. The caller fills in
-    /// verdicts through <see cref="ProbeVideoCandidate"/>, one request per candidate, so a slow
-    /// video costs only its own row.
+    /// The ranked candidates. A list remembered for this song (<see cref="MusicVideoCandidateCache"/>:
+    /// searched ahead of time by the background prefetch, or by an earlier open) is served at once,
+    /// with whatever was measured about each candidate; <paramref name="refresh"/> searches again.
+    /// Otherwise one flat search runs, and nothing is probed inline: this is a synchronous request
+    /// behind a reverse proxy, and probing three candidates inline is what made it exceed a 100 s
+    /// gateway timeout in production. The caller fills in missing verdicts through
+    /// <see cref="ProbeVideoCandidate"/>, one request per candidate, which records each verdict in the
+    /// remembered list.
     /// </summary>
     internal static async Task<IResult> GetVideoCandidates(
         int id,
+        bool? refresh,
         MusicHoarderDbContext db,
-        IMusicVideoDownloader downloader,
+        MusicVideoCandidateCache cache,
         IOptions<MusicEnricherOptions> options,
         CancellationToken ct)
     {
@@ -209,12 +212,15 @@ public static class MusicVideoEndpoints
             .Select(v => v.YouTubeVideoId)
             .FirstOrDefaultAsync(ct);
 
-        var candidates = await downloader.SuggestAsync(
-            new MusicVideoFetchRequest(
-                current, PinIsExplicit: false,
-                song.Artist ?? string.Empty, song.Title ?? string.Empty,
-                song.DurationMs ?? song.DurationSeconds * 1000),
-            ct);
+        var remembered = refresh == true ? null : await cache.GetAsync(db, song, ct);
+        var list = remembered ?? await cache.SearchAsync(db, song, current, probeTop: false, ct);
+
+        var candidates = list.Candidates.ToList();
+        // A list searched before this video was attached does not name it: put it first, as the
+        // search does for a pinned video (described once the caller probes it).
+        if (current is not null && candidates.All(c => c.VideoId != current))
+            candidates.Insert(0, new CachedVideoCandidate(
+                current, "", "", null, 0, HasThumbnail: false, MusicVideoMotion.Unknown, null, false));
 
         return Results.Ok(new VideoCandidatesDto(
             ProbeLimit: options.Value.MusicVideoProbeCandidates,
@@ -224,20 +230,28 @@ public static class MusicVideoEndpoints
                 c.Channel,
                 c.DurationSeconds,
                 c.Score,
-                nameof(MusicVideoMotion.Unknown),
-                null,
-                false,
-                c.ThumbnailUrl is not null,
-                IsCurrent: c.VideoId == current))]));
+                c.Motion.ToString(),
+                c.EstimatedBytes,
+                c.SquareSource,
+                c.HasThumbnail,
+                IsCurrent: c.VideoId == current))],
+            SearchedAtUtc: list.SearchedAtUtc,
+            Remembered: remembered is not null));
     }
 
     /// <summary>
     /// Measures a single candidate the list did not probe. The picker probes only its top few
     /// up-front (each costs a metadata call and a sprite sheet), so this backs the per-row check for
-    /// anything further down that the owner is actually considering.
+    /// anything further down that the owner is actually considering. The verdict is remembered with
+    /// the song's candidate list, so it is measured once.
     /// </summary>
     internal static async Task<IResult> ProbeVideoCandidate(
-        int id, string videoId, MusicHoarderDbContext db, IMusicVideoProbe probe, CancellationToken ct)
+        int id,
+        string videoId,
+        MusicHoarderDbContext db,
+        IMusicVideoProbe probe,
+        MusicVideoCandidateCache cache,
+        CancellationToken ct)
     {
         if (!System.Text.RegularExpressions.Regex.IsMatch(videoId, "^[A-Za-z0-9_-]{5,24}$"))
             return Results.BadRequest(new { message = "Not a YouTube video id." });
@@ -248,6 +262,7 @@ public static class MusicVideoEndpoints
             return Results.NotFound(new { message = $"Song with id {id} not found." });
 
         var result = await probe.ProbeAsync(videoId, ct);
+        await cache.RecordProbeAsync(db, id, result, ct);
         return Results.Ok(new VideoCandidateDto(
             result.VideoId,
             result.Title,
@@ -296,7 +311,10 @@ public static class MusicVideoEndpoints
     /// How many of the leading candidates the caller should measure without being asked. The server
     /// no longer probes them itself, but it still owns the budget.
     /// </param>
-    public record VideoCandidatesDto(int ProbeLimit, List<VideoCandidateDto> Candidates);
+    /// <param name="SearchedAtUtc">When the list was searched.</param>
+    /// <param name="Remembered">Served from the remembered list rather than searched just now.</param>
+    public record VideoCandidatesDto(
+        int ProbeLimit, List<VideoCandidateDto> Candidates, DateTime SearchedAtUtc, bool Remembered);
 
     public record VideoAuditRowDto(
         int SongId,

@@ -187,7 +187,8 @@ export function videoProblem(
   infoUnavailable: boolean
 ): { text: string; tone: 'muted' | 'destructive'; busy?: boolean } | null {
   if (info?.status === 'Fetching')
-    return { text: 'Fetching the video…', tone: 'muted', busy: true };
+    // Said so the owner knows there is nothing to wait for: the video appears by itself.
+    return { text: 'Getting the video — it shows up when it’s ready', tone: 'muted', busy: true };
   if (info?.status === 'Ready' && info.fileMissing)
     return { text: 'The video file is missing', tone: 'destructive' };
   if (info?.status === 'Failed') return { text: 'The video download failed', tone: 'destructive' };

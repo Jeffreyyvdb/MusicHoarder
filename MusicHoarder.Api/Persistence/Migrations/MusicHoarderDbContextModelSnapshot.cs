@@ -2379,6 +2379,41 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.ToTable("SongShares");
                 });
 
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.SongVideoCandidateSet", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("CandidatesJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<string>("QueryKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime>("SearchedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("SongId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SongId")
+                        .IsUnique();
+
+                    b.ToTable("SongVideoCandidateSets");
+                });
+
             modelBuilder.Entity("MusicHoarder.Api.Persistence.SpotifySettings", b =>
                 {
                     b.Property<int>("Id")
@@ -3170,6 +3205,17 @@ namespace MusicHoarder.Api.Persistence.Migrations
                 });
 
             modelBuilder.Entity("MusicHoarder.Api.Persistence.SongShare", b =>
+                {
+                    b.HasOne("MusicHoarder.Api.Persistence.SongMetadata", "Song")
+                        .WithMany()
+                        .HasForeignKey("SongId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Song");
+                });
+
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.SongVideoCandidateSet", b =>
                 {
                     b.HasOne("MusicHoarder.Api.Persistence.SongMetadata", "Song")
                         .WithMany()
