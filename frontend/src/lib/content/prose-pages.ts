@@ -164,7 +164,7 @@ export const privacyPage: ProsePage = {
   title: 'Privacy at MusicHoarder',
   description:
     'What musichoarder.app collects (privacy-friendly self-hosted analytics and a session cookie) and what a self-hosted MusicHoarder instance does with your music, metadata and credentials.',
-  updated: '2026-08-21',
+  updated: '2026-11-14',
   sections: [
     {
       heading: 'The short version',
@@ -194,6 +194,24 @@ export const privacyPage: ProsePage = {
         {
           kind: 'paragraph',
           text: 'The demo account is read-only and shared: anything you type into it may be visible to other people trying the demo, and it is reset from a fixed seed. Do not put personal information into it.'
+        }
+      ]
+    },
+    {
+      heading: 'The phone app (iOS and Android)',
+      blocks: [
+        {
+          kind: 'paragraph',
+          text: 'The MusicHoarder app is the same web app in a native frame: it loads the pages of whichever MusicHoarder server you connect it to, and has no pages or data of its own. It ships with no server built in, and the address you enter is stored on your phone only. Because it shows that server’s pages, everything described above for the website (analytics, the session cookie, email for sign-in links) applies inside the app as well, and for a self-hosted server whatever that server does. The app itself adds nothing on top:'
+        },
+        {
+          kind: 'list',
+          items: [
+            'No tracking, analytics, crash-reporting or advertising SDK of its own.',
+            'Music plays through the phone’s own media player, which shows what is playing on the lock screen and in the notification. Audio streams straight from your server and goes nowhere else.',
+            'Permissions: internet access, plus what Android needs to keep music playing in the background (a media-playback foreground service and a wake lock). No location, contacts, microphone or file access.',
+            'Signing in with an email link hands a one-time token to the app through a musichoarder:// link; it is used only to sign you in.'
+          ]
         }
       ]
     },
