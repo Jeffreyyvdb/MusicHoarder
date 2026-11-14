@@ -621,6 +621,15 @@
     const tracks = `${artistSongs.length} track${artistSongs.length === 1 ? '' : 's'}`;
     return `${albums} · ${tracks}${unreleasedActive ? ' · Unreleased only' : ''}`;
   });
+  /** The hero's line: what you have of them (or that you have nothing yet), and the follow. */
+  const heroMeta = $derived.by(() => {
+    const following = showCatalog && artistPage.data?.follow ? 'Following' : null;
+    const have =
+      artistSongs.length === 0 && !albumFilterLoading && !isLoading
+        ? 'Not in your library yet'
+        : artistMeta;
+    return [have, following].filter(Boolean).join(' · ');
+  });
 </script>
 
 <!-- ── shared nav-bar pieces ─────────────────────────────────────────────── -->
@@ -1119,8 +1128,7 @@
               {artistName}
             </h1>
             <p class="text-muted-foreground text-subheadline md:text-sm">
-              {artistMeta}{#if artistPage.data?.follow && showCatalog}
-                · Following{/if}
+              {heroMeta}
             </p>
           </div>
         </div>
@@ -1235,21 +1243,24 @@
         <ArtistDiscographyV2 state={artistPage} hrefFor={releaseHref} {compact} />
       {/if}
 
-      <section aria-labelledby="artist-albums-heading">
-        <h2 id="artist-albums-heading" class="text-title-2 mb-2 px-4 md:px-0 md:text-lg">
-          {showCatalog ? 'In your library' : 'Albums'}
-        </h2>
-        <div class="px-3 md:-mx-1 md:px-0">
-          <LibraryAlbumsGridV2
-            albums={artistAlbums}
-            hrefFor={albumHref}
-            isLoading={isLoading || albumFilterLoading}
-            statuses={albumStatuses}
-            menu
-            showArtistLink={false}
-          />
-        </div>
-      </section>
+      <!-- An artist you follow but own nothing of has only the catalog to show; no empty grid. -->
+      {#if !(showCatalog && artistSongs.length === 0 && !isLoading && !albumFilterLoading)}
+        <section aria-labelledby="artist-albums-heading">
+          <h2 id="artist-albums-heading" class="text-title-2 mb-2 px-4 md:px-0 md:text-lg">
+            {showCatalog ? 'In your library' : 'Albums'}
+          </h2>
+          <div class="px-3 md:-mx-1 md:px-0">
+            <LibraryAlbumsGridV2
+              albums={artistAlbums}
+              hrefFor={albumHref}
+              isLoading={isLoading || albumFilterLoading}
+              statuses={albumStatuses}
+              menu
+              showArtistLink={false}
+            />
+          </div>
+        </section>
+      {/if}
 
       {#if artistSongs.length > 0}
         <section aria-labelledby="artist-songs-heading">

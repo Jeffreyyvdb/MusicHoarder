@@ -43,6 +43,10 @@
   });
 
   const shown = $derived(filterReleases(releases, filter, missingOnly));
+  // A desktop grid shows two rows' worth first (Spotify's "Show all"); a phone shelf scrolls them all.
+  const GRID_PREVIEW = 12;
+  let showAll = $state(false);
+  const gridShown = $derived(showAll ? shown : shown.slice(0, GRID_PREVIEW));
   const toGet = $derived(acquirableReleases(shown));
   const canDownload = $derived(Boolean(data?.downloadsEnabled));
   const missingTracksHint = $derived(
@@ -149,7 +153,8 @@
     </div>
   {:else if data && data.catalog.status === 'not-found'}
     <p class="text-muted-foreground text-subheadline px-4 md:px-0 md:text-sm">
-      No catalog artist goes by this name, so there is no discography to show.
+      No catalog artist goes by this name, so there is no discography to show. Under another name?
+      <a href="/following" class="text-primary hover:underline">Search the catalog</a>.
     </p>
   {:else if data?.releasesUnavailable}
     <div class="flex items-center gap-3 px-4 md:px-0">
@@ -166,7 +171,12 @@
       </Button>
     </div>
   {:else if data && releases.length > 0}
-    <div class="flex flex-wrap items-center gap-2 px-4 md:px-0" data-scroll-x="">
+    <!-- One band: sideways on a phone (data-scroll-x keeps the edge swipe out of it), wrapping on md+.
+         The vertical padding is the room each chip's 44pt touch area needs. -->
+    <div
+      class="flex [scrollbar-width:none] items-center gap-2 overflow-x-auto px-4 py-1.5 md:flex-wrap md:overflow-visible md:px-0"
+      data-scroll-x=""
+    >
       {#each DISCOGRAPHY_FILTERS.filter((f) => filters.includes(f.id)) as f (f.id)}
         <FilterChip pressed={filter === f.id} onclick={() => (filter = f.id)}>{f.label}</FilterChip>
       {/each}
@@ -193,10 +203,19 @@
       </ScrollArea>
     {:else}
       <ul class="grid grid-cols-[repeat(auto-fill,minmax(156px,1fr))] gap-x-4 gap-y-5 pt-1">
-        {#each shown as release (release.key)}
+        {#each gridShown as release (release.key)}
           <li>{@render card(release)}</li>
         {/each}
       </ul>
+      {#if shown.length > GRID_PREVIEW}
+        <button
+          type="button"
+          class="text-muted-foreground hover:text-foreground self-start text-sm font-semibold"
+          onclick={() => (showAll = !showAll)}
+        >
+          {showAll ? 'Show less' : `Show all ${shown.length}`}
+        </button>
+      {/if}
     {/if}
   {:else if data}
     <p class="text-muted-foreground text-subheadline px-4 md:px-0 md:text-sm">
