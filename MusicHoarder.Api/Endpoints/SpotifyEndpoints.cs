@@ -121,7 +121,8 @@ public static class SpotifyEndpoints
                 return Results.Ok(new { message = "Spotify account connected successfully." });
             })
             .WithName("SpotifyCallback")
-            .WithSummary("Handles the OAuth callback from Spotify, exchanges the authorization code for tokens.");
+            .WithSummary("Handles the OAuth callback from Spotify, exchanges the authorization code for tokens.")
+            .RequireAdmin();
 
         group.MapGet("/status", async (ISpotifyOAuthService spotifyOAuth, ICurrentUserAccessor currentUser, CancellationToken ct) =>
             {
