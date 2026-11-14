@@ -91,16 +91,20 @@ public class MusicVideoCandidateCache(
                 song.DurationMs ?? song.DurationSeconds * 1000),
             ct);
 
-        if (found.Count == 0)
+        var row = await db.SongVideoCandidateSets.FirstOrDefaultAsync(c => c.SongId == song.Id, ct);
+
+        // Nothing but the pinned current video (which the search adds itself) means the search
+        // found nothing — and an empty answer is also what a refused search looks like (a bot
+        // challenge, a rate limit: yt-dlp prints nothing and the search reads no results). Never
+        // remember it as "no candidates", or the picker would show that for weeks instead of
+        // searching; and never let it hide a good list remembered earlier.
+        if (found.All(c => c.VideoId == currentVideoId))
         {
-            // An empty answer is also what a refused search looks like (a bot challenge, a rate
-            // limit: yt-dlp prints nothing and the search reads no results). Never remember it as
-            // "no candidates", or the picker would show that for weeks instead of searching.
-            await RecordFailureAsync(db, song, NoCandidatesError, ct);
+            if (row is null || !IsServable(row, QueryKeyFor(song)))
+                await RecordFailureAsync(db, song, NoCandidatesError, ct);
             return new VideoCandidateList([], time.GetUtcNow().UtcDateTime);
         }
 
-        var row = await db.SongVideoCandidateSets.FirstOrDefaultAsync(c => c.SongId == song.Id, ct);
         var measured = row is null
             ? new Dictionary<string, CachedVideoCandidate>()
             : Read(row).Where(c => c.Motion != MusicVideoMotion.Unknown)

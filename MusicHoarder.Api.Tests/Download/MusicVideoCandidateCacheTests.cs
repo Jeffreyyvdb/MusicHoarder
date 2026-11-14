@@ -313,4 +313,37 @@ public class MusicVideoCandidateCacheTests
         var song = await db.Songs.SingleAsync(s => s.Id == 1);
         Assert.Null(await Cache().GetAsync(db, song, default));
     }
+
+    [Fact]
+    public async Task A_search_that_finds_only_the_attached_video_is_not_remembered()
+    {
+        // The search puts the pinned current video first even when YouTube answered nothing.
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+        var song = Song(1);
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+        _downloader.OnSuggest = r => [new MusicVideoCandidate(r.PinnedIdOrUrl!, "", "", null, 0, null)];
+
+        var list = await Cache().SearchAsync(db, song, "vid-zzzzz", probeTop: true, default);
+
+        Assert.Empty(list.Candidates);
+        Assert.Equal(MusicVideoCandidateCache.NoCandidatesError, (await db.SongVideoCandidateSets.SingleAsync()).Error);
+    }
+
+    [Fact]
+    public async Task An_empty_search_again_keeps_the_good_list_remembered_before()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+        var song = Song(1);
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+        await Cache().SearchAsync(db, song, null, probeTop: false, default);
+
+        _downloader.OnSuggest = _ => [];
+        await Cache().SearchAsync(db, song, null, probeTop: false, default);
+
+        Assert.Equal(4, (await Cache().GetAsync(db, song, default))!.Candidates.Count);
+    }
 }
