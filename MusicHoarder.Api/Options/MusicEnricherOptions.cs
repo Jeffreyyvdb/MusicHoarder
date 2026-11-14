@@ -979,8 +979,10 @@ public class MusicEnricherOptions
     /// <summary>
     /// Minutes between passes of the music-video candidate prefetch, which searches YouTube (and
     /// probes the top <see cref="MusicVideoProbeCandidates"/>) for newly added songs without a video,
-    /// so "Choose video…" opens on a list instead of a search. Nothing is downloaded. 0 disables it;
-    /// the picker then searches when it is opened, as before.
+    /// so "Choose video…" opens on a list instead of a search. Nothing is downloaded, and nothing runs
+    /// until the instance has fetched at least one music video. Each song costs one search plus up to
+    /// <see cref="MusicVideoProbeCandidates"/> metadata calls. 0 disables it; the picker then
+    /// searches when it is opened, as before.
     /// </summary>
     [Range(0, 1440)]
     public int MusicVideoCandidatePrefetchIntervalMinutes { get; set; } = 15;

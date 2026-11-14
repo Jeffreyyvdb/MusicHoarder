@@ -478,5 +478,9 @@
   description="The downloaded clip is deleted. You can fetch it again later."
   actionLabel="Remove video"
   destructive
-  onAction={() => void video.remove()}
+  onAction={() => {
+    // The list marks the removed video as current: ask again on the next open.
+    listFor = null;
+    void video.remove();
+  }}
 />

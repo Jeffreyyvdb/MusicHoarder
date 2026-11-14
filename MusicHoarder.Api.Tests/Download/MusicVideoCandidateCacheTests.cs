@@ -68,11 +68,17 @@ public class MusicVideoCandidateCacheTests
         new(new DbContextOptionsBuilder<MusicHoarderDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString("N")).Options);
 
-    private static async Task SeedUsersAsync(MusicHoarderDbContext db)
+    private static async Task SeedUsersAsync(MusicHoarderDbContext db, bool withAVideo = true)
     {
         db.Users.AddRange(
             new User { Id = Admin, Email = "a@example.com", EmailNormalized = "A@EXAMPLE.COM", Role = UserRole.Admin },
             new User { Id = Member, Email = "m@example.com", EmailNormalized = "M@EXAMPLE.COM", Role = UserRole.Member });
+        if (withAVideo)
+        {
+            // The prefetch runs only on an instance that uses music videos: an old song with one.
+            db.Songs.Add(Song(99, acquired: Now.AddDays(-400)));
+            db.SongMusicVideos.Add(new SongMusicVideo { SongId = 99, Status = MusicVideoStatus.Ready, FilePath = "/v/99.mp4" });
+        }
         await db.SaveChangesAsync();
     }
 
@@ -150,7 +156,7 @@ public class MusicVideoCandidateCacheTests
         await db.SaveChangesAsync();
         await Prefetch(db).RunAsync(default);
 
-        var song = await db.Songs.SingleAsync();
+        var song = await db.Songs.SingleAsync(s => s.Id == 1);
         song.Title = "Corrected title";
         await db.SaveChangesAsync();
 
@@ -186,7 +192,7 @@ public class MusicVideoCandidateCacheTests
         Assert.Equal(0, await Prefetch(db).RunAsync(default));
         var set = await db.SongVideoCandidateSets.SingleAsync();
         Assert.Equal("yt-dlp not found", set.Error);
-        Assert.Null(await Cache().GetAsync(db, await db.Songs.SingleAsync(), default));
+        Assert.Null(await Cache().GetAsync(db, await db.Songs.SingleAsync(s => s.Id == 1), default));
 
         await Prefetch(db).RunAsync(default);
         Assert.Single(_downloader.SuggestCalls);
@@ -273,5 +279,38 @@ public class MusicVideoCandidateCacheTests
         Assert.Equal("vid-zzzzz", ok.Value!.Candidates[0].VideoId);
         Assert.True(ok.Value.Candidates[0].IsCurrent);
         Assert.Equal(5, ok.Value.Candidates.Count);
+    }
+
+    [Fact]
+    public async Task Prefetch_does_nothing_on_an_instance_that_has_never_fetched_a_video()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db, withAVideo: false);
+        db.Songs.Add(Song(1));
+        await db.SaveChangesAsync();
+
+        Assert.Equal(0, await Prefetch(db).RunAsync(default));
+        Assert.Empty(_downloader.SuggestCalls);
+    }
+
+    [Fact]
+    public async Task An_empty_search_is_not_remembered_and_counts_as_a_failure()
+    {
+        // A refused search (bot challenge, rate limit) comes back empty rather than throwing.
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+        for (var i = 1; i <= 6; i++) db.Songs.Add(Song(i));
+        await db.SaveChangesAsync();
+        _downloader.OnSuggest = _ => [];
+
+        Assert.Equal(0, await Prefetch(db).RunAsync(default));
+        Assert.Equal(3, _downloader.SuggestCalls.Count);
+        Assert.All(await db.SongVideoCandidateSets.ToListAsync(),
+            set => Assert.Equal(MusicVideoCandidateCache.NoCandidatesError, set.Error));
+
+        // The picker searches again instead of showing "no candidates" from memory.
+        _downloader.OnSuggest = null;
+        var song = await db.Songs.SingleAsync(s => s.Id == 1);
+        Assert.Null(await Cache().GetAsync(db, song, default));
     }
 }

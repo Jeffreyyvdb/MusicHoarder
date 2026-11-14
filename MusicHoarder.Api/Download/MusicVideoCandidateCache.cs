@@ -38,6 +38,9 @@ public class MusicVideoCandidateCache(
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
+    /// <summary>What a search that found nothing is recorded as; see <see cref="SearchAsync"/>.</summary>
+    public const string NoCandidatesError = "the search found no candidates";
+
     /// <summary>
     /// The search a list answers: what <see cref="IMusicVideoDownloader.SuggestAsync"/> is given about
     /// the song. Re-enrichment that renames a song changes it, and the old list is then not served.
@@ -75,7 +78,8 @@ public class MusicVideoCandidateCache(
     /// of a video carry over (a video's picture does not change). With <paramref name="probeTop"/>, the
     /// leading <c>MusicVideoProbeCandidates</c> still unmeasured are probed first, one at a time —
     /// the background prefetch's job; the endpoint leaves probing to its per-candidate requests.
-    /// Search failures propagate; a failure to store does not.
+    /// An empty search is recorded as a failure, not remembered. Search errors propagate; a failure
+    /// to store does not.
     /// </summary>
     public async Task<VideoCandidateList> SearchAsync(
         MusicHoarderDbContext db, SongMetadata song, string? currentVideoId, bool probeTop, CancellationToken ct)
@@ -86,6 +90,15 @@ public class MusicVideoCandidateCache(
                 song.Artist ?? string.Empty, song.Title ?? string.Empty,
                 song.DurationMs ?? song.DurationSeconds * 1000),
             ct);
+
+        if (found.Count == 0)
+        {
+            // An empty answer is also what a refused search looks like (a bot challenge, a rate
+            // limit: yt-dlp prints nothing and the search reads no results). Never remember it as
+            // "no candidates", or the picker would show that for weeks instead of searching.
+            await RecordFailureAsync(db, song, NoCandidatesError, ct);
+            return new VideoCandidateList([], time.GetUtcNow().UtcDateTime);
+        }
 
         var row = await db.SongVideoCandidateSets.FirstOrDefaultAsync(c => c.SongId == song.Id, ct);
         var measured = row is null

@@ -14,7 +14,8 @@ namespace MusicHoarder.Api.Download;
 /// video…" on a new song then shows a measured list at once instead of waiting on the search.
 ///
 /// <para>
-/// Only an admin's songs: the picker is admin-only, so searching for anyone else's would be traffic
+/// Only on an instance that has fetched at least one music video, so one that never uses them pays
+/// no YouTube traffic for this. Only an admin's songs: the picker is admin-only, so searching for anyone else's would be traffic
 /// no one can use. A song waits until enrichment has finished with it, because the search is by artist
 /// and title and enrichment is what corrects them — a list searched under the file's raw tags would be
 /// thrown away as soon as the song was renamed. Nothing is downloaded here.
@@ -36,6 +37,11 @@ public sealed class MusicVideoCandidatePrefetch(
     /// <returns>How many songs got a list this pass.</returns>
     public async Task<int> RunAsync(CancellationToken ct)
     {
+        // Only where music videos are used: an instance that has never fetched one gets no YouTube
+        // traffic from this.
+        if (!await db.SongMusicVideos.IgnoreQueryFilters().AnyAsync(ct))
+            return 0;
+
         var opts = options.Value;
         var now = time.GetUtcNow().UtcDateTime;
         var since = now.AddDays(-opts.MusicVideoCandidatePrefetchDays);
@@ -80,11 +86,18 @@ public sealed class MusicVideoCandidatePrefetch(
         var failures = 0;
         foreach (var song in due)
         {
+            Exception? error = null;
             try
             {
-                await cache.SearchAsync(db, song, currentIds.GetValueOrDefault(song.Id), probeTop: true, ct);
-                stored++;
-                failures = 0;
+                var list = await cache.SearchAsync(
+                    db, song, currentIds.GetValueOrDefault(song.Id), probeTop: true, ct);
+                if (list.Candidates.Count > 0)
+                {
+                    stored++;
+                    failures = 0;
+                    continue;
+                }
+                // Recorded by the cache; counted here, since a refused search reads as an empty one.
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -92,14 +105,16 @@ public sealed class MusicVideoCandidatePrefetch(
             }
             catch (Exception ex)
             {
+                error = ex;
                 await cache.RecordFailureAsync(db, song, ex.Message, ct);
-                if (++failures >= MaxConsecutiveFailures)
-                {
-                    logger.LogWarning(ex,
-                        "Music video candidate prefetch stopped after {Failures} failed searches in a row (last: '{Artist} - {Title}')",
-                        failures, LogSanitizer.ForLog(song.Artist), LogSanitizer.ForLog(song.Title));
-                    break;
-                }
+            }
+
+            if (++failures >= MaxConsecutiveFailures)
+            {
+                logger.LogWarning(error,
+                    "Music video candidate prefetch stopped after {Failures} failed or empty searches in a row (last: '{Artist} - {Title}')",
+                    failures, LogSanitizer.ForLog(song.Artist), LogSanitizer.ForLog(song.Title));
+                break;
             }
         }
 
