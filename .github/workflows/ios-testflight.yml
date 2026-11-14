@@ -4,8 +4,11 @@
 #
 # Signing is Xcode's automatic signing with an App Store Connect API key: the distribution
 # certificate and the provisioning profile are made and kept in Apple's cloud, so no certificate
-# file or password lives in this repo's secrets. The key must have the Admin role, which cloud
-# signing needs. Setup, once (see mobile/README.md, "iOS: TestFlight"):
+# file or password lives in this repo's secrets. The archive is built unsigned and only the export
+# signs it, with Apple's cloud-managed distribution certificate. Signing the archive would make
+# every fresh runner (an empty keychain each time) create a new Apple Development certificate,
+# which fills the account's certificate limit within a few runs and then fails every build. The key
+# must have the Admin role, which cloud signing needs. Setup, once (see mobile/README.md, "iOS: TestFlight"):
 #
 #   secrets  APP_STORE_CONNECT_API_KEY_P8   the downloaded AuthKey_XXXX.p8, the whole file
 #            APP_STORE_CONNECT_KEY_ID       its key id
@@ -131,13 +134,9 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$KEY_PATH" \
-            -authenticationKeyID "$KEY_ID" \
-            -authenticationKeyIssuerID "$ISSUER_ID" \
             DEVELOPMENT_TEAM="$TEAM_ID" \
             PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
-            CODE_SIGN_STYLE=Automatic \
+            CODE_SIGNING_ALLOWED=NO \
             MARKETING_VERSION="$VERSION" \
             CURRENT_PROJECT_VERSION="$BUILD" \
             | tail -n 40

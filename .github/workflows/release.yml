@@ -14,6 +14,14 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      android_version:
+        description: >-
+          Re-publish only the Android app for an existing release (X.Y.Z): rebuilds that tag, attaches
+          the APK to its Release and uploads the bundle to Google Play. Nothing is released or deployed.
+          Blank: a normal release run.
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -149,6 +157,7 @@ jobs:
 
       # Gate the release on a green build of both deployables.
       - name: Frontend check / lint / build
+        if: inputs.android_version == ''
         working-directory: frontend
         run: |
           bun install --frozen-lockfile
@@ -158,10 +167,12 @@ jobs:
           bun run build
 
       - name: API tests
+        if: inputs.android_version == ''
         run: dotnet test MusicHoarder.Api.Tests/MusicHoarder.Api.Tests.csproj
 
       - name: semantic-release
         id: semrel
+        if: inputs.android_version == ''
         working-directory: frontend
         run: npx semantic-release
         env:
@@ -194,22 +205,43 @@ jobs:
       # the store build serves every instance. Same application id, signing key and versionCode
       # scheme as the native client it replaced, so it installs over it as an update.
 
+      # The version the Android steps build: the one semantic-release just cut, or, on a manual
+      # re-publish (when Play refused an upload, say), an existing tag, checked out so the app is
+      # built from that release's source. Empty when there is nothing to ship.
+      - name: Version to ship
+        id: ship
+        env:
+          NEW_RELEASE: ${{ steps.semrel.outputs.new_release_version }}
+          REPUBLISH: ${{ inputs.android_version }}
+        run: |
+          set -euo pipefail
+          if [ -n "${REPUBLISH:-}" ]; then
+            VERSION="${REPUBLISH#v}"
+            [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::android_version must be X.Y.Z, got '$REPUBLISH'"; exit 1; }
+            git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null || { echo "::error::No tag v$VERSION"; exit 1; }
+            git checkout -q --detach "v$VERSION"
+            echo "Re-publishing the Android app for v$VERSION"
+          else
+            VERSION="${NEW_RELEASE:-}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
       - name: Setup Android SDK
-        if: steps.semrel.outputs.new_release_version != ''
+        if: steps.ship.outputs.version != ''
         uses: android-actions/setup-android@v4
 
       - name: Setup Gradle
-        if: steps.semrel.outputs.new_release_version != ''
+        if: steps.ship.outputs.version != ''
         uses: gradle/actions/setup-gradle@v6
         with:
           validate-wrappers: true
 
       - name: Build Android APK and App Bundle
         id: apk
-        if: steps.semrel.outputs.new_release_version != ''
+        if: steps.ship.outputs.version != ''
         working-directory: mobile
         env:
-          VERSION: ${{ steps.semrel.outputs.new_release_version }}
+          VERSION: ${{ steps.ship.outputs.version }}
           SIGNING_OK: ${{ steps.android_signing.outputs.ok }}
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           MH_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -264,10 +296,10 @@ jobs:
           echo "apk=$APK" >> "$GITHUB_OUTPUT"
 
       - name: Attach APK to the release
-        if: steps.semrel.outputs.new_release_version != ''
+        if: steps.ship.outputs.version != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ steps.semrel.outputs.new_release_version }}
+          VERSION: ${{ steps.ship.outputs.version }}
           APK: ${{ steps.apk.outputs.apk }}
         run: gh release upload "v$VERSION" "$APK" --clobber
 
@@ -279,7 +311,7 @@ jobs:
         if: steps.apk.outputs.aab != ''
         uses: actions/upload-artifact@v7.0.2
         with:
-          name: musichoarder-aab-${{ steps.semrel.outputs.new_release_version }}
+          name: musichoarder-aab-${{ steps.ship.outputs.version }}
           path: ${{ steps.apk.outputs.aab }}
           retention-days: 30
           if-no-files-found: error
@@ -297,7 +329,7 @@ jobs:
         if: steps.apk.outputs.aab != '' && steps.android_play.outputs.ok == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ steps.semrel.outputs.new_release_version }}
+          VERSION: ${{ steps.ship.outputs.version }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
