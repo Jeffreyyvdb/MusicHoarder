@@ -49,6 +49,8 @@
     type JobConfirm,
     type StageKey
   } from '#lib/stores/pipeline-overlay.svelte.ts';
+  import { page } from '$app/state';
+  import { isAdmin } from '#lib/auth/capabilities.ts';
   import { cn } from '#lib/utils.ts';
   import { formatBytesShort } from '#lib/formatters.ts';
   import { inboxCounts, publishInboxQueueCount } from '#lib/stores/nav-badges.svelte.ts';
@@ -94,7 +96,8 @@
         fetchSongs(),
         fetchAlbums(),
         fetchQualityOverview(),
-        fetchQualityProgress(),
+        // Admin only on the server; anyone else would poll a 403.
+        isAdmin(page.data.user) ? fetchQualityProgress() : null,
         fetchDuplicates()
       ]);
       if (stRes.status === 'fulfilled') stats = stRes.value;
