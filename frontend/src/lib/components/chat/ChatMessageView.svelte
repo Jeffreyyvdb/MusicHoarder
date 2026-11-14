@@ -24,7 +24,7 @@
 </script>
 
 {#if message.kind === 'shareOpened'}
-  <div class="flex flex-col items-center gap-2 px-4 py-3">
+  <div class="flex flex-col items-center gap-2 px-4 py-3 md:px-7">
     {#if message.notice}
       <p class="text-footnote text-muted-foreground max-w-sm text-center text-balance md:text-xs">
         {message.notice}
@@ -37,7 +37,7 @@
 {:else}
   <div
     class={cn(
-      'flex flex-col px-4',
+      'flex flex-col px-4 md:px-7',
       message.mine ? 'items-end' : 'items-start',
       continues ? 'mt-0.5' : 'mt-3'
     )}
