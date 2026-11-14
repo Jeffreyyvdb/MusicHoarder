@@ -202,7 +202,7 @@ export const privacyPage: ProsePage = {
       blocks: [
         {
           kind: 'paragraph',
-          text: 'The MusicHoarder app is the same web app in a native frame: it loads the pages of whichever MusicHoarder server you connect it to, and has no pages or data of its own. It ships with no server built in, and the address you enter is stored on your phone only. Because it shows that server’s pages, everything described above for the website (analytics, the session cookie, email for sign-in links) applies inside the app as well, and for a self-hosted server whatever that server does. The app itself adds nothing on top:'
+          text: 'The MusicHoarder app is the same web app in a native frame: it loads the pages of whichever MusicHoarder server you connect it to, and has no pages or data of its own. It ships with no server built in, and the address you enter is stored on your phone and in its own backups, nowhere else. Because it shows that server’s pages, everything described above for the website (analytics, the session cookie, email for sign-in links) applies inside the app as well, and for a self-hosted server whatever that server does. The app itself adds nothing on top:'
         },
         {
           kind: 'list',
