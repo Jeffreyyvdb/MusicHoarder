@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   NAV_GROUPS,
   allowedPathPrefixesFor,
+  DEMO_HIDDEN_ITEMS,
   backFor,
+  hiddenPathPrefixesFor,
   isInboxHub,
-  isPathAllowed,
+  isPathAllowedFor,
   isTabRoot,
   navGroupsFor,
   resolveNav,
@@ -227,7 +229,7 @@ describe('what each account may see', () => {
   const member = { role: 'Member' as const, isAdmin: false, capabilities: [] };
 
   const allowed = (path: string, user: Parameters<typeof allowedPathPrefixesFor>[0]) =>
-    isPathAllowed(path, allowedPathPrefixesFor(user));
+    isPathAllowedFor(path, user);
 
   it('gives an admin every group and every path', () => {
     expect(navGroupsFor(admin)).toHaveLength(NAV_GROUPS.length);
@@ -242,9 +244,51 @@ describe('what each account may see', () => {
     // silently demoted the public demo to a music player.
     const demo = { role: 'Demo' as const, isAdmin: false, capabilities: [] };
     expect(navGroupsFor(demo)).toHaveLength(NAV_GROUPS.length);
-    for (const path of ['/pipeline', '/inbox', '/stats', '/album-quality', '/wishlist']) {
+    for (const path of [
+      '/pipeline',
+      '/inbox',
+      '/stats',
+      '/history',
+      '/shares',
+      '/wishlist',
+      '/quality',
+      '/track/7',
+      '/settings',
+      '/add',
+      '/manage'
+    ]) {
       expect(allowed(path, demo)).toBe(true);
     }
+  });
+
+  it('hides from the demo account only the pages whose data is not its own', () => {
+    // Their reads are instance-wide (or admin-only by design), so the API refuses the demo; the
+    // nav and the route guard follow rather than show a page that only errors.
+    const demo = { role: 'Demo' as const, isAdmin: false, capabilities: [] };
+    const ids = navGroupsFor(demo).flatMap((g) => g.items.map((i) => i.id));
+    for (const id of DEMO_HIDDEN_ITEMS) expect(ids).not.toContain(id);
+    const all = NAV_GROUPS.flatMap((g) => g.items.map((i) => i.id));
+    expect(all.filter((id) => !ids.includes(id)).sort()).toEqual([...DEMO_HIDDEN_ITEMS].sort());
+
+    for (const path of [
+      '/album-quality',
+      '/grader-trial',
+      '/performance',
+      '/playlist-sync',
+      '/performance/'
+    ]) {
+      expect(allowed(path, demo)).toBe(false);
+      expect(allowed(path, admin)).toBe(true);
+    }
+    // The Album names queue shares /inbox with queues the demo keeps, so the path stays open and
+    // the Inbox itself falls back to Tag review.
+    expect(hiddenPathPrefixesFor(demo)).not.toContain('/inbox');
+    expect(allowed('/inbox', demo)).toBe(true);
+  });
+
+  it('hides nothing from an admin', () => {
+    expect(hiddenPathPrefixesFor(admin)).toEqual([]);
+    expect(navGroupsFor(admin)).toBe(NAV_GROUPS);
   });
 
   it('narrows a member to Listen and Chats', () => {

@@ -15,6 +15,8 @@ public static class WishlistEndpoints
 {
     public static IEndpointRouteBuilder MapWishlistEndpoints(this IEndpointRouteBuilder app)
     {
+        // The two reads marked AllowDemoRead go through the per-user query filter only, so the demo
+        // account sees its own (empty) wishlist; everything else here stays admin-only.
         var group = app.MapGroup("/api/wishlist").WithTags("Wishlist").RequireAdmin();
 
         group.MapGet("/", async (
@@ -89,7 +91,8 @@ public static class WishlistEndpoints
                 return Results.Ok(new WishlistItemsResponse(total, skip, take, items));
             })
             .WithName("GetWishlist")
-            .WithSummary("Paginated wishlist items, optionally filtered by status. `source` selects user-requested items (default), `albumfill`, or `all`.");
+            .WithSummary("Paginated wishlist items, optionally filtered by status. `source` selects user-requested items (default), `albumfill`, or `all`.")
+            .AllowDemoRead();
 
         group.MapGet("/sources", async (MusicHoarderDbContext db, CancellationToken ct) =>
             {
@@ -117,7 +120,8 @@ public static class WishlistEndpoints
                 return Results.Ok(new { sources });
             })
             .WithName("GetWishlistSources")
-            .WithSummary("Lists the owner's wishlist sources.");
+            .WithSummary("Lists the owner's wishlist sources.")
+            .AllowDemoRead();
 
         group.MapPost("/sources", async (
                 AddWishlistSourceRequest body,

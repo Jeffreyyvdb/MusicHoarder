@@ -37,7 +37,9 @@
     if (sidebar.state === 'expanded') return null;
     const match = resolveNav(page.url);
     if (!match) return null;
-    return navGroupsFor(page.data.user).some((g) => g.id === match.group.id) ? match : null;
+    // The account's own copy of the group, so the strip shows only the pages its nav does.
+    const group = navGroupsFor(page.data.user).find((g) => g.id === match.group.id);
+    return group ? { ...match, group } : null;
   });
 
   // Adding music is admin work: Demo and members keep search and their account only.

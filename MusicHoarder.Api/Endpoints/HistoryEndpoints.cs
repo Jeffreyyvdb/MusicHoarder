@@ -32,7 +32,9 @@ public static class HistoryEndpoints
 
     public static IEndpointRouteBuilder MapHistoryEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/api/history", GetHistory).WithName("GetHistory").RequireAdmin();
+        // Every source reads through the per-user query filter (catalog rows only where narrowed to the
+        // caller's own write events), so the demo account sees only its own library's history.
+        app.MapGet("/api/history", GetHistory).WithName("GetHistory").RequireAdmin().AllowDemoRead();
         return app;
     }
 

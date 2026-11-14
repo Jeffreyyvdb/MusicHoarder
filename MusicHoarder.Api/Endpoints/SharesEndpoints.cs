@@ -25,22 +25,27 @@ public static class SharesEndpoints
 {
     public static IEndpointRouteBuilder MapSharesEndpoints(this IEndpointRouteBuilder app)
     {
+        // The reads marked AllowDemoRead go through the per-user query filter on SongShares and
+        // ShareVisits only, so the demo account sees its own links (it cannot make any).
         var owner = app.MapGroup("/api/shares").WithTags("Shares").RequireAdmin();
         owner.MapPost("", CreateShare)
             .WithName("CreateShare")
             .WithSummary("Create (or return the existing) share link for a song or its whole album.");
         owner.MapGet("", ListShares)
             .WithName("ListShares")
-            .WithSummary("List the owner's active share links.");
+            .WithSummary("List the owner's active share links.")
+            .AllowDemoRead();
         owner.MapDelete("/{id:int}", RevokeShare)
             .WithName("RevokeShare")
             .WithSummary("Revoke a share link; the URL stops working immediately.");
         owner.MapGet("/stats", ListShareStats)
             .WithName("ListShareStats")
-            .WithSummary("Every share link the owner made, active and revoked, with open/visitor/play totals.");
+            .WithSummary("Every share link the owner made, active and revoked, with open/visitor/play totals.")
+            .AllowDemoRead();
         owner.MapGet("/{id:int}/stats", GetShareStats)
             .WithName("GetShareStats")
-            .WithSummary("One share link's totals, opens per day, where visitors came from, and plays per track.");
+            .WithSummary("One share link's totals, opens per day, where visitors came from, and plays per track.")
+            .AllowDemoRead();
 
         var pub = app.MapGroup("/api/share").WithTags("Shares");
         pub.MapGet("/{token}", GetSharePayload)

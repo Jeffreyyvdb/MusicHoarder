@@ -1,6 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import { APP_HOME } from '#lib/app-home.ts';
-import { allowedPathPrefixesFor, isPathAllowed } from '#lib/nav.ts';
+import { isPathAllowedFor } from '#lib/nav.ts';
 import type { LayoutLoad } from './$types';
 
 // The (app) shell uses module-scoped $state that reads browser-only APIs
@@ -17,6 +17,6 @@ export const prerender = false;
  * server's: the API enforces the real rules.
  */
 export const load: LayoutLoad = ({ data, url }) => {
-  if (!isPathAllowed(url.pathname, allowedPathPrefixesFor(data.user))) redirect(303, APP_HOME);
+  if (!isPathAllowedFor(url.pathname, data.user)) redirect(303, APP_HOME);
   return data;
 };

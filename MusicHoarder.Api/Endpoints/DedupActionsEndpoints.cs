@@ -15,10 +15,11 @@ public static class DedupActionsEndpoints
 {
     public static IEndpointRouteBuilder MapDedupActionsEndpoints(this IEndpointRouteBuilder app)
     {
+        // Read from the SongMetadataChanges audit log through the per-user query filter.
         app.MapGet("/api/library/dedup/actions", List)
             .WithName("ListDedupActions")
             .WithSummary("Recent dedup actions (merges, credit splits, heals) with per-batch summaries and revert eligibility.")
-            .WithTags("Library").RequireAdmin();
+            .WithTags("Library").RequireAdmin().AllowDemoRead();
 
         app.MapPost("/api/library/dedup/actions/revert", Revert)
             .WithName("RevertDedupAction")
