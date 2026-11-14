@@ -233,7 +233,7 @@ export const privacyPage: ProsePage = {
       blocks: [
         {
           kind: 'paragraph',
-          text: 'You can browse this site with an ad or tracker blocker and everything except the demo will work normally; the analytics script fails closed. To remove the demo session cookie, sign out or clear cookies for this domain. Because there is no visitor account system, there is no stored profile to export or delete — a request to erase analytics data can be made through the contact channels below and will be honoured.'
+          text: 'You can browse this site with an ad or tracker blocker and everything except the demo will work normally; the analytics script fails closed. To remove the demo session cookie, sign out or clear cookies for this domain. Browsing this site creates no account and no stored profile, and the analytics are anonymous and not tied to anyone, so there is nothing per person in them to export or delete. If you have an account on musichoarder.app, you can ask for it, or some of its data, to be deleted: the delete-account page below says how, what is removed and what is kept.'
         },
         {
           kind: 'links',
