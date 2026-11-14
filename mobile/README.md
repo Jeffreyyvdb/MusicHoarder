@@ -100,7 +100,9 @@ skips itself. It needs the paid Apple Developer Program, and this setup once:
    iPhone and accept the invitation. A build lasts 90 days; each release brings a new one.
 
 Signing needs no certificate file: Xcode's automatic signing makes the distribution certificate and
-profile in Apple's cloud with the API key. The version is the release's (`MARKETING_VERSION`), the
+profile in Apple's cloud with the API key. The archive is built unsigned and only the export signs
+it: signing the archive made each fresh runner create a new Apple Development certificate, until
+the account hit its certificate limit and every build failed. The version is the release's (`MARKETING_VERSION`), the
 build number the workflow's run number, which always grows. `ITSAppUsesNonExemptEncryption` is
 false in `Info.plist`, so TestFlight asks no export-compliance question, and the plugin package
 carries the privacy manifest App Store Connect asks for (`UserDefaults`, reason `CA92.1`).
@@ -123,7 +125,10 @@ being refused for its signature. CI attaches a debug APK to every run of the `Mo
 
 A release build takes `-PmhVersionName`, `-PmhVersionCode` and a keystore through
 `MH_KEYSTORE_PATH`, `MH_KEYSTORE_PASSWORD`, `MH_KEY_ALIAS`, `MH_KEY_PASSWORD`. `release.yml` builds
-one on every release and uploads it to Google Play (see the root `CLAUDE.md`, "Releases").
+one on every release and uploads it to Google Play (see the root `CLAUDE.md`, "Releases"). When
+Play refuses an upload (a Play Console form left unanswered, say), fix that, then re-publish the
+same version without cutting a release: `gh workflow run release.yml -f android_version=X.Y.Z`
+rebuilds that tag, re-attaches its APK and uploads the bundle.
 
 ## Signing in
 
