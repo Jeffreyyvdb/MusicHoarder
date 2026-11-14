@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
     <PropertyGroup>
-        <TargetFramework>net10.0</TargetFramework>
+        <TargetFramework>net11.0</TargetFramework>
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
         <UserSecretsId>390a686e-832c-410d-9272-d0b27a40d789</UserSecretsId>
@@ -40,13 +40,13 @@
 
     <ItemGroup>
         <PackageReference Include="Aspire.Npgsql.EntityFrameworkCore.PostgreSQL" Version="13.6.5" />
-        <PackageReference Include="Fido2.AspNet" Version="4.3.2" />
+        <PackageReference Include="Fido2.AspNet" Version="4.3.3" />
         <!-- Fido2 4.3.2 depends on System.Formats.Cbor 9.0.0 (GHSA-vmv3-wvjp-wqpj). This project gets the
              patched assembly from the ASP.NET Core shared framework (hence NU1510), but the test and
              perf-seed projects that reference it do not, so pin the patched package for them. -->
-        <PackageReference Include="System.Formats.Cbor" Version="10.0.15" NoWarn="NU1510" />
+        <PackageReference Include="System.Formats.Cbor" Version="11.0.0" NoWarn="NU1510" />
         <PackageReference Include="FuzzySharp" Version="2.0.2" />
-        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.14" />
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="11.0.0" />
         <!-- Pinned directly (design-time only) to override a bad transitive resolution to
              EFCore.Design 8.0.0, which is ABI-incompatible with EFCore 10.x and breaks `dotnet ef`. -->
         <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.14">
@@ -57,7 +57,7 @@
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
-        <PackageReference Include="Microsoft.OpenApi" Version="2.13.0" />
+        <PackageReference Include="Microsoft.OpenApi" Version="3.11.0" />
         <PackageReference Include="Scalar.AspNetCore" Version="2.19.0" />
         <PackageReference Include="SkiaSharp" Version="4.155.0" />
         <!-- Headless image decode/resize/encode only (no text rendering), so the NoDependencies

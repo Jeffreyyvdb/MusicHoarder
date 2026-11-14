@@ -240,8 +240,8 @@ export async function up(cfg: StackConfig, options: UpOptions): Promise<Target> 
     spawnSync('docker', ['exec', cfg.pgContainer, 'psql', '-U', 'postgres', '-d', 'musichoarderdb', '-c', 'select 1']).status === 0)
 
   const seedProject = join(PERF_ROOT, 'seed')
-  const seedDll = join(seedProject, 'bin/Release/net10.0/MusicHoarder.PerfSeed.dll')
-  const apiDir = join(REPO_ROOT, 'MusicHoarder.Api/bin/Release/net10.0')
+  const seedDll = join(seedProject, 'bin/Release/net11.0/MusicHoarder.PerfSeed.dll')
+  const apiDir = join(REPO_ROOT, 'MusicHoarder.Api/bin/Release/net11.0')
   if (options.build || !existsSync(seedDll)) {
     log('building the API and the seeder (Release)')
     run('dotnet', ['build', seedProject, '-c', 'Release', '--nologo', '-v', 'quiet'], { quiet: true })

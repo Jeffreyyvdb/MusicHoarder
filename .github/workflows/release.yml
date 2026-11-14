@@ -63,7 +63,7 @@ jobs:
 
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '10.0.x'
+          global-json-file: global.json
 
       # Set up here rather than with the Android steps below so the signing preflight can run
       # *before* semantic-release: a broken keystore config is then reported on every release run,

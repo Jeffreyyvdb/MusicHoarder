@@ -44,7 +44,13 @@ builder.Services.AddDbContext<MusicHoarderDbContext>((sp, options) =>
 });
 builder.EnrichNpgsqlDbContext<MusicHoarderDbContext>();
 
-builder.Services.AddOpenApi(options => options.AddDocumentTransformer<CookieSecuritySchemeTransformer>());
+builder.Services.AddOpenApi(options =>
+{
+    // .NET 11 defaults to OpenAPI 3.2. Stay on 3.1, which every spec tool reads, until there is a
+    // reason to move.
+    options.OpenApiVersion = Microsoft.OpenApi.OpenApiSpecVersion.OpenApi3_1;
+    options.AddDocumentTransformer<CookieSecuritySchemeTransformer>();
+});
 
 var app = builder.Build();
 

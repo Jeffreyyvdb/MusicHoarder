@@ -254,7 +254,7 @@ live on the **Manage → Pipeline** dashboard.
 
 ### Prerequisites
 
-- .NET 10 SDK
+- .NET 11 SDK
 - Docker (for PostgreSQL via Aspire)
 - Bun (frontend toolchain); Node.js 22 only for the semantic-release step
 - `fpcalc` (`libchromaprint-tools`) for fingerprinting
