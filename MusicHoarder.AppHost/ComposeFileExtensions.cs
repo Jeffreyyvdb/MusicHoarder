@@ -79,6 +79,19 @@ internal static class ComposeFileExtensions
             dashboard.WithStopFirstUpdate();
         }
 
+        // Nothing in this stack may publish a host port. Aspire emits target-only `ports:` entries
+        // (`- "8001"`), and swarm turns each of those into an auto-assigned ingress port in the
+        // 30000+ range on EVERY host interface. Docker-published ports bypass ufw and sit outside
+        // Cloudflare, so the api, the frontend and the Aspire dashboard were all reachable straight
+        // from the internet on <host-ip>:3000x. Traefik reaches the services over the overlay network
+        // (Dokploy's injected labels carry the container port), so `expose:` is all routing needs.
+        // The dashboard has no Traefik route: reach it over an SSH tunnel, or give it a Dokploy
+        // domain behind access control.
+        foreach (var service in file.Services.Values)
+        {
+            service.WithoutPublishedPorts();
+        }
+
         // Swarm services can only attach to swarm-scoped networks. Aspire emits the inter-service
         // `aspire` network as a plain bridge, which `docker stack deploy` rejects ("The network ...
         // cannot be used with services. Only networks scoped to the swarm can be used, such as those
@@ -211,6 +224,15 @@ internal static class ComposeFileExtensions
         // probe is independent). No demo media on previews (MountDemoMedia is swarm-only).
         api.DependsOn.Clear();
         frontend.DependsOn.Clear();
+
+        // No published host ports here either: under plain `docker compose up` a target-only
+        // `ports:` entry binds a random ephemeral port on 0.0.0.0, exposing every preview outside
+        // Traefik (and outside ufw, which Docker-published ports bypass). Traefik routes to the
+        // container port over the Dokploy project network.
+        foreach (var service in file.Services.Values)
+        {
+            service.WithoutPublishedPorts();
+        }
 
         // ── Single shared network (fixes Dokploy preview 504 Gateway Timeouts) ───────────────────
         // Aspire emits a dedicated `aspire` bridge network and pins every service to it. On Dokploy,
@@ -446,6 +468,47 @@ internal static class ComposeFileExtensions
     {
         service.Deploy = SwarmUpdate("start-first");
         return service;
+    }
+
+    /// <summary>
+    /// Turns every published <c>ports:</c> entry into an internal-only <c>expose:</c> entry, so the
+    /// service stays reachable from other containers on its networks (Traefik included) but binds
+    /// nothing on the host. Handles both the target-only form (<c>"8001"</c>) and <c>"host:target"</c>.
+    /// </summary>
+    public static Service WithoutPublishedPorts(this Service service)
+    {
+        foreach (var port in service.Ports)
+        {
+            var target = TargetPort(port);
+            if (!service.Expose.Contains(target))
+            {
+                service.Expose.Add(target);
+            }
+        }
+
+        service.Ports.Clear();
+        return service;
+    }
+
+    /// <summary>
+    /// The container side of a compose port mapping: everything after the last <c>:</c> that is not
+    /// inside a <c>${...}</c> placeholder (so <c>"${API_PORT:-8080}"</c> stays whole).
+    /// </summary>
+    private static string TargetPort(string port)
+    {
+        var depth = 0;
+        var lastSeparator = -1;
+        for (var i = 0; i < port.Length; i++)
+        {
+            switch (port[i])
+            {
+                case '{': depth++; break;
+                case '}': depth--; break;
+                case ':' when depth == 0: lastSeparator = i; break;
+            }
+        }
+
+        return port[(lastSeparator + 1)..];
     }
 
     /// <summary>

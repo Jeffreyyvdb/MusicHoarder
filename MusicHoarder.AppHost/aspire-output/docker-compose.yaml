@@ -1,11 +1,10 @@
 services:
   compose-dashboard:
     image: "mcr.microsoft.com/dotnet/nightly/aspire-dashboard:13.5"
-    ports:
-      - "18888"
     expose:
       - "18889"
       - "18890"
+      - "18888"
     networks:
       - "aspire"
     deploy:
@@ -110,7 +109,7 @@ services:
       MusicEnricher__EnableBuildNeedsReview: "${ENABLE_BUILD_NEEDS_REVIEW:-false}"
       MusicEnricher__AutoScanIntervalMinutes: "${AUTO_SCAN_INTERVAL_MINUTES:-15}"
       MusicEnricher__ScanSettleSeconds: "${SCAN_SETTLE_SECONDS:-60}"
-    ports:
+    expose:
       - "${API_PORT}"
     volumes:
       - type: "volume"
@@ -182,7 +181,7 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://compose-dashboard:18889"
       OTEL_EXPORTER_OTLP_PROTOCOL: "grpc"
       OTEL_SERVICE_NAME: "frontend"
-    ports:
+    expose:
       - "8000"
       - "8001"
     networks:

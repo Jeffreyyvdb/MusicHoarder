@@ -78,7 +78,7 @@ services:
       Spotify__WishlistSyncIntervalMinutes: "0"
       WebAuthn__RpId: "${WEBAUTHN_RP_ID:-}"
       Auth__OwnerSeedCredentialJson: "${OWNER_SEED_CREDENTIAL_JSON:-}"
-    ports:
+    expose:
       - "${API_PORT}"
     volumes:
       - type: "volume"
@@ -125,7 +125,7 @@ services:
       WEBMCP_ORIGIN_TRIAL_TOKEN: "${WEBMCP_ORIGIN_TRIAL_TOKEN}"
       HOST: "0.0.0.0"
       HOSTNAME: "0.0.0.0"
-    ports:
+    expose:
       - "8000"
       - "8001"
     restart: "always"
