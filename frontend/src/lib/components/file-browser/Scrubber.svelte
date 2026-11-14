@@ -93,7 +93,7 @@
   aria-disabled={!canSeek || undefined}
   data-dragging={dragging || undefined}
   class={cn(
-    "group/seek relative z-10 flex h-4 w-full touch-none items-center rounded-full outline-none select-none after:absolute after:inset-x-0 after:-top-5 after:-bottom-2 after:content-['']",
+    "group/seek relative z-10 flex h-4 w-full touch-none items-center rounded-full focus-visible:outline-hidden select-none after:absolute after:inset-x-0 after:-top-5 after:-bottom-2 after:content-['']",
     canSeek ? 'cursor-pointer' : 'cursor-default'
   )}
   onpointerdown={onPointerDown}

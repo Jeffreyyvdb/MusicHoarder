@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { LinearProgress } from '#lib/components/ui/progress/index.ts';
   import {
     ChevronRight,
     Sparkles,
@@ -563,7 +564,7 @@
   // header's padding), and an even 13px down let the card's first row take 7px of the target.
   // 20 up + the 18px line + 6 down = 44.
   const HEADER_LINK =
-    'text-primary relative inline-flex items-center gap-0.5 font-medium outline-none hover:underline focus-visible:underline pointer-coarse:after:absolute pointer-coarse:after:-inset-x-2 pointer-coarse:after:-top-5 pointer-coarse:after:-bottom-1.5';
+    'text-primary relative inline-flex items-center gap-0.5 font-medium focus-visible:outline-hidden hover:underline focus-visible:underline pointer-coarse:after:absolute pointer-coarse:after:-inset-x-2 pointer-coarse:after:-top-5 pointer-coarse:after:-bottom-1.5';
 </script>
 
 {#snippet sectionHeader(title: string, link?: { href: string; label: string })}
@@ -734,22 +735,12 @@
               sublabel={jobStatus(j)}
             >
               {#if j.progress != null}
-                <span
-                  role="progressbar"
-                  aria-label="{j.label} progress"
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={Math.round(j.progress * 100)}
-                  class="bg-muted mt-1.5 mb-0.5 block h-1 w-full overflow-hidden rounded-full"
-                >
-                  <span
-                    class={cn(
-                      'block h-full w-full origin-left transition-transform duration-300 ease-out',
-                      j.paused ? 'bg-warning' : 'bg-primary'
-                    )}
-                    style="transform: scaleX({j.progress})"
-                  ></span>
-                </span>
+                <LinearProgress
+                  label="{j.label} progress"
+                  value={j.progress}
+                  tone={j.paused ? 'warning' : 'primary'}
+                  class="mt-1.5 mb-0.5"
+                />
               {/if}
               {#snippet trailing()}
                 {#if !isDemo}
@@ -806,7 +797,7 @@
           <!-- The only interactive figure: it opens the Inbox. -->
           <a
             href="/inbox"
-            class="group hover:bg-accent focus-visible:ring-ring min-w-0 flex-1 px-4 py-4 outline-none focus-visible:ring-2 focus-visible:ring-inset xl:px-5"
+            class="group hover:bg-accent focus-visible:ring-ring min-w-0 flex-1 px-4 py-4 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset xl:px-5"
           >
             {#if awaitingYou == null && !loaded}
               <Skeleton class="h-7 w-12" />
@@ -888,7 +879,7 @@
                   type="button"
                   onclick={() => (activeStage = st.id)}
                   aria-pressed={isActive}
-                  class="group focus-visible:ring-ring flex flex-col items-center gap-2.5 rounded-md pb-1 text-center transition-transform duration-100 ease-out outline-none focus-visible:ring-2 active:scale-[0.97]"
+                  class="group focus-visible:ring-ring flex flex-col items-center gap-2.5 rounded-md pb-1 text-center transition-transform duration-100 ease-out focus-visible:outline-hidden focus-visible:ring-2 active:scale-[0.97]"
                 >
                   {@render stageNode(st)}
                   <!-- Label and count on their own lines: seven nodes share the column, and "Fingerprint
@@ -1069,7 +1060,7 @@
                 {/snippet}
                 <a
                   href={`/library?album=${encodeURIComponent(album.key)}`}
-                  class="text-body md:text-sm truncate outline-none after:absolute after:inset-0 focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset"
+                  class="text-body md:text-sm truncate focus-visible:outline-hidden after:absolute after:inset-0 focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset"
                 >
                   {album.title}
                 </a>

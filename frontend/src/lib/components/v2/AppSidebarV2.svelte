@@ -226,7 +226,7 @@
             <a
               href={group.href}
               aria-current={headerActive ? 'page' : undefined}
-              class="focus-visible:ring-sidebar-ring flex min-h-6 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-left outline-none focus-visible:ring-2"
+              class="focus-visible:ring-sidebar-ring flex min-h-6 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-left focus-visible:outline-hidden focus-visible:ring-2"
             >
               <!-- A section label in the macOS sidebar style (small, secondary), still a link to
                    the group's landing page. -->
@@ -272,7 +272,7 @@
               aria-label={`${isCollapsed ? 'Show' : 'Hide'} ${group.label}`}
               title={isCollapsed ? 'Show' : 'Hide'}
               class={cn(
-                'text-muted-foreground hover:text-foreground focus-visible:ring-sidebar-ring grid size-6 shrink-0 place-items-center rounded-md outline-none focus-visible:opacity-100 focus-visible:ring-2',
+                'text-muted-foreground hover:text-foreground focus-visible:ring-sidebar-ring grid size-6 shrink-0 place-items-center rounded-md focus-visible:outline-hidden focus-visible:opacity-100 focus-visible:ring-2',
                 'absolute inset-y-0 right-0 my-auto pointer-coarse:static',
                 (!isCollapsed || accessory) &&
                   'opacity-0 group-hover/header:opacity-100 pointer-coarse:opacity-100'
@@ -303,7 +303,7 @@
                   'flex min-h-7 w-full items-center gap-2 rounded-md px-2 py-1 transition-colors',
                   'text-sidebar-foreground hover:bg-sidebar-accent',
                   'data-[active=true]:bg-sidebar-accent data-[active=true]:text-primary data-[active=true]:font-medium',
-                  'focus-visible:ring-sidebar-ring outline-none focus-visible:ring-2'
+                  'focus-visible:ring-sidebar-ring focus-visible:outline-hidden focus-visible:ring-2'
                 )}
               >
                 <item.icon
@@ -351,7 +351,7 @@
         {#if storage}
           <button
             type="button"
-            class="hover:bg-sidebar-accent focus-visible:ring-sidebar-ring -mx-1.5 flex items-center gap-2.5 rounded-md px-1.5 py-1 text-left transition-colors outline-none focus-visible:ring-2"
+            class="hover:bg-sidebar-accent focus-visible:ring-sidebar-ring -mx-1.5 flex items-center gap-2.5 rounded-md px-1.5 py-1 text-left transition-colors focus-visible:outline-hidden focus-visible:ring-2"
             aria-label="Storage, {storage.label}. Show breakdown"
             title="Storage breakdown"
             onclick={() => (storageUsage.dialogOpen = true)}

@@ -112,7 +112,7 @@
 				tabindex={selected || (selectedIndex < 0 && i === 0) ? 0 : -1}
 				disabled={item.disabled}
 				data-state={selected ? "active" : "inactive"}
-				class="text-foreground focus-visible:ring-ring relative z-10 flex min-h-7 min-w-0 items-center justify-center gap-1 rounded-[7px] px-2 text-subheadline font-semibold outline-none after:absolute after:inset-x-0 after:inset-y-0 pointer-coarse:after:-inset-y-2 focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-[13px] md:leading-4 md:font-medium"
+				class="text-foreground focus-visible:ring-ring relative z-10 flex min-h-7 min-w-0 items-center justify-center gap-1 rounded-[7px] px-2 text-subheadline font-semibold focus-visible:outline-hidden after:absolute after:inset-x-0 after:inset-y-0 pointer-coarse:after:-inset-y-2 focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-[13px] md:leading-4 md:font-medium"
 				onclick={() => select(i)}
 			>
 				<span class="truncate">{item.label}</span>

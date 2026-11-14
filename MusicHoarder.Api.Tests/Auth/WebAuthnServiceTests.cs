@@ -85,18 +85,103 @@ public class WebAuthnServiceTests
     }
 
     [Fact]
-    public async Task CompleteAuthentication_returns_null_for_unknown_credential()
+    public async Task CompleteAuthentication_reports_an_unknown_credential()
     {
         var (svc, _) = MakeService();
-        var assertion = new AuthenticatorAssertionRawResponse { RawId = [9, 9, 9], Id = "unknown" };
+        var assertion = UnknownAssertion(MemberId);
 
-        var session = await svc.CompleteAuthenticationAsync(
+        var result = await svc.CompleteAuthenticationAsync(
             assertion, svc.BeginAuthentication(), null, null, default);
 
-        Assert.Null(session);
+        Assert.Null(result.Session);
+        Assert.Equal(PasskeySignInFailure.UnknownCredential, result.Failure);
+    }
+
+    [Theory]
+    [MemberData(nameof(SharedUserIds))]
+    public async Task CompleteAuthentication_never_reports_unknown_for_a_shared_user_handle(Guid sharedId)
+    {
+        // Previews share the RP id and the frozen owner id, so a passkey unknown here may be live
+        // on another instance: telling the password manager to drop it would break that instance.
+        var (svc, _) = MakeService();
+        var assertion = UnknownAssertion(sharedId);
+
+        var result = await svc.CompleteAuthenticationAsync(
+            assertion, svc.BeginAuthentication(), null, null, default);
+
+        Assert.Null(result.Session);
+        Assert.Equal(PasskeySignInFailure.Rejected, result.Failure);
+    }
+
+    public static TheoryData<Guid> SharedUserIds => new() { WellKnownUsers.OwnerId, WellKnownUsers.DemoId };
+
+    [Fact]
+    public async Task SignalInfo_carries_the_registration_identity_and_own_credential_ids()
+    {
+        var (svc, ctx) = MakeService();
+        var own = NewCredential(MemberId, "member", DateTime.UtcNow);
+        var other = NewCredential(WellKnownUsers.OwnerId, "owner", DateTime.UtcNow);
+        await using (var db = ctx())
+        {
+            db.WebAuthnCredentials.AddRange(own, other);
+            await db.SaveChangesAsync();
+        }
+
+        var info = await svc.GetSignalInfoAsync(MemberId, default);
+
+        Assert.NotNull(info);
+        Assert.Equal("localhost", info.RpId);
+        // The user handle a passkey was registered with: the user id's bytes, base64url.
+        Assert.Equal(MemberId.ToByteArray(), System.Buffers.Text.Base64Url.DecodeFromChars(info.UserId));
+        Assert.Equal("member@example.com", info.Name);
+        Assert.Equal("Member", info.DisplayName);
+        Assert.NotNull(info.CredentialIds);
+        var id = Assert.Single(info.CredentialIds);
+        Assert.Equal(own.CredentialId, System.Buffers.Text.Base64Url.DecodeFromChars(id));
+    }
+
+    [Fact]
+    public async Task SignalInfo_lists_no_credentials_for_a_shared_user_handle()
+    {
+        var (svc, ctx) = MakeService();
+        await using (var db = ctx())
+        {
+            db.WebAuthnCredentials.Add(NewCredential(WellKnownUsers.OwnerId, "owner", DateTime.UtcNow));
+            await db.SaveChangesAsync();
+        }
+
+        var info = await svc.GetSignalInfoAsync(WellKnownUsers.OwnerId, default);
+
+        // Name and display name are still safe to signal; the full list is not.
+        Assert.NotNull(info);
+        Assert.Equal("Owner", info.DisplayName);
+        Assert.Null(info.CredentialIds);
+    }
+
+    [Fact]
+    public async Task SignalInfo_is_null_for_an_unknown_user()
+    {
+        var (svc, _) = MakeService();
+        Assert.Null(await svc.GetSignalInfoAsync(Guid.NewGuid(), default));
     }
 
     // -- helpers --
+
+    private static readonly Guid MemberId = new("5b1c2d3e-4f50-4617-8a9b-0c1d2e3f4a5b");
+
+    /// <summary>An assertion for a credential id no row has, carrying <paramref name="userId"/>'s handle.</summary>
+    private static AuthenticatorAssertionRawResponse UnknownAssertion(Guid userId) => new()
+    {
+        RawId = [9, 9, 9],
+        Id = "unknown",
+        Response = new AuthenticatorAssertionRawResponse.AssertionResponse
+        {
+            AuthenticatorData = [],
+            Signature = [],
+            ClientDataJson = [],
+            UserHandle = userId.ToByteArray(),
+        },
+    };
 
     private static WebAuthnCredential NewCredential(Guid userId, string name, DateTime createdAtUtc) =>
         new()
@@ -127,6 +212,15 @@ public class WebAuthnServiceTests
                     EmailNormalized = User.Normalize("owner@example.com"),
                     DisplayName = "Owner",
                     Role = UserRole.Admin,
+                    CreatedAtUtc = DateTime.UtcNow,
+                },
+                new User
+                {
+                    Id = MemberId,
+                    Email = "member@example.com",
+                    EmailNormalized = User.Normalize("member@example.com"),
+                    DisplayName = "Member",
+                    Role = UserRole.Member,
                     CreatedAtUtc = DateTime.UtcNow,
                 },
                 new User

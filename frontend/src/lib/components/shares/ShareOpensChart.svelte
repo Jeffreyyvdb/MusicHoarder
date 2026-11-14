@@ -118,7 +118,7 @@
         aria-label={summary}
         tabindex="0"
         data-scroll-x
-        class="focus-visible:ring-ring relative flex h-32 touch-pan-y items-end rounded-sm outline-none focus-visible:ring-2"
+        class="focus-visible:ring-ring relative flex h-32 touch-pan-y items-end rounded-sm focus-visible:outline-hidden focus-visible:ring-2"
         {onpointermove}
         onpointerdown={onpointermove}
         {onpointerleave}

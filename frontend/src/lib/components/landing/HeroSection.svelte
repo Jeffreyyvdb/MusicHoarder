@@ -43,6 +43,7 @@
       <Screenshot
         name="hero"
         dark="hero-dark"
+        priority
         width={2400}
         height={1543}
         sizes="(min-width: 1200px) 1200px, 100vw"

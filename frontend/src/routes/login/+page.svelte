@@ -1,10 +1,16 @@
 <script lang="ts">
   import { page } from '$app/state';
+  import { untrack } from 'svelte';
   import { Button } from '#lib/components/ui/button/index.ts';
   import { Input } from '#lib/components/ui/input/index.ts';
   import BrandMark from '#lib/components/BrandMark.svelte';
-  import { requestMagicLink, signInAsDemo, loginWithPasskey } from '#lib/api-client.ts';
-  import { isPasskeySupported } from '#lib/webauthn-client.ts';
+  import {
+    requestMagicLink,
+    signInAsDemo,
+    loginWithPasskey,
+    PasskeyRefusedError
+  } from '#lib/api-client.ts';
+  import { isPasskeyAutofillSupported, isPasskeySupported } from '#lib/webauthn-client.ts';
   import { isHomeScreenWebApp } from '#lib/hooks/viewport-insets.svelte.ts';
   import { isNativeShell } from '#lib/native/shell.ts';
   import { noteAppSignInRequested } from '#lib/native/app-sign-in.ts';
@@ -64,7 +70,7 @@
   // order is the server's (email first), so the form and the demo show from the first paint —
   // on a cold start over a weak signal the bundle can take seconds — and only the passkey
   // button waits, invisibly holding its place so nothing shifts when it appears. The installed
-  // iOS app puts the passkey first instead; the inline script below marks it before the first
+  // iOS app puts the passkey first instead; app.html's inline script marks it before the first
   // paint, and there the actions wait for the client (a frame or two, from the cached bundle)
   // rather than painting one order and flipping to the other as a finger reaches for it.
   let ready = $state(false);
@@ -73,6 +79,56 @@
     passkeySupported = isPasskeySupported();
     inIosHomeScreenApp = isHomeScreenWebApp() && isIosDevice();
     ready = true;
+  });
+
+  // Passkey autofill: while the page is open, a pending conditional request lets the browser offer
+  // the account's passkeys in the email field's suggestions (`autocomplete="email webauthn"`).
+  // Picking one signs in without the email round trip. Only one WebAuthn request (and one
+  // challenge cookie) can be in flight, so the passkey button stops it first and starts it again
+  // afterwards. These are plain variables, not state: nothing renders from them, and the effect
+  // that starts autofill must not re-run when they change.
+  let autofill: AbortController | null = null;
+  let buttonCeremony = false;
+  let pageClosed = false;
+
+  async function startPasskeyAutofill() {
+    if (autofill || buttonCeremony || pageClosed) return;
+    // Claimed before the first await, so a stop (the button, leaving the page) or a second start
+    // during the capability check sees it and aborts it or backs off.
+    const controller = new AbortController();
+    autofill = controller;
+    let again = false;
+    try {
+      if (!(await isPasskeyAutofillSupported()) || controller.signal.aborted) return;
+      await loginWithPasskey({ mediation: 'conditional', signal: controller.signal });
+      enterApp();
+    } catch (err) {
+      if (controller.signal.aborted) return;
+      if (err instanceof PasskeyRefusedError) {
+        // A passkey was picked and the server refused it: say so, like the button does, and offer
+        // the passkeys again so the right one can be picked.
+        result = { ok: false, message: err.message };
+        again = true;
+      }
+      // Anything else (the browser ended the wait, the network failed) waits for the email field
+      // to be focused again: starting over at once could repeat a failing request without end.
+    } finally {
+      if (autofill === controller) autofill = null;
+    }
+    if (again) void startPasskeyAutofill();
+  }
+
+  function stopPasskeyAutofill() {
+    autofill?.abort();
+    autofill = null;
+  }
+
+  $effect(() => {
+    untrack(() => void startPasskeyAutofill());
+    return () => {
+      pageClosed = true;
+      stopPasskeyAutofill();
+    };
   });
 
   // The prominent action is the one that can actually finish here (HIG buttons: the most likely
@@ -95,10 +151,14 @@
   }
 
   async function handlePasskeyLogin() {
+    buttonCeremony = true;
+    stopPasskeyAutofill();
     isPasskeyLogin = true;
     result = null;
+    let signedIn = false;
     try {
       await loginWithPasskey();
+      signedIn = true;
       enterApp();
     } catch (err) {
       result = {
@@ -107,6 +167,8 @@
       };
     } finally {
       isPasskeyLogin = false;
+      buttonCeremony = false;
+      if (!signedIn) void startPasskeyAutofill();
     }
   }
 
@@ -186,19 +248,13 @@
   // phone; the desktop card keeps a 40px control height.
   const BIG = 'h-[50px] w-full rounded-full text-headline md:h-10 md:text-sm md:font-medium';
 
-  // Marks the installed iOS app on <html> before the first paint (the same test as isInstalledApp
-  // + isIosDevice), so the action blocks below can wait for the client only there.
-  const MARK_IOS_APP =
-    `<script>try{var n=navigator;if(n.standalone===true&&(/\\b(iPhone|iPad|iPod)\\b/.test(n.userAgent)||(/\\bMacintosh\\b/.test(n.userAgent)&&n.maxTouchPoints>1)))document.documentElement.setAttribute('data-mh-ios-app','')}catch(e){}<` +
-    '/script>';
-  // Until the client has decided, the action blocks are hidden only inside the installed iOS app.
+  // Until the client has decided, the action blocks are hidden only inside the installed iOS app
+  // (app.html's inline script marks it with `data-mh-ios-app` before the first paint).
   const waiting = $derived(ready ? '' : 'in-data-mh-ios-app:invisible');
 </script>
 
 <svelte:head>
   <title>{data.switching ? 'Add an account' : 'Sign in'} · MusicHoarder</title>
-  <!-- eslint-disable-next-line svelte/no-at-html-tags -- a fixed string, no input in it -->
-  {@html MARK_IOS_APP}
 </svelte:head>
 
 {#snippet passkeyButton(prominent: boolean)}
@@ -236,11 +292,12 @@
       <Input
         id="login-email"
         type="email"
-        autocomplete="email"
+        autocomplete="email webauthn"
         enterkeyhint="go"
         placeholder="you@example.com"
         bind:value={email}
         oninput={onEmailInput}
+        onfocus={() => void startPasskeyAutofill()}
         aria-invalid={emailError ? 'true' : undefined}
         aria-describedby={emailError ? 'login-email-error' : undefined}
         class="text-body h-[50px] rounded-xl px-4 md:h-10 md:rounded-lg md:px-3 md:text-sm"

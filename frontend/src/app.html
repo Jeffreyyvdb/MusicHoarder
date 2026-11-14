@@ -14,7 +14,7 @@
          (surfaceFor + the theme-surface store) — so a cold load of a grouped page shows one white
          status-bar frame, accepted like the light launch. -->
     <meta name="theme-color" content="#ffffff" />
-    <script>
+    <script nonce="%sveltekit.nonce%">
       try {
         var mode = localStorage.getItem('mode-watcher-mode');
         var dark =
@@ -31,6 +31,23 @@
         // Native controls (inputs, scrollbars, <select> popups) follow color-scheme; claim it at
         // first paint too, so they don't render light inside a dark shell until mode-watcher runs.
         document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+        // The `dark` class mode-watcher's own head script would set. That script is turned off
+        // (`disableHeadScriptInjection` in the root layout) because it is inline without a nonce,
+        // which the Content-Security-Policy refuses; this one carries the nonce.
+        document.documentElement.classList.toggle('dark', dark);
+      } catch (_) {}
+      // Marks the installed iOS app (the same test as isHomeScreenWebApp + isIosDevice) before the
+      // first paint, so the login page's action blocks can wait for the client only there. It lives
+      // here, not on that page, because an inline script needs this script's CSP nonce.
+      try {
+        var nav = navigator;
+        if (
+          nav.standalone === true &&
+          (/\b(iPhone|iPad|iPod)\b/.test(nav.userAgent) ||
+            (/\bMacintosh\b/.test(nav.userAgent) && nav.maxTouchPoints > 1))
+        ) {
+          document.documentElement.setAttribute('data-mh-ios-app', '');
+        }
       } catch (_) {}
       // iOS Dynamic Type: scale the iOS text styles by the iPhone's Text Size setting before the
       // first frame, so the app does not open at the default size and then jump. The same

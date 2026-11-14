@@ -111,6 +111,52 @@ count_preview_stacks() {
       | select(.name | startswith("pr-")) ] | length'
 }
 
+# The newest deployment of a compose, as one JSON object (empty when it has none).
+latest_deployment() {
+  get "deployment.allByCompose?composeId=$1" | jq -c '((.data? // .) | sort_by(.createdAt) | last) // empty'
+}
+
+# Waits for the deployment queued after <before> to end, then for <url>/login to answer.
+# Fails with the reason when the deployment errors, or when it has not finished in time (the queue
+# is shared with every other app on the server, and one stuck job holds up all of them).
+wait_for_deploy() {
+  local compose_id="$1" before="$2" url="$3"
+  local timeout="${PREVIEW_DEPLOY_TIMEOUT_SECONDS:-1200}" waited=0 latest="" id="" status=""
+  echo "Waiting for the deployment to finish (up to ${timeout}s)..."
+  while :; do
+    latest="$(latest_deployment "$compose_id" || true)"
+    id="$(jq -r '.deploymentId // empty' <<<"${latest:-null}")"
+    status="$(jq -r '.status // empty' <<<"${latest:-null}")"
+    if [[ -n "$id" && "$id" != "$before" ]]; then
+      case "$status" in
+        done) break ;;
+        error|cancelled)
+          echo "::error::Dokploy deployment ${id} ended '${status}': $(jq -r '.errorMessage // "no message"' <<<"$latest")" >&2
+          return 1 ;;
+      esac
+    fi
+    if (( waited >= timeout )); then
+      local state="not started yet"
+      [[ -n "$id" && "$id" != "$before" ]] && state="$status"
+      echo "::error::The preview deployment did not finish in ${timeout}s (state: ${state}). Dokploy runs one deployment at a time; check its queue for a stuck job." >&2
+      return 1
+    fi
+    sleep 15
+    waited=$((waited + 15))
+  done
+
+  echo "Deployment ${id} done; waiting for ${url} to answer..."
+  local answered=0
+  for _ in $(seq 1 40); do
+    if curl -fsS -o /dev/null --max-time 10 "${url}/login"; then answered=1; break; fi
+    sleep 15
+  done
+  if (( ! answered )); then
+    echo "::error::${url}/login did not answer within 10 minutes of the deployment finishing." >&2
+    return 1
+  fi
+}
+
 provision() {
   : "${PREVIEW_BASE_DOMAIN:?PREVIEW_BASE_DOMAIN is required}"
   : "${API_IMAGE:?API_IMAGE is required}"
@@ -234,8 +280,16 @@ EOF
       https:true, certificateType:"letsencrypt", domainType:"compose"}')" >/dev/null \
     || echo "::notice::domain.create returned non-2xx (likely already exists) — continuing."
 
+  # The newest deployment before this one, so the wait below can tell ours apart from it.
+  local before
+  before="$(latest_deployment "$compose_id" | jq -r '.deploymentId // empty' || true)"
+
   echo "Deploying..."
   api compose.deploy "$(jq -n --arg id "$compose_id" '{composeId:$id}')" >/dev/null
+
+  # compose.deploy only queues the deployment. Dokploy runs one deployment at a time, so wait for
+  # ours to finish and for the site to answer before calling the preview ready.
+  wait_for_deploy "$compose_id" "$before" "$public_url"
 
   echo "Preview ready: ${public_url}"
   # Surface the URL to the workflow (for the PR comment).

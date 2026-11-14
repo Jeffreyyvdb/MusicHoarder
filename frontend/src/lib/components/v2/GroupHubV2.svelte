@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { LinearProgress } from '#lib/components/ui/progress/index.ts';
   import { HardDrive, Link } from '@lucide/svelte';
   import { page } from '$app/state';
   import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
@@ -227,19 +228,7 @@
                       chevron
                     >
                       {#if pipelineProgress != null}
-                        <span
-                          role="progressbar"
-                          aria-label="Pipeline progress"
-                          aria-valuemin={0}
-                          aria-valuemax={100}
-                          aria-valuenow={Math.round(pipelineProgress * 100)}
-                          class="bg-muted mt-1.5 mb-0.5 block h-1 w-full overflow-hidden rounded-full"
-                        >
-                          <span
-                            class="bg-primary block h-full w-full origin-left transition-transform duration-300"
-                            style="transform: scaleX({pipelineProgress})"
-                          ></span>
-                        </span>
+                        <LinearProgress label="Pipeline progress" value={pipelineProgress} class="mt-1.5 mb-0.5" />
                       {/if}
                     </GroupedList.Row>
                   {:else}

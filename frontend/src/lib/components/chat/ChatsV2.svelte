@@ -205,7 +205,7 @@
                   href={`/chats/${conversation.id}`}
                   aria-current={selected ? 'page' : undefined}
                   class={cn(
-                    'focus-visible:ring-ring flex items-center gap-3 px-4 py-2.5 outline-none focus-visible:ring-2 focus-visible:ring-inset md:rounded-xl md:px-3',
+                    'focus-visible:ring-ring flex items-center gap-3 px-4 py-2.5 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset md:rounded-xl md:px-3',
                     selected ? 'bg-secondary' : 'hover:bg-secondary/0 md:hover:bg-accent'
                   )}
                 >

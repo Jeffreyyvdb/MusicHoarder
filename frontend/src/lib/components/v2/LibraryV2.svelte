@@ -837,7 +837,7 @@
           type="button"
           onclick={() => listView.toggleChip(key)}
           aria-label="Remove filter {CHIP_LABELS[key]}"
-          class="bg-primary/12 text-primary text-subheadline focus-visible:ring-ring relative flex h-8 shrink-0 items-center gap-1 rounded-full pr-2 pl-3 font-medium whitespace-nowrap transition-transform duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] outline-none after:absolute after:inset-x-0 after:-inset-y-1.5 focus-visible:ring-2 active:scale-[0.97]"
+          class="bg-primary/12 text-primary text-subheadline focus-visible:ring-ring relative flex h-8 shrink-0 items-center gap-1 rounded-full pr-2 pl-3 font-medium whitespace-nowrap transition-transform duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] focus-visible:outline-hidden after:absolute after:inset-x-0 after:-inset-y-1.5 focus-visible:ring-2 active:scale-[0.97]"
         >
           {CHIP_LABELS[key]}
           <X class="size-4" aria-hidden="true" />
@@ -846,7 +846,7 @@
       <button
         type="button"
         onclick={() => listView.clearFilters()}
-        class="text-primary text-subheadline relative flex h-8 shrink-0 items-center px-2 font-medium outline-none after:absolute after:inset-x-0 after:-inset-y-1.5 focus-visible:underline"
+        class="text-primary text-subheadline relative flex h-8 shrink-0 items-center px-2 font-medium focus-visible:outline-hidden after:absolute after:inset-x-0 after:-inset-y-1.5 focus-visible:underline"
       >
         Clear
       </button>
@@ -931,7 +931,7 @@
       data-row-main=""
       onclick={() => activateArtistSong(song, index)}
       aria-current={isLoaded ? 'true' : undefined}
-      class="focus-visible:ring-ring flex min-h-16 min-w-0 flex-1 items-center gap-3 pl-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset md:min-h-14 md:pl-2"
+      class="focus-visible:ring-ring flex min-h-16 min-w-0 flex-1 items-center gap-3 pl-4 text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset md:min-h-14 md:pl-2"
     >
       <span class="relative shrink-0">
         <Cover

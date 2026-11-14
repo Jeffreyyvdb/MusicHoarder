@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { LinearProgress } from '#lib/components/ui/progress/index.ts';
   import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
   import FilterChip from '#lib/components/v2/FilterChip.svelte';
   import { page } from '$app/state';
@@ -355,19 +356,12 @@
       >
         {#snippet leading()}<Loader2 class="text-muted-foreground size-5 animate-spin" aria-hidden="true" />{/snippet}
         {#if gradeProgress}
-          <span
-            role="progressbar"
-            aria-label="Grading progress"
-            aria-valuemin={0}
-            aria-valuemax={gradeProgress.total}
-            aria-valuenow={gradeProgress.processed}
-            class="bg-muted mt-1.5 mb-0.5 block h-1 w-full overflow-hidden rounded-full"
-          >
-            <span
-              class="bg-primary block h-full w-full origin-left transition-transform duration-300 ease-out"
-              style="transform: scaleX({Math.min(1, gradeProgress.processed / gradeProgress.total)})"
-            ></span>
-          </span>
+          <LinearProgress
+            label="Grading progress"
+            value={gradeProgress.processed}
+            max={gradeProgress.total}
+            class="mt-1.5 mb-0.5"
+          />
         {/if}
       </GroupedList.Row>
     </GroupedList.Section>
@@ -386,7 +380,7 @@
           <button
             {...props}
             type="button"
-            class="text-primary focus-visible:ring-ring/50 relative -my-1 inline-flex items-center gap-1 rounded-md py-1 font-semibold outline-none focus-visible:ring-3 pointer-coarse:after:absolute pointer-coarse:after:-inset-x-2 pointer-coarse:after:-inset-y-[9px]"
+            class="text-primary focus-visible:ring-ring/50 relative -my-1 inline-flex items-center gap-1 rounded-md py-1 font-semibold focus-visible:outline-hidden focus-visible:ring-3 pointer-coarse:after:absolute pointer-coarse:after:-inset-x-2 pointer-coarse:after:-inset-y-[9px]"
           >
             {qualityCategoryLabel(category)}
             <span class="text-muted-foreground font-normal tabular-nums">{tabCounts[category].toLocaleString()}</span>
@@ -428,7 +422,7 @@
     onclick={() => (issueFilter = null)}
     aria-label="Clear the issue filter {label}"
     title={issueFilter ?? undefined}
-    class="bg-primary/12 text-primary focus-visible:ring-ring/50 relative inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[12px] outline-none focus-visible:ring-3 pointer-coarse:after:absolute pointer-coarse:after:-inset-x-2 pointer-coarse:after:-inset-y-2.5"
+    class="bg-primary/12 text-primary focus-visible:ring-ring/50 relative inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[12px] focus-visible:outline-hidden focus-visible:ring-3 pointer-coarse:after:absolute pointer-coarse:after:-inset-x-2 pointer-coarse:after:-inset-y-2.5"
   >
     <span>{label}</span>
     <X class="size-3" aria-hidden="true" />

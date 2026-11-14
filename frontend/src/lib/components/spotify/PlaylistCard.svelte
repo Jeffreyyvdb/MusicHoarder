@@ -23,7 +23,7 @@
   <a
     {href}
     onclick={() => onOpen?.()}
-    class="group/tile focus-visible:ring-ring/50 block rounded-md outline-none focus-visible:ring-3"
+    class="group/tile focus-visible:ring-ring/50 block rounded-md focus-visible:outline-hidden focus-visible:ring-3"
   >
     <div
       class="bg-muted aspect-square w-full overflow-hidden rounded-md shadow-[0_1px_2px_rgb(0_0_0/0.08)] transition-transform duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] group-active/tile:scale-[0.97]"
@@ -60,7 +60,7 @@
       title="Add to wishlist"
       disabled={isAdding}
       onclick={() => onAddToWishlist?.()}
-      class="focus-visible:ring-ring/50 absolute top-1.5 right-1.5 grid size-8 place-items-center rounded-full bg-black/50 text-white shadow-sm backdrop-blur-md transition-[background-color,transform] duration-150 outline-none after:absolute after:-inset-1.5 hover:bg-black/65 focus-visible:ring-3 active:scale-[0.94] disabled:opacity-60"
+      class="focus-visible:ring-ring/50 absolute top-1.5 right-1.5 grid size-8 place-items-center rounded-full bg-black/50 text-white shadow-sm backdrop-blur-md transition-[background-color,transform] duration-150 focus-visible:outline-hidden after:absolute after:-inset-1.5 hover:bg-black/65 focus-visible:ring-3 active:scale-[0.94] disabled:opacity-60"
     >
       {#if isAdding}
         <Loader2 class="size-4 animate-spin" aria-hidden="true" />

@@ -20,6 +20,7 @@
 </script>
 
 <script lang="ts">
+  import { LinearProgress } from '#lib/components/ui/progress/index.ts';
   import { CircleAlert, CircleCheck, Loader2 } from '@lucide/svelte';
 
   // The purge's progress as the last cell of the Danger zone section: a spinner and a thin
@@ -59,19 +60,7 @@
           Preparing <span class="tabular-nums">{snapshot.songsTotal.toLocaleString()}</span> songs…
         {/if}
       </p>
-      <span
-        role="progressbar"
-        aria-label="{modeLabel} progress"
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={Math.round(overallPct)}
-        class="bg-muted mt-2 block h-1 w-full overflow-hidden rounded-full"
-      >
-        <span
-          class="bg-primary block h-full w-full origin-left transition-transform duration-300"
-          style="transform: scaleX({overallPct / 100})"
-        ></span>
-      </span>
+      <LinearProgress label="{modeLabel} progress" value={overallPct} max={100} class="mt-2" />
     </div>
   {:else if snapshot.status === 'completed'}
     {@const prefix = snapshot.mode === 'post-fingerprint' ? 'Reset' : 'Deleted'}

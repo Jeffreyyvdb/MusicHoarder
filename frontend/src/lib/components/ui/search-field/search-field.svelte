@@ -60,14 +60,14 @@
 		autocapitalize="off"
 		autocorrect="off"
 		spellcheck={false}
-		class="placeholder:text-muted-foreground h-full w-full min-w-0 bg-transparent pr-11 pl-10 text-base outline-none md:pr-8 md:pl-8 md:text-sm [&::-webkit-search-cancel-button]:appearance-none"
+		class="placeholder:text-muted-foreground h-full w-full min-w-0 bg-transparent pr-11 pl-10 text-base focus-visible:outline-hidden md:pr-8 md:pl-8 md:text-sm [&::-webkit-search-cancel-button]:appearance-none"
 		{...restProps}
 	/>
 	{#if value}
 		<button
 			type="button"
 			aria-label="Clear search"
-			class="group/clear absolute right-0 grid size-11 place-items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring md:size-8"
+			class="group/clear absolute right-0 grid size-11 place-items-center rounded-full focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring md:size-8"
 			onclick={clear}
 		>
 			<span class="bg-muted-foreground-dim group-hover/clear:bg-muted-foreground text-background grid size-[18px] place-items-center rounded-full md:size-4">

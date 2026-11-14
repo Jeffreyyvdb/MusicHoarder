@@ -45,7 +45,8 @@
   }: Props = $props();
 
   // Lock body scroll while the overlay is open. Harmless when a host dialog
-  // already locks it — the previous value is restored on unmount.
+  // already locks it — the previous value is restored on unmount. (overscroll-behavior is not a
+  // substitute here: on iOS a drag on the overlay's non-scrolling parts still chains to the page.)
   $effect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';

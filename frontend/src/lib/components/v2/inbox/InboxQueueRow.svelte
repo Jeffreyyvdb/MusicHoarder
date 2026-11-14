@@ -50,7 +50,7 @@
   {onclick}
   aria-current={selected && !compact ? 'true' : undefined}
   class={cn(
-    'group/row relative flex w-full items-center gap-3 pl-4 text-left outline-none',
+    'group/row relative flex w-full items-center gap-3 pl-4 text-left focus-visible:outline-hidden',
     'focus-visible:ring-ring/50 active:bg-accent min-h-[60px] transition-colors duration-100 focus-visible:ring-3 focus-visible:ring-inset',
     'md:hover:bg-accent md:mb-0.5 md:min-h-0 md:gap-2.5 md:rounded-md md:border-l-2 md:border-transparent md:py-2 md:pr-2.5 md:pl-2',
     selected && 'md:border-l-primary md:bg-sidebar-accent md:hover:bg-sidebar-accent'

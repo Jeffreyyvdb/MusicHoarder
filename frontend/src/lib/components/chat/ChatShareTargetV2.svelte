@@ -118,7 +118,7 @@
               placeholder={url ? 'Add a message (optional)' : 'Message'}
               aria-label="Message"
               autocapitalize="sentences"
-              class="placeholder:text-muted-foreground w-full resize-none bg-transparent py-1 text-[16px] outline-none md:text-sm"
+              class="placeholder:text-muted-foreground w-full resize-none bg-transparent py-1 text-[16px] focus-visible:outline-hidden md:text-sm"
             ></textarea>
           </div>
         </GroupedList.Section>

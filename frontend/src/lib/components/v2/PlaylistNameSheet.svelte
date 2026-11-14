@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isSubmitEnter } from '#lib/keyboard.ts';
   import { Loader2 } from '@lucide/svelte';
   import * as BottomSheet from '#lib/components/ui/bottom-sheet/index.ts';
   import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
@@ -96,9 +97,9 @@
           enterkeyhint="done"
           aria-label="Playlist name"
           placeholder="Playlist name"
-          class="placeholder:text-muted-foreground text-body w-full min-w-0 bg-transparent py-2.5 outline-none md:py-1.5 md:text-sm"
+          class="placeholder:text-muted-foreground text-body w-full min-w-0 bg-transparent py-2.5 focus-visible:outline-hidden md:py-1.5 md:text-sm"
           onkeydown={(e) => {
-            if (e.key === 'Enter') {
+            if (isSubmitEnter(e)) {
               e.preventDefault();
               void submit();
             }

@@ -158,7 +158,8 @@
     }
   });
 
-  // Lock body scroll while the overlay covers the app; restore on collapse/unmount.
+  // Lock body scroll while the overlay covers the app; restore on collapse/unmount. (On iOS,
+  // overscroll-behavior does not stop a drag on a non-scrolling overlay from moving the page.)
   $effect(() => {
     if (!expanded) return;
     const prev = document.body.style.overflow;
@@ -368,7 +369,7 @@
       <!-- Click layer under the chrome: tap the picture to play/pause, double-tap for fullscreen. -->
       <button
         type="button"
-        class={cn('absolute inset-0 z-0 outline-none', controlsVisible ? 'cursor-pointer' : 'cursor-none')}
+        class={cn('absolute inset-0 z-0 focus-visible:outline-hidden', controlsVisible ? 'cursor-pointer' : 'cursor-none')}
         onpointerdown={(e) => (lastPointerType = e.pointerType)}
         onclick={onFrameClick}
         ondblclick={onFrameDblClick}
@@ -403,7 +404,7 @@
         <!-- Inline: just the way into fullscreen (44pt), over the picture's top corner. -->
         <button
           type="button"
-          class="focus-visible:ring-ring absolute top-1 right-1 z-10 flex size-11 items-center justify-center rounded-full outline-none focus-visible:ring-2"
+          class="focus-visible:ring-ring absolute top-1 right-1 z-10 flex size-11 items-center justify-center rounded-full focus-visible:outline-hidden focus-visible:ring-2"
           onclick={(e) => {
             blurAfterPointerClick(e);
             toggleFullscreen();

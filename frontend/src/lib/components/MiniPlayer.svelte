@@ -273,7 +273,7 @@
             tabindex="-1"
             aria-hidden="true"
             onclick={openNowPlaying}
-            class="row-span-2 self-center rounded-md outline-none"
+            class="row-span-2 self-center rounded-md focus-visible:outline-hidden"
           >
             <Cover
               artist={song.artist}
@@ -289,7 +289,7 @@
             type="button"
             onclick={openNowPlaying}
             aria-label={`Open now playing: ${song.title} by ${song.artist}`}
-            class="text-subheadline focus-visible:ring-ring flex min-w-0 items-end rounded-md text-left font-semibold outline-none focus-visible:ring-2"
+            class="text-subheadline focus-visible:ring-ring flex min-w-0 items-end rounded-md text-left font-semibold focus-visible:outline-hidden focus-visible:ring-2"
           >
             <span class="truncate">{song.title}</span>
           </button>
@@ -300,7 +300,7 @@
                 type="button"
                 aria-label={`${deviceLine}. Choose a device`}
                 class={cn(
-                  'text-footnote focus-visible:ring-ring flex min-w-0 items-start gap-1 rounded-md text-left outline-none focus-visible:ring-2',
+                  'text-footnote focus-visible:ring-ring flex min-w-0 items-start gap-1 rounded-md text-left focus-visible:outline-hidden focus-visible:ring-2',
                   deviceTone
                 )}
               >
@@ -322,7 +322,7 @@
           type="button"
           onclick={openNowPlaying}
           aria-label="Open now playing"
-          class="focus-visible:ring-ring flex h-full min-w-0 flex-1 items-center gap-3 rounded-full pl-3.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset"
+          class="focus-visible:ring-ring flex h-full min-w-0 flex-1 items-center gap-3 rounded-full pl-3.5 text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset"
         >
           <Cover
             artist={song.artist}
@@ -476,7 +476,7 @@
             type="button"
             onclick={openNowPlaying}
             aria-label="Open now playing"
-            class="group/np focus-visible:ring-ring flex max-w-full min-w-0 items-center gap-2.5 rounded-md px-1.5 py-0.5 text-left outline-none focus-visible:ring-2"
+            class="group/np focus-visible:ring-ring flex max-w-full min-w-0 items-center gap-2.5 rounded-md px-1.5 py-0.5 text-left focus-visible:outline-hidden focus-visible:ring-2"
           >
             <!-- Album art with an Apple-Music-style enlarge affordance: the cover
                  eases up a touch and a dim scrim + expand glyph fade in on hover.
@@ -521,7 +521,7 @@
             aria-valuenow={Math.round(progress * 100)}
             aria-valuetext={`${formatDuration(playerStore.currentTime)} of ${formatDuration(playerStore.duration)}`}
             aria-label="Seek"
-            class="group/seek relative flex h-3 w-full max-w-[440px] cursor-pointer touch-none items-center rounded-full outline-none select-none after:absolute after:inset-x-0 after:-inset-y-2 after:content-['']"
+            class="group/seek relative flex h-3 w-full max-w-[440px] cursor-pointer touch-none items-center rounded-full focus-visible:outline-hidden select-none after:absolute after:inset-x-0 after:-inset-y-2 after:content-['']"
             onpointerdown={onSeekPointerDown}
             onpointermove={onSeekPointerMove}
             onpointerup={onSeekPointerUp}
@@ -562,7 +562,7 @@
                   type="button"
                   aria-label={`${deviceLine}. Choose a device`}
                   class={cn(
-                    'focus-visible:ring-ring relative flex h-8 max-w-40 min-w-0 items-center gap-1.5 rounded-full px-2 text-xs outline-none focus-visible:ring-2 pointer-fine:hover:bg-accent',
+                    'focus-visible:ring-ring relative flex h-8 max-w-40 min-w-0 items-center gap-1.5 rounded-full px-2 text-xs focus-visible:outline-hidden focus-visible:ring-2 pointer-fine:hover:bg-accent',
                     deviceTone
                   )}
                 >
@@ -579,7 +579,7 @@
                   type="button"
                   aria-label="Devices"
                   title="Devices"
-                  class="text-muted-foreground hover:text-foreground focus-visible:ring-ring flex size-8 shrink-0 items-center justify-center rounded-md outline-none focus-visible:ring-2"
+                  class="text-muted-foreground hover:text-foreground focus-visible:ring-ring flex size-8 shrink-0 items-center justify-center rounded-md focus-visible:outline-hidden focus-visible:ring-2"
                 >
                   <MonitorSpeaker class="size-4" />
                 </button>

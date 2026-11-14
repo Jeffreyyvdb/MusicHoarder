@@ -401,7 +401,7 @@
         {#if chatContext}
           <a
             href={`/chats/${chatContext.conversationId}`}
-            class="bg-secondary hover:bg-secondary-hover focus-visible:ring-ring text-subheadline mx-auto mt-5 flex w-full max-w-[340px] items-center gap-2 rounded-full py-2.5 pr-3 pl-4 outline-none focus-visible:ring-2 md:text-sm lg:mx-0"
+            class="bg-secondary hover:bg-secondary-hover focus-visible:ring-ring text-subheadline mx-auto mt-5 flex w-full max-w-[340px] items-center gap-2 rounded-full py-2.5 pr-3 pl-4 focus-visible:outline-hidden focus-visible:ring-2 md:text-sm lg:mx-0"
           >
             <MessageCircle class="text-primary size-4 shrink-0" aria-hidden="true" />
             <span class="min-w-0 flex-1 truncate">In your chat with {chatContext.ownerName}</span>

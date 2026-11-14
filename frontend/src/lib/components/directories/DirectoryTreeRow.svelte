@@ -147,7 +147,7 @@
       type="button"
       onclick={toggle}
       class={cn(
-        'focus-visible:ring-ring/50 flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-lg text-left outline-none focus-visible:ring-3 focus-visible:ring-inset md:min-h-9',
+        'focus-visible:ring-ring/50 flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-lg text-left focus-visible:outline-hidden focus-visible:ring-3 focus-visible:ring-inset md:min-h-9',
         'text-body md:text-[13px]',
         // Below md the indent stops growing after three levels and steps 14px, not 18px: a
         // folder four deep on a phone otherwise starts its name 80px in.

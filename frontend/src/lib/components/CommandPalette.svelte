@@ -279,7 +279,7 @@
         <button
           type="button"
           onclick={dismiss}
-          class="text-primary text-body focus-visible:ring-ring -mr-1 h-11 shrink-0 rounded-md px-2 outline-none focus-visible:ring-2 md:hidden"
+          class="text-primary text-body focus-visible:ring-ring -mr-1 h-11 shrink-0 rounded-md px-2 focus-visible:outline-hidden focus-visible:ring-2 md:hidden"
         >
           Cancel
         </button>

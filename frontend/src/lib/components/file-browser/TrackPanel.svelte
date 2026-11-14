@@ -438,14 +438,14 @@
         <a
           href={artistHref}
           onclick={onClose}
-          class="focus-visible:ring-ring pointer-fine:hover:text-foreground relative rounded-sm outline-none after:absolute after:inset-x-0 after:-inset-y-3 focus-visible:ring-2 pointer-fine:hover:underline"
+          class="focus-visible:ring-ring pointer-fine:hover:text-foreground relative rounded-sm focus-visible:outline-hidden after:absolute after:inset-x-0 after:-inset-y-3 focus-visible:ring-2 pointer-fine:hover:underline"
           >{trackArtist}</a
         >
         <span aria-hidden="true"> — </span>
         <a
           href={albumHref}
           onclick={onClose}
-          class="focus-visible:ring-ring pointer-fine:hover:text-foreground relative rounded-sm outline-none after:absolute after:inset-x-0 after:-inset-y-3 focus-visible:ring-2 pointer-fine:hover:underline"
+          class="focus-visible:ring-ring pointer-fine:hover:text-foreground relative rounded-sm focus-visible:outline-hidden after:absolute after:inset-x-0 after:-inset-y-3 focus-visible:ring-2 pointer-fine:hover:underline"
           >{album.title}</a
         >
       </p>
@@ -459,7 +459,7 @@
       {#if aiProvenance}
         <button
           type="button"
-          class="focus-visible:ring-ring relative rounded-full outline-none after:absolute after:inset-x-0 after:-inset-y-3 focus-visible:ring-2"
+          class="focus-visible:ring-ring relative rounded-full focus-visible:outline-hidden after:absolute after:inset-x-0 after:-inset-y-3 focus-visible:ring-2"
           aria-expanded={aiDetailOpen}
           onclick={() => (aiDetailOpen = !aiDetailOpen)}
         >
@@ -481,7 +481,7 @@
   <button
     type="button"
     class={cn(
-      'focus-visible:ring-ring flex size-11 items-center justify-center rounded-full transition-colors outline-none focus-visible:ring-2',
+      'focus-visible:ring-ring flex size-11 items-center justify-center rounded-full transition-colors focus-visible:outline-hidden focus-visible:ring-2',
       active ? 'text-foreground' : 'text-muted-foreground pointer-fine:hover:text-foreground'
     )}
     aria-pressed={wide.current ? undefined : active}
@@ -510,7 +510,7 @@
     {#if playerStore.airPlayAvailable && isCurrentlyLoaded}
       <button
         type="button"
-        class="text-muted-foreground focus-visible:ring-ring flex size-11 items-center justify-center rounded-full outline-none focus-visible:ring-2"
+        class="text-muted-foreground focus-visible:ring-ring flex size-11 items-center justify-center rounded-full focus-visible:outline-hidden focus-visible:ring-2"
         aria-label="AirPlay"
         title="AirPlay"
         onclick={() => playerStore.showAirPlayPicker()}
@@ -525,7 +525,7 @@
             {...props}
             type="button"
             class={cn(
-              'focus-visible:ring-ring flex size-11 items-center justify-center rounded-full transition-colors outline-none focus-visible:ring-2',
+              'focus-visible:ring-ring flex size-11 items-center justify-center rounded-full transition-colors focus-visible:outline-hidden focus-visible:ring-2',
               elsewhere
                 ? 'text-primary'
                 : 'text-muted-foreground pointer-fine:hover:text-foreground'
@@ -560,7 +560,7 @@
           {...props}
           type="button"
           class={cn(
-            'text-footnote focus-visible:ring-ring mx-auto flex h-8 max-w-full items-center gap-1.5 rounded-full px-3 outline-none focus-visible:ring-2',
+            'text-footnote focus-visible:ring-ring mx-auto flex h-8 max-w-full items-center gap-1.5 rounded-full px-3 focus-visible:outline-hidden focus-visible:ring-2',
             playbackSync.isRemote ? 'text-primary' : 'text-muted-foreground'
           )}
           aria-label={`${deviceLine}. Choose a device`}
@@ -657,7 +657,7 @@
       type="button"
       tabindex="-1"
       aria-hidden="true"
-      class="np-grabber relative mx-auto flex h-3 w-24 justify-center transition-opacity duration-200 outline-none after:absolute after:inset-x-0 after:-top-4 after:-bottom-4"
+      class="np-grabber relative mx-auto flex h-3 w-24 justify-center transition-opacity duration-200 focus-visible:outline-hidden after:absolute after:inset-x-0 after:-top-4 after:-bottom-4"
       onclick={onClose}
     >
       <span class="bg-foreground/35 mt-1.5 block h-[5px] w-9 rounded-full"></span>
@@ -667,7 +667,7 @@
       {#if mode !== 'player'}
         <button
           type="button"
-          class="focus-visible:ring-ring relative z-10 flex min-w-0 flex-1 items-center gap-3 rounded-lg py-1 text-left outline-none focus-visible:ring-2"
+          class="focus-visible:ring-ring relative z-10 flex min-w-0 flex-1 items-center gap-3 rounded-lg py-1 text-left focus-visible:outline-hidden focus-visible:ring-2"
           aria-label={`${trackTitle} by ${trackArtist}. Show the artwork`}
           onclick={() => (mode = 'player')}
         >
@@ -740,9 +740,9 @@
           </div>
         </ScrollArea>
       </aside>
-      <main class="flex min-h-0 flex-col pt-2">
+      <div class="flex min-h-0 flex-col pt-2">
         {@render modeContent()}
-      </main>
+      </div>
     </div>
   {:else if sideways.current}
     <!-- A phone on its side: the middle on the left, the title block and the transport on the
@@ -750,7 +750,7 @@
     <div class="flex h-full min-h-0 w-full flex-col">
       {@render topBar()}
       <div class="flex min-h-0 flex-1 gap-6 pr-6 pl-4">
-        <main class="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div class="flex min-h-0 min-w-0 flex-1 flex-col">
           {#if content === 'player'}
             <div
               class="flex min-h-0 flex-1 touch-none items-center justify-center pb-3 select-none"
@@ -769,7 +769,7 @@
             </div>
           {/if}
           {@render modeContent()}
-        </main>
+        </div>
         <!-- Scrolls only if the title block carries chips on the shortest phones. -->
         <div class="no-scrollbar flex w-[min(360px,46%)] shrink-0 flex-col overflow-y-auto pb-2">
           <div class="my-auto">
@@ -786,7 +786,7 @@
     <div class="mx-auto flex h-full min-h-0 w-full max-w-xl flex-col">
       {@render topBar()}
 
-      <main class="flex min-h-0 flex-1 flex-col">
+      <div class="flex min-h-0 flex-1 flex-col">
         {#if content === 'player'}
           <!-- The artwork and title — also a drag-to-dismiss zone, as in Apple Music. -->
           <div
@@ -811,7 +811,7 @@
           </div>
         {/if}
         {@render modeContent()}
-      </main>
+      </div>
 
       <footer class="shrink-0 px-7 pt-3 pb-2">
         {@render transport()}

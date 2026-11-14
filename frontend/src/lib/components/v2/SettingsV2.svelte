@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isSubmitEnter } from '#lib/keyboard.ts';
   import { refreshAll } from '$app/navigation';
   import { replaceUrl } from '#lib/navigation/replace-url.ts';
   import { page } from '$app/state';
@@ -59,6 +60,7 @@
     listPasskeys,
     listAccounts,
     deletePasskey,
+    syncPasskeysWithPasswordManager,
     updateDisplayName,
     sync,
     soulseek,
@@ -262,6 +264,8 @@
     try {
       await updateDisplayName(nameDraft.trim() || null);
       isEditingName = false;
+      // Passkeys carry the account's display name; let the password manager show the new one.
+      void syncPasskeysWithPasswordManager();
       // Session user lives in page.data — re-run the layout load so the account button and
       // this page pick up the new name.
       await refreshAll();
@@ -309,6 +313,9 @@
       try {
         const list = await listPasskeys();
         if (!cancelled) passkeys = list;
+        // Opening the list is when a password manager can catch up with passkeys removed
+        // elsewhere (another browser, the phone).
+        if (!cancelled) void syncPasskeysWithPasswordManager();
       } catch {
         // non-fatal; the section just shows none
       } finally {
@@ -329,6 +336,7 @@
       const created = await registerPasskey(newPasskeyName.trim() || defaultPasskeyName(platform));
       passkeys = [created, ...passkeys];
       newPasskeyName = '';
+      void syncPasskeysWithPasswordManager();
     } catch (err) {
       passkeyError = err instanceof Error ? err.message : 'Could not add passkey.';
     } finally {
@@ -341,6 +349,8 @@
     try {
       await deletePasskey(id);
       passkeys = passkeys.filter((p) => p.id !== id);
+      // Otherwise the password manager keeps offering a passkey that can no longer sign in.
+      void syncPasskeysWithPasswordManager();
       // The row just vanishes otherwise — say it was the removal, not a glitch.
       toast.success('Passkey removed');
     } catch (err) {
@@ -1624,7 +1634,7 @@
             enterkeyhint="done"
             disabled={isSavingName}
             onkeydown={(e) => {
-              if (e.key === 'Enter') void handleSaveName();
+              if (isSubmitEnter(e)) void handleSaveName();
               if (e.key === 'Escape') isEditingName = false;
             }}
             {@attach focusOnMount}
@@ -1821,7 +1831,7 @@
               bind:value={newPasskeyName}
               oninput={() => (passkeyError = null)}
               onkeydown={(e) => {
-                if (e.key === 'Enter' && !isAddingPasskey) void handleAddPasskey();
+                if (isSubmitEnter(e) && !isAddingPasskey) void handleAddPasskey();
               }}
             />
           </FieldRow>

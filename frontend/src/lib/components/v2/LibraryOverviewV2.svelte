@@ -255,7 +255,7 @@
                   <a
                     href={row.href}
                     class={cn(
-                      'focus-visible:ring-ring active:bg-accent relative flex min-h-11 items-center gap-4 px-4 transition-colors duration-100 outline-none focus-visible:ring-2 focus-visible:ring-inset',
+                      'focus-visible:ring-ring active:bg-accent relative flex min-h-11 items-center gap-4 px-4 transition-colors duration-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset',
                       i < libraryRows.length - 1 &&
                         "after:bg-separator after:absolute after:right-0 after:bottom-0 after:left-[54px] after:h-(--hairline) after:content-['']"
                     )}
@@ -319,7 +319,7 @@
                     data-row-main=""
                     onclick={() => tapFavorite(song)}
                     aria-current={isLoaded ? 'true' : undefined}
-                    class="focus-visible:ring-ring flex min-h-14 min-w-0 flex-1 items-center gap-3 text-left outline-none focus-visible:ring-2 md:pl-1"
+                    class="focus-visible:ring-ring flex min-h-14 min-w-0 flex-1 items-center gap-3 text-left focus-visible:outline-hidden focus-visible:ring-2 md:pl-1"
                   >
                     <Cover
                       artist={fallbackArtist(song)}
@@ -400,7 +400,7 @@
                 {#each randomArtists as group (group.key)}
                   <a
                     href={artistHref(group)}
-                    class="group focus-visible:ring-ring flex w-[120px] shrink-0 snap-start flex-col items-center gap-2 rounded-lg outline-hidden focus-visible:ring-2 md:w-[136px]"
+                    class="group focus-visible:ring-ring flex w-[120px] shrink-0 snap-start flex-col items-center gap-2 rounded-lg focus-visible:outline-hidden focus-visible:ring-2 md:w-[136px]"
                     aria-label={`Browse ${group.label}`}
                   >
                     <Cover

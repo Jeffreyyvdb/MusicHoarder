@@ -382,7 +382,7 @@
                 data-row-main=""
                 onclick={() => (onActivate ?? onSelect)(song)}
                 aria-current={isLoaded ? 'true' : undefined}
-                class="focus-visible:ring-ring flex h-full min-w-0 flex-1 items-center gap-3 pl-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset"
+                class="focus-visible:ring-ring flex h-full min-w-0 flex-1 items-center gap-3 pl-4 text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset"
               >
                 <span class="relative shrink-0">
                   <Cover

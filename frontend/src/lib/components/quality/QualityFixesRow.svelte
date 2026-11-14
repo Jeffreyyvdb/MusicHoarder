@@ -53,7 +53,7 @@
             type="button"
             title={ins.code}
             onclick={() => onSelectIssue?.(ins.code)}
-            class="bg-muted hover:bg-secondary-hover focus-visible:ring-ring/50 grid grid-cols-[24px_1fr] items-center gap-3 rounded-lg px-3 py-2 text-left outline-none transition-colors focus-visible:ring-3 active:scale-[0.99]"
+            class="bg-muted hover:bg-secondary-hover focus-visible:ring-ring/50 grid grid-cols-[24px_1fr] items-center gap-3 rounded-lg px-3 py-2 text-left focus-visible:outline-hidden transition-colors focus-visible:ring-3 active:scale-[0.99]"
           >
             <span class="text-muted-foreground text-[12px] font-semibold tabular-nums">{String(i + 1).padStart(2, '0')}</span>
             <div class="min-w-0">

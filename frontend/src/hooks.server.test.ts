@@ -2,6 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import type { RequestEvent } from '@sveltejs/kit';
 import { handle } from './hooks.server';
 
+vi.mock('$app/env/public', () => ({
+  PUBLIC_UMAMI_SRC: undefined,
+  PUBLIC_UMAMI_RECORDER_SRC: undefined
+}));
+
 const SITE = 'https://musichoarder.app';
 
 /** Minimal stand-in for the parts of `RequestEvent` the hook actually reads. */
@@ -173,5 +178,21 @@ describe('agent-friendly 404', () => {
 
     expect(response.status).toBe(404);
     await expect(response.text()).resolves.toContain('# 404');
+  });
+});
+
+describe('security headers', () => {
+  it('are set on every response the hook returns', async () => {
+    const { response } = await run('/', 'text/html');
+    expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
+    expect(response.headers.get('Content-Security-Policy')).toBe("frame-ancestors 'none'");
+  });
+
+  it('are set on a response whose headers cannot change', async () => {
+    const immutable = Response.redirect('https://musichoarder.app/login', 302);
+    const { response } = await run('/somewhere', 'text/html', immutable);
+    expect(response.status).toBe(302);
+    expect(response.headers.get('Location')).toBe('https://musichoarder.app/login');
+    expect(response.headers.get('X-Frame-Options')).toBe('DENY');
   });
 });

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { formatRelativeTime } from '#lib/formatters.ts';
+  import { LinearProgress } from '#lib/components/ui/progress/index.ts';
   import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
   import { Button } from '#lib/components/ui/button/index.ts';
   import { Switch } from '#lib/components/ui/switch/index.ts';
@@ -166,17 +168,7 @@
     return Math.min(100, Math.round((c.matchedTrackCount / c.spotifyTrackTotal) * 100));
   }
 
-  function relativeTime(iso: string | null | undefined): string {
-    if (!iso) return 'never';
-    const then = new Date(iso).getTime();
-    const diffMs = Date.now() - then;
-    const mins = Math.round(diffMs / 60000);
-    if (mins < 1) return 'just now';
-    if (mins < 60) return `${mins}m ago`;
-    const hrs = Math.round(mins / 60);
-    if (hrs < 24) return `${hrs}h ago`;
-    return new Date(iso).toLocaleDateString();
-  }
+  const relativeTime = (iso: string | null | undefined) => (iso ? formatRelativeTime(iso) : 'never');
 
   const subscribedCount = $derived(collections.filter((c) => c.subscribed).length);
 
@@ -354,19 +346,12 @@
                     {subtitleOf(c)}
                   </div>
                   {#if c.subscribed && c.lastGeneratedAtUtc}
-                    <div
-                      role="progressbar"
-                      aria-label="{c.name} coverage"
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                      aria-valuenow={pct}
-                      class="bg-muted mt-1.5 h-1 max-w-80 overflow-hidden rounded-full"
-                    >
-                      <div
-                        class="bg-primary h-full rounded-full transition-[width] duration-300 motion-reduce:transition-none"
-                        style="width: {pct}%;"
-                      ></div>
-                    </div>
+                    <LinearProgress
+                      label="{c.name} coverage"
+                      value={pct}
+                      max={100}
+                      class="mt-1.5 max-w-80"
+                    />
                   {/if}
                   {#if c.subscribed && c.filePath}
                     <div

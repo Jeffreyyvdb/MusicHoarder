@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isSubmitEnter } from '#lib/keyboard.ts';
   import { tick, untrack } from 'svelte';
   import { page } from '$app/state';
   import { ArrowUp, Loader2, MessageCircle, TriangleAlert } from '@lucide/svelte';
@@ -175,9 +176,14 @@
     }
   }
 
+  // The field grows with its text up to 160px through CSS `field-sizing: content`. This sizes it by
+  // hand only where that is unsupported (before Safari 26.2, Firefox 152 and Chrome 123).
+  const fieldSizesItself =
+    typeof CSS !== 'undefined' && CSS.supports('field-sizing', 'content');
+
   function resizeField() {
     const el = field;
-    if (!el) return;
+    if (!el || fieldSizesItself) return;
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
   }
@@ -206,7 +212,7 @@
   function onKeydown(event: KeyboardEvent) {
     // A hardware keyboard sends with Return (Shift+Return for a new line); a phone's Return key is
     // a new line, and the Send button sends.
-    if (event.key === 'Enter' && !event.shiftKey && !compact && !event.isComposing) {
+    if (isSubmitEnter(event) && !event.shiftKey && !compact) {
       event.preventDefault();
       void send();
     }
@@ -264,7 +270,7 @@
       enterkeyhint={compact ? 'enter' : 'send'}
       autocapitalize="sentences"
       class={cn(
-        'placeholder:text-muted-foreground min-h-11 flex-1 resize-none bg-transparent px-3 py-2.5 text-[16px] leading-6 outline-none md:min-h-9 md:py-1.5 md:text-sm',
+        'placeholder:text-muted-foreground field-sizing-content max-h-40 min-h-11 flex-1 resize-none bg-transparent px-3 py-2.5 text-[16px] leading-6 focus-visible:outline-hidden md:min-h-9 md:py-1.5 md:text-sm',
         !compact && 'bg-secondary rounded-[18px]'
       )}
       oninput={resizeField}
@@ -274,7 +280,7 @@
     <button
       type="submit"
       aria-label="Send"
-      class="bg-primary text-primary-foreground focus-visible:ring-ring grid size-11 shrink-0 place-items-center rounded-full outline-none focus-visible:ring-2 disabled:opacity-40 md:size-9"
+      class="bg-primary text-primary-foreground focus-visible:ring-ring grid size-11 shrink-0 place-items-center rounded-full focus-visible:outline-hidden focus-visible:ring-2 disabled:opacity-40 md:size-9"
       disabled={!text.trim() || sending || !conversation}
       onpointerdown={(e) => e.preventDefault()}
     >

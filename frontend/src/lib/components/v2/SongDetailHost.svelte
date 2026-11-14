@@ -324,7 +324,7 @@
          padding box. -->
     <DialogPrimitive.Content
       bind:ref={contentEl}
-      class="mh-np dark text-foreground fixed inset-0 z-[60] flex flex-col overflow-hidden bg-black pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] outline-none"
+      class="mh-np dark text-foreground fixed inset-0 z-[60] flex flex-col overflow-hidden bg-black pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] focus-visible:outline-hidden"
       style="--mh-content-pad: 0px"
     >
       {#if r}

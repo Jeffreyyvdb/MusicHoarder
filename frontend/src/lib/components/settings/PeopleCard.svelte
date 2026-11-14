@@ -471,7 +471,7 @@
         <FieldRow label="Share" for="grant-scope-{friend.id}">
           <select
             id="grant-scope-{friend.id}"
-            class="bg-input focus-visible:ring-ring/50 h-11 w-full rounded-lg border border-transparent px-3 text-base outline-none focus-visible:ring-3 md:h-8 md:px-2.5 md:text-sm"
+            class="bg-input focus-visible:ring-ring/50 h-11 w-full rounded-lg border border-transparent px-3 text-base focus-visible:outline-hidden focus-visible:ring-3 md:h-8 md:px-2.5 md:text-sm"
             value={scopeOf(friend.id)}
             onchange={(e) =>
               (grantScope = { ...grantScope, [friend.id]: e.currentTarget.value as GrantScope })}

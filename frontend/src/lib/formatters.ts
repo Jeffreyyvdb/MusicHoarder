@@ -158,7 +158,8 @@ export function formatFamily(extension: string | null | undefined): FormatFamily
 }
 
 /**
- * "just now" / "12 min ago" / "3h ago" / "4d ago", falling back to a short date past a month.
+ * "just now" / "12 min ago" / "3h ago" / "4d ago", falling back to a short date past a month —
+ * with the year when it is not this year, so a date from last year never reads as recent.
  * Lives here rather than on a page because three surfaces had grown near-identical private copies.
  */
 export function formatRelativeTime(iso: string, now: number = Date.now()): string {
@@ -172,7 +173,13 @@ export function formatRelativeTime(iso: string, now: number = Date.now()): strin
   if (hours < 24) return `${hours}h ago`;
   const days = Math.round(hours / 24);
   if (days < 30) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  const date = new Date(iso);
+  const sameYear = date.getFullYear() === new Date(now).getFullYear();
+  return date.toLocaleDateString([], {
+    month: 'short',
+    day: 'numeric',
+    ...(sameYear ? {} : { year: 'numeric' })
+  });
 }
 
 /**

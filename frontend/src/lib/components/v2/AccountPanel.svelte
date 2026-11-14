@@ -392,7 +392,7 @@
           <DropdownMenuPrimitive.RadioItem
             value={item.value}
             closeOnSelect={false}
-            class="data-highlighted:ring-ring data-[state=checked]:bg-segmented-thumb flex h-7 cursor-default items-center justify-center rounded-[7px] text-[13px] font-medium outline-none select-none data-highlighted:ring-2 data-[state=checked]:shadow-[0_1px_2px_rgb(0_0_0/0.12),0_0_0_0.5px_rgb(0_0_0/0.04)] pointer-coarse:h-9"
+            class="data-highlighted:ring-ring data-[state=checked]:bg-segmented-thumb flex h-7 cursor-default items-center justify-center rounded-[7px] text-[13px] font-medium focus-visible:outline-hidden select-none data-highlighted:ring-2 data-[state=checked]:shadow-[0_1px_2px_rgb(0_0_0/0.12),0_0_0_0.5px_rgb(0_0_0/0.04)] pointer-coarse:h-9"
           >
             {item.label}
           </DropdownMenuPrimitive.RadioItem>
@@ -458,7 +458,7 @@
     <a
       href="/settings?tab=updates"
       onclick={close}
-      class="text-footnote text-muted-foreground focus-visible:ring-ring mx-auto flex min-h-11 items-center justify-center rounded-lg px-3 outline-none focus-visible:ring-2"
+      class="text-footnote text-muted-foreground focus-visible:ring-ring mx-auto flex min-h-11 items-center justify-center rounded-lg px-3 focus-visible:outline-hidden focus-visible:ring-2"
       >MusicHoarder&nbsp;{#if text}<span class="text-primary">{text}</span>&nbsp;{/if}· self-hosted</a
     >
   {:else}

@@ -150,7 +150,7 @@
             onclick={() => onSelect?.(s.songId)}
             aria-current={active ? 'true' : undefined}
             class={cn(
-              'focus-visible:ring-ring/50 grid w-full grid-cols-[36px_1fr] items-start gap-2.5 rounded-lg border-l-[3px] p-2 text-left outline-none transition-colors focus-visible:ring-3',
+              'focus-visible:ring-ring/50 grid w-full grid-cols-[36px_1fr] items-start gap-2.5 rounded-lg border-l-[3px] p-2 text-left focus-visible:outline-hidden transition-colors focus-visible:ring-3',
               active ? 'bg-accent border-l-primary' : 'hover:bg-accent border-l-transparent',
               !active && s.bucket === 'flagged' && 'border-l-warning',
               !active && s.bucket === 'silent' && 'border-l-destructive'

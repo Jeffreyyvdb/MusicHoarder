@@ -51,7 +51,7 @@
       aria-expanded={open}
       onclick={() => (open = true)}
       class={cn(
-        'mh-glass mh-chrome grid size-11 shrink-0 place-items-center rounded-full outline-none',
+        'mh-glass mh-chrome grid size-11 shrink-0 place-items-center rounded-full focus-visible:outline-hidden',
         'focus-visible:ring-ring transition-transform duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] focus-visible:ring-2 active:scale-[0.94]',
         className
       )}
@@ -69,7 +69,7 @@
       <DropdownMenu.Trigger
         aria-label={label}
         class={cn(
-          'grid size-8 shrink-0 place-items-center rounded-full outline-none',
+          'grid size-8 shrink-0 place-items-center rounded-full focus-visible:outline-hidden',
           'focus-visible:ring-ring focus-visible:ring-2',
           className
         )}

@@ -108,20 +108,147 @@ function assertionToJson(credential: PublicKeyCredential) {
   };
 }
 
+/**
+ * The parts of `PublicKeyCredential` that are newer than every browser this app supports, typed
+ * here and feature-detected at each call.
+ */
+type ModernPublicKeyCredential = typeof PublicKeyCredential & {
+  parseCreationOptionsFromJSON?: (json: unknown) => PublicKeyCredentialCreationOptions;
+  parseRequestOptionsFromJSON?: (json: unknown) => PublicKeyCredentialRequestOptions;
+  getClientCapabilities?: () => Promise<Record<string, boolean | undefined>>;
+  signalUnknownCredential?: (options: { rpId: string; credentialId: string }) => Promise<void>;
+  signalAllAcceptedCredentials?: (options: {
+    rpId: string;
+    userId: string;
+    allAcceptedCredentialIds: string[];
+  }) => Promise<void>;
+  signalCurrentUserDetails?: (options: {
+    rpId: string;
+    userId: string;
+    name: string;
+    displayName: string;
+  }) => Promise<void>;
+};
+
+const modern = () => window.PublicKeyCredential as ModernPublicKeyCredential;
+
+/** The browser's own JSON parser when it has one (it also knows newer fields), else ours. */
+function creationOptions(json: Record<string, unknown>): PublicKeyCredentialCreationOptions {
+  const parse = modern().parseCreationOptionsFromJSON;
+  if (parse) {
+    try {
+      return parse.call(PublicKeyCredential, json);
+    } catch {
+      // A shape the native parser rejects still works through ours.
+    }
+  }
+  return toCreationOptions(json);
+}
+
+function requestOptions(json: Record<string, unknown>): PublicKeyCredentialRequestOptions {
+  const parse = modern().parseRequestOptionsFromJSON;
+  if (parse) {
+    try {
+      return parse.call(PublicKeyCredential, json);
+    } catch {
+      // As above.
+    }
+  }
+  return toRequestOptions(json);
+}
+
+/**
+ * True when the browser can offer passkeys in a field's autofill suggestions (conditional
+ * mediation): the field then needs `webauthn` in its autocomplete tokens.
+ */
+export async function isPasskeyAutofillSupported(): Promise<boolean> {
+  if (!isPasskeySupported()) return false;
+  const pkc = modern();
+  try {
+    if (pkc.getClientCapabilities) {
+      const capabilities = await pkc.getClientCapabilities.call(PublicKeyCredential);
+      if (typeof capabilities.conditionalGet === 'boolean') return capabilities.conditionalGet;
+    }
+    return (await PublicKeyCredential.isConditionalMediationAvailable?.()) === true;
+  } catch {
+    return false;
+  }
+}
+
 /** Runs the registration ceremony from server options; returns the API-bound attestation JSON. */
 export async function createPasskey(options: Record<string, unknown>) {
   const credential = (await navigator.credentials.create({
-    publicKey: toCreationOptions(options)
+    publicKey: creationOptions(options)
   })) as PublicKeyCredential | null;
   if (!credential) throw new Error('Passkey creation was cancelled.');
   return attestationToJson(credential);
 }
 
+export type AssertionMode = {
+  /** 'conditional' waits for the person to pick a passkey from a field's autofill. */
+  mediation?: CredentialMediationRequirement;
+  signal?: AbortSignal;
+};
+
 /** Runs the authentication ceremony from server options; returns the API-bound assertion JSON. */
-export async function getPasskeyAssertion(options: Record<string, unknown>) {
+export async function getPasskeyAssertion(
+  options: Record<string, unknown>,
+  mode: AssertionMode = {}
+) {
   const credential = (await navigator.credentials.get({
-    publicKey: toRequestOptions(options)
+    publicKey: requestOptions(options),
+    ...(mode.mediation ? { mediation: mode.mediation } : {}),
+    ...(mode.signal ? { signal: mode.signal } : {})
   })) as PublicKeyCredential | null;
   if (!credential) throw new Error('Passkey sign-in was cancelled.');
   return assertionToJson(credential);
+}
+
+// WebAuthn Signal API: tells the password manager what the server knows, so it stops offering a
+// passkey that was removed here and shows the account's current name. Every call is a hint — it is
+// skipped where unsupported, and a failure is never shown to the person.
+//
+// Which passkeys may be signalled is the server's call: it never reports a passkey as unknown, nor
+// sends the full list, for the user ids every instance shares (the frozen owner and demo ids),
+// because per-PR previews share the RP id and those users' passkeys can live on several instances.
+
+export async function signalUnknownPasskey(rpId: string, credentialId: string): Promise<void> {
+  const signal = isPasskeySupported() ? modern().signalUnknownCredential : undefined;
+  if (!signal || !rpId || !credentialId) return;
+  try {
+    await signal.call(PublicKeyCredential, { rpId, credentialId });
+  } catch (err) {
+    console.warn('signalUnknownCredential failed', err);
+  }
+}
+
+export type PasskeySignalInfo = {
+  rpId: string;
+  userId: string;
+  name: string;
+  displayName: string;
+  /** Null when the server cannot know all of this user's passkeys: then no full list is sent. */
+  credentialIds: string[] | null;
+};
+
+export async function signalAccountPasskeys(info: PasskeySignalInfo): Promise<void> {
+  if (!isPasskeySupported() || !info.rpId) return;
+  const pkc = modern();
+  try {
+    if (info.credentialIds) {
+      await pkc.signalAllAcceptedCredentials?.call(PublicKeyCredential, {
+        rpId: info.rpId,
+        userId: info.userId,
+        allAcceptedCredentialIds: info.credentialIds
+      });
+    }
+    await pkc.signalCurrentUserDetails?.call(PublicKeyCredential, {
+      rpId: info.rpId,
+      userId: info.userId,
+      name: info.name,
+      displayName: info.displayName
+    });
+  } catch (err) {
+    console.warn('passkey signal failed', err);
+  }
 }
