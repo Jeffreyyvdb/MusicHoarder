@@ -22,10 +22,13 @@ public static class AlbumDedupEndpoints
 {
     public static IEndpointRouteBuilder MapAlbumDedupEndpoints(this IEndpointRouteBuilder app)
     {
+        // Scoped to the caller's own songs and dismissals by id, so the demo account may read it.
+        // (The Album names page's other half, the split-album dry run, spans every account and
+        // stays admin-only.)
         app.MapGet("/api/library/albums/duplicates", Detect)
             .WithName("GetAlbumDuplicates")
             .WithSummary("Near-duplicate album pairs under one artist that the exact grouping key misses (leading-\"the\", \"&\" vs \"and\", near-miss spellings).")
-            .WithTags("Library").RequireAdmin();
+            .WithTags("Library").RequireAdmin().AllowDemoRead();
 
         app.MapPost("/api/library/albums/merge", Merge)
             .WithName("MergeAlbums")

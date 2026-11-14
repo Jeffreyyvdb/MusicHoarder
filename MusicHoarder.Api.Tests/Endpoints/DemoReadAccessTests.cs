@@ -12,9 +12,10 @@ using MusicHoarder.Api.Tests.Auth;
 namespace MusicHoarder.Api.Tests.Endpoints;
 
 /// <summary>
-/// The demo account may read the admin pages whose data is only ever its own rows (History,
-/// Artist names, Share links, Wishlist), and nothing else; a member gets none of them. Runs each
-/// route's real request delegate, so the filters are the ones the route table actually wires.
+/// The demo account may read the admin pages whose data is only ever its own rows (History, the
+/// Artist names and Album names queues, Share links, Wishlist, Album matches), and nothing else; a
+/// member gets none of them. Runs each route's real request delegate, so the filters are the ones
+/// the route table actually wires.
 ///
 /// <para>
 /// Services are dummies: a caller the filter rejects never reaches the handler, and a caller it
@@ -36,24 +37,25 @@ public class DemoReadAccessTests
         "/api/shares/{id:int}/stats",
         "/api/wishlist",
         "/api/wishlist/sources",
+        "/api/albums/quality/overview",
+        "/api/library/albums/duplicates",
     ];
 
     public static TheoryData<string> DemoReadableRoutes => new(DemoRoutes);
 
     /// <summary>
-    /// Reads behind pages the demo account no longer sees, because they are instance-wide or
-    /// documented admin-only. They must stay closed to it.
+    /// Reads the demo account must not make: instance-wide data or documented admin-only, behind
+    /// pages it does not see or parts of a page it skips.
     /// </summary>
     public static TheoryData<string> AdminOnlyReads => new()
     {
-        "/api/albums/quality/overview",
         "/api/quality/trial/status",
         "/api/quality/trial/labels/queue",
         "/api/quality/trial/report",
         "/api/snapshots",
         "/api/playlist-sync",
         "/api/enrichment/split-albums",
-        "/api/library/albums/duplicates",
+        "/api/albums/quality/progress",
         "/api/quality/progress",
         "/api/inbox/name-counts",
     };

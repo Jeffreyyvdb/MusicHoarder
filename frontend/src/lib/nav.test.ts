@@ -252,6 +252,7 @@ describe('what each account may see', () => {
       '/shares',
       '/wishlist',
       '/quality',
+      '/album-quality',
       '/track/7',
       '/settings',
       '/add',
@@ -270,20 +271,16 @@ describe('what each account may see', () => {
     const all = NAV_GROUPS.flatMap((g) => g.items.map((i) => i.id));
     expect(all.filter((id) => !ids.includes(id)).sort()).toEqual([...DEMO_HIDDEN_ITEMS].sort());
 
-    for (const path of [
-      '/album-quality',
-      '/grader-trial',
-      '/performance',
-      '/playlist-sync',
-      '/performance/'
-    ]) {
+    for (const path of ['/grader-trial', '/performance', '/playlist-sync', '/performance/']) {
       expect(allowed(path, demo)).toBe(false);
       expect(allowed(path, admin)).toBe(true);
     }
-    // The Album names queue shares /inbox with queues the demo keeps, so the path stays open and
-    // the Inbox itself falls back to Tag review.
+    // Album matches and the Album names queue read only the demo's own rows (the server counts and
+    // skips what is not), so they stay.
+    expect(ids).toContain('album-quality');
+    expect(ids).toContain('dupe-albums');
+    expect(allowed('/album-quality', demo)).toBe(true);
     expect(hiddenPathPrefixesFor(demo)).not.toContain('/inbox');
-    expect(allowed('/inbox', demo)).toBe(true);
   });
 
   it('hides nothing from an admin', () => {

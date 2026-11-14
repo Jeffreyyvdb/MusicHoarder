@@ -18,10 +18,12 @@ public static class AlbumQualityEndpoints
 {
     public static IEndpointRouteBuilder MapAlbumQualityEndpoints(this IEndpointRouteBuilder app)
     {
+        // The demo account may read the overview: grades are per user, and the coverage total is
+        // counted through the caller's own songs (CountGradeableAsync). Every other route stays admin-only.
         app.MapGet("/api/albums/quality/overview", GetOverview)
             .WithName("GetAlbumQualityOverview")
             .WithSummary("Library-wide album-reconciliation grade rollup: verdict counts, average score, worst-offender albums.")
-            .WithTags("Quality").RequireAdmin();
+            .WithTags("Quality").RequireAdmin().AllowDemoRead();
 
         app.MapPost("/api/albums/quality/grade", GradeAlbum)
             .WithName("GradeAlbumQuality")
@@ -88,7 +90,7 @@ public static class AlbumQualityEndpoints
     {
         var rows = await LoadGradeRowsAsync(db, ct);
         var currentModel = options.CurrentValue.Model;
-        var fetchedTotal = await db.CanonicalAlbums.CountAsync(a => a.Status == CanonicalAlbumStatus.Fetched, ct);
+        var fetchedTotal = await CountGradeableAsync(db, ct);
         var agg = QualityRollup.Aggregate(rows.Select(r => new QualityRollup.GradeRow(r.Verdict, r.Score, r.IssuesJson)));
 
         // Worst first, Ungradeable last (see VerdictSeverity) — never by the verdict's enum number.
@@ -105,7 +107,9 @@ public static class AlbumQualityEndpoints
         return Results.Ok(new
         {
             gradeableTotal = fetchedTotal,
-            coverage = fetchedTotal == 0 ? 0d : Math.Round((double)rows.Count / fetchedTotal, 3),
+            // Capped: an album graded before its tracks were deleted or re-matched keeps its grade
+            // but is no longer one the caller owns tracks of.
+            coverage = fetchedTotal == 0 ? 0d : Math.Min(1d, Math.Round((double)rows.Count / fetchedTotal, 3)),
             outdatedCount,
             library = new
             {
@@ -124,6 +128,40 @@ public static class AlbumQualityEndpoints
             wrongCount = agg.Verdicts.Wrong,
             worstOffenders = worst,
         });
+    }
+
+    /// <summary>
+    /// How many fetched canonical albums the caller owns tracks of: the denominator of coverage.
+    /// <para>
+    /// <see cref="CanonicalAlbum"/> is catalog data with no per-user query filter, so it is counted
+    /// only through the caller's own songs (which the query filter does scope), matched the way the
+    /// album grader picks an album's owned tracks: Matched, not synthetic, and the normalized
+    /// (album artist or artist, album) equal to the album's keys. That keeps the figure about the
+    /// caller's library, and keeps the rest of the instance's catalog out of a non-admin's answer.
+    /// </para>
+    /// </summary>
+    internal static async Task<int> CountGradeableAsync(MusicHoarderDbContext db, CancellationToken ct)
+    {
+        var owned = await db.Songs
+            .AsNoTracking()
+            .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic
+                && s.EnrichmentStatus == EnrichmentStatus.Matched
+                && s.Album != null && s.Album != "")
+            .Select(s => new { Artist = s.AlbumArtist ?? s.Artist, s.Album })
+            .Distinct()
+            .ToListAsync(ct);
+        var keys = owned
+            .Select(s => (Artist: TitleNormalizer.NormalizeForSearch(s.Artist), Album: TitleNormalizer.NormalizeForSearch(s.Album)))
+            .ToHashSet();
+        if (keys.Count == 0) return 0;
+
+        var artistKeys = keys.Select(k => k.Artist).Distinct().ToList();
+        var candidates = await db.CanonicalAlbums
+            .AsNoTracking()
+            .Where(a => a.Status == CanonicalAlbumStatus.Fetched && artistKeys.Contains(a.ArtistKey))
+            .Select(a => new { a.ArtistKey, a.AlbumKey })
+            .ToListAsync(ct);
+        return candidates.Count(a => keys.Contains((a.ArtistKey, a.AlbumKey)));
     }
 
     private static async Task<IResult> GradeAlbum(

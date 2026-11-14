@@ -434,10 +434,7 @@ export function navGroupsFor(user: NavAudience): NavGroup[] {
  * through the ordinary per-user query filter, so it only ever sees its own seeded rows; each of
  * these instead reads something about the instance, which strangers sharing the demo login must
  * not see, and the API keeps it admin-only:
- * - `dupe-albums`: the split-album dry run spans every account's library and reports
- *   destination folders.
  * - `playlist-sync`: lists the Spotify account the instance is connected to.
- * - `album-quality`: counts the instance-wide catalog of reconciled albums.
  * - `grader-trial`: admin-only by design (the trial's costs and models).
  * - `performance`: snapshots record the instance's pipeline configuration.
  *
@@ -445,9 +442,7 @@ export function navGroupsFor(user: NavAudience): NavGroup[] {
  * ({@link isPathAllowedFor}) follows for any path no visible item shares.
  */
 export const DEMO_HIDDEN_ITEMS: ReadonlySet<string> = new Set([
-  'dupe-albums',
   'playlist-sync',
-  'album-quality',
   'grader-trial',
   'performance'
 ]);
