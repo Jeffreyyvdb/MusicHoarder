@@ -958,6 +958,20 @@ public class LibraryBuilderService(
             song.PreviousDestinationPath = currentManagedPath;
         }
 
+        // Last trusted decision point before any directory or file is created: whatever the tags said,
+        // the resolved path must stay strictly inside the destination root.
+        var separator = fileSystem.Path.DirectorySeparatorChar;
+        var rootFull = fileSystem.Path.GetFullPath(options.Value.DestinationDirectory).TrimEnd(separator) + separator;
+        if (!fileSystem.Path.GetFullPath(destinationPath).StartsWith(rootFull, StringComparison.Ordinal))
+        {
+            logger.LogWarning(
+                "Refusing to build song {SongId}: destination path escapes the library root. DestinationPath={DestinationPath}",
+                songId, destinationPath);
+            song.MarkBuildFailed("Destination path escapes the library root");
+            await db.SaveChangesAsync(ct);
+            return new LibraryBuildTrackResult(LibraryBuildOutcome.Failed);
+        }
+
         var destinationDirectory = fileSystem.Path.GetDirectoryName(destinationPath);
         if (string.IsNullOrWhiteSpace(destinationDirectory))
         {
