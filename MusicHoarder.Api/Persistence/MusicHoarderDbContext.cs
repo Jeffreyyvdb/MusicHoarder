@@ -79,6 +79,7 @@ public class MusicHoarderDbContext : DbContext
     public DbSet<WishlistItem> WishlistItems { get; set; } = null!;
     public DbSet<FollowedArtist> FollowedArtists { get; set; } = null!;
     public DbSet<FollowedArtistRelease> FollowedArtistReleases { get; set; } = null!;
+    public DbSet<SongReport> SongReports { get; set; } = null!;
     public DbSet<ArtistCatalogLink> ArtistCatalogLinks { get; set; } = null!;
     public DbSet<ExportedPlaylist> ExportedPlaylists { get; set; } = null!;
     public DbSet<WishlistSourceTrack> WishlistSourceTracks { get; set; } = null!;
@@ -432,6 +433,14 @@ public class MusicHoarderDbContext : DbContext
             entity.HasIndex(e => e.DecidedAtUtc);
 
             entity.HasQueryFilter(e => !hasUser || e.FollowedArtist.OwnerUserId == userId);
+        });
+
+        modelBuilder.Entity<SongReport>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.OwnerUserId, e.CreatedAtUtc });
+            entity.HasIndex(e => e.SongId);
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
         });
 
         // Catalog data, like CanonicalAlbum: one row per normalized artist name, not user-scoped.

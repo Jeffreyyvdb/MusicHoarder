@@ -5,6 +5,7 @@
     ExternalLink,
     EyeOff,
     Film,
+    Flag,
     Gauge,
     GitCompareArrows,
     ListPlus,
@@ -38,6 +39,7 @@
    *   Add to playlist… · Go to album · Go to artist
    *   Share link… · Send to… · Share with a friend…           (admin)
    *   Lyrics › · Music video › · Playback speed › · Hide player
+ *   Report wrong download…                                    (admin, a downloaded track)
    *
    * Lyrics › gathers what used to be lg-only or buried in the compare split — the view, Synced /
    * Plain, the player's default source, Compare, the AI run, the timing check, the LRCLIB
@@ -67,6 +69,8 @@
     onShareWithFriend: () => void;
     /** "Add to playlist…": the host opens the sheet over Now Playing. */
     onAddToPlaylist: () => void;
+    /** "Report wrong download…": the host opens the report sheet over Now Playing. */
+    onReport?: () => void;
     onHidePlayer: () => void;
     class?: string;
   };
@@ -88,6 +92,7 @@
     onManageVideo,
     onShareWithFriend,
     onAddToPlaylist,
+    onReport,
     onHidePlayer,
     class: className
   }: Props = $props();
@@ -101,6 +106,8 @@
   const problem = $derived(videoProblem(video.info, video.infoUnavailable));
   // Non-admins see the section only when there is a record to say something about.
   const showVideoMenu = $derived(isOwner || video.info !== null);
+  // Only a download can be reported and removed (see TrackRowMenu).
+  const canReport = $derived(isOwner && song.originKind === 'Downloaded' && onReport != null);
 
   // Share link…: the same flow as the Listen menus (see share-links.ts). Opening the menu only
   // LOOKS for a link the song already has, so the tap can hand it to the share sheet inside its
@@ -346,5 +353,15 @@
         </DropdownMenu.Item>
       {/if}
     </DropdownMenu.Group>
+
+    {#if canReport}
+      <DropdownMenu.Separator />
+      <DropdownMenu.Group>
+        <DropdownMenu.Item variant="destructive" onSelect={onReport}>
+          <Flag />
+          Report wrong download…
+        </DropdownMenu.Item>
+      </DropdownMenu.Group>
+    {/if}
   </DropdownMenu.Content>
 </DropdownMenu.Root>

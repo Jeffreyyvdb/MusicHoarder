@@ -3503,6 +3503,65 @@ export async function softDeleteSong(songId: number): Promise<SoftDeleteResponse
   })
 }
 
+// ── Reported downloads ────────────────────────────────────────────────────────
+
+/** What was wrong with a download. The server's `SongReportReason` names. */
+export type SongReportReason = "WrongSong" | "WrongVersion" | "BadAudio" | "Other"
+
+/**
+ * A report of a wrong download: a snapshot of what was asked for (`requested*`, the wishlist item),
+ * what arrived (`title`, `artist`, …) and how (`downloadProvider`, `downloadedSourceId`), taken when
+ * it was made — the removal resets the wishlist item, so these are the only copy.
+ */
+export interface SongReport {
+  id: number
+  songId: number | null
+  reason: SongReportReason
+  note: string | null
+  title: string | null
+  artist: string | null
+  album: string | null
+  durationMs: number | null
+  fileName: string | null
+  matchedBy: string | null
+  matchConfidence: number | null
+  wishlistItemId: number | null
+  origin: WishlistItemOrigin | null
+  requestedTitle: string | null
+  requestedArtist: string | null
+  requestedAlbum: string | null
+  requestedDurationMs: number | null
+  spotifyTrackId: string | null
+  deezerTrackId: string | null
+  isrc: string | null
+  downloadProvider: string | null
+  /** The provider's id for what the audio came from — for yt-dlp, the YouTube video id. */
+  downloadedSourceId: string | null
+  sourceUrl: string | null
+  /** When the report took the song out of the library; null when it only recorded it. */
+  removedAtUtc: string | null
+  createdAtUtc: string
+}
+
+/**
+ * Report a downloaded track as wrong. With `remove` (the default) it also leaves the library: its
+ * downloaded file and library copy are deleted and its wishlist item is parked as a failure. A file
+ * from your own music folder cannot be removed this way (409) — MusicHoarder never deletes there.
+ */
+export async function reportSong(
+  songId: number,
+  body: { reason: SongReportReason; note?: string | null; remove?: boolean }
+): Promise<SongReport> {
+  return requestJson<SongReport>(`/api/songs/${songId}/report`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  })
+}
+
+export async function listSongReports(): Promise<SongReport[]> {
+  return requestJson<SongReport[]>("/api/song-reports")
+}
+
 // ── Spotify API ───────────────────────────────────────────────────────────────
 
 export interface SpotifyStatusResponse {

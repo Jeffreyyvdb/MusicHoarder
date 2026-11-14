@@ -86,6 +86,8 @@
     onShareWithFriend?: () => void;
     /** "Add to playlist…": the host opens the sheet over this overlay. */
     onAddToPlaylist?: () => void;
+    /** "Report wrong download…": the host opens the report sheet over this overlay. */
+    onReport?: () => void;
     /** Out: Video mode is up, so the host blurs the backdrop's copy of the clip behind it. */
     watching?: boolean;
   };
@@ -102,6 +104,7 @@
     onDragStart,
     onShareWithFriend,
     onAddToPlaylist,
+    onReport,
     watching = $bindable(false)
   }: Props = $props();
 
@@ -419,6 +422,7 @@
     onManageVideo={() => (manageVideoOpen = true)}
     onShareWithFriend={() => onShareWithFriend?.()}
     onAddToPlaylist={() => onAddToPlaylist?.()}
+    onReport={onReport ? () => onReport() : undefined}
     onHidePlayer={hidePlayer}
     class="focus-visible:ring-ring relative z-10 focus-visible:ring-2"
   />

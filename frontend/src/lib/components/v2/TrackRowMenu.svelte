@@ -34,6 +34,7 @@
   import {
     Disc3,
     Ellipsis,
+    Flag,
     Heart,
     HeartOff,
     History,
@@ -52,6 +53,7 @@
   import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
   import ShareWithFriendDialog from '#lib/components/file-browser/ShareWithFriendDialog.svelte';
   import AddToPlaylistSheet from '#lib/components/v2/AddToPlaylistSheet.svelte';
+  import ReportDownloadSheet from '#lib/components/v2/ReportDownloadSheet.svelte';
   import { albumKeyForSong, type ApiSong } from '#lib/api-client.ts';
   import { can, isAdmin } from '#lib/auth/capabilities.ts';
   import { findShareLink, shareLink, type ShareLink } from '#lib/share-links.ts';
@@ -66,7 +68,8 @@
   //   1. Play (Play next is omitted: the player has no insert-into-queue API)
   //   2. Add to / Remove from favourites · Add to playlist… · Go to album · Go to artist
   //   3. Song info · Share link… · Send to… · Share with a friend… · View timeline
-  // and, on a playlist's own page, Remove from playlist — destructive, so last and on its own.
+  // and, on a playlist's own page, Remove from playlist — destructive, so last and on its own; for
+  // the owner, on a track MusicHoarder downloaded, Report wrong download… (it removes the track).
   type Props = {
     song: ApiSong;
     /**
@@ -102,6 +105,9 @@
   // else's rows.
   const canShare = $derived(admin);
   const canShareWithPeople = $derived(admin && can(user, 'ManageOwnShares'));
+  // Only a download can be reported and removed: a file from the owner's own music folder is never
+  // deleted by MusicHoarder, so the server would refuse it.
+  const canReport = $derived(admin && song.originKind === 'Downloaded');
 
   const title = $derived(titleOf(song));
   const isLiked = $derived(Boolean(song.likedAtUtc));
@@ -173,6 +179,14 @@
   function openAddToPlaylist() {
     playlistMounted = true;
     playlistOpen = true;
+  }
+
+  // Mounted on first use, like the friends sheet.
+  let reportOpen = $state(false);
+  let reportMounted = $state(false);
+  function openReport() {
+    reportMounted = true;
+    reportOpen = true;
   }
 
   async function toggleLike() {
@@ -315,12 +329,19 @@
         </DropdownMenu.Item>
       {/if}
     </DropdownMenu.Group>
-    {#if onremove}
+    {#if onremove || canReport}
       <DropdownMenu.Separator />
       <DropdownMenu.Group>
-        <DropdownMenu.Item variant="destructive" onSelect={onremove}>
-          <ListMinus /> Remove from playlist
-        </DropdownMenu.Item>
+        {#if onremove}
+          <DropdownMenu.Item variant="destructive" onSelect={onremove}>
+            <ListMinus /> Remove from playlist
+          </DropdownMenu.Item>
+        {/if}
+        {#if canReport}
+          <DropdownMenu.Item variant="destructive" onSelect={openReport}>
+            <Flag /> Report wrong download…
+          </DropdownMenu.Item>
+        {/if}
       </DropdownMenu.Group>
     {/if}
   </DropdownMenu.Content>
@@ -329,6 +350,10 @@
 
 {#if playlistMounted}
   <AddToPlaylistSheet bind:open={playlistOpen} songIds={[song.id]} label={title} />
+{/if}
+
+{#if reportMounted}
+  <ReportDownloadSheet bind:open={reportOpen} songId={song.id} label={title} />
 {/if}
 
 {#if friendsMounted && song.album}

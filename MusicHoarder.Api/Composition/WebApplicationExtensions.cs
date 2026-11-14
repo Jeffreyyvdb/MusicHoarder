@@ -50,6 +50,7 @@ public static class WebApplicationExtensions
         app.MapPushEndpoints();
         app.MapArtistsEndpoints();
         app.MapArtistDiscographyEndpoints();
+        app.MapSongReportsEndpoints();
         app.MapQualityEndpoints();
         app.MapAlbumQualityEndpoints();
         app.MapQualityTrialEndpoints();

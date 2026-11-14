@@ -8,6 +8,7 @@
   import TrackPanel from '#lib/components/file-browser/TrackPanel.svelte';
   import ShareWithFriendDialog from '#lib/components/file-browser/ShareWithFriendDialog.svelte';
   import AddToPlaylistSheet from '#lib/components/v2/AddToPlaylistSheet.svelte';
+  import ReportDownloadSheet from '#lib/components/v2/ReportDownloadSheet.svelte';
   import VideoBackdrop from '#lib/components/v2/VideoBackdrop.svelte';
   import { SongVideo } from '#lib/components/file-browser/now-playing/song-video.svelte.ts';
   import { coverDimAlpha, DIM_UNKNOWN } from '#lib/components/file-browser/now-playing/cover-dim.ts';
@@ -161,6 +162,16 @@
     if (!r) return;
     playlistAdd = { songId: r.song.id, title: r.song.title ?? r.song.fileName };
     playlistAddOpen = true;
+  }
+
+  // "Report wrong download…" too. A removal reloads the library, and the song then drops out of
+  // the overlay's album like any other vanished song.
+  let report = $state<{ songId: number; title: string } | null>(null);
+  let reportOpen = $state(false);
+  function reportSong() {
+    if (!r) return;
+    report = { songId: r.song.id, title: r.song.title ?? r.song.fileName };
+    reportOpen = true;
   }
 
   // ── Drag to dismiss ─────────────────────────────────────────────────────────
@@ -373,6 +384,7 @@
             {onDragStart}
             onShareWithFriend={shareWithFriend}
             onAddToPlaylist={addToPlaylist}
+            onReport={reportSong}
             bind:watching={videoWatching}
           />
         {:else if detailState === 'error'}
@@ -414,6 +426,10 @@
     songIds={[playlistAdd.songId]}
     label={playlistAdd.title}
   />
+{/if}
+
+{#if report && isAdmin(page.data.user)}
+  <ReportDownloadSheet bind:open={reportOpen} nested songId={report.songId} label={report.title} />
 {/if}
 
 {#if friendShare && isAdmin(page.data.user)}
