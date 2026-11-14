@@ -175,6 +175,15 @@ jobs:
           VERSION: ${{ steps.semrel.outputs.new_release_version }}
         run: gh workflow run aspire-deploy.yml --ref main -f version="$VERSION"
 
+      # The iOS app needs a macOS runner, so it is its own workflow. It skips itself, green, when
+      # the App Store Connect secrets are not set.
+      - name: Trigger the iOS TestFlight build
+        if: steps.semrel.outputs.new_release_version != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.semrel.outputs.new_release_version }}
+        run: gh workflow run ios-testflight.yml --ref main -f version="$VERSION"
+
       # ── Android APK (the app shell, mobile/) ────────────────────────────────────────────────
       # Built *after* semantic-release on purpose: the app is not deployed by a release, so an
       # Android breakage must never hold back the API/frontend deploy. mobile.yml builds it on every

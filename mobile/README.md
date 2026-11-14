@@ -67,6 +67,43 @@ bun run open:ios
 In Xcode: select the **App** target → **Signing & Capabilities**, pick your team, and change the
 bundle identifier to one of your own. Then run it on your phone.
 
+### iOS: TestFlight
+
+`.github/workflows/ios-testflight.yml` builds the app on a macOS runner, signs it, and uploads it to
+App Store Connect, where it appears in TestFlight. `release.yml` starts it on every release, and
+you can start it by hand: **Actions → iOS TestFlight → Run workflow**, or
+`gh workflow run ios-testflight.yml` (blank version: the latest `v*` tag). Without its secrets it
+skips itself. It needs the paid Apple Developer Program, and this setup once:
+
+1. **Register the bundle ID.** On developer.apple.com: Certificates, Identifiers & Profiles →
+   Identifiers → **+** → App IDs → App. Explicit bundle ID `com.musichoarder.app`. If that is
+   taken, use your own and set it as the repository variable `IOS_BUNDLE_ID`.
+2. **Create the app.** In App Store Connect: Apps → **+** → New App. Platform iOS, the bundle ID
+   from step 1, any SKU. The name must be unique on the App Store; it is only a label for TestFlight.
+3. **Make an API key.** In App Store Connect: Users and Access → Integrations → App Store Connect
+   API → Team Keys → **+**, role **Admin** (cloud signing needs it). Download the `.p8` file: it
+   can be downloaded only once. Note the key ID, and the issuer ID above the list.
+4. **Find the team ID** on developer.apple.com → Account → Membership details.
+5. **Store them as secrets**, from the repo root:
+
+   ```bash
+   gh secret set APP_STORE_CONNECT_API_KEY_P8 < ~/Downloads/AuthKey_XXXXXXXXXX.p8
+   gh secret set APP_STORE_CONNECT_KEY_ID      # paste the key id
+   gh secret set APP_STORE_CONNECT_ISSUER_ID   # paste the issuer id
+   gh secret set APPLE_TEAM_ID                 # paste the team id
+   ```
+
+6. **Run the workflow**, then wait for Apple's processing (5–30 minutes, and an email).
+7. **Add yourself as a tester.** In App Store Connect: the app → TestFlight → Internal Testing →
+   **+** a group, add your Apple ID, and enable the build. Install the **TestFlight** app on the
+   iPhone and accept the invitation. A build lasts 90 days; each release brings a new one.
+
+Signing needs no certificate file: Xcode's automatic signing makes the distribution certificate and
+profile in Apple's cloud with the API key. The version is the release's (`MARKETING_VERSION`), the
+build number the workflow's run number, which always grows. `ITSAppUsesNonExemptEncryption` is
+false in `Info.plist`, so TestFlight asks no export-compliance question, and the plugin package
+carries the privacy manifest App Store Connect asks for (`UserDefaults`, reason `CA92.1`).
+
 ### Android
 
 You need a JDK (21) and the Android SDK; Android Studio brings both.

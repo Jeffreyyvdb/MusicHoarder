@@ -1,0 +1,182 @@
+# Builds the app shell (mobile/) for iOS, signs it, and uploads it to App Store Connect, where it
+# appears in TestFlight. release.yml dispatches it with the new version on every release; it can
+# also be run by hand (Actions → iOS TestFlight → Run workflow).
+#
+# Signing is Xcode's automatic signing with an App Store Connect API key: the distribution
+# certificate and the provisioning profile are made and kept in Apple's cloud, so no certificate
+# file or password lives in this repo's secrets. The key must have the Admin role, which cloud
+# signing needs. Setup, once (see mobile/README.md, "iOS: TestFlight"):
+#
+#   secrets  APP_STORE_CONNECT_API_KEY_P8   the downloaded AuthKey_XXXX.p8, the whole file
+#            APP_STORE_CONNECT_KEY_ID       its key id
+#            APP_STORE_CONNECT_ISSUER_ID    the issuer id shown above the keys list
+#            APPLE_TEAM_ID                  the team id of the paid membership
+#   variable IOS_BUNDLE_ID                  optional; com.musichoarder.app by default
+#
+# Without the secrets the run reports why and stops, green: a fork builds nothing here.
+name: iOS TestFlight
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to stamp on the build (X.Y.Z). Blank: the latest v* tag."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-testflight
+  cancel-in-progress: false
+
+jobs:
+  testflight:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - name: Preflight — App Store Connect secrets
+        id: preflight
+        working-directory: .
+        env:
+          KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          missing=()
+          [ -n "${KEY_P8:-}" ] || missing+=(APP_STORE_CONNECT_API_KEY_P8)
+          [ -n "${KEY_ID:-}" ] || missing+=(APP_STORE_CONNECT_KEY_ID)
+          [ -n "${ISSUER_ID:-}" ] || missing+=(APP_STORE_CONNECT_ISSUER_ID)
+          [ -n "${TEAM_ID:-}" ] || missing+=(APPLE_TEAM_ID)
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::notice title=iOS TestFlight skipped::Missing secrets: ${missing[*]}. See mobile/README.md, \"iOS: TestFlight\"."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          case "$KEY_P8" in
+            *"BEGIN PRIVATE KEY"*) ;;
+            *) echo "::error title=iOS TestFlight::APP_STORE_CONNECT_API_KEY_P8 is not a .p8 key. Paste the whole downloaded file, BEGIN/END lines included."; exit 1 ;;
+          esac
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7.0.1
+        if: steps.preflight.outputs.ok == 'true'
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Version
+        id: version
+        if: steps.preflight.outputs.ok == 'true'
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          VERSION="${INPUT_VERSION#v}"
+          if [ -z "$VERSION" ]; then
+            TAG=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || echo v0.0.0)
+            VERSION="${TAG#v}"
+          fi
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Version must be X.Y.Z, got '$VERSION'"; exit 1; }
+          # The build number only has to grow for each version. The run number always does, also
+          # when the same version is built twice (TestFlight refuses a build number it has seen).
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build=$RUN_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "Building $VERSION ($RUN_NUMBER)"
+
+      - uses: oven-sh/setup-bun@v2
+        if: steps.preflight.outputs.ok == 'true'
+        with:
+          bun-version: latest
+
+      - if: steps.preflight.outputs.ok == 'true'
+        run: bun install --frozen-lockfile
+
+      # No MH_SERVER_URL: the app asks for a server on its first start, so one build serves every
+      # instance.
+      - if: steps.preflight.outputs.ok == 'true'
+        run: bun run sync
+
+      - name: Write the API key
+        if: steps.preflight.outputs.ok == 'true'
+        env:
+          KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+        run: |
+          set -euo pipefail
+          KEY_PATH="$RUNNER_TEMP/AuthKey_${KEY_ID}.p8"
+          printf '%s\n' "$KEY_P8" > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+          echo "KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+
+      - name: Archive
+        if: steps.preflight.outputs.ok == 'true'
+        env:
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID || 'com.musichoarder.app' }}
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD: ${{ steps.version.outputs.build }}
+        run: |
+          set -euo pipefail
+          xcodebuild archive \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$KEY_PATH" \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
+            CODE_SIGN_STYLE=Automatic \
+            MARKETING_VERSION="$VERSION" \
+            CURRENT_PROJECT_VERSION="$BUILD" \
+            | tail -n 40
+
+      # Export for App Store Connect with `destination: upload`: xcodebuild signs for distribution
+      # and uploads in one step, with the same key. The build then shows in TestFlight after
+      # Apple's processing (usually 5–30 minutes).
+      - name: Upload to App Store Connect
+        if: steps.preflight.outputs.ok == 'true'
+        env:
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>${TEAM_ID}</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+            <key>uploadSymbols</key><true/>
+          </dict>
+          </plist>
+          PLIST
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$KEY_PATH" \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID" \
+            | tail -n 40
+
+      - name: Remove the API key
+        if: always() && env.KEY_PATH != ''
+        run: rm -f "$KEY_PATH"
