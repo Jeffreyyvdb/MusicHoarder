@@ -43,6 +43,7 @@ public static class WebApplicationExtensions
         app.MapArtistsEndpoints();
         app.MapQualityEndpoints();
         app.MapAlbumQualityEndpoints();
+        app.MapQualityTrialEndpoints();
         app.MapSnapshotsEndpoints();
         app.MapSpotifyEndpoints();
         app.MapWishlistEndpoints();

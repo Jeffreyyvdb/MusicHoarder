@@ -1,11 +1,10 @@
 using System.Diagnostics;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Quality.Jev;
 
 namespace MusicHoarder.Api.Quality;
 
@@ -14,7 +13,8 @@ public class QualityGradingService(
     IChatCompletionClient chatClient,
     IQualityDossierFactory dossierFactory,
     IOptionsMonitor<QualityGradingOptions> options,
-    ILogger<QualityGradingService> logger) : IQualityGradingService
+    ILogger<QualityGradingService> logger,
+    IGraderTrialRecorder? trialRecorder = null) : IQualityGradingService
 {
     private static readonly JsonSerializerOptions CompactJson = new(JsonSerializerDefaults.Web);
 
@@ -25,21 +25,12 @@ public class QualityGradingService(
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
 
-        var song = await db.Songs
-            .IgnoreQueryFilters()
-            .Include(s => s.ProviderAttempts)
-            .FirstOrDefaultAsync(s => s.Id == songId && s.DeletedAtUtc == null, ct);
-
-        if (song is null)
+        var loaded = await LoadDossierAsync(db, dossierFactory, songId, ct);
+        if (loaded is null)
             return new GradeSongResult(GradeOutcome.NotFound, null);
+        var (song, dossier) = loaded.Value;
 
-        var changes = await db.SongMetadataChanges
-            .IgnoreQueryFilters()
-            .Where(c => c.SongId == songId)
-            .ToListAsync(ct);
-
-        var dossier = dossierFactory.Build(song, changes);
-        var fingerprint = Fingerprint(dossier);
+        var fingerprint = DossierFingerprint.Of(dossier);
 
         var latest = await db.SongQualityGrades
             .IgnoreQueryFilters()
@@ -63,11 +54,12 @@ public class QualityGradingService(
 
         GradingResult parsed;
         string rawContent;
+        var stats = new GradingCallStats();
         var sw = Stopwatch.StartNew();
         try
         {
             (parsed, rawContent) = await GradingCompletion.RequestGradeAsync(
-                chatClient, QualityGradingPrompt.BuildMessages(dossier), opts, logger, ct);
+                chatClient, QualityGradingPrompt.BuildMessages(dossier), opts, logger, ct, stats);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -76,7 +68,11 @@ public class QualityGradingService(
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Quality grading failed for song {SongId}", songId);
-            return new GradeSongResult(GradeOutcome.Failed, latest, ex.Message, ClassifyError(ex));
+            var code = GradingErrorCode.Of(ex);
+            await RecordTrialAsync(GraderTrialRows.Incumbent(
+                GraderSubjectKind.Song, song.Id, song.OwnerUserId, opts.Model, QualityGradingPrompt.Version, fingerprint,
+                null, stats, (int)Math.Min(int.MaxValue, sw.ElapsedMilliseconds), code, ex.Message), ct);
+            return new GradeSongResult(GradeOutcome.Failed, latest, ex.Message, code);
         }
         sw.Stop();
 
@@ -103,23 +99,35 @@ public class QualityGradingService(
         db.SongQualityGrades.Add(grade);
         await db.SaveChangesAsync(ct);
 
+        await RecordTrialAsync(GraderTrialRows.Incumbent(
+            GraderSubjectKind.Song, song.Id, song.OwnerUserId, opts.Model, QualityGradingPrompt.Version, fingerprint,
+            parsed, stats, grade.DurationMs, null, null), ct);
+
         return new GradeSongResult(GradeOutcome.Graded, grade);
     }
 
-    /// <summary>Maps a grading failure to a machine-readable code the UI can act on (e.g. show an "out of credits" banner).</summary>
-    private static string ClassifyError(Exception ex) => ex switch
+    /// <summary>
+    /// Loads a live song with what its dossier needs and builds the dossier — the one way to build
+    /// it, so the grader trial hashes exactly what the grade hashed. Null when the song is gone.
+    /// </summary>
+    internal static async Task<(SongMetadata Song, SongGradingDossier Dossier)?> LoadDossierAsync(
+        MusicHoarderDbContext db, IQualityDossierFactory dossierFactory, int songId, CancellationToken ct)
     {
-        HttpRequestException { StatusCode: System.Net.HttpStatusCode.PaymentRequired } => "out_of_credits",
-        HttpRequestException => "http_error",
-        JsonException => "bad_response",
-        InvalidOperationException => "empty_response",
-        _ => "error",
-    };
+        var song = await db.Songs
+            .IgnoreQueryFilters()
+            .Include(s => s.ProviderAttempts)
+            .FirstOrDefaultAsync(s => s.Id == songId && s.DeletedAtUtc == null, ct);
+        if (song is null)
+            return null;
 
-    private static string Fingerprint(SongGradingDossier dossier)
-    {
-        var json = JsonSerializer.Serialize(dossier, CompactJson);
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(json));
-        return Convert.ToHexString(bytes);
+        var changes = await db.SongMetadataChanges
+            .IgnoreQueryFilters()
+            .Where(c => c.SongId == songId)
+            .ToListAsync(ct);
+
+        return (song, dossierFactory.Build(song, changes));
     }
+
+    private Task RecordTrialAsync(GraderComparisonRun run, CancellationToken ct) =>
+        trialRecorder?.RecordAsync(run, ct) ?? Task.CompletedTask;
 }

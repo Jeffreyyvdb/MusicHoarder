@@ -91,7 +91,7 @@
   // ── Manage ────────────────────────────────────────────────────────────────
   const MANAGE_SECTIONS: Section[] = [
     { ids: ['pipeline'] },
-    { header: 'Library', ids: ['folders', 'quality', 'album-quality'] },
+    { header: 'Library', ids: ['folders', 'quality', 'album-quality', 'grader-trial'] },
     { header: 'Insights', ids: ['performance', 'stats', 'history'] },
     { header: 'Sharing', ids: ['shares'] },
     { ids: ['settings'] }

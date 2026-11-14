@@ -11,6 +11,7 @@ import Disc from '@lucide/svelte/icons/disc';
 import Disc3 from '@lucide/svelte/icons/disc-3';
 import Download from '@lucide/svelte/icons/download';
 import FileMusic from '@lucide/svelte/icons/file-music';
+import FlaskConical from '@lucide/svelte/icons/flask-conical';
 import FolderTree from '@lucide/svelte/icons/folder-tree';
 import Gauge from '@lucide/svelte/icons/gauge';
 import Gift from '@lucide/svelte/icons/gift';
@@ -357,6 +358,13 @@ export const NAV_GROUPS: NavGroup[] = [
         href: '/album-quality',
         icon: Disc,
         keywords: 'album quality matches reconcile tracklist'
+      },
+      {
+        id: 'grader-trial',
+        label: 'Grader trial',
+        href: '/grader-trial',
+        icon: FlaskConical,
+        keywords: 'jev decision model ai grader benchmark compare label'
       },
       {
         id: 'performance',
@@ -758,6 +766,7 @@ const GROUPED_PAGES: readonly string[] = [
   '/pipeline',
   '/quality',
   '/album-quality',
+  '/grader-trial',
   '/performance',
   '/stats',
   '/history',
