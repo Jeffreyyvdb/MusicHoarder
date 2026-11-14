@@ -549,7 +549,7 @@
       <!-- Sticky album header: below the phone's nav bar, at the top of the desktop pane. -->
       <div
         id="{listUid}-album-{gi}"
-        class="bg-background md:bg-surface-sunken text-footnote sticky top-[var(--mh-navbar-h,0px)] z-10 flex items-baseline gap-2 px-4 pt-4 pb-1 md:top-0 md:px-2 md:pt-1.5 md:pb-1.5 md:text-[11px] md:leading-4"
+        class="bg-background md:bg-surface-sunken text-footnote sticky top-[var(--mh-navbar-h,0px)] z-10 flex items-baseline gap-2 px-4 pt-4 pb-1 md:top-0 md:px-2.5 md:pt-1.5 md:pb-1.5 md:text-[11px] md:leading-4"
       >
         <div class="min-w-0 flex-1 truncate">
           <span class="font-semibold">{group.album}</span>

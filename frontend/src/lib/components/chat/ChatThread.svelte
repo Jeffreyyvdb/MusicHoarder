@@ -255,7 +255,7 @@
       'flex items-end gap-2',
       compact
         ? 'mh-glass mh-chrome fixed right-[max(16px,env(safe-area-inset-right))] left-[max(16px,env(safe-area-inset-left))] z-40 min-h-(--mh-tabbar-h) rounded-[31px] p-2'
-        : 'bg-background border-t px-4 py-3'
+        : 'bg-background border-t px-7 py-3'
     )}
     style:bottom={compact ? composerBottom : undefined}
     onsubmit={send}
@@ -298,7 +298,7 @@
     <PageToolbarV2 {title} {meta} largeTitle={false} />
 
     {#if loading}
-      <div class="flex flex-col gap-3 px-4 py-6" aria-busy="true">
+      <div class="flex flex-col gap-3 px-4 py-6 md:px-7" aria-busy="true">
         <Skeleton class="h-9 w-2/3 rounded-[20px]" />
         <Skeleton class="ml-auto h-9 w-1/2 rounded-[20px]" />
         <Skeleton class="h-16 w-3/4 rounded-2xl" />
@@ -350,7 +350,7 @@
                 onadd={admin ? addToLibrary : undefined}
               />
               {#if message.id === seenId}
-                <p class="text-caption-2 text-muted-foreground px-5 pt-0.5 text-right md:text-[11px]">Seen</p>
+                <p class="text-caption-2 text-muted-foreground px-5 pt-0.5 text-right md:px-8 md:text-[11px]">Seen</p>
               {/if}
             </li>
           {/each}
