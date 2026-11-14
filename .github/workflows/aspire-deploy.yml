@@ -1,15 +1,15 @@
-# Build the API + frontend images on a native amd64 runner via `aspire do push`
-# (the Aspire pipeline reads MusicHoarder.AppHost and pushes
-#   ghcr.io/<owner>/musichoarder/api  and  ghcr.io/<owner>/musichoarder/frontend  as :latest),
-# then optionally trigger a Dokploy Compose redeploy that re-pulls them.
+# Build the API + frontend images on a native amd64 runner via `aspire do push` and push them to
+#   ghcr.io/<owner>/musichoarder/api  and  ghcr.io/<owner>/musichoarder/frontend.
 #
-# Tagging: every build publishes :latest. When invoked with a `version` input (the Release
-# workflow passes the semantic-release version), the images are additionally tagged :X.Y.Z, :X.Y
-# and :X (standard container semver), reusing the just-built :latest manifest — no rebuild.
+# Two kinds of run, which is how deploying is kept apart from releasing:
 #
-# Trigger model: this runs only on `workflow_dispatch`. The Release workflow (release.yml)
-# dispatches it with the new `version` after semantic-release cuts a `vX.Y.Z` tag, so images
-# build + deploy on releases only. It can also be run manually (no version) to rebuild :latest.
+#   • Edge (every push to main, or a manual run with no version): tags the images :edge and
+#     :sha-<commit>, bakes `<last release>-edge.<sha>` into the API, and redeploys our own Dokploy
+#     instance — whose compose must point API_IMAGE / FRONTEND_IMAGE at the :edge tags. :latest and
+#     the semver tags are never touched, so self-hosters see nothing.
+#   • Release (dispatched by release.yml with `version`, on its weekly schedule or a manual run):
+#     rebuilds at that version, tags :X.Y.Z, :X.Y, :X and :latest — what self-hosters pull. It does
+#     not redeploy: our instance already runs that code from the edge build of the same commit.
 #
 # Why this exists: building these linux/amd64 images locally on an Apple Silicon Mac runs the
 # frontend's Vite build under x86 emulation and is painfully slow. GitHub's ubuntu runners are
@@ -17,10 +17,18 @@
 name: Build & push (Aspire) → Dokploy
 
 on:
+  push:
+    branches: [main]
+    # Nothing the images contain: docs, the app shell (its own workflows), the perf suite.
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'mobile/**'
+      - 'perf/**'
   workflow_dispatch:
     inputs:
       version:
-        description: "Semver to tag the images with (e.g. 1.9.2). Leave blank to only publish :latest."
+        description: "Release semver (e.g. 1.9.2): tags :X.Y.Z, :X.Y, :X and :latest, no redeploy. Blank: an edge build that redeploys our instance."
         required: false
         default: ""
 
@@ -28,12 +36,45 @@ permissions:
   contents: read
   packages: write
 
+# Edge builds queue rather than overlap (GitHub keeps only the newest pending run, so a burst of
+# merges deploys once at the end). A release build has its own group and never waits on them.
+concurrency:
+  group: aspire-deploy-${{ inputs.version != '' && 'release' || 'edge' }}
+  cancel-in-progress: false
+
 jobs:
   push:
     name: aspire do push → GHCR
     runs-on: ubuntu-latest
+    outputs:
+      kind: ${{ steps.tag.outputs.kind }}
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          # A release builds its own tag, not whatever main has moved on to since it was cut.
+          ref: ${{ inputs.version != '' && format('v{0}', inputs.version) || '' }}
+          # Tags, so an edge build can name the release it follows (git describe).
+          fetch-depth: 0
+
+      - name: Image tag and version
+        id: tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -n "${VERSION:-}" ]; then
+            version="${VERSION#v}"   # tolerate a leading v: v1.4.2 -> 1.4.2
+            echo "kind=release" >> "$GITHUB_OUTPUT"
+            echo "image_tag=${version}" >> "$GITHUB_OUTPUT"
+            echo "mh_version=${version}" >> "$GITHUB_OUTPUT"
+          else
+            # A pre-release of the last release: /api/version shows what is running, and the update
+            # check strips the suffix, so an edge instance is never told to "update" to its own base.
+            last=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || echo v0.0.0)
+            echo "kind=edge" >> "$GITHUB_OUTPUT"
+            echo "image_tag=edge" >> "$GITHUB_OUTPUT"
+            echo "mh_version=${last#v}-edge.${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
@@ -66,9 +107,11 @@ jobs:
       # filled in Dokploy). Supply throwaway values so --non-interactive never prompts.
       - name: aspire do push
         env:
-          # Bake the release semver into the API assembly (MSBuild reads $(MH_VERSION) — see
-          # MusicHoarder.Api.csproj). Blank on manual :latest-only rebuilds → SDK default 1.0.0.
-          MH_VERSION: ${{ inputs.version }}
+          # Bake the version into the API assembly (MSBuild reads $(MH_VERSION) — see
+          # MusicHoarder.Api.csproj): X.Y.Z on a release, <last release>-edge.<sha> otherwise.
+          MH_VERSION: ${{ steps.tag.outputs.mh_version }}
+          # The tag the AppHost pushes (WithRemoteImageTag): `edge` or the release's X.Y.Z.
+          MH_IMAGE_TAG: ${{ steps.tag.outputs.image_tag }}
           Parameters__source-directory: /music/source
           Parameters__destination-directory: /music/destination
           Parameters__acoustid-api-key: ""
@@ -86,34 +129,38 @@ jobs:
           Parameters__resend-from-address: "noreply@example.com"
         run: aspire do push --non-interactive
 
-      # When a version is supplied, add semver tags pointing at the just-pushed :latest manifest (no rebuild).
-      - name: Tag semver
-        if: inputs.version != ''
+      # Extra tags pointing at the manifest just pushed (no rebuild). Edge: :sha-<commit>, so any
+      # deployed commit can be pinned or rolled back to. Release: :X.Y, :X and :latest.
+      - name: Tag images
         env:
-          VERSION: ${{ inputs.version }}
+          KIND: ${{ steps.tag.outputs.kind }}
+          IMAGE_TAG: ${{ steps.tag.outputs.image_tag }}
         run: |
           set -euo pipefail
           owner="${GITHUB_REPOSITORY_OWNER,,}"
-          version="${VERSION#v}"           # tolerate a leading v: v1.4.2 -> 1.4.2
-          major="${version%%.*}"           # 1
-          minor="${version%.*}"            # 1.4
           for name in api frontend; do
             img="ghcr.io/${owner}/musichoarder/${name}"
-            docker buildx imagetools create \
-              -t "${img}:${version}" \
-              -t "${img}:${minor}" \
-              -t "${img}:${major}" \
-              "${img}:latest"
-            echo "Tagged ${img} -> ${version}, ${minor}, ${major}"
+            if [ "$KIND" = release ]; then
+              version="$IMAGE_TAG"         # 1.4.2
+              major="${version%%.*}"       # 1
+              minor="${version%.*}"        # 1.4
+              tags=(-t "${img}:${minor}" -t "${img}:${major}" -t "${img}:latest")
+            else
+              tags=(-t "${img}:sha-${GITHUB_SHA}")
+            fi
+            docker buildx imagetools create "${tags[@]}" "${img}:${IMAGE_TAG}"
+            echo "Tagged ${img}:${IMAGE_TAG} -> ${tags[*]}"
           done
 
   deploy:
     name: Redeploy Dokploy
     needs: push
+    # Only edge builds deploy: our instance runs :edge, so retagging a release changes nothing there.
+    if: needs.push.outputs.kind == 'edge'
     runs-on: ubuntu-latest
     steps:
       # GHCR doesn't fire push webhooks, so we trigger the redeploy ourselves — here, AFTER the new
-      # :latest is in GHCR, so the deploy always pulls the freshly built images (avoids the one-
+      # :edge is in GHCR, so the deploy always pulls the freshly built images (avoids the one-
       # release lag you get from Dokploy's own on-push auto-deploy, which fires before the build).
       #
       # Dokploy exposes a per-service webhook deploy URL (service → Deployments → Webhook URL) that
