@@ -223,6 +223,13 @@ public sealed class AuthService : IAuthService
                 .Where(s => s.UserId == session.UserId && s.RevokedAtUtc == null)
                 .ToListAsync(ct).ConfigureAwait(false);
             foreach (var s in all) s.RevokedAtUtc = nowUtc;
+
+            // Push subscriptions are keyed by account, not session; drop them so signed-out
+            // browsers stop receiving notification previews.
+            var pushes = await db.WebPushSubscriptions.IgnoreQueryFilters()
+                .Where(p => p.UserId == session.UserId)
+                .ToListAsync(ct).ConfigureAwait(false);
+            db.WebPushSubscriptions.RemoveRange(pushes);
         }
         else
         {
