@@ -125,10 +125,17 @@ const INIT_SCRIPT = `(() => {
   if (window.__perfWatch) perf.watch(window.__perfWatch)
 })()`
 
-const has = (selector: string) => `() => document.querySelector(${JSON.stringify(selector)})`
+/**
+ * A string as a JavaScript literal, for splicing into code run in the page. JSON.stringify alone
+ * leaves `<`, `>`, `/` and the U+2028/U+2029 line separators as they are; escape them too.
+ */
+const jsString = (value: string) =>
+  JSON.stringify(value).replace(/[<>\/\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`)
+
+const has = (selector: string) => `() => document.querySelector(${jsString(selector)})`
 const ALBUM_CARD = 'a[aria-label^="Open album"]'
 const TRACK_ROW = 'button[aria-label^="More for "]'
-const TRACKS_READY = `() => document.querySelector('input[aria-label="Search tracks"]') && document.querySelector(${JSON.stringify(TRACK_ROW)})`
+const TRACKS_READY = `() => document.querySelector('input[aria-label="Search tracks"]') && document.querySelector(${jsString(TRACK_ROW)})`
 
 interface LoadScenario {
   name: string
@@ -188,7 +195,7 @@ async function openSession(browser: Browser, profile: Profile, target: Target, w
   await context.addCookies(
     target.cookies.map((cookie) => ({ name: cookie.slice(0, cookie.indexOf('=')), value: cookie.slice(cookie.indexOf('=') + 1), url: target.webBase! })),
   )
-  if (watch) await context.addInitScript(`window.__perfWatch = ${JSON.stringify(watch)}`)
+  if (watch) await context.addInitScript(`window.__perfWatch = ${jsString(watch)}`)
   await context.addInitScript(INIT_SCRIPT)
   const page = await context.newPage()
   const cdp = await context.newCDPSession(page)
@@ -345,10 +352,10 @@ type Interactions = Record<string, { value: number; metrics: Record<string, numb
 /** Client-side navigation the way a link does it, identical in every layout: the router handles any same-origin anchor. */
 const followLink = (path: string, ready: string) => `(() => {
   const link = document.createElement('a')
-  link.href = ${JSON.stringify(path)}
+  link.href = ${jsString(path)}
   link.style.display = 'none'
   document.body.appendChild(link)
-  window.__perf.watch(${JSON.stringify(ready)})
+  window.__perf.watch(${jsString(ready)})
   const started = performance.now()
   link.click()
   link.remove()
@@ -392,9 +399,9 @@ async function measureInteractions(browser: Browser, profile: Profile, target: T
     await navigate('Tracks → Albums', followLink('/library', has(ALBUM_CARD)))
     await endProfile('tracks-to-albums')
     await navigate('Open an album', `(() => {
-      window.__perf.watch(${JSON.stringify(has(TRACK_ROW))})
+      window.__perf.watch(${jsString(has(TRACK_ROW))})
       const started = performance.now()
-      document.querySelector(${JSON.stringify(ALBUM_CARD)}).click()
+      document.querySelector(${jsString(ALBUM_CARD)}).click()
       return started
     })()`)
     await endProfile('open-album')
