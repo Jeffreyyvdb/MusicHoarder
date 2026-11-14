@@ -70,7 +70,7 @@ Nothing is strictly required for a localhost trial — every value defaults. The
 | `MUSIC_DESTINATION_PATH` | `./music-destination` | Host path where the cleaned, organized copy is written. |
 | `OWNER_EMAIL` | `owner@musichoarder.local` | Admin account; sign in with this address. Just an identifier unless Resend is configured. |
 | `PUBLIC_BASE_URL` | `http://localhost:3000` | The external URL you reach the app at (used for magic links + Spotify redirects). Set for LAN/proxy access. |
-| `MUSICHOARDER_VERSION` | — | Pin a release tag instead of `latest`. |
+| `MUSICHOARDER_VERSION` | `latest` | Pin a release (`2`, `2.5`, `2.5.1`) instead of `latest`. See [Updating](#updating). |
 | `PUID` / `PGID` | — (root) | Run the API as this user and group instead of root. Every writable mount (the destination library, the `musichoarder-dpkeys` and download volumes, a Soulseek downloads dir) must already belong to that user: nothing changes owners for you. Leave empty on an existing install unless you `chown` those first. |
 | `ACOUSTID_API_KEY` | — | Audio-fingerprint identification. Strongly recommended (see below). |
 | `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | — | Spotify metadata enrichment + OAuth. |
@@ -209,7 +209,20 @@ docker compose up -d
 ```
 
 Pulls the newest images and recreates the containers. Database migrations apply automatically on
-startup. To stay on a known version, pin `MUSICHOARDER_VERSION` in `.env`.
+startup.
+
+Releases are cut at most **once a week**, so `latest` changes at most weekly — safe to auto-update
+with Watchtower or similar. What changed is on the
+[Releases page](https://github.com/Jeffreyyvdb/MusicHoarder/releases). To control what you get,
+set `MUSICHOARDER_VERSION` in `.env` (no leading `v`):
+
+| `MUSICHOARDER_VERSION` | You get |
+|------------------------|---------|
+| `latest` (default) | Every release |
+| `2` | Every release in 2.x — fixes and features, never a breaking change |
+| `2.5` | Fixes to 2.5 only |
+| `2.5.1` | Exactly that release; never changes |
+| `edge` | Every change merged to `main`, unreleased. What the maintainer runs; not recommended |
 
 ## Backups
 

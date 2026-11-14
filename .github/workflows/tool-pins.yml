@@ -6,8 +6,8 @@
 #
 # Like the Dependabot config, it only proposes a release that has been out for COOLDOWN_DAYS, so a
 # malicious release has time to be caught and yanked first. yt-dlp has to stay fresh (YouTube
-# changes break old versions), which is why this runs daily and the commit is a fix(deps) that
-# cuts a release and so rebuilds the images.
+# changes break old versions), which is why this runs daily. Merging it rebuilds the :edge images;
+# the commit is a fix(deps), so the next weekly release carries it to :latest.
 #
 # The PR is opened with GITHUB_TOKEN, and GitHub does not start workflows for events that token
 # causes: the required checks do not run on their own. Close and reopen the PR (or push to it) to

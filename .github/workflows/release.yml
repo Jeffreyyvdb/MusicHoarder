@@ -1,25 +1,34 @@
 name: Release
 
-# Unified semantic-release for the whole repo. Every push to main is analyzed for
-# Conventional Commits across BOTH the .NET API and the SvelteKit frontend; a single
-# `vX.Y.Z` git tag + GitHub Release is cut covering both. When a release happens this
-# workflow dispatches aspire-deploy.yml with the new version, which builds and semver-tags
-# the api + frontend images and redeploys Dokploy; it also builds the app shell (mobile/) for
-# Android, attaches the APK to the Release and uploads the App Bundle to Google Play.
+# Unified semantic-release for the whole repo, on a weekly schedule. Every Conventional Commit
+# since the last tag, across BOTH the .NET API and the SvelteKit frontend, goes into one `vX.Y.Z`
+# tag + GitHub Release covering both. When a release happens this workflow dispatches
+# aspire-deploy.yml with the new version, which builds and semver-tags the api + frontend images
+# (:X.Y.Z, :X.Y, :X, :latest — what self-hosters pull); it also builds the app shell (mobile/) for
+# Android, attaches the APK to the Release and uploads the App Bundle to Google Play, and starts
+# the iOS TestFlight build.
+#
+# Why weekly and not per push: releasing every merge cut 15 versions in one day, which meant 15
+# release notifications, 15 moves of :latest for anyone auto-updating, and a Play build per merge.
+# Deploying is separate: aspire-deploy.yml builds :edge on every push to main and redeploys our own
+# instance, so nothing waits a week to go live there. For an urgent fix, run this workflow by hand
+# (Actions → Release → Run workflow, blank input) to release now.
+#
 # `workflow_dispatch` triggered by the default GITHUB_TOKEN is permitted to start the
 # downstream run (the one exception to the "GITHUB_TOKEN-created events don't trigger workflows"
 # rule), so no PAT is needed.
 
 on:
-  push:
-    branches: [main]
+  schedule:
+    # Mondays 07:00 UTC.
+    - cron: '0 7 * * 1'
   workflow_dispatch:
     inputs:
       android_version:
         description: >-
           Re-publish only the Android app for an existing release (X.Y.Z): rebuilds that tag, attaches
           the APK to its Release and uploads the bundle to Google Play. Nothing is released or deployed.
-          Blank: a normal release run.
+          Blank: a normal release run (cuts a release now if there is anything to release).
         required: false
         type: string
 
@@ -57,7 +66,7 @@ jobs:
           dotnet-version: '10.0.x'
 
       # Set up here rather than with the Android steps below so the signing preflight can run
-      # *before* semantic-release: a broken keystore config is then reported on every push to main,
+      # *before* semantic-release: a broken keystore config is then reported on every release run,
       # release or not, instead of surfacing after a version has already been cut.
       - name: Setup JDK
         uses: actions/setup-java@v6
@@ -126,8 +135,8 @@ jobs:
           echo "Keystore, alias and both passwords check out — a release will attach a signed APK."
           emit true
 
-      # Same posture as the signing preflight: report a broken Google Play setup on every push to
-      # main, and never fail the job over it. Without a usable service-account key the release still
+      # Same posture as the signing preflight: report a broken Google Play setup on every release
+      # run, and never fail the job over it. Without a usable service-account key the release still
       # happens and still carries an APK — it just does not reach the Play Console.
       #
       # Nothing that identifies the account is printed: Actions logs on this repo are public.
@@ -178,7 +187,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # If a new version was published, kick off the image build + Dokploy redeploy.
+      # If a new version was published, build and tag its images (no redeploy — see aspire-deploy.yml).
       - name: Trigger build & deploy
         if: steps.semrel.outputs.new_release_version != ''
         env:
@@ -196,9 +205,9 @@ jobs:
         run: gh workflow run ios-testflight.yml --ref main -f version="$VERSION"
 
       # ── Android APK (the app shell, mobile/) ────────────────────────────────────────────────
-      # Built *after* semantic-release on purpose: the app is not deployed by a release, so an
-      # Android breakage must never hold back the API/frontend deploy. mobile.yml builds it on every
-      # PR that touches mobile/, so this failing is the unusual case. The release exists for a
+      # Built *after* semantic-release on purpose: an Android breakage must never hold back the
+      # API/frontend release. mobile.yml builds it on every PR that touches mobile/, so this failing
+      # is the unusual case. The release exists for a
       # minute or two without the APK attached.
       #
       # The shell names no server (MH_SERVER_URL stays unset): it asks for one on first start, so

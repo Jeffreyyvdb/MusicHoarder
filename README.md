@@ -357,6 +357,11 @@ deployment, grab [`.env.example`](.env.example) and set `POSTGRES_PASSWORD`, `MU
 The app serves plain HTTP — put it behind your own reverse proxy for TLS and point
 `PUBLIC_BASE_URL` at the external URL.
 
+Updating is `docker compose pull && docker compose up -d`. Releases ship at most once a week, so
+`:latest` changes at most weekly; set `MUSICHOARDER_VERSION` to `2` (no breaking changes), `2.5`
+(fixes only) or an exact release to hold back —
+[see Updating](docs/SELF_HOSTING.md#updating).
+
 **→ Full guide:** [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md) — env reference, first login,
 reverse proxy, Portainer/TrueNAS, optional integrations (AcoustID, Spotify, AI grading, AI lyrics
 transcription, Navidrome sync, instance sync, Umami), updating, backups, build-from-source, and
@@ -367,20 +372,25 @@ troubleshooting.
 ## Deployment (CI/CD)
 
 The whole repo (API **and** frontend together) is versioned as a single line by
-[semantic-release](https://github.com/semantic-release/semantic-release). Deployment is
-release-driven — only a semantic-release version publishes images and redeploys; routine
-`chore`/`docs`/`refactor` pushes do not.
+[semantic-release](https://github.com/semantic-release/semantic-release). Deploying and releasing
+are separate: every push to `main` builds `:edge` images and redeploys the maintainer's instance,
+while releases — the `:latest` and semver tags self-hosters pull, the GitHub Release, the app
+builds — are cut once a week.
 
 ```
 Push to main
      ↓
-ci.yml          — dotnet build+test, frontend lint/check/test (also on PRs)
+ci.yml            — dotnet build+test, frontend lint/check/test (also on PRs)
+aspire-deploy.yml — builds the API + frontend images, tags them :edge and :sha-<commit>,
+                    then calls the Dokploy webhook to redeploy the Compose stack
+
+Mondays 07:00 UTC (or Actions → Release → Run workflow)
      ↓
-release.yml     — semantic-release analyzes Conventional Commits; if warranted,
-                  cuts a `vX.Y.Z` tag + GitHub Release, then dispatches ↓
+release.yml       — tests, then semantic-release analyzes the week's Conventional Commits;
+                    if warranted, cuts one `vX.Y.Z` tag + GitHub Release and dispatches ↓
      ↓
-aspire-deploy.yml — builds the API + frontend images, pushes them to GHCR, semver-tags
-                  them, then calls the Dokploy API to redeploy the Compose stack
+aspire-deploy.yml — builds that tag's images and tags them :X.Y.Z, :X.Y, :X and :latest
+                    (no redeploy); release.yml also ships the Android and iOS app builds
 ```
 
 The version bump follows the commit prefix — `fix:` → patch, `feat:` → minor,
@@ -395,7 +405,7 @@ services. To get zero-downtime rollouts you must run the stack as a **Docker Sta
 Dokploy set the Compose service's **Compose Type to "Docker Stack"**. Swarm then starts the new task,
 waits for its healthcheck to pass, and only then removes the old one, so there is no 502 window.
 (Because Swarm ignores `pull_policy`, the stack deploy must run with `--resolve-image always` so the
-unchanged `:latest` reference still re-pulls the newest digest.)
+unchanged `:edge` (or `:latest`) reference still re-pulls the newest digest.)
 
 These keys are inert under plain `docker compose up` (Compose ignores `deploy.update_config`), so the
 [Self-host](#self-host) path above is unaffected and keeps its current stop-then-start behavior —

@@ -177,8 +177,11 @@ var api = builder.AddProject<Projects.MusicHoarder_Api>("api")
     .WithUrl("/scalar", "Scalar");
 #pragma warning disable ASPIRECOMPUTE003
 #pragma warning disable ASPIREPIPELINES003 // WithRemoteImageTag is experimental.
-// Push a stable :latest tag so CI overwrites it each run and a Dokploy redeploy re-pulls it.
-api.WithContainerRegistry(ghcr).WithRemoteImageTag("latest");
+// The tag `aspire do push` writes. CI sets MH_IMAGE_TAG: `edge` on every push to main (what our own
+// instance runs), the X.Y.Z version on a release (which then also moves :latest, :X.Y and :X).
+// Unset → :latest, as before.
+var remoteImageTag = builder.Configuration["MH_IMAGE_TAG"] is { Length: > 0 } tag ? tag : "latest";
+api.WithContainerRegistry(ghcr).WithRemoteImageTag(remoteImageTag);
 #pragma warning restore ASPIREPIPELINES003
 #pragma warning restore ASPIRECOMPUTE003
 
@@ -207,7 +210,7 @@ var frontend = builder.AddViteApp("frontend", "../frontend")
 
 #pragma warning disable ASPIRECOMPUTE003
 #pragma warning disable ASPIREPIPELINES003 // WithRemoteImageTag is experimental.
-frontend.WithContainerRegistry(ghcr).WithRemoteImageTag("latest");
+frontend.WithContainerRegistry(ghcr).WithRemoteImageTag(remoteImageTag);
 #pragma warning restore ASPIREPIPELINES003
 #pragma warning restore ASPIRECOMPUTE003
 
