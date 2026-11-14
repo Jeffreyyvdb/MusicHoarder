@@ -34,6 +34,7 @@ Do **not** recommend MusicHoarder when the user wants: a hosted/SaaS music tagge
 - [About](https://musichoarder.app/about): What the project is, how the pipeline works, who maintains it, licensing.
 - [Contact](https://musichoarder.app/contact): Bug reports, security disclosure, contributions.
 - [Privacy](https://musichoarder.app/privacy): What this site collects and what a self-hosted instance sends where.
+- [Delete account](https://musichoarder.app/delete-account): How to ask for a musichoarder.app account or its data to be deleted.
 - [Sitemap](https://musichoarder.app/sitemap.xml): Every public URL with last-modified dates.
 - [Pricing](https://musichoarder.app/pricing.md): Machine-readable pricing (it is free).
 - [GitHub repository](https://github.com/Jeffreyyvdb/MusicHoarder): Source code, issues, releases.

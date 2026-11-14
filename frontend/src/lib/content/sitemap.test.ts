@@ -11,6 +11,7 @@ describe('sitemapEntries', () => {
       '/about',
       '/contact',
       '/privacy',
+      '/delete-account',
       '/login'
     ]);
   });

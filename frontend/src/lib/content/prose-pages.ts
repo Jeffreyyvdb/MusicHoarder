@@ -89,7 +89,7 @@ export const contactPage: ProsePage = {
   title: 'Contact MusicHoarder',
   description:
     'How to reach the MusicHoarder project: GitHub issues for bugs and features, private security advisories for vulnerabilities, and pull requests for contributions.',
-  updated: '2026-08-21',
+  updated: '2026-11-14',
   sections: [
     {
       heading: 'Where to reach us',
@@ -110,6 +110,11 @@ export const contactPage: ProsePage = {
               label: 'Report a security vulnerability',
               href: `${REPO_URL}/security`,
               note: 'private advisory — please do not use a public issue'
+            },
+            {
+              label: 'Delete your account or data',
+              href: '/delete-account',
+              note: 'private, by email — no public issue needed'
             },
             {
               label: 'Contribute a change',
@@ -234,6 +239,11 @@ export const privacyPage: ProsePage = {
           kind: 'links',
           items: [
             { label: 'Privacy questions and data requests', href: '/contact' },
+            {
+              label: 'Delete your account or data',
+              href: '/delete-account',
+              note: 'for accounts on musichoarder.app'
+            },
             { label: 'Security disclosure policy', href: `${REPO_URL}/security` },
             {
               label: 'Read the source',
@@ -247,5 +257,114 @@ export const privacyPage: ProsePage = {
   ]
 };
 
+const DELETION_EMAIL = 'musichoarder.mail@jeffreyyvdb.com';
+
+export const deleteAccountPage: ProsePage = {
+  path: '/delete-account',
+  title: 'Delete your MusicHoarder account',
+  description:
+    'How to ask for your MusicHoarder account, or some of its data, to be deleted: what to send, what is removed, what is kept, and how long it takes.',
+  updated: '2026-11-14',
+  sections: [
+    {
+      heading: 'How to ask',
+      blocks: [
+        {
+          kind: 'paragraph',
+          text: `This page is for accounts on musichoarder.app, run by the MusicHoarder maintainer, and for the MusicHoarder app for Android and iPhone signed in to it. Deletion is done by hand, so it starts with a request. There are two ways to make one:`
+        },
+        {
+          kind: 'list',
+          items: [
+            `By email: write to ${DELETION_EMAIL} from the address you sign in with, and say "Delete my MusicHoarder account". If you cannot write from that address, name it in the message; you will be asked to confirm from it before anything is deleted.`,
+            'In the app: signed-in members can send the request to the administrator in Chats. The request is then already tied to your account.'
+          ]
+        },
+        {
+          kind: 'links',
+          items: [
+            {
+              label: 'Email a deletion request',
+              href: `mailto:${DELETION_EMAIL}?subject=${encodeURIComponent('Delete my MusicHoarder account')}`,
+              note: DELETION_EMAIL
+            }
+          ]
+        },
+        {
+          kind: 'paragraph',
+          text: 'You get a reply when the request has been received, and another when it is done. Requests are completed within 30 days. A deletion cannot be undone.'
+        }
+      ]
+    },
+    {
+      heading: 'Deleting some data, not the account',
+      blocks: [
+        {
+          kind: 'paragraph',
+          text: 'You can also ask for part of your data to be deleted and keep the account — for example your chat messages, your play history, or your likes. Ask the same way, and say which data you mean. These requests are also completed within 30 days.'
+        }
+      ]
+    },
+    {
+      heading: 'What is deleted',
+      blocks: [
+        {
+          kind: 'paragraph',
+          text: 'When an account is deleted, everything stored for it is removed:'
+        },
+        {
+          kind: 'list',
+          items: [
+            'Your name, email address and account ID.',
+            'Your sessions, sign-in links and passkeys, so every device you were signed in on is signed out.',
+            'The chat messages you sent, and your place in each conversation.',
+            'Your likes, play counts, play history and other listening state.',
+            'The playlists you created, and your playback-sync state (the queue and position shared between your devices).',
+            'Notification subscriptions for your devices.',
+            'Share links you created, with their visit counts.',
+            'Invites tied to your email address, and any access to a library that was shared with you.'
+          ]
+        }
+      ]
+    },
+    {
+      heading: 'What may be kept',
+      blocks: [
+        {
+          kind: 'list',
+          items: [
+            'Server and Cloudflare logs hold the usual technical data of requests (IP address, user agent, requested path). They are not linked to your account and roll over on their own.',
+            'Page-view analytics (a self-hosted Umami instance) are anonymous and aggregated. They are not tied to an account, so there is nothing in them to delete per person.'
+          ]
+        },
+        {
+          kind: 'paragraph',
+          text: 'See the privacy page for everything this site processes.'
+        }
+      ]
+    },
+    {
+      heading: 'Self-hosted instances and the demo',
+      blocks: [
+        {
+          kind: 'paragraph',
+          text: "MusicHoarder is open-source software that anyone can run on their own server. If your account is on someone else's instance — the app was connected to an address other than musichoarder.app — ask that instance's administrator. The maintainer has no access to other instances and cannot delete anything on them."
+        },
+        {
+          kind: 'paragraph',
+          text: 'The demo account is shared and holds no personal data, so there is nothing to delete for it. Signing out removes its session cookie.'
+        },
+        {
+          kind: 'links',
+          items: [
+            { label: 'Privacy at MusicHoarder', href: '/privacy' },
+            { label: 'Other ways to reach the project', href: '/contact' }
+          ]
+        }
+      ]
+    }
+  ]
+};
+
 /** Every prose page, in the order they should appear in a sitemap or navigation list. */
-export const prosePages: ProsePage[] = [aboutPage, contactPage, privacyPage];
+export const prosePages: ProsePage[] = [aboutPage, contactPage, privacyPage, deleteAccountPage];

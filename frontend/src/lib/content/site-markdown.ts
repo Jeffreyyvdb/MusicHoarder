@@ -60,6 +60,7 @@ library.
 - [About](${abs(siteUrl, '/about')}): what the project is and who maintains it.
 - [Contact](${abs(siteUrl, '/contact')}): issues, security reports, contributions.
 - [Privacy](${abs(siteUrl, '/privacy')}): what this site and a self-hosted instance process.
+- [Delete account](${abs(siteUrl, '/delete-account')}): how to ask for a musichoarder.app account or its data to be deleted.
 - [Pricing](${abs(siteUrl, '/pricing.md')}): machine-readable pricing (it is free).
 - [Source code](${REPO_URL}): issues, releases, self-hosting quickstart.
 `;
@@ -80,7 +81,7 @@ export function notFoundMarkdown(siteUrl: string, pathname: string): string {
 - [Home](${abs(siteUrl, '/')}): what MusicHoarder is and how the pipeline works.
 - [Site map](${abs(siteUrl, '/sitemap.xml')}): every public URL, with last-modified dates.
 - [Agent guide](${abs(siteUrl, '/llms.txt')}): when to use MusicHoarder, and how an agent should call it.
-- [About](${abs(siteUrl, '/about')}) · [Contact](${abs(siteUrl, '/contact')}) · [Privacy](${abs(siteUrl, '/privacy')}).
+- [About](${abs(siteUrl, '/about')}) · [Contact](${abs(siteUrl, '/contact')}) · [Privacy](${abs(siteUrl, '/privacy')}) · [Delete account](${abs(siteUrl, '/delete-account')}).
 - [Pricing](${abs(siteUrl, '/pricing.md')}): machine-readable pricing.
 - [Source code and documentation](${REPO_URL}#readme): the README is the self-hosting manual.
 
