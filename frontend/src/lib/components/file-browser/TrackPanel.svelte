@@ -582,8 +582,6 @@
   {/if}
 {/snippet}
 
-<!-- At lg the meta line above the scrubber already reads "FLAC 1411 · 3:06 · …", so the format
-     capsule would say it twice; only the speed capsule (when not 1×) stays under the bar there. -->
 <!-- Loaded on demand: the device's stylesheet is the vendored SPEC-01 skin, which nobody without
      the easter egg should download. -->
 {#snippet hardwareDevice(maxRows: number)}
@@ -592,6 +590,8 @@
   {/await}
 {/snippet}
 
+<!-- At lg the meta line above the scrubber already reads "FLAC 1411 · 3:06 · …", so the format
+     capsule would say it twice; only the speed capsule (when not 1×) stays under the bar there. -->
 {#snippet transport()}
   <SongTransport
     isActive={isCurrentlyLoaded}
