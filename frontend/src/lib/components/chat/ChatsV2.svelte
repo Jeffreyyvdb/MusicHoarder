@@ -173,7 +173,7 @@
         {#if !chatStore.loaded}
           <div class="flex flex-col" aria-busy="true">
             {#each Array(5) as _, i (i)}
-              <div class="flex items-center gap-3 px-4 py-3">
+              <div class="flex items-center gap-3 px-4 py-3 md:px-3">
                 <Skeleton class="size-12 shrink-0 rounded-full" />
                 <div class="min-w-0 flex-1 space-y-1.5">
                   <Skeleton class="h-4 w-1/3" />
@@ -196,7 +196,7 @@
             action={{ label: 'New message', onclick: newMessage }}
           />
         {:else}
-          <ul class="flex flex-col" aria-label="Conversations">
+          <ul class="flex flex-col md:gap-0.5" aria-label="Conversations">
             {#each conversations as conversation (conversation.id)}
               {@const selected = conversation.id === conversationId}
               {@const unreadHere = conversation.unreadCount > 0}
