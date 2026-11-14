@@ -27,6 +27,12 @@ public enum ProvenanceReason
 
     /// <summary>Album completion queued it because another track of the album was already owned.</summary>
     AlbumFill,
+
+    /// <summary>Asked for as part of a release on an artist's discography ("Get album").</summary>
+    ArtistRequest,
+
+    /// <summary>Queued when it came out, as a new release of an artist the owner follows.</summary>
+    FollowedArtist,
 }
 
 /// <summary>One track under a reason, with the moment that reason happened (liked, found, arrived).</summary>
@@ -181,6 +187,8 @@ public static class SongProvenanceService
                 SongOriginSource.YouTubePlaylist => ProvenanceReason.YouTubePlaylist,
                 SongOriginSource.DirectUrl => ProvenanceReason.Link,
                 SongOriginSource.AlbumCompletion => ProvenanceReason.AlbumFill,
+                SongOriginSource.ArtistRequest => ProvenanceReason.ArtistRequest,
+                SongOriginSource.FollowedArtist => ProvenanceReason.FollowedArtist,
                 _ => ProvenanceReason.Downloaded,
             },
         };
@@ -210,6 +218,12 @@ public static class SongProvenanceService
         ProvenanceReason.Synced => (
             "Synced from another instance",
             "Sent here by another MusicHoarder instance’s sync."),
+        ProvenanceReason.ArtistRequest => (
+            detail is null ? "From an artist’s discography" : $"You asked for {Quote(detail)}",
+            "You asked for this release on the artist’s page, so the wishlist downloaded it."),
+        ProvenanceReason.FollowedArtist => (
+            detail is null ? "New release from an artist you follow" : $"New release {Quote(detail)}",
+            "A new release from an artist you follow, downloaded when it came out."),
         ProvenanceReason.Downloaded => (
             "Downloaded by MusicHoarder",
             "Downloaded by MusicHoarder, but the wishlist entry that asked for it is gone, so the reason was not kept."),
@@ -245,6 +259,7 @@ public static class SongProvenanceService
 
         var detail = reason is ProvenanceReason.SpotifyPlaylist or ProvenanceReason.DeezerPlaylist
                 or ProvenanceReason.YouTubePlaylist or ProvenanceReason.Link
+                or ProvenanceReason.ArtistRequest or ProvenanceReason.FollowedArtist
             ? origin.Detail
             : null;
         return new Classified(song, reason, detail, at, atLabel);

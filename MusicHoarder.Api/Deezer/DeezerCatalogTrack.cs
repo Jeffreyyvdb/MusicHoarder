@@ -32,13 +32,32 @@ public record DeezerAlbumTrackItem(
     int TrackNumber,
     string? Title,
     int DurationMs,
-    string? Id);
+    string? Id,
+    /// <summary>The track's own artist — differs from the album's on a compilation or a feature.</summary>
+    string? Artist = null);
 
 /// <summary>An album search hit (<c>GET /search/album</c>) carrying enough identity to verify the match.</summary>
 public record DeezerAlbumCandidate(string Id, string? Title, string? ArtistName);
 
 /// <summary>An artist search hit (<c>GET /search/artist</c>) with its largest available portrait URL.</summary>
-public record DeezerArtistCandidate(string? Name, string? PictureUrl);
+public record DeezerArtistCandidate(
+    string? Name,
+    string? PictureUrl,
+    string? Id = null,
+    int Fans = 0,
+    int AlbumCount = 0);
+
+/// <summary>
+/// One release on an artist's catalog page (<c>GET /artist/{id}/albums</c>). <see cref="RecordType"/>
+/// is Deezer's <c>record_type</c>: <c>album</c>, <c>ep</c>, <c>single</c> or <c>compile</c>.
+/// </summary>
+public record DeezerArtistRelease(
+    string Id,
+    string Title,
+    string? RecordType,
+    DateOnly? ReleaseDate,
+    string? CoverUrl,
+    bool Explicit);
 
 /// <summary>A Deezer editorial genre (<c>GET /genre</c>). Id 0 is the catch-all "All".</summary>
 public record DeezerGenre(long Id, string Name, string? PictureUrl);

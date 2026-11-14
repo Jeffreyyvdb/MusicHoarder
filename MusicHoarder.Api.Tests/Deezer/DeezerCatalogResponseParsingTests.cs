@@ -230,6 +230,41 @@ public class DeezerCatalogResponseParsingTests
     }
 
     [Fact]
+    public async Task GetArtistReleases_PagesToTheEnd_AndReadsKindDateAndExplicit()
+    {
+        var stub = new RoutingStub(req => req.RequestUri!.Query.Contains("index=0")
+            ? Json("""
+                { "data": [
+                    { "id": 1, "title": "Discovery ", "record_type": "album", "release_date": "2001-03-12",
+                      "cover_xl": "https://c/1.jpg", "explicit_lyrics": true },
+                    { "id": "2", "title": "Single", "record_type": "single", "release_date": "not a date" },
+                    { "id": 3 },
+                    "skipped"
+                  ], "next": "https://api.deezer.com/artist/27/albums?index=100" }
+                """)
+            : Json("""{ "data": [ { "id": 4, "title": "Homework", "record_type": "album" } ] }"""));
+
+        var releases = await CreateService(stub).GetArtistReleasesAsync("27");
+
+        Assert.NotNull(releases);
+        Assert.Equal(
+            [
+                new DeezerArtistRelease("1", "Discovery", "album", new DateOnly(2001, 3, 12), "https://c/1.jpg", true),
+                new DeezerArtistRelease("2", "Single", "single", null, null, false),
+                new DeezerArtistRelease("4", "Homework", "album", null, null, false),
+            ],
+            releases);
+    }
+
+    [Fact]
+    public async Task GetArtistReleases_AnErrorBody_IsNull_NotEmpty()
+    {
+        // The monitor must never read "could not read" as "has no releases".
+        var stub = new RoutingStub(_ => Json("""{ "error": { "type": "DataException", "message": "no data", "code": 800 } }"""));
+        Assert.Null(await CreateService(stub).GetArtistReleasesAsync("27"));
+    }
+
+    [Fact]
     public async Task SearchArtistCandidates_Malformed_IsEmpty()
     {
         Assert.Empty(await CreateService(new RoutingStub(_ => Json("{ nope"))).SearchArtistCandidatesAsync("x"));

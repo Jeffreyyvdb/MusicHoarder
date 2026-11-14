@@ -26,6 +26,18 @@ public interface IDeezerCatalogService
     /// <summary>Fetches an album with its full tracklist (<c>GET /album/{id}</c>); null if not found.</summary>
     Task<DeezerAlbumDetail?> GetAlbumAsync(string albumId, CancellationToken ct = default);
 
+    /// <summary>An artist by id (<c>GET /artist/{id}</c>), or null.</summary>
+    Task<DeezerArtistCandidate?> GetArtistAsync(string artistId, CancellationToken ct = default) =>
+        Task.FromResult<DeezerArtistCandidate?>(null);
+
+    /// <summary>
+    /// Every release the catalog lists for an artist (<c>GET /artist/{id}/albums</c>, paged to the end).
+    /// Null when the listing could not be read — not the same as an artist with no releases, which the
+    /// artist monitor must never mistake for one.
+    /// </summary>
+    Task<IReadOnlyList<DeezerArtistRelease>?> GetArtistReleasesAsync(string artistId, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<DeezerArtistRelease>?>(null);
+
     // --- Discover (editorial browse) ---
 
     /// <summary>Editorial genres for the discover browser (<c>GET /genre</c>), cached ~10 min.</summary>

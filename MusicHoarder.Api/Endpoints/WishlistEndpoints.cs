@@ -49,7 +49,8 @@ public static class WishlistEndpoints
                 {
                     "albumfill" or "albumcompletion" => query.Where(w => w.Origin == WishlistItemOrigin.AlbumCompletion),
                     "all" => query,
-                    _ => query.Where(w => w.Origin == WishlistItemOrigin.UserRequested),
+                    // Artist releases are things a person asked for (or followed), so they list with the rest.
+                    _ => query.Where(w => w.Origin != WishlistItemOrigin.AlbumCompletion),
                 };
 
                 var total = await query.CountAsync(ct);
@@ -57,8 +58,9 @@ public static class WishlistEndpoints
                     // Origin first, mirroring the downloader's claim order — and because album-fill rows
                     // carry a null SpotifyAddedAtUtc, which Postgres sorts NULLS FIRST on DESC and would
                     // otherwise float them to the top of the list.
-                    .OrderBy(w => w.Origin)
-                    .ThenByDescending(w => w.SpotifyAddedAtUtc)
+                    .OrderBy(WishlistItemOrigins.ClaimOrder)
+                    // An artist release has no Spotify save date; it sorts by when it was queued.
+                    .ThenByDescending(w => w.SpotifyAddedAtUtc ?? w.CreatedAtUtc)
                     .ThenByDescending(w => w.Id)
                     .Skip(skip)
                     .Take(take)

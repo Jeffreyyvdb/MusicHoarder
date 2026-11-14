@@ -261,6 +261,8 @@ export type SongOriginSource =
   | "YouTubePlaylist"
   | "DirectUrl"
   | "AlbumCompletion"
+  | "ArtistRequest"
+  | "FollowedArtist"
 
 export type SongAcquisitionIntent = "Explicit" | "AlbumFill"
 
@@ -374,6 +376,10 @@ export function songOriginLabel(s: ApiSong): { label: string; title: string } | 
       return { label: "YouTube", title: `From the YouTube playlist ${detail ?? "(unnamed)"}` }
     case "DirectUrl":
       return { label: "Link", title: `Added from a URL${detail ? ` (${detail})` : ""}` }
+    case "ArtistRequest":
+      return { label: "Artist", title: `You asked for ${detail ?? "this release"} on the artist's page` }
+    case "FollowedArtist":
+      return { label: "Following", title: `A new release${detail ? ` (${detail})` : ""} from an artist you follow` }
     case "AlbumCompletion":
       return {
         label: "Album fill",
@@ -1100,6 +1106,7 @@ export type StorageOriginKey =
   | "youtubePlaylist"
   | "directUrl"
   | "albumCompletion"
+  | "artistRelease"
   | "otherDownload"
   | "synced"
   | "local"
@@ -1667,6 +1674,8 @@ export type ProvenanceReason =
   | "Synced"
   | "Downloaded"
   | "AlbumFill"
+  | "ArtistRequest"
+  | "FollowedArtist"
 
 export interface ProvenanceTrack {
   songId: number
@@ -3643,7 +3652,7 @@ export interface WishlistItem {
 /** Which slice of the wishlist to page through. Defaults to what you asked for. */
 export type WishlistSourceFilter = "user" | "albumfill" | "all"
 
-export type WishlistItemOrigin = "UserRequested" | "AlbumCompletion"
+export type WishlistItemOrigin = "UserRequested" | "AlbumCompletion" | "ArtistRequest" | "ArtistMonitor"
 
 export interface WishlistItemsResponse {
   total: number
@@ -5359,4 +5368,186 @@ export async function fetchHistory(
   if (params.take != null) q.set("take", String(params.take))
   const query = q.toString()
   return requestJson<HistoryFeedResponse>(`/api/history${query ? `?${query}` : ""}`, { signal })
+}
+
+// ── Artist discographies and following (Artists/, /api/artists/*) ────────────
+
+/** A release kind, as the API names it. */
+export type ArtistReleaseKind = "album" | "ep" | "single" | "compilation"
+
+/**
+ * How the server knows which catalog artist a library artist is. Only `linked` (the catalog lists
+ * something you own), `chosen` (you picked it) and `followed` offer a discography; `unconfirmed`
+ * comes with candidates to pick from.
+ */
+export type ArtistCatalogStatus = "linked" | "chosen" | "followed" | "unconfirmed" | "not-found"
+
+export interface ArtistCatalogInfo {
+  status: ArtistCatalogStatus
+  deezerArtistId: string | null
+  name: string | null
+  pictureUrl: string | null
+  fans: number
+}
+
+export interface CatalogArtist {
+  id: string
+  name: string | null
+  pictureUrl: string | null
+  fans: number
+  albumCount: number
+}
+
+export interface ArtistRelease {
+  /** Kind plus normalized title: stable across editions. */
+  key: string
+  kind: ArtistReleaseKind
+  title: string
+  releaseDate: string | null
+  coverUrl: string | null
+  explicit: boolean
+  /** Every catalog id of the release; "Get" sends them all and the server takes the biggest edition. */
+  editionIds: string[]
+  upcoming: boolean
+  ownedTracks: number
+  /** Known once the release has a canonical tracklist. */
+  totalTracks: number | null
+  /** The album name as your songs are tagged, when you own some of it. */
+  libraryAlbum: string | null
+  queuedTracks: number
+  downloadedTracks: number
+  failedTracks: number
+}
+
+export interface FollowedArtist {
+  id: number
+  deezerArtistId: string
+  name: string
+  pictureUrl: string | null
+  releaseKinds: ArtistReleaseKind[]
+  autoDownload: boolean
+  followedAtUtc: string
+  lastCheckedAtUtc: string | null
+  nextCheckAtUtc: string | null
+  lastError: string | null
+  newReleaseCount: number
+}
+
+export interface ArtistDiscography {
+  artist: string
+  catalog: ArtistCatalogInfo
+  candidates: CatalogArtist[]
+  follow: FollowedArtist | null
+  releases: ArtistRelease[]
+  /** The catalog could not be read just now — not the same as an artist with no releases. */
+  releasesUnavailable: boolean
+  downloadsEnabled: boolean
+}
+
+export async function fetchArtistDiscography(artist: string): Promise<ArtistDiscography> {
+  return requestJson<ArtistDiscography>(`/api/artists/discography?artist=${encodeURIComponent(artist)}`)
+}
+
+/** Says which catalog artist a library artist is, when the name alone could not prove it. */
+export async function chooseArtistCatalog(artist: string, deezerArtistId: string): Promise<void> {
+  await requestJson("/api/artists/catalog-link", {
+    method: "POST",
+    body: JSON.stringify({ artist, deezerArtistId }),
+  })
+}
+
+export interface AcquireReleaseResult {
+  key: string | null
+  title: string | null
+  queued: number
+  requeued: number
+  alreadyOwned: number
+  alreadyQueued: number
+  capped: number
+  error: string | null
+}
+
+export interface AcquireReleasesResult {
+  queued: number
+  capped: number
+  /** Releases not looked at because the request's track limit was already spent. */
+  skippedReleases: number
+  jobStarted: boolean
+  results: AcquireReleaseResult[]
+}
+
+/** "Get album" / "Get discography": queues the missing tracks of the given releases. */
+export async function acquireArtistReleases(
+  artist: string,
+  releases: Pick<ArtistRelease, "key" | "editionIds" | "kind">[],
+): Promise<AcquireReleasesResult> {
+  return requestJson<AcquireReleasesResult>("/api/artists/acquire", {
+    method: "POST",
+    body: JSON.stringify({ artist, releases }),
+  })
+}
+
+export async function searchCatalogArtists(q: string): Promise<CatalogArtist[]> {
+  const result = await requestJson<{ artists: CatalogArtist[] }>(`/api/artists/search?q=${encodeURIComponent(q)}`)
+  return result.artists
+}
+
+/** What the monitor decided about a release of a followed artist. */
+export type FollowedReleaseDecision = "queued" | "owned" | "noticed" | "skipped-old" | "failed" | "baseline"
+
+export interface FollowedRelease {
+  id: number
+  followId: number
+  artist: string
+  title: string
+  kind: ArtistReleaseKind
+  releaseDate: string | null
+  coverUrl: string | null
+  decision: FollowedReleaseDecision
+  tracksQueued: number
+  decidedAtUtc: string
+}
+
+export interface FollowingResponse {
+  follows: FollowedArtist[]
+  recent: FollowedRelease[]
+  monitorEnabled: boolean
+  downloadsEnabled: boolean
+}
+
+export async function fetchFollowing(): Promise<FollowingResponse> {
+  return requestJson<FollowingResponse>("/api/artists/following")
+}
+
+export async function followArtist(input: {
+  deezerArtistId: string
+  /** The library's name for the artist, so its page finds the follow under its own spelling. */
+  artist?: string
+  releaseKinds?: ArtistReleaseKind[]
+  autoDownload?: boolean
+}): Promise<FollowedArtist> {
+  return requestJson<FollowedArtist>("/api/artists/following", { method: "POST", body: JSON.stringify(input) })
+}
+
+export async function updateFollow(
+  id: number,
+  input: { releaseKinds?: ArtistReleaseKind[]; autoDownload?: boolean },
+): Promise<FollowedArtist> {
+  return requestJson<FollowedArtist>(`/api/artists/following/${id}`, { method: "PATCH", body: JSON.stringify(input) })
+}
+
+export async function unfollowArtist(id: number): Promise<void> {
+  const response = await fetch(`${API_PREFIX}/api/artists/following/${id}`, { method: "DELETE", cache: "no-store" })
+  await throwIfFailed(`/api/artists/following/${id}`, response)
+}
+
+export interface ArtistMonitorResult {
+  artistsChecked: number
+  newReleases: number
+  tracksQueued: number
+  idleReason: string | null
+}
+
+export async function checkFollowedArtist(id: number): Promise<ArtistMonitorResult> {
+  return requestJson<ArtistMonitorResult>(`/api/artists/following/${id}/check`, { method: "POST" })
 }

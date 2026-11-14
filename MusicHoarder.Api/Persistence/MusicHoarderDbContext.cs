@@ -76,6 +76,9 @@ public class MusicHoarderDbContext : DbContext
     public DbSet<SpotifyTrackLibraryMatch> SpotifyTrackLibraryMatches { get; set; } = null!;
     public DbSet<WishlistSource> WishlistSources { get; set; } = null!;
     public DbSet<WishlistItem> WishlistItems { get; set; } = null!;
+    public DbSet<FollowedArtist> FollowedArtists { get; set; } = null!;
+    public DbSet<FollowedArtistRelease> FollowedArtistReleases { get; set; } = null!;
+    public DbSet<ArtistCatalogLink> ArtistCatalogLinks { get; set; } = null!;
     public DbSet<ExportedPlaylist> ExportedPlaylists { get; set; } = null!;
     public DbSet<WishlistSourceTrack> WishlistSourceTracks { get; set; } = null!;
     public DbSet<Playlist> Playlists { get; set; } = null!;
@@ -389,6 +392,38 @@ public class MusicHoarderDbContext : DbContext
                 .HasFilter("\"YouTubePlaylistId\" IS NOT NULL");
 
             entity.HasQueryFilter(s => !hasUser || s.OwnerUserId == userId);
+        });
+
+        modelBuilder.Entity<FollowedArtist>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.OwnerUserId, e.DeezerArtistId }).IsUnique();
+            entity.HasIndex(e => new { e.OwnerUserId, e.ArtistKey });
+            // The monitor claims whichever follows are due.
+            entity.HasIndex(e => e.NextCheckAtUtc);
+
+            entity.HasMany(e => e.Releases)
+                .WithOne(r => r.FollowedArtist)
+                .HasForeignKey(r => r.FollowedArtistId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+        });
+
+        modelBuilder.Entity<FollowedArtistRelease>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.FollowedArtistId, e.ReleaseKey }).IsUnique();
+            entity.HasIndex(e => e.DecidedAtUtc);
+
+            entity.HasQueryFilter(e => !hasUser || e.FollowedArtist.OwnerUserId == userId);
+        });
+
+        // Catalog data, like CanonicalAlbum: one row per normalized artist name, not user-scoped.
+        modelBuilder.Entity<ArtistCatalogLink>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.ArtistKey).IsUnique();
         });
 
         modelBuilder.Entity<WishlistItem>(entity =>

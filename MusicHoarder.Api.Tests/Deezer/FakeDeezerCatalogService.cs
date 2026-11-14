@@ -17,6 +17,11 @@ public sealed class FakeDeezerCatalogService : IDeezerCatalogService
     public List<DeezerGenre> Genres { get; } = [];
     public List<DeezerPlaylistSummary> ChartPlaylists { get; } = [];
     public List<DeezerPlaylistSummary> SearchResults { get; } = [];
+    public List<DeezerArtistCandidate> ArtistSearchResults { get; } = [];
+    public Dictionary<string, DeezerAlbumDetail> Albums { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>An artist's catalog listing by artist id; an id mapped to null simulates an unreadable listing.</summary>
+    public Dictionary<string, List<DeezerArtistRelease>?> ArtistReleases { get; } = new(StringComparer.Ordinal);
 
     public Task<DeezerCatalogTrack?> LookupByIsrcAsync(string isrc, CancellationToken ct = default) =>
         Task.FromResult<DeezerCatalogTrack?>(null);
@@ -31,13 +36,20 @@ public sealed class FakeDeezerCatalogService : IDeezerCatalogService
         Task.FromResult<IReadOnlyList<DeezerAlbumCandidate>>([]);
 
     public Task<IReadOnlyList<DeezerArtistCandidate>> SearchArtistCandidatesAsync(string name, CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyList<DeezerArtistCandidate>>([]);
+        Task.FromResult<IReadOnlyList<DeezerArtistCandidate>>(ArtistSearchResults);
+
+    public Task<DeezerArtistCandidate?> GetArtistAsync(string artistId, CancellationToken ct = default) =>
+        Task.FromResult(ArtistSearchResults.FirstOrDefault(a => a.Id == artistId));
+
+    public Task<IReadOnlyList<DeezerArtistRelease>?> GetArtistReleasesAsync(string artistId, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<DeezerArtistRelease>?>(
+            ArtistReleases.TryGetValue(artistId, out var releases) ? releases : []);
 
     public Task<string?> SearchAlbumIdAsync(string artist, string album, CancellationToken ct = default) =>
         Task.FromResult<string?>(null);
 
     public Task<DeezerAlbumDetail?> GetAlbumAsync(string albumId, CancellationToken ct = default) =>
-        Task.FromResult<DeezerAlbumDetail?>(null);
+        Task.FromResult(Albums.GetValueOrDefault(albumId));
 
     public Task<IReadOnlyList<DeezerGenre>> GetGenresAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<DeezerGenre>>(Genres);

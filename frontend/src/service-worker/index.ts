@@ -64,7 +64,7 @@ sw.addEventListener('fetch', (event) => {
 
 // ── Notifications ──────────────────────────────────────────────────────────────────────────────
 
-/** What the API sends (Chat/ChatPushService.cs, the test in PushEndpoints.cs). */
+/** What the API sends (Chat/ChatPushService.cs, Artists/ArtistReleaseNotifier.cs, the test in PushEndpoints.cs). */
 type PushPayload = {
   type?: string;
   userId?: string;

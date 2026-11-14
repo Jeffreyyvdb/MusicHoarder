@@ -72,6 +72,9 @@ export const ENDPOINTS: Endpoint[] = [
   { name: 'Version', group: 'On every start, for the admin', path: () => '/api/version', budget: { p95Ms: 50 } },
 
   { name: 'Album detail', group: 'Browse', path: (s) => `/api/albums/detail?artist=${q(s.artist)}&album=${q(s.album)}${s.year ? `&year=${s.year}` : ''}`, budget: { p95Ms: 150 } },
+  // Reads the artist's catalog listing from Deezer (cached for a few minutes), so the first call is a
+  // network round trip: on the offline perf stack it measures the catalog-link and ownership half.
+  { name: 'Artist discography', group: 'Browse', path: (s) => `/api/artists/discography?artist=${q(s.artist)}`, budget: { p95Ms: 1500 } },
   { name: 'Album timeline', group: 'Browse', path: (s) => `/api/albums/timeline?artist=${q(s.artist)}&album=${q(s.album)}`, budget: { p95Ms: 200 } },
   { name: 'Provenance (40 songs)', group: 'Browse', path: (s) => `/api/songs/provenance?ids=${s.albumSongIds.join(',')}`, budget: { p95Ms: 150 } },
   { name: 'Playlist', group: 'Browse', path: (s) => (s.playlistId ? `/api/playlists/${s.playlistId}` : null), budget: { p95Ms: 150 } },
@@ -84,6 +87,7 @@ export const ENDPOINTS: Endpoint[] = [
   { name: 'Track detail', group: 'Play a track', path: (s) => `/songs/${s.songId}/enrichment-detail`, budget: { p95Ms: 150 } },
   { name: 'Radio (autoplay)', group: 'Play a track', path: (s) => `/api/radio?seedSongId=${s.songId}&limit=25`, budget: { p95Ms: 300 } },
 
+  { name: 'Followed artists', group: 'Manage', path: () => '/api/artists/following', budget: { p95Ms: 150 } },
   { name: 'History feed', group: 'Manage', path: () => '/api/history', budget: { p95Ms: 500 } },
   { name: 'Insights', group: 'Manage', path: () => '/insights', budget: { p95Ms: 500 } },
   { name: 'Directory tree', group: 'Manage', path: () => '/library/directory-tree', budget: { p95Ms: 500 } },

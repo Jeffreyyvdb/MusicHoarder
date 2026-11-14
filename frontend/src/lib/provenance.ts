@@ -1,4 +1,6 @@
 import {
+  BellRing,
+  Disc3,
   Download,
   HardDrive,
   Heart,
@@ -20,7 +22,9 @@ export const PROVENANCE_ICON: Record<ProvenanceReason, typeof HardDrive> = {
   Link: Link,
   Synced: RefreshCw,
   Downloaded: Download,
-  AlbumFill: ListPlus
+  AlbumFill: ListPlus,
+  ArtistRequest: Disc3,
+  FollowedArtist: BellRing
 };
 
 /**

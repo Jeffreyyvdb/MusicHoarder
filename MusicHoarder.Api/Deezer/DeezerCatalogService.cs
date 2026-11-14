@@ -122,6 +122,41 @@ public sealed class DeezerCatalogService(
         return json is null ? null : DeezerCatalogJson.ParseAlbum(json);
     }
 
+    public async Task<DeezerArtistCandidate?> GetArtistAsync(string artistId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(artistId)) return null;
+        var json = await GetAsync($"{BaseUrl}/artist/{Uri.EscapeDataString(artistId)}", ct);
+        return json is null ? null : DeezerCatalogJson.ParseArtistDetail(json);
+    }
+
+    public async Task<IReadOnlyList<DeezerArtistRelease>?> GetArtistReleasesAsync(string artistId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(artistId)) return null;
+
+        // Cached briefly: the artist page and a follow's baseline ask for the same listing back to back.
+        var cacheKey = $"deezer_artist_releases:{artistId}";
+        if (cache.TryGetValue(cacheKey, out IReadOnlyList<DeezerArtistRelease>? cached) && cached is not null)
+            return cached;
+
+        const int pageSize = 100;
+        var all = new List<DeezerArtistRelease>();
+        for (var index = 0; index <= 2_000; index += pageSize)
+        {
+            var json = await GetAsync($"{BaseUrl}/artist/{Uri.EscapeDataString(artistId)}/albums?index={index}&limit={pageSize}", ct);
+            if (json is null) return null;
+            var page = DeezerCatalogJson.ParseArtistReleasesPage(json);
+            if (page is null) return null;
+            all.AddRange(page.Value.Releases);
+            if (!page.Value.HasNext || page.Value.Releases.Count == 0) break;
+        }
+
+        cache.Set(cacheKey, (IReadOnlyList<DeezerArtistRelease>)all, new MemoryCacheEntryOptions
+        {
+            AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(Math.Clamp(options.Value.DeezerBrowseCacheMinutes, 1, 60)),
+        });
+        return all;
+    }
+
     // --- Discover (editorial browse) ---
 
     public async Task<IReadOnlyList<DeezerGenre>> GetGenresAsync(CancellationToken ct = default)

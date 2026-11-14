@@ -85,6 +85,10 @@ public sealed class AcquisitionActivitySource(MusicHoarderDbContext db) : IActiv
     {
         if (origin == WishlistItemOrigin.AlbumCompletion)
             return ("album-filled", "Filled in", "Completed the album — nobody asked for these individually");
+        if (origin == WishlistItemOrigin.ArtistRequest)
+            return ("downloaded", "Downloaded", "From an artist's discography — you asked for the release");
+        if (origin == WishlistItemOrigin.ArtistMonitor)
+            return ("downloaded", "Downloaded", "A new release from an artist you follow");
 
         return sourceType switch
         {
@@ -127,10 +131,15 @@ public sealed class AcquisitionActivitySource(MusicHoarderDbContext db) : IActiv
         var queued = items
             .Where(w => window.Covers(w.CreatedAtUtc) && w.Origin != WishlistItemOrigin.AlbumCompletion)
             .ToList();
-        foreach (var group in queued.GroupBy(w => (w.SourceType, w.SourceName, Day: w.CreatedAtUtc.Date)))
+        foreach (var group in queued.GroupBy(w => (w.SourceType, w.SourceName, w.Origin, Day: w.CreatedAtUtc.Date)))
         {
             var rows = group.OrderByDescending(w => w.CreatedAtUtc).ToList();
-            var where = group.Key.SourceType switch
+            var where = group.Key.Origin switch
+            {
+                WishlistItemOrigin.ArtistRequest => $"from {ActivityText.Quote(rows[0].Album)} by {rows[0].Artist}",
+                WishlistItemOrigin.ArtistMonitor => $"from {ActivityText.Quote(rows[0].Album)}, a new release by {rows[0].Artist}",
+                _ => null,
+            } ?? group.Key.SourceType switch
             {
                 WishlistSourceType.LikedSongs => $"from Spotify — {group.Key.SourceName ?? "Liked Songs"}",
                 WishlistSourceType.Playlist => $"from the Spotify playlist {ActivityText.Quote(group.Key.SourceName)}",
@@ -140,7 +149,7 @@ public sealed class AcquisitionActivitySource(MusicHoarderDbContext db) : IActiv
             };
             summaries.Add(ActivityText.Summary(
                 ActivityCategory.Acquired, "wishlist-added", ActivityTint.Info,
-                idKey: $"{group.Key.SourceType}|{group.Key.SourceName}|{group.Key.Day:yyyyMMdd}|{rows.Min(r => r.Id)}",
+                idKey: $"{group.Key.SourceType}|{group.Key.SourceName}|{group.Key.Origin}|{group.Key.Day:yyyyMMdd}|{rows.Min(r => r.Id)}",
                 headline: $"Wishlisted {ActivityText.Plural(rows.Count, "track")} {where}",
                 detail: rows.Count <= 3 ? string.Join(", ", rows.Select(r => $"{r.Artist} — {r.Title}")) : null,
                 items: rows.Select(r => new ActivityItem(

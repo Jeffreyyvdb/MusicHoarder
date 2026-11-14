@@ -487,6 +487,45 @@ public class WishlistDownloadProcessorTests : IDisposable
     }
 
     [Fact]
+    public async Task ProcessBatch_ClaimsInPriorityOrder_NotEnumOrder()
+    {
+        // The stored enum numbers are AlbumCompletion = 1, ArtistRequest = 2, ArtistMonitor = 3, so an
+        // ORDER BY Origin would put every artist release behind album completion's background drip.
+        await using var db = CreateDbContext();
+        var fill = MakePending("track-fill");
+        fill.Origin = WishlistItemOrigin.AlbumCompletion;
+        var monitor = MakePending("track-monitor");
+        monitor.Origin = WishlistItemOrigin.ArtistMonitor;
+        var request = MakePending("track-request");
+        request.Origin = WishlistItemOrigin.ArtistRequest;
+        db.WishlistItems.AddRange(fill, monitor, request);
+        await db.SaveChangesAsync();
+
+        var processor = CreateProcessor(new FakeDownloadProvider(_ => DownloadResult.Missing()), batchSize: 1);
+        var claimedOrder = new List<WishlistItemOrigin>();
+        for (var i = 0; i < 3; i++)
+        {
+            await processor.ProcessBatchAsync(db, Owner, default);
+            var claimed = await db.WishlistItems.IgnoreQueryFilters()
+                .Where(w => w.Status != WishlistItemStatus.Pending && !claimedOrder.Contains(w.Origin))
+                .SingleAsync();
+            claimedOrder.Add(claimed.Origin);
+        }
+
+        Assert.Equal(
+            [WishlistItemOrigin.ArtistRequest, WishlistItemOrigin.ArtistMonitor, WishlistItemOrigin.AlbumCompletion],
+            claimedOrder);
+    }
+
+    [Theory]
+    [InlineData(WishlistItemOrigin.UserRequested, 0)]
+    [InlineData(WishlistItemOrigin.ArtistRequest, 0)]
+    [InlineData(WishlistItemOrigin.ArtistMonitor, 1)]
+    [InlineData(WishlistItemOrigin.AlbumCompletion, 2)]
+    public void ClaimPriority_PutsWhatAPersonAskedForFirst(WishlistItemOrigin origin, int expected) =>
+        Assert.Equal(expected, WishlistItemOrigins.ClaimPriority(origin));
+
+    [Fact]
     public async Task LinkDownloadedItems_AlbumFillItem_StampsSongAsAlbumFill()
     {
         await using var db = CreateDbContext();
