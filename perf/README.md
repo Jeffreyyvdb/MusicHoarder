@@ -25,6 +25,20 @@ project; the browser scenarios run under Node because Playwright is not reliable
 Chromium for the browser part: `bunx playwright install chromium`, or point `PERF_CHROMIUM` at any
 Chrome or Chromium binary.
 
+## Checking a deployed instance
+
+`src/web/preview-checks.ts` is not a measurement: it checks a running instance (a PR preview, or
+production) for the web-platform hardening — security headers and the report-only CSP with its
+report endpoint, the landing hero's loading, passkey autofill on the login field, focus outlines
+under forced colors, and, signed in as the demo account, one `<main>` and native progress bars on
+the app pages, with no CSP violations or script errors anywhere. It prints one PASS/FAIL line per
+check and exits 1 when any fails. The PR preview workflow runs it after every preview deploy.
+
+```bash
+cd perf && bun install
+node src/web/preview-checks.ts https://pr-123.preview.example.com
+```
+
 ## What it measures
 
 **API** (`src/api/endpoints.ts`): each request in the order a listener meets them — opening the

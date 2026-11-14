@@ -190,7 +190,6 @@ jobs:
             const marker = "<!-- mh-preview -->";
             const body = `${marker}\n🟢 **Preview environment live**\n\n${url}\n\n` +
               `**Deployed commit:** [\`${sha}\`](${commitUrl}) · updated ${updated} · [deploy log](${runUrl})\n\n` +
-              `⏳ The stack takes ~1 min to come up — give it a moment if the link 502s at first.\n\n` +
               `Full isolated stack (Postgres + API + frontend). Sign in with the magic link from ` +
               `the API logs in Dokploy. Auto-redeploys on every push; torn down when this PR closes.`;
             const { data: comments } = await github.rest.issues.listComments({
@@ -226,6 +225,27 @@ jobs:
               owner: context.repo.owner, repo: context.repo.repo,
               issue_number: context.issue.number, labels: [label],
             });
+
+      # The browser checks in perf/src/web/preview-checks.ts, against the live preview: security
+      # headers and CSP, the landing hero, passkey autofill, forced-colors focus, and the app pages
+      # signed in as the demo account. Runs after the comment so the link is posted either way.
+      - uses: oven-sh/setup-bun@v2
+        if: steps.provision.outputs.preview_url != ''
+        with:
+          bun-version: latest
+      - uses: actions/setup-node@v7
+        if: steps.provision.outputs.preview_url != ''
+        with:
+          node-version: '24'
+      - name: Check the preview
+        if: steps.provision.outputs.preview_url != ''
+        working-directory: perf
+        env:
+          PREVIEW_URL: ${{ steps.provision.outputs.preview_url }}
+        run: |
+          bun install --frozen-lockfile
+          node node_modules/playwright-core/cli.js install --with-deps chromium
+          node src/web/preview-checks.ts "$PREVIEW_URL"
 
   teardown:
     name: Tear down preview
