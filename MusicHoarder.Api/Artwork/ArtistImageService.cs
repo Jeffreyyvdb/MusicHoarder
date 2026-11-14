@@ -4,6 +4,7 @@ using MusicHoarder.Api.Deezer;
 using MusicHoarder.Api.Matching;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Sharing;
 using MusicHoarder.Api.Spotify;
 
 namespace MusicHoarder.Api.Artwork;
@@ -24,6 +25,7 @@ public sealed class ArtistImageService(
     IDeezerCatalogService deezer,
     ISpotifyCatalogSearchService spotifyCatalog,
     ISpotifyAppCredentialsProvider spotifyCredentials,
+    ILibraryScopeResolver libraryScope,
     IOptions<MusicEnricherOptions> options,
     ILogger<ArtistImageService> logger) : IArtistImageService
 {
@@ -80,10 +82,18 @@ public sealed class ArtistImageService(
     {
         var lowered = name.Trim().ToLower();
         var needle = ";" + lowered + ";";
-        return await db.Songs.AnyAsync(s =>
-            (s.Artist != null && s.Artist.ToLower() == lowered)
-            || (s.AlbumArtist != null && s.AlbumArtist.ToLower() == lowered)
-            || (s.Artists != null && (";" + s.Artists + ";").Replace("; ", ";").ToLower().Contains(needle)), ct);
+        // The caller's own songs, then each library shared with them: a member owns no songs.
+        var scope = await libraryScope.ResolveAsync(db, ct);
+        foreach (var slice in scope.Slices)
+        {
+            if (await scope.SongsFor(db, slice).AnyAsync(s =>
+                    (s.Artist != null && s.Artist.ToLower() == lowered)
+                    || (s.AlbumArtist != null && s.AlbumArtist.ToLower() == lowered)
+                    || (s.Artists != null && (";" + s.Artists + ";").Replace("; ", ";").ToLower().Contains(needle)), ct))
+                return true;
+        }
+
+        return false;
     }
 
     private static bool IsStale(ArtistImage cached, MusicEnricherOptions opts, DateTime now)

@@ -151,6 +151,7 @@ public class ArtistImageServiceTests
             deezer,
             spotify ?? new StubSpotify(),
             new StubCredentials(hasSpotifyCredentials),
+            Sharing.TestLibraryScope.For(),
             Microsoft.Extensions.Options.Options.Create(options),
             NullLogger<ArtistImageService>.Instance);
     }

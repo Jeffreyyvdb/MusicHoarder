@@ -1,10 +1,13 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using MusicHoarder.Api.Artwork;
+using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Deezer;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Spotify;
+using MusicHoarder.Api.Tests.Auth;
+using MusicHoarder.Api.Tests.Sharing;
 
 namespace MusicHoarder.Api.Tests.Artwork;
 
@@ -57,11 +60,45 @@ public class ArtistImageLookupScopeTests
         Assert.Equal(2, db.ArtistImages.Count());
     }
 
-    private static void SeedArtist(MusicHoarderDbContext db, string artist, string? artists = null)
+    [Fact]
+    public async Task ArtistsInALibrarySharedWithTheCallerGetALookup()
+    {
+        var options = new DbContextOptionsBuilder<MusicHoarderDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
+            .Options;
+        using (var seed = new MusicHoarderDbContext(options))
+        {
+            SeedArtist(seed, "Daft Punk", ownerId: TestUsers.OwnerId);
+            SeedArtist(seed, "Not Shared", ownerId: TestUsers.SecondFriendId);
+            seed.LibraryShareGrants.Add(new LibraryShareGrant
+            {
+                OwnerUserId = TestUsers.OwnerId,
+                GranteeUserId = TestUsers.FriendId,
+                Scope = ShareGrantScope.Library,
+                CreatedAtUtc = DateTime.UtcNow,
+            });
+            seed.SaveChanges();
+        }
+
+        var member = TestCurrentUserAccessor.FriendUser;
+        using var db = new MusicHoarderDbContext(options, new TestCurrentUserAccessor(member));
+        var deezer = new CountingDeezer();
+        var service = CreateService(db, deezer, new CountingSpotify(), member);
+
+        await service.GetImageUrlAsync("Daft Punk");
+        await service.GetImageUrlAsync("Not Shared");
+
+        Assert.Equal(1, deezer.Calls);
+        Assert.Equal("daft punk", Assert.Single(db.ArtistImages).NormalizedName);
+    }
+
+    private static void SeedArtist(MusicHoarderDbContext db, string artist, string? artists = null, Guid? ownerId = null)
     {
         db.Songs.Add(new SongMetadata
         {
-            SourcePath = "/source/a.mp3",
+            OwnerUserId = ownerId ?? Guid.Empty,
+            LibraryBuildStatus = LibraryBuildStatus.Done,
+            SourcePath = $"/source/{artist}.mp3",
             FileSizeBytes = 1,
             FileName = "a.mp3",
             Extension = ".mp3",
@@ -73,12 +110,14 @@ public class ArtistImageLookupScopeTests
         db.SaveChanges();
     }
 
-    private static ArtistImageService CreateService(MusicHoarderDbContext db, IDeezerCatalogService deezer, ISpotifyCatalogSearchService spotify) =>
+    private static ArtistImageService CreateService(
+        MusicHoarderDbContext db, IDeezerCatalogService deezer, ISpotifyCatalogSearchService spotify, CurrentUser? caller = null) =>
         new(
             db,
             deezer,
             spotify,
             new Creds(),
+            TestLibraryScope.For(caller),
             Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
             {
                 SourceDirectory = "/source",
