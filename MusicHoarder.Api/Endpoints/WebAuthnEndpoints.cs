@@ -1,5 +1,8 @@
 using Fido2NetLib;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.Extensions.Caching.Memory;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
 
@@ -10,7 +13,8 @@ namespace MusicHoarder.Api.Endpoints;
 /// <c>authenticate/*</c> endpoints fall inside the <c>/api/auth/</c> allowlist; enrollment +
 /// management require a real (non-demo) account via
 /// <see cref="RouteHandlerBuilderExtensions.RequireNonDemo"/>, an invited member included.
-/// The in-flight ceremony challenge round-trips through a short-lived, data-protected cookie.
+/// The in-flight ceremony challenge round-trips through a short-lived, data-protected cookie, and the
+/// server also remembers each issued challenge until it is used once or its lifetime ends.
 /// </summary>
 public static class WebAuthnEndpoints
 {
@@ -18,6 +22,7 @@ public static class WebAuthnEndpoints
     private const string RegistrationCookie = "mh_webauthn_reg";
     private const string AuthenticationCookie = "mh_webauthn_auth";
     private static readonly TimeSpan ChallengeTtl = TimeSpan.FromMinutes(5);
+    private static readonly object ChallengeLock = new();
 
     public static IEndpointRouteBuilder MapWebAuthnEndpoints(this IEndpointRouteBuilder app)
     {
@@ -30,6 +35,7 @@ public static class WebAuthnEndpoints
                 ICurrentUserAccessor accessor,
                 IWebAuthnService webAuthn,
                 IDataProtectionProvider dp,
+                IMemoryCache cache,
                 CancellationToken ct) =>
             {
                 var userId = accessor.User!.Id;
@@ -37,7 +43,7 @@ public static class WebAuthnEndpoints
                 if (options is null)
                     return Results.Json(new { error = "user_unavailable" }, statusCode: 503);
 
-                WriteChallengeCookie(ctx, dp, RegistrationCookie, options.ToJson());
+                WriteChallengeCookie(ctx, dp, cache, RegistrationCookie, options.ToJson());
                 return Results.Text(options.ToJson(), "application/json");
             })
             .RequireNonDemo()
@@ -49,9 +55,10 @@ public static class WebAuthnEndpoints
                 ICurrentUserAccessor accessor,
                 IWebAuthnService webAuthn,
                 IDataProtectionProvider dp,
+                IMemoryCache cache,
                 CancellationToken ct) =>
             {
-                var stored = ReadChallengeCookie(ctx, dp, RegistrationCookie);
+                var stored = ReadChallengeCookie(ctx, dp, cache, RegistrationCookie);
                 ClearCookie(ctx, RegistrationCookie);
                 if (stored is null)
                     return Results.Json(new { error = "challenge_expired" }, statusCode: 400);
@@ -110,10 +117,11 @@ public static class WebAuthnEndpoints
         group.MapPost("/authenticate/begin", (
                 HttpContext ctx,
                 IWebAuthnService webAuthn,
-                IDataProtectionProvider dp) =>
+                IDataProtectionProvider dp,
+                IMemoryCache cache) =>
             {
                 var options = webAuthn.BeginAuthentication();
-                WriteChallengeCookie(ctx, dp, AuthenticationCookie, options.ToJson());
+                WriteChallengeCookie(ctx, dp, cache, AuthenticationCookie, options.ToJson());
                 return Results.Text(options.ToJson(), "application/json");
             })
             .WithName("WebAuthnAuthenticateBegin");
@@ -124,9 +132,10 @@ public static class WebAuthnEndpoints
                 IWebAuthnService webAuthn,
                 IAccountSwitchService accountSwitch,
                 IDataProtectionProvider dp,
+                IMemoryCache cache,
                 CancellationToken ct) =>
             {
-                var stored = ReadChallengeCookie(ctx, dp, AuthenticationCookie);
+                var stored = ReadChallengeCookie(ctx, dp, cache, AuthenticationCookie);
                 ClearCookie(ctx, AuthenticationCookie);
                 if (stored is null)
                     return Results.Json(new { error = "challenge_expired" }, statusCode: 400);
@@ -160,9 +169,15 @@ public static class WebAuthnEndpoints
             new { error = failure == PasskeySignInFailure.UnknownCredential ? "unknown_credential" : "invalid_assertion" },
             statusCode: 400);
 
-    private static void WriteChallengeCookie(HttpContext ctx, IDataProtectionProvider dp, string name, string payload)
+    private static string CacheKey(string name, string protectedValue) =>
+        "webauthn-challenge:" + name + ":" +
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(protectedValue)));
+
+    private static void WriteChallengeCookie(
+        HttpContext ctx, IDataProtectionProvider dp, IMemoryCache cache, string name, string payload)
     {
         var protectedValue = dp.CreateProtector(ProtectorPurpose).Protect(payload);
+        cache.Set(CacheKey(name, protectedValue), true, ChallengeTtl);
         ctx.Response.Cookies.Append(name, protectedValue, new CookieOptions
         {
             Path = "/",
@@ -173,10 +188,22 @@ public static class WebAuthnEndpoints
         });
     }
 
-    private static string? ReadChallengeCookie(HttpContext ctx, IDataProtectionProvider dp, string name)
+    private static string? ReadChallengeCookie(
+        HttpContext ctx, IDataProtectionProvider dp, IMemoryCache cache, string name)
     {
         if (!ctx.Request.Cookies.TryGetValue(name, out var raw) || string.IsNullOrEmpty(raw))
             return null;
+
+        // A challenge is good for one attempt within its lifetime: take it out of the server-side
+        // record before anything else, so a replayed cookie is refused whatever the client holds.
+        var key = CacheKey(name, raw);
+        lock (ChallengeLock)
+        {
+            if (!cache.TryGetValue(key, out _))
+                return null;
+            cache.Remove(key);
+        }
+
         try
         {
             return dp.CreateProtector(ProtectorPurpose).Unprotect(raw);
