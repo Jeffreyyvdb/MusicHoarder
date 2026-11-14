@@ -181,8 +181,8 @@
   letter-spacing: -0.015em;
 }
 
-/* Section headers, footnote-sized labels and the tab bar's captions are printed the way a maker
-   marks a panel: small, spaced capitals. */
+/* Palette group headings and badges are printed the way a maker marks a panel: small, spaced
+   capitals. */
 :root[data-mh-skin='hardware'] :is([data-command-group-heading], [data-slot='badge']) {
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -193,6 +193,12 @@
 :root[data-mh-skin='hardware'] :is(body, .bg-background, .bg-background-grouped) {
   background-image: radial-gradient(circle, var(--mh-hw-dots) 1px, transparent 1.2px);
   background-size: 16px 16px;
+}
+
+/* Toasts: Sonner sets its own system stack on the toaster (unlayered, and more specific than the
+   :where() above), so it is named outright. */
+:root[data-mh-skin='hardware'] [data-sonner-toaster] {
+  font-family: 'Spec Mono', 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
 }
 
 /* ── Panels: grouped-list sections and cards are molded panels ───────────────────────────────── */
