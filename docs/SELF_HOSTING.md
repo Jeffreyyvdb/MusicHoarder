@@ -71,6 +71,7 @@ Nothing is strictly required for a localhost trial — every value defaults. The
 | `OWNER_EMAIL` | `owner@musichoarder.local` | Admin account; sign in with this address. Just an identifier unless Resend is configured. |
 | `PUBLIC_BASE_URL` | `http://localhost:3000` | The external URL you reach the app at (used for magic links + Spotify redirects). Set for LAN/proxy access. |
 | `MUSICHOARDER_VERSION` | — | Pin a release tag instead of `latest`. |
+| `PUID` / `PGID` | — (root) | Run the API as this user and group instead of root. Every writable mount (the destination library, the `musichoarder-dpkeys` and download volumes, a Soulseek downloads dir) must already belong to that user: nothing changes owners for you. Leave empty on an existing install unless you `chown` those first. |
 | `ACOUSTID_API_KEY` | — | Audio-fingerprint identification. Strongly recommended (see below). |
 | `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | — | Spotify metadata enrichment + OAuth. |
 | `DEMO_USER_EMAIL` | — | Read-only demo account (defaults to `demo@musichoarder.local`). |

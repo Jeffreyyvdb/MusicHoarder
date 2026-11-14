@@ -56,6 +56,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 COPY --from=build /app/publish .
+# Runs the app as PUID/PGID when they are set, else as root. Same script as Dockerfile.api-base.
+COPY --chmod=755 docker/api-entrypoint.sh /usr/local/bin/mh-entrypoint
 
 ENV ASPNETCORE_URLS=http://+:8080
 ENV ASPNETCORE_ENVIRONMENT=Production
@@ -67,4 +69,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
     CMD curl -fsS http://localhost:8080/alive || exit 1
 
-ENTRYPOINT ["dotnet", "MusicHoarder.Api.dll"]
+ENTRYPOINT ["/usr/local/bin/mh-entrypoint", "dotnet", "MusicHoarder.Api.dll"]

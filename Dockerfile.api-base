@@ -39,3 +39,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -f /tmp/deno.zip \
     && rm -rf /var/lib/apt/lists/*
 
+# Runs the app as PUID/PGID when they are set, else as root (see the script). The SDK container
+# target keeps this ENTRYPOINT and passes the app command as its arguments, because the API project
+# sets ContainerAppCommandInstruction=DefaultArgs.
+COPY --chmod=755 docker/api-entrypoint.sh /usr/local/bin/mh-entrypoint
+ENTRYPOINT ["/usr/local/bin/mh-entrypoint"]
