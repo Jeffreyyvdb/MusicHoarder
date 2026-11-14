@@ -78,7 +78,7 @@ public sealed class ArtistMonitorSweep(
                 releases += outcome.NewReleases;
                 tracks += outcome.TracksQueued;
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (!ct.IsCancellationRequested)
             {
                 // One artist's failure (a rate limit, a network error) must not end the pass for the
                 // rest, nor leave this follow first in line forever.
