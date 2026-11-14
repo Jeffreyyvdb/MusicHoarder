@@ -107,14 +107,25 @@ public static class WebPushCrypto
         var point = WebEncoders.Base64UrlDecode(publicKey);
         if (point.Length != 65 || point[0] != 0x04)
             throw new CryptographicException("The VAPID public key must be an uncompressed P-256 point.");
-        var parameters = new ECParameters
-        {
-            Curve = ECCurve.NamedCurves.nistP256,
-            D = WebEncoders.Base64UrlDecode(privateKey),
-            Q = new ECPoint { X = point[1..33], Y = point[33..65] },
-        };
+        // Import the private scalar alone and compare the public point it yields with the configured
+        // one. ImportParameters with both D and Q used to reject a mismatched pair, but .NET 11 no
+        // longer checks, and a mismatched pair signs pushes that every push service refuses.
         var key = ECDsa.Create();
-        key.ImportParameters(parameters); // validates that D and Q match
+        try
+        {
+            key.ImportParameters(new ECParameters
+            {
+                Curve = ECCurve.NamedCurves.nistP256,
+                D = WebEncoders.Base64UrlDecode(privateKey),
+            });
+            if (!Uncompressed(key.ExportParameters(includePrivateParameters: false).Q).AsSpan().SequenceEqual(point))
+                throw new CryptographicException("The VAPID private key does not match the public key.");
+        }
+        catch
+        {
+            key.Dispose();
+            throw;
+        }
         return key;
     }
 
