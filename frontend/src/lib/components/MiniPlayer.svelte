@@ -333,7 +333,9 @@
             caption={false}
             class="size-9 shrink-0"
           />
-          <span class="flex min-w-0 flex-col">
+          <!-- data-mh-lcd: under the hardware skin (#lib/hardware/app-skin.css) the titles are a
+               line of LCD; it styles nothing otherwise. -->
+          <span data-mh-lcd class="flex min-w-0 flex-col">
             <span class="text-subheadline truncate font-semibold">{song.title}</span>
             <span class="text-footnote text-muted-foreground truncate">{song.artist}</span>
           </span>
@@ -501,7 +503,7 @@
                 />
               </span>
             </span>
-            <div class="min-w-0">
+            <div data-mh-lcd class="min-w-0">
               <p class="truncate text-[13px] leading-tight font-medium">{song.title}</p>
               <p class="text-muted-foreground truncate text-[11px] leading-tight">{subtitle}</p>
             </div>

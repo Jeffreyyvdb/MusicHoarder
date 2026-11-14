@@ -1,5 +1,7 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
+/* The hardware skin, an easter egg: everything in it hangs off :root[data-mh-skin='hardware']. */
+@import './lib/hardware/app-skin.css';
 
 @custom-variant dark (&:is(.dark *));
 

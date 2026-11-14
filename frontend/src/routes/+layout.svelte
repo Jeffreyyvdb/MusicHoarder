@@ -14,6 +14,11 @@
   import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
   import { surfaceFor } from '#lib/nav.ts';
   import { themeSurface } from '#lib/stores/theme-surface.svelte.ts';
+  import {
+    createKonamiMatcher,
+    hardwareMode,
+    HARDWARE_THEME_COLOR
+  } from '#lib/hardware/hardware-mode.svelte.ts';
 
   type Props = { children: Snippet };
   const { children }: Props = $props();
@@ -59,6 +64,27 @@
   // so the floating bottom nav / mini-player never hide behind it.
   onMount(() => installBottomInsetTracker());
 
+  // The hardware skin, an easter egg: restore it, and listen for the Konami code that finds it
+  // (search finds it on a phone — CommandPalette). Arrow keys typed into a field don't count.
+  onMount(() => {
+    hardwareMode.init();
+    const konami = createKonamiMatcher();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest?.('input, textarea, [contenteditable="true"]')) return;
+      if (!konami(event.key)) return;
+      const on = hardwareMode.unlocked ? hardwareMode.toggle() : hardwareMode.unlock();
+      toast(on ? 'Hardware mode' : 'Hardware mode off', {
+        description: on
+          ? 'SPEC-01 by Shu Ding. Switch it off under Appearance in the account menu.'
+          : 'Enter the code again to switch it back on.'
+      });
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
   // Follow the iPhone's Text Size setting (--mh-dt, which the iOS text-style utilities scale by).
   // A no-op off iOS; app.html has already applied the value before first paint.
   $effect(() => installDynamicType());
@@ -85,6 +111,9 @@
     const inApp = page.route.id?.startsWith('/(app)') ?? false;
     let color: string = dark ? THEME_COLOR.dark : THEME_COLOR.light;
     if (inApp && themeSurface.media) color = MEDIA;
+    // The hardware skin paints one surface everywhere (plain and grouped pages alike).
+    else if (hardwareMode.enabled)
+      color = dark ? HARDWARE_THEME_COLOR.dark : HARDWARE_THEME_COLOR.light;
     else if (inApp && !dark && surfaceFor(page.url, isCompact.current) === 'grouped') {
       color = GROUPED_LIGHT;
     }

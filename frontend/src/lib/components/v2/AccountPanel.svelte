@@ -60,6 +60,8 @@
   import { pipelineOverlay } from '#lib/stores/pipeline-overlay.svelte.ts';
   import { storageUsage } from '#lib/stores/storage-usage.svelte.ts';
   import { storageSummary, watchedFolders, watchingLabel } from '#lib/storage-usage-meta.ts';
+  import SwitchRow from '#lib/components/settings/SwitchRow.svelte';
+  import { hardwareMode } from '#lib/hardware/hardware-mode.svelte.ts';
 
   // The account panel: who you are, the other accounts this browser remembers, the
   // appearance override, the admin's storage and folder status, the version, and sign out. One
@@ -269,6 +271,26 @@
         />
       </div>
 
+      <!-- The hardware skin: an easter egg, so the switch exists only once someone has found it
+           (the Konami code, or "spec-01" in search). The credit is the kit's author's. -->
+      {#if hardwareMode.unlocked}
+        <GroupedList.Section footer="SPEC-01 hardware kit by Shu Ding, MIT licensed.">
+          <SwitchRow
+            label="Hardware"
+            sublabel="Dress the app as a pocket instrument"
+            checked={hardwareMode.enabled}
+            onCheckedChange={(v) => hardwareMode.setEnabled(v)}
+          />
+          {#if hardwareMode.enabled}
+            <SwitchRow
+              label="Key sounds"
+              checked={hardwareMode.sounds}
+              onCheckedChange={(v) => hardwareMode.setSounds(v)}
+            />
+          {/if}
+        </GroupedList.Section>
+      {/if}
+
       <GroupedList.Section footer={admin && folders.length ? watchingFooter : undefined}>
         <GroupedList.Row
           href={settingsHref}
@@ -399,6 +421,25 @@
         {/each}
       </div>
     </DropdownMenuPrimitive.RadioGroup>
+    {#if hardwareMode.unlocked}
+      <!-- The hardware skin's switches, once the egg is found (see the sheet above). -->
+      <DropdownMenu.CheckboxItem
+        checked={hardwareMode.enabled}
+        closeOnSelect={false}
+        onCheckedChange={(v) => hardwareMode.setEnabled(v)}
+      >
+        Hardware
+      </DropdownMenu.CheckboxItem>
+      {#if hardwareMode.enabled}
+        <DropdownMenu.CheckboxItem
+          checked={hardwareMode.sounds}
+          closeOnSelect={false}
+          onCheckedChange={(v) => hardwareMode.setSounds(v)}
+        >
+          Key sounds
+        </DropdownMenu.CheckboxItem>
+      {/if}
+    {/if}
 
     <DropdownMenu.Separator />
     <DropdownMenu.Item>

@@ -4,6 +4,7 @@
   import { page } from '$app/state';
   import {
     CircleUser,
+    Cpu,
     Clock,
     Disc3,
     Mic2,
@@ -28,6 +29,8 @@
   import { songsStore } from '#lib/stores/songs.svelte.ts';
   import { indexForSearch, rankBySearch, searchTerms } from '#lib/search/match.ts';
   import { cn } from '#lib/utils.ts';
+  import { toast } from 'svelte-sonner';
+  import { hardwareMode, isSecretPhrase } from '#lib/hardware/hardware-mode.svelte.ts';
 
   // Cap each result group so typing stays snappy on large libraries.
   const MAX_PER_GROUP = 8;
@@ -139,6 +142,19 @@
   // bracket — and what lets "juice best friend" match a title plus its artist.
   const terms = $derived(searchTerms(query));
   const hasQuery = $derived(terms.length > 0);
+  // The easter egg (#lib/hardware): a whole-query secret phrase reveals the hardware skin's switch.
+  // Phones have no arrow keys for the Konami code, and search is where they type.
+  const secret = $derived(isSecretPhrase(query));
+
+  function toggleHardware() {
+    const on = hardwareMode.unlocked ? hardwareMode.toggle() : hardwareMode.unlock();
+    dismiss();
+    toast(on ? 'Hardware mode' : 'Hardware mode off', {
+      description: on
+        ? 'SPEC-01 by Shu Ding. Switch it off under Appearance in the account menu.'
+        : 'Search for spec-01 to switch it back on.'
+    });
+  }
 
   // Each group is ranked before it is capped, so the eight results shown are the eight *best*
   // ones. They used to be the first eight in library order, which is how a search for
@@ -295,7 +311,18 @@
       >
         <!-- The page commands are local, so they stay usable while the library
              dataset is still in flight — only the library groups wait. -->
-        {#if hasQuery && !hasLibraryResults && navMatches.length === 0 && !loading}
+        {#if secret}
+          <Command.Group heading="Easter egg">
+            <Command.Item value="easter-egg-hardware" onSelect={toggleHardware}>
+              <Cpu class="text-muted-foreground" />
+              <span class="min-w-0 flex-1 truncate"
+                >{hardwareMode.enabled ? 'Switch hardware mode off' : 'Hardware mode'}</span
+              >
+            </Command.Item>
+          </Command.Group>
+        {/if}
+
+        {#if hasQuery && !secret && !hasLibraryResults && navMatches.length === 0 && !loading}
           <Command.Empty class="max-md:text-body text-muted-foreground"
             >No results for “{query}”.</Command.Empty
           >

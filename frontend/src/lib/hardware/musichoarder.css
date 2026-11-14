@@ -1,0 +1,71 @@
+/* MusicHoarder's additions to the vendored SPEC-01 skin (./skin, MIT, Shu Ding). Kept apart so the
+   skin stays a verbatim copy that can be refreshed from upstream. */
+
+/* Spec Mono's faces live in fonts.css, shared with the app-wide skin. */
+@import './fonts.css';
+
+/* The skin's spectrum animates `height`, a layout property. While a song plays nothing may animate
+   one (CLAUDE.md, "The library is thousands of rows"), so the bars scale instead. */
+[data-skin='hardware'] [data-spectrum]:not(#_) i {
+  height: 100%;
+  transform: scaleY(0.2);
+  transform-origin: bottom;
+}
+[data-skin='hardware'] [data-spectrum][data-playing]:not(#_) i {
+  animation-name: mh-spectrum;
+}
+@keyframes mh-spectrum {
+  0% {
+    transform: scaleY(0.15);
+  }
+  50% {
+    transform: scaleY(0.85);
+  }
+  100% {
+    transform: scaleY(0.35);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-skin='hardware'] [data-spectrum][data-playing]:not(#_) i {
+    animation: none;
+  }
+}
+
+/* A cover that failed to load, or a song without one: a printed placeholder on the screen. */
+[data-skin='hardware'] [data-mh-noart] {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #1b1b1a;
+  color: #f2f2ee;
+  font: 300 13px/1.2 var(--mono, 'Spec Mono', monospace);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* The cover is an <img> laid over the art panel; the bars stay above it. */
+[data-skin='hardware'] [data-art] [data-spectrum] {
+  position: relative;
+}
+
+/* Inside the app the root is no desk: the skin paints its dotted paper behind everything, which
+   reads as a grey slab on the app's background (and a bright one in dark mode). The device sits on
+   the page itself, centred. */
+[data-skin='hardware'][data-mh-bare] {
+  display: flex;
+  justify-content: center;
+  background: none;
+}
+
+/* A bigger screen than the palm-sized MP-1's 168px: the cover is the point of a music player, and
+   the LCD beside it (the screen's height less two cells) then has room for the artist line under
+   the title. Matches devices.css's specificity for the small Player and wins by coming later. */
+[data-device][aria-label='Player'] [data-player]:not(#_):not(#_) {
+  --screen: 196px;
+}
+
+/* The artist after a queue row's title; the cell is a flex box, so the gap is a margin. */
+[data-skin='hardware'] [data-mh-artist] {
+  margin-inline-start: 1ch;
+}
