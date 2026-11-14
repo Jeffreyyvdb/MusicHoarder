@@ -275,7 +275,7 @@ public sealed class ArtistReleaseQueuer(
 
     // "Get discography" and a monitor pass queue many releases through one (scoped) queuer. The
     // artist's songs and the owner's claims are the same for each, so they are read once: the song
-    // read is an unindexable LIKE scan, and the claims are every wishlist row the owner has. The
+    // read walks every song the owner has, and the claims are every wishlist row the owner has. The
     // claim sets stay true across releases because each queued track is added to them as it is made.
     private (Guid Owner, string Artist, List<ArtistSongFacts> Songs)? _songs;
     private (Guid Owner, Claims Claims)? _claims;

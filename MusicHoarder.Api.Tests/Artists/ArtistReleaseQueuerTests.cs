@@ -40,6 +40,22 @@ public class ArtistReleaseQueuerTests
     }
 
     [Fact]
+    public async Task Queue_OwnedSongsCountUnderAnotherSpellingOfTheArtist()
+    {
+        // The page was opened as "Beyonce"; the files are tagged "Beyoncé". Same artist, already owned.
+        await using var db = NewContext();
+        db.Songs.Add(Song("Halo", "I Am... Sasha Fierce", albumArtist: "Beyoncé", track: 1));
+        await db.SaveChangesAsync();
+        var deezer = new FakeDeezerCatalogService();
+        deezer.Albums["b"] = Album("b", "I Am... Sasha Fierce", "Beyoncé", "Halo", "Diva");
+
+        var result = await Queuer(db, deezer).QueueAsync(
+            Owner, "Beyonce", ["b"], ArtistReleaseKinds.Album, WishlistItemOrigin.ArtistRequest, 100, true, default);
+
+        Assert.Equal((1, 1), (result.Queued, result.AlreadyOwned));
+    }
+
+    [Fact]
     public async Task Queue_TakesTheEditionWithTheMostTracks()
     {
         await using var db = NewContext();
