@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Auth.EndpointFilters;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Quality;
@@ -62,7 +63,8 @@ public static class QualityEndpoints
         app.MapGet("/api/quality/progress", GetProgress)
             .WithName("GetQualityProgress")
             .WithSummary("Current AI grading run progress.")
-            .WithTags("Quality");
+            .WithTags("Quality")
+            .RequireAdmin();
 
         app.MapGet("/api/quality/export/songs/{id:int}", ExportSong)
             .WithName("ExportSongQuality")
