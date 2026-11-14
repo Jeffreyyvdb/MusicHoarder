@@ -1,7 +1,7 @@
 import { error, redirect } from '@sveltejs/kit';
 import { probeSession, SESSION_COOKIE } from '#lib/server/session.ts';
 import { APP_HOME } from '#lib/app-home.ts';
-import { allowedPathPrefixesFor, isPathAllowed } from '#lib/nav.ts';
+import { isPathAllowedFor } from '#lib/nav.ts';
 import { SESSION_DEPENDENCY } from '#lib/auth/session-watch.ts';
 import type { LayoutServerLoad } from './$types';
 
@@ -33,7 +33,7 @@ export const load: LayoutServerLoad = async ({ request, cookies, url, depends, u
     // this guard cannot disagree. Deep-linking outside it bounces home rather than rendering
     // pages full of empty or 403ing panels. Cosmetic only — the API enforces the real rules.
     const pathname = untrack(() => url.pathname);
-    if (!isPathAllowed(pathname, allowedPathPrefixesFor(probe.user))) {
+    if (!isPathAllowedFor(pathname, probe.user)) {
       throw redirect(303, APP_HOME);
     }
     return { user: probe.user };

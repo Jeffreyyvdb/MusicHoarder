@@ -20,10 +20,11 @@ public static class ArtistDedupEndpoints
 {
     public static IEndpointRouteBuilder MapArtistDedupEndpoints(this IEndpointRouteBuilder app)
     {
+        // Scoped to the caller's own songs and dismissals by id, so the demo account may read it.
         app.MapGet("/api/library/artists/duplicates", Detect)
             .WithName("GetArtistDuplicates")
             .WithSummary("Clusters of artist-name spellings that likely refer to the same artist, plus combined-credit candidates.")
-            .WithTags("Library").RequireAdmin();
+            .WithTags("Library").RequireAdmin().AllowDemoRead();
 
         app.MapPost("/api/library/artists/merge", Merge)
             .WithName("MergeArtists")

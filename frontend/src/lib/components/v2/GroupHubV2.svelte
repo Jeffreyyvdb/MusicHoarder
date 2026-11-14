@@ -6,7 +6,7 @@
   import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
   import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
   import AddFromUrlDialog from '#lib/components/v2/AddFromUrlDialog.svelte';
-  import { NAV_GROUPS, type NavGroupId, type NavItem } from '#lib/nav.ts';
+  import { navGroupsFor, type NavGroupId, type NavItem } from '#lib/nav.ts';
   import { inboxCounts, refreshInboxNameCounts } from '#lib/stores/nav-badges.svelte.ts';
   import { pipelineOverlay, type StageKey } from '#lib/stores/pipeline-overlay.svelte.ts';
   import { storageUsage } from '#lib/stores/storage-usage.svelte.ts';
@@ -25,7 +25,8 @@
   type Props = { group: Exclude<NavGroupId, 'listen'> };
   const { group }: Props = $props();
 
-  const navGroup = $derived(NAV_GROUPS.find((g) => g.id === group));
+  // navGroupsFor, not NAV_GROUPS: the demo account's nav leaves out a few pages (DEMO_HIDDEN_ITEMS).
+  const navGroup = $derived(navGroupsFor(page.data.user).find((g) => g.id === group));
   const admin = $derived(isAdmin(page.data.user));
   const version = $derived(page.data.appVersion as string | null | undefined);
 

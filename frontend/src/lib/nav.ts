@@ -419,13 +419,43 @@ export const NAV_GROUPS: NavGroup[] = [
  * same data, so the two can no longer disagree.
  */
 export function navGroupsFor(user: NavAudience): NavGroup[] {
-  // The demo keeps the FULL nav on purpose: it exists to show the whole product, pipeline
+  // The demo keeps the full nav on purpose: it exists to show the whole product, pipeline
   // included, and it is already write-blocked server-side by DemoReadOnlyMiddleware. Narrowing it
-  // to Listen would quietly turn the public demo into a music player. Only a member is narrowed —
-  // to listening and chatting.
-  if (isAdmin(user) || isDemo(user)) return NAV_GROUPS;
+  // to Listen would quietly turn the public demo into a music player. It loses only the pages in
+  // DEMO_HIDDEN_ITEMS, whose data is not the demo's own. A member is narrowed to listening and
+  // chatting.
+  if (isAdmin(user)) return NAV_GROUPS;
+  if (isDemo(user)) return DEMO_GROUPS;
   return NAV_GROUPS.filter((g) => g.id === 'listen' || g.id === 'chats');
 }
+
+/**
+ * The pages the demo account does not see, by nav item id. The demo reads every other page
+ * through the ordinary per-user query filter, so it only ever sees its own seeded rows; each of
+ * these instead reads something about the instance, which strangers sharing the demo login must
+ * not see, and the API keeps it admin-only:
+ * - `dupe-albums`: the split-album dry run spans every account's library and reports
+ *   destination folders.
+ * - `playlist-sync`: lists the Spotify account the instance is connected to.
+ * - `album-quality`: counts the instance-wide catalog of reconciled albums.
+ * - `grader-trial`: admin-only by design (the trial's costs and models).
+ * - `performance`: snapshots record the instance's pipeline configuration.
+ *
+ * Hiding an item here hides it from every nav surface, and the route guard
+ * ({@link isPathAllowedFor}) follows for any path no visible item shares.
+ */
+export const DEMO_HIDDEN_ITEMS: ReadonlySet<string> = new Set([
+  'dupe-albums',
+  'playlist-sync',
+  'album-quality',
+  'grader-trial',
+  'performance'
+]);
+
+const DEMO_GROUPS: NavGroup[] = NAV_GROUPS.map((g) => ({
+  ...g,
+  items: g.items.filter((item) => !DEMO_HIDDEN_ITEMS.has(item.id))
+}));
 
 /** Whoever the nav is being built for. Structural, so tests can pass a bare object. */
 export type NavAudience = Pick<SessionUser, 'role' | 'isAdmin' | 'capabilities'> | null | undefined;
@@ -439,7 +469,8 @@ export type NavAudience = Pick<SessionUser, 'role' | 'isAdmin' | 'capabilities'>
  * through to its track page was silently bounced to the overview.
  */
 export function allowedPathPrefixesFor(user: NavAudience): string[] {
-  // Demo roams freely for the same reason it keeps the full nav — see navGroupsFor.
+  // Admin and demo roam freely; the demo's few hidden pages are taken out by
+  // hiddenPathPrefixesFor — see navGroupsFor.
   if (isAdmin(user) || isDemo(user)) return ['/'];
 
   const fromNav = navGroupsFor(user).flatMap((g) => g.items.map((item) => pathOf(item.href)));
@@ -456,6 +487,37 @@ export function allowedPathPrefixesFor(user: NavAudience): string[] {
       '/settings'
     ])
   ];
+}
+
+/**
+ * Paths the route guard refuses on top of {@link allowedPathPrefixesFor}: the paths of nav items
+ * this account's nav leaves out. A path stays open when a visible item lives there too (the
+ * Inbox's queues share `/inbox` and are told apart by `?tab=`, so a hidden queue is handled by
+ * the Inbox itself) or when the allowlist names it outright (a member's own `/settings`). This is
+ * what keeps the demo account, which otherwise roams everywhere, off the pages its nav hides.
+ */
+export function hiddenPathPrefixesFor(user: NavAudience): string[] {
+  const visible = new Set(navGroupsFor(user).flatMap((g) => g.items.map((i) => i.id)));
+  const items = NAV_GROUPS.flatMap((g) => g.items);
+  const open = new Set([
+    ...items.filter((i) => visible.has(i.id)).map((i) => pathOf(i.href)),
+    ...allowedPathPrefixesFor(user)
+  ]);
+  return [
+    ...new Set(
+      items
+        .filter((i) => !visible.has(i.id))
+        .map((i) => pathOf(i.href))
+        .filter((p) => !open.has(p))
+    )
+  ];
+}
+
+/** The route guard: may this account open `pathname`? */
+export function isPathAllowedFor(pathname: string, user: NavAudience): boolean {
+  if (!isPathAllowed(pathname, allowedPathPrefixesFor(user))) return false;
+  const hidden = hiddenPathPrefixesFor(user);
+  return !hidden.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
 /** True when `pathname` is covered by one of `prefixes` (exact match or a child segment). */
