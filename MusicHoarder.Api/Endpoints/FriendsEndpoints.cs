@@ -355,6 +355,15 @@ public static class FriendsEndpoints
             .ToListAsync(ct);
         foreach (var g in grants) g.RevokedAtUtc = nowUtc;
 
+        // Removal ends every way back in: an unused invite for this email must not re-enable the
+        // account later. Re-entry needs an invite minted after the removal.
+        var invites = await db.Invites.IgnoreQueryFilters()
+            .Where(i => i.EmailNormalized == friend.EmailNormalized
+                && i.ConsumedAtUtc == null
+                && i.RevokedAtUtc == null)
+            .ToListAsync(ct);
+        foreach (var i in invites) i.RevokedAtUtc = nowUtc;
+
         await db.SaveChangesAsync(ct);
         return Results.NoContent();
     }
