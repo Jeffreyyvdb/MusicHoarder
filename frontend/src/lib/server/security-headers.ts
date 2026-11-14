@@ -21,6 +21,8 @@ export const CSP_REPORT_GROUP = 'csp-endpoint';
  */
 const HSTS = 'max-age=300';
 
+// `tools` (WebMCP, `#lib/webmcp`) is left out on purpose: its default allowlist is 'self', which is
+// exactly what the app needs — its own pages register tools, and no frame may.
 const PERMISSIONS_POLICY = [
   'camera=()',
   'microphone=()',
@@ -40,6 +42,11 @@ export type SecurityHeaderContext = {
   hostname: string;
   /** Origins of the Umami tracker and recorder scripts, when configured. */
   analyticsOrigins: string[];
+  /**
+   * Chrome origin-trial tokens (`WEBMCP_ORIGIN_TRIAL_TOKEN`), sent as `Origin-Trial`. A token is
+   * valid for one origin only, so each instance registers its own; none means no header.
+   */
+  originTrials?: readonly string[];
 };
 
 /** The origin of an absolute URL, or null for an empty, relative or malformed one. */
@@ -90,6 +97,8 @@ export function applySecurityHeaders(headers: Headers, context: SecurityHeaderCo
   if (!headers.has('Content-Security-Policy')) {
     headers.set('Content-Security-Policy', "frame-ancestors 'none'");
   }
+
+  if (context.originTrials?.length) setDefault('Origin-Trial', context.originTrials.join(', '));
 
   const isLocal = context.hostname === 'localhost' || context.hostname === '127.0.0.1';
   if (context.https && !isLocal) setDefault('Strict-Transport-Security', HSTS);

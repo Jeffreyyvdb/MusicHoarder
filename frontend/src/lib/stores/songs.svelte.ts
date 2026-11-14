@@ -561,6 +561,10 @@ export const songsStore = {
   get isLoading() {
     return isLoading;
   },
+  /** True once a load has landed, so the rows are the library rather than "not asked yet". */
+  get hasLoaded() {
+    return hasLoaded;
+  },
   get error() {
     return error;
   },

@@ -49,6 +49,7 @@
   import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
   import { toast } from 'svelte-sonner';
   import { cn } from '#lib/utils.ts';
+  import { TAG_REVIEW_DECIDED, type TagReviewDecidedDetail } from '#lib/webmcp/events.ts';
   import InboxDecisionBar from './InboxDecisionBar.svelte';
   import InboxQueueRow from './InboxQueueRow.svelte';
   import InboxQueueStates from './InboxQueueStates.svelte';
@@ -186,6 +187,19 @@
 
   $effect(() => {
     void loadQueue();
+  });
+
+  // An agent decided a track through WebMCP (`#lib/webmcp`): it leaves the list as it would after
+  // a decision made here, and the selection moves on if it was on screen.
+  $effect(() => {
+    const onDecided = (event: Event) => {
+      const id = (event as CustomEvent<TagReviewDecidedDetail>).detail?.songId;
+      if (typeof id !== 'number' || !tracks.some((t) => t.id === id)) return;
+      if (selectedId === id) advanceAfter(id, true);
+      tracks = tracks.filter((t) => t.id !== id);
+    };
+    window.addEventListener(TAG_REVIEW_DECIDED, onDecided);
+    return () => window.removeEventListener(TAG_REVIEW_DECIDED, onDecided);
   });
 
   function seedFields(

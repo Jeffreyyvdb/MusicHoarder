@@ -1892,6 +1892,14 @@ export const playerStore = {
   get isMiniPlayerDismissed() {
     return miniPlayerDismissed;
   },
+  /**
+   * The songs queued after the loaded one on THIS device. Empty while the session plays elsewhere:
+   * the session carries only the other device's position, not its queue.
+   */
+  get upNext(): readonly PlayerSong[] {
+    if (remoteView()) return [];
+    return queueIndex < 0 ? [] : queue.slice(queueIndex + 1);
+  },
   playSong,
   startQueue,
   playNext,

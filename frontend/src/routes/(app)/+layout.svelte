@@ -21,6 +21,7 @@
   import { isAdmin, isDemo } from '#lib/auth/capabilities.ts';
   import { createSessionWatch, SESSION_DEPENDENCY } from '#lib/auth/session-watch.ts';
   import { fetchCurrentUser } from '#lib/api-client.ts';
+  import { installWebMcp } from '#lib/webmcp/install.ts';
 
   type Props = { children: Snippet };
   const { children }: Props = $props();
@@ -166,6 +167,11 @@
   });
   // Leaving the app shell (signing out, the share page) closes the stream and unplugs the player.
   $effect(() => () => playbackSync.stop());
+
+  // WebMCP: the account's tools for an agent in the browser (search, play, playlists, and the
+  // Inbox for an admin). Nothing happens in a browser without the API. The tools go away when the
+  // account changes or the shell unmounts, so an agent never holds another account's tools.
+  $effect(() => installWebMcp(page.data.user));
 
   // Chat: the account's conversations over the chat stream (the Chats badge, the list), and this
   // browser's notification subscription kept current when the account turned notifications on.
