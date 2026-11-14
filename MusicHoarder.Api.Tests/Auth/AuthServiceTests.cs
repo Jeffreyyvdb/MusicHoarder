@@ -66,6 +66,47 @@ public class AuthServiceTests
     }
 
     [Fact]
+    public async Task RequestLink_over_the_limit_sends_nothing_and_keeps_the_last_link_valid()
+    {
+        var (svc, ctx) = MakeService(seedOwnerEmail: "me@example.com");
+
+        // The default limit is 5 emails per 15 minutes.
+        for (var i = 0; i < 5; i++)
+            Assert.NotNull(await svc.RequestLinkAsync("me@example.com", "http://app", null, null, null, default));
+        var blocked = await svc.RequestLinkAsync("me@example.com", "http://app", null, null, null, default);
+
+        // The same answer as an unknown address, so the limit reveals nothing.
+        Assert.Null(blocked);
+        await using var db = ctx();
+        var tokens = await db.MagicLinkTokens.OrderBy(t => t.IssuedAtUtc).ToListAsync();
+        Assert.Equal(5, tokens.Count);
+        Assert.Null(tokens[^1].ConsumedAtUtc);
+    }
+
+    [Fact]
+    public async Task RequestLink_limit_only_counts_links_sent_within_the_window()
+    {
+        var (svc, ctx) = MakeService(seedOwnerEmail: "me@example.com");
+        await using (var db = ctx())
+        {
+            for (var i = 0; i < 5; i++)
+            {
+                db.MagicLinkTokens.Add(new MagicLinkToken
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = WellKnownUsers.OwnerId,
+                    TokenHash = [(byte)i],
+                    IssuedAtUtc = DateTime.UtcNow.AddMinutes(-20),
+                    ExpiresAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                });
+            }
+            await db.SaveChangesAsync();
+        }
+
+        Assert.NotNull(await svc.RequestLinkAsync("me@example.com", "http://app", null, null, null, default));
+    }
+
+    [Fact]
     public async Task Consume_valid_token_creates_session()
     {
         var (svc, ctx) = MakeService(seedOwnerEmail: "me@example.com");
