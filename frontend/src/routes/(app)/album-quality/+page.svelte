@@ -15,6 +15,7 @@
     fetchAlbumQualityProgress,
     gradeAllAlbums,
     gradeOutdatedAlbums,
+    isPermissionError,
     type AlbumQualityOverview,
     type AlbumQualityRow
   } from '#lib/api-client.ts';
@@ -115,9 +116,11 @@
           endRun();
         }
       }, 1500);
-    } catch {
+    } catch (err) {
       endRun();
-      gradeUnavailable = true;
+      // This account may not grade (the read-only demo): say so, rather than blame the server.
+      if (isPermissionError(err)) toast.error(err instanceof Error ? err.message : 'Not allowed');
+      else gradeUnavailable = true;
     }
   }
 

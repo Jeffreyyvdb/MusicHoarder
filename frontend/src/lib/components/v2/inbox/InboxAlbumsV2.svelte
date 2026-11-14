@@ -1,5 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import { page } from '$app/state';
+  import { isAdmin } from '#lib/auth/capabilities.ts';
   import { Check, Loader2, RefreshCw, Disc3, Wand2 } from '@lucide/svelte';
   import {
     fetchSplitAlbums,
@@ -46,7 +48,12 @@
     try {
       if (!quiet) loading = true;
       error = null;
-      const [splitRes, pairRes] = await Promise.all([fetchSplitAlbums(), fetchAlbumDuplicates()]);
+      // The split-album dry run spans every account's library, so it is the admin's alone; the
+      // demo account gets the near-duplicate titles, which are its own.
+      const [splitRes, pairRes] = await Promise.all([
+        isAdmin(page.data.user) ? fetchSplitAlbums() : { groups: [] },
+        fetchAlbumDuplicates()
+      ]);
       splits = splitRes.groups ?? [];
       pairs = pairRes.pairs ?? [];
     } catch (err) {

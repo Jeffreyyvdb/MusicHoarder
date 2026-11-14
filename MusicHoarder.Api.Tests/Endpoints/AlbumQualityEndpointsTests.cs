@@ -31,8 +31,12 @@ public class AlbumQualityEndpointsTests
         await using var db = NewContext();
         db.CanonicalAlbums.Add(Album(1, "Discovery", CanonicalAlbumStatus.Fetched));
         db.CanonicalAlbums.Add(Album(2, "Homework", CanonicalAlbumStatus.Fetched));
+        db.CanonicalAlbums.Add(Album(3, "Alive", CanonicalAlbumStatus.Fetched));
         db.CanonicalAlbumQualityGrades.Add(Grade(1, SongQualityVerdict.Wrong, 20));
         db.CanonicalAlbumQualityGrades.Add(Grade(2, SongQualityVerdict.Excellent, 95));
+        // Gradeable means owned: the third canonical album has no tracks in the library.
+        db.Songs.Add(OwnedSong(1, "Discovery"));
+        db.Songs.Add(OwnedSong(2, "Homework"));
         await db.SaveChangesAsync();
 
         var result = await AlbumQualityEndpoints.GetOverview(db, Opts(), CancellationToken.None);
@@ -120,6 +124,21 @@ public class AlbumQualityEndpointsTests
         DisplayArtist = $"Artist {id}",
         DisplayTitle = title,
         Status = status,
+    };
+
+    /// <summary>A matched track of <see cref="Album"/>'s album: its keys normalize to the album's.</summary>
+    private static SongMetadata OwnedSong(int albumId, string title) => new()
+    {
+        OwnerUserId = WellKnownUsers.OwnerId,
+        SourcePath = $"/src/{albumId}/1.flac",
+        FileName = "1.flac",
+        Extension = ".flac",
+        FileSizeBytes = 1,
+        LastModifiedUtc = DateTime.UtcNow,
+        IndexedAtUtc = DateTime.UtcNow,
+        AlbumArtist = $"artist{albumId}",
+        Album = title,
+        EnrichmentStatus = EnrichmentStatus.Matched,
     };
 
     private static CanonicalAlbumQualityGrade Grade(
