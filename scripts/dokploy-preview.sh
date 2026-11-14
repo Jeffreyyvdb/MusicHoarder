@@ -74,7 +74,7 @@ _curl() {
     -H "x-api-key: ${DOKPLOY_API_KEY}" "$@" \
     "${BASE}/api/${proc}" 2>"$out".err || true)"
   if [[ ! "$status" =~ ^2 ]]; then
-    echo "::error::Dokploy ${proc} failed (HTTP ${status:-???})" >&2
+    echo "::${CURL_ERROR_LEVEL:-error}::Dokploy ${proc} failed (HTTP ${status:-???})" >&2
     cat "$out" "$out".err >&2 || true
     rm -f "$out" "$out".err
     return 1
@@ -306,8 +306,27 @@ destroy() {
     return 0
   fi
   echo "Deleting compose '${NAME}' (${compose_id}) and its volumes..."
-  api compose.delete "$(jq -n --arg id "$compose_id" '{composeId:$id, deleteVolumes:true}')" >/dev/null
-  echo "Preview '${NAME}' destroyed."
+  # compose.delete stops the stack and removes its volumes before it answers, which takes longer
+  # than the proxy in front of Dokploy waits: the proxy answers 520 at ~30s while the delete
+  # carries on and completes. So the reply alone proves nothing either way — the compose being
+  # gone from project.all is what counts.
+  if CURL_ERROR_LEVEL=warning api compose.delete "$(jq -n --arg id "$compose_id" '{composeId:$id, deleteVolumes:true}')" >/dev/null; then
+    echo "Preview '${NAME}' destroyed."
+    return 0
+  fi
+  echo "compose.delete gave no clean answer; checking whether '${NAME}' is gone..."
+  local i projects
+  for i in $(seq 1 24); do
+    sleep 10
+    # A failed read prints nothing, which must not pass for "gone".
+    projects="$(get project.all)" || continue
+    if [[ -z "$(find_compose_id <<<"$projects")" ]]; then
+      echo "Preview '${NAME}' destroyed."
+      return 0
+    fi
+  done
+  echo "::error::Preview '${NAME}' (${compose_id}) still exists 4 minutes after compose.delete." >&2
+  return 1
 }
 
 case "$CMD" in
