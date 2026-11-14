@@ -4,7 +4,7 @@
 # Two kinds of run, which is how deploying is kept apart from releasing:
 #
 #   • Edge (every push to main, or a manual run with no version): tags the images :edge and
-#     :sha-<commit>, bakes `<last release>-edge.<sha>` into the API, and redeploys our own Dokploy
+#     :sha-<commit>, bakes `<last release>-edge.g<sha>` into the API, and redeploys our own Dokploy
 #     instance — whose compose must point API_IMAGE / FRONTEND_IMAGE at the :edge tags. :latest and
 #     the semver tags are never touched, so self-hosters see nothing.
 #   • Release (dispatched by release.yml with `version`, on its weekly schedule or a manual run):
@@ -73,7 +73,9 @@ jobs:
             last=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || echo v0.0.0)
             echo "kind=edge" >> "$GITHUB_OUTPUT"
             echo "image_tag=edge" >> "$GITHUB_OUTPUT"
-            echo "mh_version=${last#v}-edge.${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+            # The `g` keeps the identifier alphanumeric: a short SHA that is all digits with a
+            # leading zero (about 1 commit in 270) is not valid SemVer, and restore then fails.
+            echo "mh_version=${last#v}-edge.g${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Setup .NET
@@ -108,7 +110,7 @@ jobs:
       - name: aspire do push
         env:
           # Bake the version into the API assembly (MSBuild reads $(MH_VERSION) — see
-          # MusicHoarder.Api.csproj): X.Y.Z on a release, <last release>-edge.<sha> otherwise.
+          # MusicHoarder.Api.csproj): X.Y.Z on a release, <last release>-edge.g<sha> otherwise.
           MH_VERSION: ${{ steps.tag.outputs.mh_version }}
           # The tag the AppHost pushes (WithRemoteImageTag): `edge` or the release's X.Y.Z.
           MH_IMAGE_TAG: ${{ steps.tag.outputs.image_tag }}
