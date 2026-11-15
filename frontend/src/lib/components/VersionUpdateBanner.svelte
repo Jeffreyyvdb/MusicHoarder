@@ -66,6 +66,7 @@
 {#if show && info && !suppressed}
   <div
     aria-live="polite"
+    data-mh-banner=""
     class="border-separator text-muted-foreground flex h-9 shrink-0 items-center gap-2.5 border-b px-4 text-[13px] sm:px-7"
   >
     <span class="bg-primary size-1.5 shrink-0 rounded-full" aria-hidden="true"></span>

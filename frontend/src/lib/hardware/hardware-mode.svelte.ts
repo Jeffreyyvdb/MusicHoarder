@@ -31,7 +31,7 @@ function loadBehaviors(): void {
 }
 
 /** Hex mirrors of the skin's `--background` (app-skin.css), for the theme-color meta. */
-export const HARDWARE_THEME_COLOR = { light: '#efefeb', dark: '#1c1c1a' } as const;
+export const HARDWARE_THEME_COLOR = { light: '#f3f2ee', dark: '#22221f' } as const;
 
 /** ↑ ↑ ↓ ↓ ← → ← → B A, compared case-insensitively. */
 const KONAMI = [

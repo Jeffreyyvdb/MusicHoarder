@@ -423,6 +423,8 @@
         <!-- Desktop: the chips ride in the bar's band; the column header pins under the bar like
              a list view's, with the hairline that separates it from the rows. -->
         <div
+          data-mh-list-head=""
+          data-mh-lcd-head=""
           class="bg-background border-separator text-muted-foreground sticky top-(--mh-navbar-h,0px) z-10 flex items-center gap-2 border-b px-6 pt-1 pb-1.5 text-[11px] font-medium"
           aria-hidden="true"
         >
@@ -436,7 +438,10 @@
       {/if}
     {/if}
 
-    <div class="px-2 py-2 md:px-4">
+    <div
+      data-mh-lcd-list={tree && visibleChildren.length > 0 ? '' : undefined}
+      class="px-2 py-2 md:px-4"
+    >
       {#if isLoading}
         <div class="text-muted-foreground text-body flex min-h-[40vh] items-center justify-center gap-2 md:text-sm">
           <Loader2 class="size-4 animate-spin" aria-hidden="true" />

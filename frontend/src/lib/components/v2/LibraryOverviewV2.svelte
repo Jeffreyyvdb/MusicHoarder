@@ -249,7 +249,7 @@
         {#if compact && libraryRows.length > 0}
           <!-- Library: a plain list with inset separators (Apple Music's Library rows). -->
           <nav aria-label="Library">
-            <ul>
+            <ul data-mh-lcd-list="">
               {#each libraryRows as row, i (row.href)}
                 <li>
                   <a

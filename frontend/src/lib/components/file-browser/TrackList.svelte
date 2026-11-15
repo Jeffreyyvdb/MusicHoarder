@@ -34,6 +34,7 @@
   import { playerStore } from '#lib/stores/player.svelte.ts';
   import { songsStore } from '#lib/stores/songs.svelte.ts';
   import { cn } from '#lib/utils.ts';
+  import { hardwareMode } from '#lib/hardware/hardware-mode.svelte.ts';
 
   type Props = {
     /**
@@ -142,7 +143,11 @@
     window.addEventListener(DYNAMIC_TYPE_CHANGE, onChange);
     return () => window.removeEventListener(DYNAMIC_TYPE_CHANGE, onChange);
   });
-  const rowH = $derived(compact ? Math.max(64, Math.round(64 * typeScale)) : 56);
+  // The hardware skin (an easter egg, #lib/hardware) sets the desktop table as a screen of tight
+  // lines, without the art that sets the 56px row.
+  const rowH = $derived(
+    compact ? Math.max(64, Math.round(64 * typeScale)) : hardwareMode.enabled ? 40 : 56
+  );
   const OVERSCAN = 8;
 
   let scrollEl = $state<HTMLElement | null>(null);
@@ -287,6 +292,7 @@
     {#if !compact}
       <!-- Column headers: sticky under the bar (--mh-navbar-h is the bar plus its chip band). -->
       <div
+        data-mh-tracks-head=""
         class={cn(
           'border-border text-muted-foreground bg-background sticky top-[var(--mh-navbar-h,0px)] z-10 grid items-center gap-3 border-b px-7 py-2.5',
           GRID
@@ -347,6 +353,7 @@
            button (the table's row selection). -->
       <div
         bind:this={rowsEl}
+        data-mh-tracks={compact ? 'compact' : 'wide'}
         role={compact ? 'list' : undefined}
         aria-label={compact ? 'Tracks' : undefined}
         class="relative"

@@ -8,6 +8,7 @@
   import HardwarePlayer, { type HardwareTrack } from './HardwarePlayer.svelte';
   import { playerStore, type PlayerSong } from '#lib/stores/player.svelte.ts';
   import { songsStore } from '#lib/stores/songs.svelte.ts';
+  import { coverThumbUrl } from '#lib/api-client.ts';
 
   let {
     maxRows = 5
@@ -26,7 +27,9 @@
       title: song.title,
       artist: song.artist,
       album: song.album,
-      coverUrl: song.coverUrl,
+      // A sized thumbnail, never the original: the screen is 196px, and a multi-megabyte original
+      // painted its top rows first, which read as a cover cut off at the top of the screen.
+      coverUrl: coverThumbUrl(song.coverUrl, 600),
       format: song.format,
       length: songsStore.songsById.get(song.id)?.durationSeconds ?? null
     }))

@@ -1,9 +1,13 @@
 # Hardware skin (easter egg)
 
-MusicHoarder dressed as a [SPEC-01](https://github.com/shuding/spec-01) pocket instrument: molded
-off-white panels on a dotted desk, keys that stand on their bases, LCDs, one orange key colour and
-IBM Plex Mono — and Now Playing becomes the MH-1, a device built from SPEC-01's components on
-Vercel's [UI SDK](https://ui-sdk.dev).
+MusicHoarder redesigned as a [SPEC-01](https://github.com/shuding/spec-01) / Teenage Engineering
+style instrument, not a recoloured app: the sidebar and the page are two molded devices on a paper
+desk, every list is data on a grey LCD (a black screen in dark mode), buttons are keycaps on a lip
+(white, one red primary, black for the transport), names are printed in small spaced capitals with
+a red LED, and the selection is red between two dashes. Some detail goes on purpose: the nav and
+chip icons, the tracks table's covers and its size, match and source columns, the cover wash on the
+album page and behind Now Playing. Now Playing becomes the MH-1, a device built from SPEC-01's
+components on Vercel's [UI SDK](https://ui-sdk.dev), sitting on the same desk.
 
 It is hidden. It unlocks with the **Konami code** (↑ ↑ ↓ ↓ ← → ← → B A, anywhere outside a text
 field) or by searching for **`spec-01`** (phones have no arrow keys). Finding it switches it on and
@@ -15,11 +19,17 @@ like Appearance: `localStorage['mh:hardware']` is absent (locked), `on` or `off`
 - `hardware-mode.svelte.ts` — the state, the Konami matcher and the secret phrases. Sets
   `data-mh-skin="hardware"` on `<html>`; `app.html` does the same before the first frame, and the
   root layout follows it for `theme-color` (`HARDWARE_THEME_COLOR`, mirrored in `app.html`).
-- `app-skin.css` — the whole app under the skin, imported from `app.css`. Tokens for light and a
-  graphite dark, plus the primitives by their `data-slot` (buttons as keys, switches, sliders, fields,
-  panels), `.mh-chrome` (molded tab bar and mini player), `.mh-cover` (covers in a bezel) and
-  `[data-mh-lcd]` (the mini player's title). Unlayered on purpose, so every rule must stay under
+- `app-skin.css` — the whole app under the skin, imported from `app.css`. Its header lists the
+  vocabulary (desk, body, LCD, keys, labels, LED) and every hook it styles: the primitives by
+  `data-slot` (plus `filter-chip`), Button's `data-variant`, `.mh-chrome`, `.mh-cover`, and a few
+  `data-mh-*` attributes in the shell, TrackList, AlbumPage, By folder, the mini player and the tab
+  bar. Those attributes style nothing without the skin; renaming one means following it there. The
+  tracks table re-declares TrackList's column grid with fewer columns, so a new column there must be
+  added to it too. Unlayered on purpose, so every rule must stay under
   `:root[data-mh-skin='hardware']` — with the skin off nothing here applies.
+- Two behaviour changes ride on the flag, both read from `hardwareMode.enabled`: TrackList's desktop
+  rows are 40px instead of 56px (no art), and Now Playing (`SongDetailHost`) drops its forced-dark
+  media appearance and cover wash for the desk, so `theme-color` stays the skin's there too.
 - `HardwareNowPlaying.svelte` → `HardwarePlayer.svelte` — the device, which `TrackPanel` loads on
   demand in place of the art, title and transport for the loaded song (not while the music plays on
   another device). Lazy because its stylesheet, the vendored skin, is ~150 KB gzipped.

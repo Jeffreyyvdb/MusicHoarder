@@ -179,7 +179,7 @@
                 <!-- The one app mark: the same disc as the favicon, the Home Screen icon and the
                      sign-in, invite and error screens. -->
                 <BrandMark class="size-[30px]" />
-                <div class="grid min-w-0 flex-1 text-left leading-tight">
+                <div data-mh-brand="" class="grid min-w-0 flex-1 text-left leading-tight">
                   <span class="truncate text-sm font-semibold">MusicHoarder</span>
                   <span class="text-muted-foreground truncate text-[11px]">
                     {version ? `v${version} · ` : ''}self-hosted
@@ -217,6 +217,7 @@
         {@const shownItems = isCollapsed ? group.items.filter(itemActive) : group.items}
         <Sidebar.Group class="p-0">
           <div
+            data-mh-nav-heading=""
             data-active={headerActive || undefined}
             class={cn(
               'group/header relative flex w-full items-center rounded-md transition-colors',
@@ -295,6 +296,7 @@
               {@const live = Boolean(item.live && indexing)}
               <a
                 href={item.href}
+                data-mh-nav-item=""
                 data-active={active || undefined}
                 aria-current={active ? 'page' : undefined}
                 class={cn(
@@ -307,6 +309,7 @@
                 )}
               >
                 <item.icon
+                  data-mh-nav-icon=""
                   class={cn(
                     'size-4 shrink-0',
                     active || live ? 'text-primary' : 'text-muted-foreground'

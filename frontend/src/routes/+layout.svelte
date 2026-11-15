@@ -110,10 +110,10 @@
     const dark = mode.current === 'dark';
     const inApp = page.route.id?.startsWith('/(app)') ?? false;
     let color: string = dark ? THEME_COLOR.dark : THEME_COLOR.light;
-    if (inApp && themeSurface.media) color = MEDIA;
-    // The hardware skin paints one surface everywhere (plain and grouped pages alike).
-    else if (hardwareMode.enabled)
-      color = dark ? HARDWARE_THEME_COLOR.dark : HARDWARE_THEME_COLOR.light;
+    // The hardware skin paints one surface everywhere: plain and grouped pages, and Now Playing,
+    // which under the skin sits on the same desk instead of its dark media appearance.
+    if (hardwareMode.enabled) color = dark ? HARDWARE_THEME_COLOR.dark : HARDWARE_THEME_COLOR.light;
+    else if (inApp && themeSurface.media) color = MEDIA;
     else if (inApp && !dark && surfaceFor(page.url, isCompact.current) === 'grouped') {
       color = GROUPED_LIGHT;
     }

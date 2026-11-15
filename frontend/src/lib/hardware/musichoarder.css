@@ -69,3 +69,9 @@
 [data-skin='hardware'] [data-mh-artist] {
   margin-inline-start: 1ch;
 }
+
+/* The power LED, lit while the music plays: the app-wide skin's red (app-skin.css --mh-led). */
+[data-skin='hardware'] [data-device-power][data-on]:not(#_) {
+  background: #ff3b10;
+  box-shadow: 0 0 6px rgb(255 59 16 / 0.7);
+}

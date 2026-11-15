@@ -417,6 +417,7 @@
     <!-- md+: the macOS Music bar — transport leading, now-playing centre with a seek line,
          actions trailing — centred over the page, 12px off the bottom. -->
     <div
+      data-mh-mini="wide"
       class="mh-mini-enter mh-glass mh-chrome fixed bottom-3 left-1/2 z-40 w-[calc(100%-1.5rem)] max-w-3xl -translate-x-1/2 overflow-hidden rounded-2xl"
       out:fly={miniExit()}
     >
@@ -424,7 +425,7 @@
         <!-- LEFT: transport. Apple Music bar style: naked solid glyphs, no hover
              wash (a translucent circle reads as smudge in dark mode) — feedback
              is press-scale on the glyph itself. -->
-        <div class="flex shrink-0 items-center gap-1">
+        <div data-mh-transport="" class="flex shrink-0 items-center gap-1">
           <Button
             variant="ghost"
             size="icon"

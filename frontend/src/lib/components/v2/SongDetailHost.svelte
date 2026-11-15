@@ -18,6 +18,7 @@
   import { playerStore } from '#lib/stores/player.svelte.ts';
   import { themeSurface } from '#lib/stores/theme-surface.svelte.ts';
   import { isAdmin } from '#lib/auth/capabilities.ts';
+  import { hardwareMode } from '#lib/hardware/hardware-mode.svelte.ts';
   import { DISMISS_VELOCITY, EASE_PRESENT, prefersReducedMotion } from '#lib/motion.ts';
 
   // The single global mount of Now Playing — an Apple-Music-style full-screen overlay (a portaled
@@ -28,6 +29,10 @@
   // (themeSurface), the tab bar hides (the shell reads songDetail.isOpen) and the mini player hides
   // (registerPanel).
   const r = $derived(songDetail.resolved);
+
+  // Under the hardware skin (an easter egg, #lib/hardware) Now Playing has no media appearance: it
+  // sits on the skin's desk in the app's own theme, with no cover wash behind it.
+  const desk = $derived(hardwareMode.enabled);
 
   // Ambient backdrop: a large, heavily-blurred fill of the track's cover. Own-cover URLs get a
   // modest size (the blur hides detail); external URLs pass through unchanged.
@@ -326,7 +331,7 @@
   <DialogPrimitive.Portal>
     <DialogPrimitive.Overlay
       bind:ref={overlayEl}
-      class="mh-np-scrim fixed inset-0 z-[60] bg-black"
+      class={['mh-np-scrim fixed inset-0 z-[60]', desk ? 'bg-background' : 'bg-black']}
     />
     <!-- `dark` makes the overlay's tokens the dark set whatever the app theme (the media
          appearance); `mh-np` re-points a few of them to Now Playing's vibrancy tokens (below).
@@ -335,10 +340,16 @@
          padding box. -->
     <DialogPrimitive.Content
       bind:ref={contentEl}
-      class="mh-np dark text-foreground fixed inset-0 z-[60] flex flex-col overflow-hidden bg-black pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] focus-visible:outline-hidden"
+      data-mh-desk={desk || undefined}
+      class={[
+        'mh-np text-foreground fixed inset-0 z-[60] flex flex-col overflow-hidden pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] focus-visible:outline-hidden',
+        desk ? 'bg-background' : 'dark bg-black'
+      ]}
       style="--mh-content-pad: 0px"
     >
-      {#if r}
+      {#if desk}
+        <!-- The desk: app-skin.css paints it. -->
+      {:else if r}
         <VideoBackdrop
           songId={r.song.id}
           {ambientUrl}
