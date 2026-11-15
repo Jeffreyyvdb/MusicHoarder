@@ -1,13 +1,20 @@
-<script lang="ts">
-  import {
-    FastForward,
-    Maximize,
-    Minimize,
-    Pause,
-    Play,
-    Rewind
-  } from '@lucide/svelte';
+<script lang="ts" module>
   import type { Snippet } from 'svelte';
+
+  /** What a housing around the picture is handed (see the `housing` prop). */
+  export interface VideoHousing {
+    /** The picture itself. Render it once, as the screen; it carries `data-kit="display-screen"`. */
+    screen: Snippet;
+    /** The song shown is the one playing, and it is playing. */
+    playing: boolean;
+    /** The picture is fullscreen (or the full-window overlay), out of the housing. */
+    expanded: boolean;
+    toggleFullscreen: () => void;
+  }
+</script>
+
+<script lang="ts">
+  import { FastForward, Maximize, Minimize, Pause, Play, Rewind } from '@lucide/svelte';
   import { Button } from '#lib/components/ui/button/index.ts';
   import Scrubber from './Scrubber.svelte';
   import { getSongVideoStreamUrl } from '#lib/api-client.ts';
@@ -33,6 +40,7 @@
     fallbackDuration = 0,
     generation = 0,
     caption,
+    housing,
     onPlayRequest
   }: {
     songId: number;
@@ -45,6 +53,13 @@
     generation?: number;
     /** A line under the picture (the sync status); the clip is fitted to leave it room. */
     caption?: Snippet;
+    /**
+     * Sets the picture in a housing — the hardware skin's MH-2 (#lib/hardware), a bezel with a
+     * plate and a fullscreen key. The housing renders the picture as its screen and brings its own
+     * way into fullscreen, so the frame drops its inline button; whatever room the housing takes
+     * around the picture is measured and left out of the fit.
+     */
+    housing?: Snippet<[VideoHousing]>;
     onPlayRequest: () => void;
   } = $props();
 
@@ -65,9 +80,14 @@
   let stageHeight = $state(0);
   let captionHeight = $state(0);
   let ratio = $state(16 / 9);
+  // The housing's own size around the picture (its plate, bezel and keys), measured: the picture is
+  // fitted into the stage less that, so the whole device fits.
+  let housingEl = $state<HTMLElement | null>(null);
+  let chromeWidth = $state(0);
+  let chromeHeight = $state(0);
   const fit = $derived.by(() => {
-    const width = stageWidth;
-    const height = Math.max(0, stageHeight - (caption ? captionHeight : 0));
+    const width = Math.max(0, stageWidth - chromeWidth);
+    const height = Math.max(0, stageHeight - (caption ? captionHeight : 0) - chromeHeight);
     if (width * height === 0) return { width: 0, height: 0 };
     return ratio >= width / height
       ? { width, height: Math.floor(width / ratio) }
@@ -103,6 +123,22 @@
   let nativeFullscreen = $state(false);
   let controlsVisible = $state(true);
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+  $effect(() => {
+    const outer = housingEl;
+    const inner = frameEl;
+    // Fullscreen takes the picture out of the housing; keep the last measure for when it returns.
+    if (!outer || !inner || expanded) return;
+    const measure = () => {
+      chromeWidth = Math.max(0, outer.offsetWidth - inner.offsetWidth);
+      chromeHeight = Math.max(0, outer.offsetHeight - inner.offsetHeight);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(outer);
+    observer.observe(inner);
+    return () => observer.disconnect();
+  });
 
   const isCurrentSong = $derived(playerStore.currentSong?.id === songId);
   const isPlaying = $derived(isCurrentSong && playerStore.isPlaying);
@@ -294,7 +330,10 @@
       return;
     }
     const target = e.target as HTMLElement | null;
-    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable))
+    if (
+      target &&
+      (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+    )
       return;
 
     if (e.key === ' ' || e.key === 'k') {
@@ -336,75 +375,101 @@
 >
   {#if videoFailed}
     <p class="text-subheadline text-muted-foreground">The video could not be played.</p>
+  {:else if housing}
+    <div bind:this={housingEl} class="shrink-0">
+      {@render housing({ screen: picture, playing: isPlaying, expanded, toggleFullscreen })}
+    </div>
   {:else}
-    <!-- `dark` on the frame: the chrome sits on a black letterbox, so the shared Scrubber/glyph
-         tokens resolve to their dark values whatever the surroundings. -->
-    <div
-      bind:this={frameEl}
-      class={cn(
-        'group dark relative overflow-hidden bg-black',
-        expanded
-          ? 'fixed inset-0 z-[80] flex size-full items-center justify-center rounded-none'
+    {@render picture()}
+  {/if}
+  {#if caption && !videoFailed}
+    <div class="w-full shrink-0 pt-3" bind:offsetHeight={captionHeight}>
+      {@render caption()}
+    </div>
+  {/if}
+</div>
+
+{#snippet picture()}
+  <!-- `dark` on the frame: the chrome sits on a black letterbox, so the shared Scrubber/glyph
+         tokens resolve to their dark values whatever the surroundings. In a housing the frame is
+         the housing's screen (the skin styles it by its `data-kit`), until it goes fullscreen. -->
+  <div
+    bind:this={frameEl}
+    data-kit={housing && !expanded ? 'display-screen' : undefined}
+    data-mh-video-frame={housing ? '' : undefined}
+    class={cn(
+      'group dark relative overflow-hidden bg-black',
+      expanded
+        ? 'fixed inset-0 z-[80] flex size-full items-center justify-center rounded-none'
+        : housing
+          ? 'shrink-0'
           : 'shrink-0 rounded-xl shadow-[0_24px_60px_rgb(0_0_0/0.5)]'
+    )}
+    style:width={expanded ? undefined : `${fit.width}px`}
+    style:height={expanded ? undefined : `${fit.height}px`}
+    onpointermove={wakeControls}
+    role="presentation"
+  >
+    <!-- Muted on purpose: the player's audio element carries the sound, in sync. -->
+    <video
+      bind:this={videoEl}
+      src={getSongVideoStreamUrl(songId)}
+      muted
+      playsinline
+      preload="auto"
+      class="size-full object-contain"
+      onloadedmetadata={readRatio}
+      onresize={readRatio}
+      onloadeddata={() => (videoLoadRetries = 0)}
+      onerror={onVideoError}
+    ></video>
+
+    <!-- Click layer under the chrome: tap the picture to play/pause, double-tap for fullscreen. -->
+    <button
+      type="button"
+      class={cn(
+        'absolute inset-0 z-0 focus-visible:outline-hidden',
+        controlsVisible ? 'cursor-pointer' : 'cursor-none'
       )}
-      style:width={expanded ? undefined : `${fit.width}px`}
-      style:height={expanded ? undefined : `${fit.height}px`}
-      onpointermove={wakeControls}
-      role="presentation"
-    >
-      <!-- Muted on purpose: the player's audio element carries the sound, in sync. -->
-      <video
-        bind:this={videoEl}
-        src={getSongVideoStreamUrl(songId)}
-        muted
-        playsinline
-        preload="auto"
-        class="size-full object-contain"
-        onloadedmetadata={readRatio}
-        onresize={readRatio}
-        onloadeddata={() => (videoLoadRetries = 0)}
-        onerror={onVideoError}
-      ></video>
+      onpointerdown={(e) => (lastPointerType = e.pointerType)}
+      onclick={onFrameClick}
+      ondblclick={onFrameDblClick}
+      aria-label={isCurrentSong ? 'Toggle playback' : 'Play this song'}
+    ></button>
 
-      <!-- Click layer under the chrome: tap the picture to play/pause, double-tap for fullscreen. -->
-      <button
-        type="button"
-        class={cn('absolute inset-0 z-0 focus-visible:outline-hidden', controlsVisible ? 'cursor-pointer' : 'cursor-none')}
-        onpointerdown={(e) => (lastPointerType = e.pointerType)}
-        onclick={onFrameClick}
-        ondblclick={onFrameDblClick}
-        aria-label={isCurrentSong ? 'Toggle playback' : 'Play this song'}
-      ></button>
-
-      {#if !isPlaying}
-        <span
-          class="pointer-events-none absolute inset-0 z-0 flex flex-col items-center justify-center gap-2 bg-black/40"
-        >
-          <span class="flex size-14 items-center justify-center rounded-full bg-white/90 shadow-lg">
-            <Play class="ml-0.5 size-6 text-black" fill="currentColor" />
-          </span>
-          {#if !isCurrentSong}
-            <span class="text-footnote text-foreground font-medium">Play this song to watch in sync</span>
-          {/if}
+    {#if !isPlaying}
+      <span
+        class="pointer-events-none absolute inset-0 z-0 flex flex-col items-center justify-center gap-2 bg-black/40"
+      >
+        <span class="flex size-14 items-center justify-center rounded-full bg-white/90 shadow-lg">
+          <Play class="ml-0.5 size-6 text-black" fill="currentColor" />
         </span>
-      {/if}
+        {#if !isCurrentSong}
+          <span class="text-footnote text-foreground font-medium"
+            >Play this song to watch in sync</span
+          >
+        {/if}
+      </span>
+    {/if}
 
-      {#if clipOver && isCurrentSong}
-        <span
-          class={cn(
-            'text-caption-1 text-foreground absolute right-3 z-10 rounded-full bg-black/70 px-2.5 py-1',
-            expanded ? 'bottom-24' : 'bottom-3'
-          )}
-        >
-          Clip ended — song continues
-        </span>
-      {/if}
+    {#if clipOver && isCurrentSong}
+      <span
+        class={cn(
+          'text-caption-1 text-foreground absolute right-3 z-10 rounded-full bg-black/70 px-2.5 py-1',
+          expanded ? 'bottom-24' : 'bottom-3'
+        )}
+      >
+        Clip ended — song continues
+      </span>
+    {/if}
 
-      {#if !expanded}
-        <!-- Inline: just the way into fullscreen (44pt), over the picture's top corner. -->
+    {#if !expanded}
+      <!-- Inline: just the way into fullscreen (44pt), over the picture's top corner. A housing
+             has its own key for it. -->
+      {#if !housing}
         <button
           type="button"
-          class="focus-visible:ring-ring absolute top-1 right-1 z-10 flex size-11 items-center justify-center rounded-full focus-visible:outline-hidden focus-visible:ring-2"
+          class="focus-visible:ring-ring absolute top-1 right-1 z-10 flex size-11 items-center justify-center rounded-full focus-visible:ring-2 focus-visible:outline-hidden"
           onclick={(e) => {
             blurAfterPointerClick(e);
             toggleFullscreen();
@@ -412,105 +477,104 @@
           aria-label="Watch fullscreen"
           title="Watch fullscreen (F)"
         >
-          <span class="text-foreground flex size-8 items-center justify-center rounded-full bg-black/55">
+          <span
+            class="text-foreground flex size-8 items-center justify-center rounded-full bg-black/55"
+          >
             <Maximize class="size-4" />
           </span>
         </button>
-      {:else}
-        <!-- Fullscreen title card, so the frame still says what is playing once the app is hidden. -->
-        <div
-          class={cn(
-            'pointer-events-none absolute inset-x-0 top-0 z-10 bg-gradient-to-b from-black/70 to-transparent px-5 pt-[max(1rem,env(safe-area-inset-top))] pb-10 transition-opacity duration-200',
-            controlsVisible ? 'opacity-100' : 'opacity-0'
-          )}
-        >
-          <h2 class="text-headline text-foreground truncate">{title}</h2>
-          <p class="text-subheadline text-muted-foreground truncate">{artist}</p>
-        </div>
+      {/if}
+    {:else}
+      <!-- Fullscreen title card, so the frame still says what is playing once the app is hidden. -->
+      <div
+        class={cn(
+          'pointer-events-none absolute inset-x-0 top-0 z-10 bg-gradient-to-b from-black/70 to-transparent px-5 pt-[max(1rem,env(safe-area-inset-top))] pb-10 transition-opacity duration-200',
+          controlsVisible ? 'opacity-100' : 'opacity-0'
+        )}
+      >
+        <h2 class="text-headline text-foreground truncate">{title}</h2>
+        <p class="text-subheadline text-muted-foreground truncate">{artist}</p>
+      </div>
 
-        <!-- Transport chrome: the shared Scrubber seeks the audio master, so scrubbing here
+      <!-- Transport chrome: the shared Scrubber seeks the audio master, so scrubbing here
              moves the video with it through the sync effect above. -->
-        <div
-          class={cn(
-            'absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/90 via-black/65 to-transparent px-4 pt-10 pb-[max(0.75rem,env(safe-area-inset-bottom))] transition-opacity duration-200 sm:px-8',
-            controlsVisible ? 'opacity-100' : 'pointer-events-none opacity-0'
-          )}
-        >
-          <div class="mx-auto w-full max-w-4xl">
-            <Scrubber isActive={isCurrentSong} {fallbackDuration} />
-            <div class="mt-1 flex items-center gap-3">
-              <span class="text-caption-1 text-muted-foreground w-10 shrink-0 tabular-nums">
-                {isCurrentSong ? formatTime(playerStore.currentTime) : '0:00'}
-              </span>
-              <div class="mx-auto flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  class={cn(transportGlyphClass, 'size-11 disabled:opacity-30')}
-                  onclick={(e) => {
-                    blurAfterPointerClick(e);
-                    playerStore.playPrevious();
-                  }}
-                  disabled={!isCurrentSong || !playerStore.hasPrevious}
-                  aria-label="Previous track"
-                >
-                  <Rewind class="size-6" fill="currentColor" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  class={cn(transportGlyphClass, 'size-14')}
-                  onclick={(e) => {
-                    blurAfterPointerClick(e);
-                    togglePlayback();
-                  }}
-                  aria-label={isPlaying ? 'Pause' : 'Play'}
-                >
-                  {#if isPlaying}
-                    <Pause class="size-8" fill="currentColor" />
-                  {:else}
-                    <Play class="size-8 translate-x-px" fill="currentColor" />
-                  {/if}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  class={cn(transportGlyphClass, 'size-11 disabled:opacity-30')}
-                  onclick={(e) => {
-                    blurAfterPointerClick(e);
-                    playerStore.playNext();
-                  }}
-                  disabled={!isCurrentSong || !playerStore.hasNext}
-                  aria-label="Next track"
-                >
-                  <FastForward class="size-6" fill="currentColor" />
-                </Button>
-              </div>
-              <span class="text-caption-1 text-muted-foreground w-10 shrink-0 text-right tabular-nums">
-                {formatDuration(effectiveDuration)}
-              </span>
+      <div
+        class={cn(
+          'absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/90 via-black/65 to-transparent px-4 pt-10 pb-[max(0.75rem,env(safe-area-inset-bottom))] transition-opacity duration-200 sm:px-8',
+          controlsVisible ? 'opacity-100' : 'pointer-events-none opacity-0'
+        )}
+      >
+        <div class="mx-auto w-full max-w-4xl">
+          <Scrubber isActive={isCurrentSong} {fallbackDuration} />
+          <div class="mt-1 flex items-center gap-3">
+            <span class="text-caption-1 text-muted-foreground w-10 shrink-0 tabular-nums">
+              {isCurrentSong ? formatTime(playerStore.currentTime) : '0:00'}
+            </span>
+            <div class="mx-auto flex items-center gap-2">
               <Button
                 variant="ghost"
                 size="icon"
-                class={cn(transportGlyphClass, 'size-11 shrink-0')}
+                class={cn(transportGlyphClass, 'size-11 disabled:opacity-30')}
                 onclick={(e) => {
                   blurAfterPointerClick(e);
-                  toggleFullscreen();
+                  playerStore.playPrevious();
                 }}
-                aria-label="Exit fullscreen"
-                title="Exit fullscreen (Esc)"
+                disabled={!isCurrentSong || !playerStore.hasPrevious}
+                aria-label="Previous track"
               >
-                <Minimize class="size-5" />
+                <Rewind class="size-6" fill="currentColor" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                class={cn(transportGlyphClass, 'size-14')}
+                onclick={(e) => {
+                  blurAfterPointerClick(e);
+                  togglePlayback();
+                }}
+                aria-label={isPlaying ? 'Pause' : 'Play'}
+              >
+                {#if isPlaying}
+                  <Pause class="size-8" fill="currentColor" />
+                {:else}
+                  <Play class="size-8 translate-x-px" fill="currentColor" />
+                {/if}
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                class={cn(transportGlyphClass, 'size-11 disabled:opacity-30')}
+                onclick={(e) => {
+                  blurAfterPointerClick(e);
+                  playerStore.playNext();
+                }}
+                disabled={!isCurrentSong || !playerStore.hasNext}
+                aria-label="Next track"
+              >
+                <FastForward class="size-6" fill="currentColor" />
               </Button>
             </div>
+            <span
+              class="text-caption-1 text-muted-foreground w-10 shrink-0 text-right tabular-nums"
+            >
+              {formatDuration(effectiveDuration)}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              class={cn(transportGlyphClass, 'size-11 shrink-0')}
+              onclick={(e) => {
+                blurAfterPointerClick(e);
+                toggleFullscreen();
+              }}
+              aria-label="Exit fullscreen"
+              title="Exit fullscreen (Esc)"
+            >
+              <Minimize class="size-5" />
+            </Button>
           </div>
         </div>
-      {/if}
-    </div>
-  {/if}
-  {#if caption}
-    <div class="w-full shrink-0 pt-3" bind:offsetHeight={captionHeight}>
-      {@render caption()}
-    </div>
-  {/if}
-</div>
+      </div>
+    {/if}
+  </div>
+{/snippet}
