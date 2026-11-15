@@ -13,7 +13,7 @@
 </script>
 
 <div data-slot="command-input-wrapper" class="p-1 pb-0">
-	<InputGroup.Root class="h-11! md:h-8! rounded-lg! shadow-none! *:data-[slot=input-group-addon]:pl-2!">
+	<InputGroup.Root class="h-11! md:h-8! *:data-[slot=input-group-addon]:pl-2!">
 		<CommandPrimitive.Input
 			{value}
 			data-slot="command-input"

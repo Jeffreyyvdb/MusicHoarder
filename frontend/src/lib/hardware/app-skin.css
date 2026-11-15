@@ -808,8 +808,7 @@
     input[data-slot='input'],
     textarea[data-slot='textarea'],
     [data-slot='input-group'],
-    [data-slot='search-field'],
-    [data-slot='command-input-wrapper']
+    [data-slot='search-field']
   ) {
   --muted-foreground: var(--mh-lcd-dim);
   border: 0;
@@ -1181,8 +1180,7 @@
 :root[data-mh-skin='hardware']
   :is(
     [data-slot='input-group'],
-    [data-slot='search-field'],
-    [data-slot='command-input-wrapper']
+    [data-slot='search-field']
   ):has(:focus-visible),
 :root[data-mh-skin='hardware']
   :is(input[data-slot='input'], textarea[data-slot='textarea']):focus-visible {
