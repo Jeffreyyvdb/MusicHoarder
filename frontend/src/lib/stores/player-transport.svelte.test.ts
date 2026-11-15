@@ -235,3 +235,69 @@ describe('startQueue', () => {
     expect(audio.paused).toBe(true);
   });
 });
+
+describe('Media Session play after the computer wakes', () => {
+  const MAC_UA =
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+
+  /** A Mac, whose monotonic clock stops while it sleeps and whose wall clock does not. */
+  function onAMac() {
+    const nav = navigator as unknown as Record<string, unknown>;
+    vi.stubGlobal('navigator', { ...nav, userAgent: MAC_UA, maxTouchPoints: 0 });
+    vi.stubGlobal('window', { addEventListener: () => {}, removeEventListener: () => {} });
+    (document as unknown as Record<string, unknown>).addEventListener = () => {};
+    let wall = 1_700_000_000_000;
+    let mono = 1_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => wall);
+    vi.spyOn(performance, 'now').mockImplementation(() => mono);
+    return {
+      sleep: (ms: number) => (wall += ms),
+      pass: (ms: number) => {
+        wall += ms;
+        mono += ms;
+      }
+    };
+  }
+
+  const osPlay = () => (handlers.get('play') as () => void)();
+
+  it('leaves paused music paused when the OS says play as the lid opens', async () => {
+    const mac = onAMac();
+    const player = await freshStore();
+    await player.playSong(QUEUE[0], QUEUE, 0);
+    player.pause();
+    mac.sleep(40 * 60 * 1000);
+    mac.pass(500);
+    osPlay();
+    await settle();
+    expect(audio.paused).toBe(true);
+    expect(player.isPlaying).toBe(false);
+    vi.restoreAllMocks();
+  });
+
+  it('plays on a press a few seconds after the wake', async () => {
+    const mac = onAMac();
+    const player = await freshStore();
+    await player.playSong(QUEUE[0], QUEUE, 0);
+    player.pause();
+    mac.sleep(40 * 60 * 1000);
+    osPlay();
+    mac.pass(6_000);
+    osPlay();
+    await settle();
+    expect(audio.paused).toBe(false);
+    vi.restoreAllMocks();
+  });
+
+  it('plays at once when the computer never slept', async () => {
+    const mac = onAMac();
+    const player = await freshStore();
+    await player.playSong(QUEUE[0], QUEUE, 0);
+    player.pause();
+    mac.pass(40 * 60 * 1000);
+    osPlay();
+    await settle();
+    expect(audio.paused).toBe(false);
+    vi.restoreAllMocks();
+  });
+});
