@@ -133,7 +133,7 @@
       chromeWidth = Math.max(0, outer.offsetWidth - inner.offsetWidth);
       chromeHeight = Math.max(0, outer.offsetHeight - inner.offsetHeight);
     };
-    measure();
+    // The observer's first callback measures, after layout and before the first paint.
     const observer = new ResizeObserver(measure);
     observer.observe(outer);
     observer.observe(inner);
