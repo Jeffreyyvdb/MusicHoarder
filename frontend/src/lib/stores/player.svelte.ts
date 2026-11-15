@@ -27,10 +27,18 @@ import {
   type PlaybackSnapshot,
   type PlaybackSnapshotStore
 } from '#lib/player-snapshot.ts';
+import { describeDevice } from '#lib/playback-sync/device.ts';
 import { previousAction } from '#lib/player-seek.ts';
 import { shuffleUpcoming, startShuffled, unshuffle } from '#lib/player-shuffle.ts';
 import { songsStore } from '#lib/stores/songs.svelte.ts';
 import { artistOf } from '#lib/track-list-view.svelte.ts';
+import {
+  appliesTo,
+  browserClock,
+  createWakeGuard,
+  watchForWake,
+  type WakeGuard
+} from '#lib/wake-guard.ts';
 
 export interface PlayerSong {
   id: number;
@@ -372,7 +380,7 @@ function refreshActionHandlers() {
   // The OS controls are this device's own: a media key, the lock screen or a headset press is a
   // local play intent even while the session plays elsewhere — there it picks the session up here
   // (continuing what the account was listening to) rather than steering the other device.
-  set('play', () => remoteCommand('play'));
+  set('play', osPlay);
   set('pause', () => remoteCommand('pause'));
   set('previoustrack', remoteAvailable('previous') ? () => remoteCommand('previous') : null);
   set('nexttrack', remoteAvailable('next') ? () => remoteCommand('next') : null);
@@ -421,6 +429,35 @@ function syncNativeQueue() {
  */
 function remoteAvailable(step: 'next' | 'previous'): boolean {
   return step === 'next' ? canAdvance() : queueIndex >= 0;
+}
+
+/**
+ * Set while the page's Media Session takes this computer's OS controls (never in the app shell or
+ * on a phone; see `#lib/wake-guard`).
+ */
+let wakeGuard: WakeGuard | null = null;
+
+function startWakeGuard() {
+  if (wakeGuard || nativeEl) return;
+  const { kind } = describeDevice(navigator.userAgent ?? '', {
+    maxTouchPoints: navigator.maxTouchPoints ?? 0
+  });
+  if (!appliesTo(kind)) return;
+  wakeGuard = createWakeGuard(browserClock);
+  watchForWake(wakeGuard); // for the page's lifetime, like the element it guards
+}
+
+/**
+ * The OS asked the page to play. Just after the computer wakes that is the system's own doing
+ * (macOS sends the Now Playing app a play as it comes back) — paused music would start the moment
+ * the lid opens. Left paused instead; a press a few seconds later plays as usual.
+ */
+function osPlay() {
+  if (wakeGuard?.justWoke()) {
+    if (!isPlaying) setPlaybackState('paused'); // the OS may already show it playing
+    return;
+  }
+  remoteCommand('play');
 }
 
 /**
@@ -811,6 +848,7 @@ function ensureAudioEl(): PlayerAudio | null {
   });
 
   audioEl = el;
+  startWakeGuard();
   // Register once on the session-owned element; handlers re-evaluate queue
   // position each time they fire, and refreshActionHandlers() re-runs on load.
   refreshActionHandlers();
