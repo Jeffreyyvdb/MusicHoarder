@@ -14,6 +14,8 @@
  * page-wide haptics and sounds check that attribute before they do anything
  * (behaviors/active.ts).
  */
+import { ensureSkinStylesheet } from './skin-stylesheet.ts';
+
 export const STORAGE_KEY = 'mh:hardware';
 /** behaviors/sound.ts keeps its own switch under this key; read here so it need not load. */
 const SOUND_KEY = 'spec01:sound';
@@ -129,6 +131,9 @@ function apply(): void {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
   if (enabled) {
+    // Usually there already (app.html adds it on a reload); without it the attribute styles nothing,
+    // so the page stays plain until it lands rather than half-dressed.
+    ensureSkinStylesheet();
     root.dataset.mhSkin = 'hardware';
     loadBehaviors();
   } else {

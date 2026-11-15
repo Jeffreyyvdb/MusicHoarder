@@ -20,7 +20,10 @@ like Appearance: `localStorage['mh:hardware']` is absent (locked), `on` or `off`
 - `hardware-mode.svelte.ts` — the state, the Konami matcher and the secret phrases. Sets
   `data-mh-skin="hardware"` on `<html>`; `app.html` does the same before the first frame, and the
   root layout follows it for `theme-color` (`HARDWARE_THEME_COLOR`, mirrored in `app.html`).
-- `app-skin.css` — the whole app under the skin, imported from `app.css`. Its header lists the
+- `app-skin.css` — the whole app under the skin. Not imported from `app.css`: it is its own
+  stylesheet, requested only while the skin is on (`skin-stylesheet.ts`) — by `app.html`'s
+  first-paint script as a render-blocking `<link>` on a reload (the server fills in its hashed URL,
+  `hooks.server.ts`), and by `hardware-mode.svelte.ts` when the skin is switched on. Its header lists the
   vocabulary (desk, body, LCD, keys, labels, LED) and every hook it styles: the primitives by
   `data-slot` (plus `filter-chip`), Button's `data-variant`, `.mh-chrome`, `.mh-cover` / `.mh-cover-img`, and a few
   `data-mh-*` attributes in the shell, TrackList, AlbumPage, By folder, the mini player and the tab
