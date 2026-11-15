@@ -367,7 +367,7 @@
             href={backTarget.href}
             aria-label="Back to {backTarget.label}"
             onclick={(e) => goBack(e, backTarget)}
-            class="mh-glass mh-chrome text-foreground focus-visible:ring-ring grid size-11 place-items-center rounded-full transition-transform duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] focus-visible:outline-hidden focus-visible:ring-2 active:scale-[0.94]"
+            class="mh-glass mh-chrome text-foreground focus-visible:ring-ring grid size-11 place-items-center rounded-full transition-transform duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] focus-visible:ring-2 focus-visible:outline-hidden active:scale-[0.94]"
           >
             <!-- Nudged left a hair: a chevron's visual centre is right of its box's. -->
             <ChevronLeft
@@ -535,13 +535,16 @@
         </div>
       {/if}
     </div>
+    <!-- md+ wraps the chip band rather than scrolling it: with a mouse a sideways scroller has to
+         show its bar (it is the only way to reach the last chip), and a bar under a row of chips
+         is noise. Wrapping keeps every chip in reach with nothing to scroll. -->
     {#if filters}
-      <div data-scroll-x="" class="no-scrollbar flex items-center gap-2 overflow-x-auto px-7 pb-2">
+      <div class="flex flex-wrap items-center gap-2 px-7 pb-2">
         {@render filters()}
       </div>
     {/if}
     {#if filterRow}
-      <div data-scroll-x="" class="no-scrollbar flex items-center gap-2 overflow-x-auto px-7 pb-2">
+      <div class="flex flex-wrap items-center gap-2 px-7 pb-2">
         {@render filterRow()}
       </div>
     {/if}
