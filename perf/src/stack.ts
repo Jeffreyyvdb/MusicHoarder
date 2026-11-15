@@ -3,13 +3,18 @@
 
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:net'
 import { join } from 'node:path'
 import { REPO_ROOT, PERF_ROOT, type StackConfig, type Target } from './config.ts'
+import { availableBytes, FOOTPRINT_MB, limitsFor, memoryShortfall } from './memory.ts'
+import { scoped, stopScopes, unitName, type ScopeRequest } from './scope.ts'
 
 interface StackState {
   apiPid: number
   webPid: number
   cookies: string[]
+  /** Systemd scopes the API and the frontend run in, when started with scopes. */
+  units?: string[]
 }
 
 const statePath = (cfg: StackConfig) => join(cfg.workDir, 'state.json')
@@ -118,12 +123,37 @@ function makeTemplates(dir: string) {
   }
 }
 
+/** The Docker memory limit for this size's Postgres (always on: it runs under the Docker daemon, outside any scope). */
+function postgresMemoryArgs(cfg: StackConfig): string[] {
+  const limits = limitsFor(FOOTPRINT_MB[cfg.size].postgres)
+  return ['--memory', `${limits.maxMb}m`, '--memory-swap', `${limits.maxMb + limits.swapMaxMb}m`]
+}
+
+/** The container's state, and the host port it publishes 5432 on; null when there is no container. */
+function inspectPostgres(cfg: StackConfig): { running: boolean; hostPort: number | null } | null {
+  const result = spawnSync('docker', ['inspect', '-f', '{{.State.Running}} {{json .HostConfig.PortBindings}}', cfg.pgContainer], { encoding: 'utf8' })
+  if (result.status !== 0) return null
+  const [state, bindings] = [result.stdout.slice(0, result.stdout.indexOf(' ')), result.stdout.slice(result.stdout.indexOf(' ') + 1)]
+  let hostPort: number | null = null
+  try {
+    hostPort = Number((JSON.parse(bindings) as Record<string, { HostPort: string }[]>)['5432/tcp']?.[0]?.HostPort) || null
+  } catch { /* no bindings */ }
+  return { running: state === 'true', hostPort }
+}
+
 function startPostgres(cfg: StackConfig) {
-  const exists = spawnSync('docker', ['inspect', '-f', '{{.State.Running}}', cfg.pgContainer], { encoding: 'utf8' })
-  if (exists.status !== 0) {
+  let container = inspectPostgres(cfg)
+  if (container && container.hostPort !== cfg.pgPort) {
+    // Made with another PERF_PG_PORT: a container's ports are fixed, so make it again on the same volume.
+    log(`re-creating ${cfg.pgContainer} on port ${cfg.pgPort} (it was on ${container.hostPort}; the data is kept)`)
+    run('docker', ['rm', '-f', cfg.pgContainer], { quiet: true })
+    container = null
+  }
+  if (!container) {
     log(`starting Postgres (${cfg.pgContainer}) on 127.0.0.1:${cfg.pgPort}`)
     run('docker', [
       'run', '-d', '--name', cfg.pgContainer,
+      ...postgresMemoryArgs(cfg),
       '-e', 'POSTGRES_PASSWORD=perf', '-e', 'POSTGRES_DB=musichoarderdb',
       '-p', `127.0.0.1:${cfg.pgPort}:5432`,
       '-v', `${cfg.pgVolume}:/var/lib/postgresql/data`,
@@ -132,8 +162,37 @@ function startPostgres(cfg: StackConfig) {
       '-c', 'pg_stat_statements.track=top',
       '-c', 'pg_stat_statements.max=5000',
     ], { quiet: true })
-  } else if (exists.stdout.trim() !== 'true') {
-    run('docker', ['start', cfg.pgContainer], { quiet: true })
+  } else {
+    // A container from before the limit existed, or from another size's numbers.
+    const update = spawnSync('docker', ['update', ...postgresMemoryArgs(cfg), cfg.pgContainer], { encoding: 'utf8' })
+    if (update.status !== 0) log(`could not set the Postgres memory limit (${update.stderr.trim()}); going on without it`)
+    if (!container.running) run('docker', ['start', cfg.pgContainer], { quiet: true })
+  }
+}
+
+const portFree = (port: number) =>
+  new Promise<boolean>((resolve) => {
+    const server = createServer()
+    server.once('error', () => resolve(false))
+    server.listen(port, '127.0.0.1', () => server.close(() => resolve(true)))
+  })
+
+/** Fails early, naming the port, when something that is not this stack holds one of its ports. */
+async function checkPorts(cfg: StackConfig) {
+  const ours = inspectPostgres(cfg)
+  const ports: [number, string, string][] = [
+    [cfg.apiPort, 'API', 'PERF_API_PORT'],
+    [cfg.webPort, 'frontend', 'PERF_WEB_PORT'],
+  ]
+  // Our own Postgres, running on its port, holds it legitimately.
+  if (!(ours?.running && ours.hostPort === cfg.pgPort)) ports.push([cfg.pgPort, 'Postgres', 'PERF_PG_PORT'])
+  for (const [port, what, variable] of ports) {
+    if (await portFree(port)) continue
+    const container = spawnSync('docker', ['ps', '--filter', `publish=${port}`, '--format', '{{.Names}}'], { encoding: 'utf8' }).stdout?.trim()
+    throw new Error(
+      `Port ${port} (the ${what}) is already in use${container ? ` by the container ${container}` : ''}. ` +
+      `Stop whatever holds it, or pick another port with ${variable}=<port> (set it for every perf command of this stack).`,
+    )
   }
 }
 
@@ -147,9 +206,11 @@ export function psql(cfg: StackConfig, sql: string): string[][] {
   return out.split('\n').filter(Boolean).map((line) => line.split('\t'))
 }
 
-function spawnDetached(command: string, args: string[], cwd: string, env: Record<string, string>, logFile: string): number {
+function spawnDetached(command: string, args: string[], cwd: string, env: Record<string, string>, logFile: string, scope: ScopeRequest | null): number {
   const fd = openSync(logFile, 'w')
-  const child = spawn(command, args, { cwd, env: { ...process.env, ...env }, detached: true, stdio: ['ignore', fd, fd] })
+  // In a scope, systemd-run execs the command in place, so the pid below is still the command's.
+  const [file, argv] = scope ? scoped(command, args, scope) : [command, args]
+  const child = spawn(file, argv, { cwd, env: { ...process.env, ...env }, detached: true, stdio: ['ignore', fd, fd] })
   child.unref()
   if (!child.pid) throw new Error(`Could not start ${command}.`)
   return child.pid
@@ -225,10 +286,20 @@ async function signIn(cfg: StackConfig, apiLog: string): Promise<{ cookies: stri
 
 export interface UpOptions {
   build: boolean
+  /** Start even when the machine looks short of memory. */
+  force: boolean
+  /** Run the API and the frontend in systemd scopes (`useScopes`). */
+  scopes: boolean
+  /** Called once the API and the frontend have pids, so the stack lock can follow them. */
+  onStarted?: (pids: number[]) => void
 }
 
 export async function up(cfg: StackConfig, options: UpOptions): Promise<Target> {
   await down(cfg, { quiet: true, keepDatabase: true })
+  await checkPorts(cfg)
+  const shortfall = memoryShortfall(cfg.size, availableBytes(), { build: options.build })
+  if (shortfall && !options.force) throw new Error(shortfall)
+  if (shortfall) log(`${shortfall.split('. ')[0]}; starting anyway (--force).`)
   for (const dir of ['templates', 'source', 'destination', 'dpkeys', 'covers', 'logs'])
     mkdirSync(join(cfg.workDir, dir), { recursive: true })
 
@@ -267,7 +338,12 @@ export async function up(cfg: StackConfig, options: UpOptions): Promise<Target> 
 
   const apiLog = join(cfg.workDir, 'logs/api.log')
   log(`starting the API on ${cfg.apiUrl}`)
-  const apiPid = spawnDetached('dotnet', [join(apiDir, 'MusicHoarder.Api.dll')], apiDir, apiEnvironment(cfg), apiLog)
+  const scope = (part: 'api' | 'frontend'): ScopeRequest | null =>
+    options.scopes ? { name: unitName(['mh-perf', cfg.instance, cfg.size, part]), peakMb: FOOTPRINT_MB[cfg.size][part] } : null
+  const apiScope = scope('api')
+  const webScope = scope('frontend')
+  const units = [apiScope, webScope].flatMap((s) => (s ? [s.name] : []))
+  const apiPid = spawnDetached('dotnet', [join(apiDir, 'MusicHoarder.Api.dll')], apiDir, apiEnvironment(cfg), apiLog, apiScope)
   log(`starting the frontend on ${cfg.webUrl}`)
   const webPid = spawnDetached('bun', ['build/index.js'], frontendDir, {
     NODE_ENV: 'production',
@@ -276,8 +352,10 @@ export async function up(cfg: StackConfig, options: UpOptions): Promise<Target> 
     ORIGIN: cfg.webUrl,
     MUSICHOARDER_API_URL: cfg.apiUrl,
     OTEL_EXPORTER_OTLP_ENDPOINT: '',
-  }, join(cfg.workDir, 'logs/web.log'))
-  writeFileSync(statePath(cfg), JSON.stringify({ apiPid, webPid, cookies: [] } satisfies StackState))
+  }, join(cfg.workDir, 'logs/web.log'), webScope)
+  writeFileSync(statePath(cfg), JSON.stringify({ apiPid, webPid, cookies: [], units } satisfies StackState))
+  options.onStarted?.([apiPid, webPid])
+  if (units.length) log(`running in systemd scopes ${units.map((u) => `${u}.scope`).join(', ')}`)
 
   try {
     await waitFor('the API', async () => {
@@ -292,7 +370,7 @@ export async function up(cfg: StackConfig, options: UpOptions): Promise<Target> 
 
   await waitUntilIdle(apiPid, 'the API')
   const session = await signIn(cfg, apiLog)
-  writeFileSync(statePath(cfg), JSON.stringify({ apiPid, webPid, ...session } satisfies StackState))
+  writeFileSync(statePath(cfg), JSON.stringify({ apiPid, webPid, units, ...session } satisfies StackState))
   log('stack is up')
   return target(cfg)
 }
@@ -332,6 +410,8 @@ export async function down(cfg: StackConfig, options: { quiet?: boolean; keepDat
     for (const pid of [state.apiPid, state.webPid]) {
       if (alive(pid)) try { process.kill(-pid, 'SIGKILL') } catch { /* already gone */ }
     }
+    // Anything else still in the stack's scopes (a child that left its process group).
+    stopScopes(state.units ?? [])
     rmSync(statePath(cfg))
     if (!options.quiet) log('stopped the API and the frontend')
   }

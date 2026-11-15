@@ -86,7 +86,12 @@ bun perf down [--purge]      stop it (--purge also deletes the seeded database a
 bun perf compare <a> <b>     compare two runs, by label or folder
 bun perf list                runs so far
 bun perf help                every option
+bun run test                 the suite's own unit tests (lock, memory check, names)
 ```
+
+`up` and `all` take the machine's stack lock and check free memory first (see **One stack per
+machine** below): `--no-wait` fails instead of waiting for the lock, `--force` starts despite low
+memory, and `--scope` runs the stack in systemd scopes.
 
 While working on one thing, keep the stack up and re-measure only that:
 
@@ -107,6 +112,81 @@ the page, so leave it off for runs you intend to compare.
 `--size` picks the library: `tiny` 300 songs, `small` 2,000, `medium` 10,000 (default), `large`
 30,000. Each size has its own database, seeded once and reused.
 
+## One stack per machine
+
+A stack is a Postgres, a Release API, the Node frontend and, while the browser scenarios run, a
+headless Chromium: about 1.5 GB for `tiny`, close to 3 GB for `medium` (see **Memory** below). Several of them
+at once can run a machine out of memory, and since every process lives in the cgroup of whatever
+started it, the out-of-memory killer (systemd-oomd kills whole cgroups) then takes the terminal,
+editor or agent session that started the run along with it. So:
+
+- **`up` and `all` take a machine-wide lock** before they start anything:
+  `~/.cache/musichoarder-perf/stack.lock` (under `$XDG_CACHE_HOME` when set), in the shared cache
+  folder whatever `PERF_WORK_DIR` says. When another stack holds it they wait, printing who holds it
+  (its command or pids, library size, work dir and start time); `--no-wait` fails at once instead.
+  `all` holds the lock until it has stopped the stack, `up` until **`down`**: the stack stays running
+  after `up` returns, and so does the lock, so always `down` a stack you brought `up`. A lock whose
+  processes have all gone (a crash, a reboot) is stale, and the next run removes it. Ctrl-C during
+  `all` stops the stack and releases the lock. `measure`, `api` and `web` use a running stack and
+  take no lock. `up` in the work dir whose stack is already up restarts that stack, as before.
+- **The free-memory check**: `up` and `all` read the memory available (`MemAvailable` from
+  `/proc/meminfo` on Linux, free memory elsewhere) and refuse to start below what the chosen size
+  needs. `--force` starts anyway.
+- **Every work dir has its own database**: the Docker container and volume are named after the work
+  dir. The default one keeps the plain names (`mh-perf-postgres-medium`, `mh-perf-pgdata-medium`),
+  so the volume it already seeded is reused; any other `PERF_WORK_DIR` adds a short hash of its path
+  (`mh-perf-postgres-medium-1a2b3c4d`), or `PERF_INSTANCE=<name>` names it outright. Ports are not
+  derived: `PERF_PG_PORT`, `PERF_API_PORT` and `PERF_WEB_PORT` pick them (defaults 55432, 5599,
+  5598), and `up` fails early naming the port when something else holds one. Changing
+  `PERF_PG_PORT` for an existing database re-creates its container on the same volume.
+
+Several sessions sharing one machine (separate worktrees, say) should each set their own work dir
+and ports, for every perf command they run, and let the lock queue them:
+
+```bash
+export PERF_WORK_DIR=~/.cache/musichoarder-perf-b PERF_PG_PORT=55433 PERF_API_PORT=5601 PERF_WEB_PORT=5602
+bun perf all --size small --label try-1     # waits while another session's stack runs
+```
+
+### Containing a run (Linux with systemd)
+
+With `--scope` (or `PERF_SYSTEMD_SCOPE=1`), the API, the frontend and the browser run (Node and its
+Chromium) each start in a transient systemd user scope (`systemd-run --user --scope`) in
+`app-mhperf.slice` (override with `PERF_SYSTEMD_SLICE`), with `MemoryHigh` and `MemoryMax` set from
+the size's measured peak. If memory runs out, the limit or systemd-oomd then kills the perf stack
+rather than the session that started it: the kernel kills the part over its limit and systemd
+stops that part's scope (`journalctl --user` says `Failed with result 'oom-kill'`). The rest of
+the stack keeps running and holding the lock, and measuring it says the stack is down;
+`bun perf down` clears it up. `systemd-cgls --user-unit app-mhperf.slice` shows the
+scopes while a stack runs. Where `systemd-run --user` is not available (macOS, most CI) the flag
+prints one line and changes nothing. Pass it to `web` and `measure` as well, or export the variable,
+since the browser starts with those. The builds and the seeder are short-lived and run unscoped.
+`PERF_SYSTEMD_MEMORY_MAX_MB` puts one low limit on every scope, for checking that the containment
+works.
+
+Postgres runs under the Docker daemon, outside any scope, so it always gets a `docker run --memory`
+limit of its own, sized the same way (and `docker update`d onto containers made before the limit).
+
+### Memory
+
+Peak memory per part of the stack (cgroup `memory.peak`, page cache included) on a real run, which
+`FOOTPRINT_MB` in `src/memory.ts` holds rounded up; the limits are 1.5× these:
+
+| Size | Postgres | API | Frontend | Node + Chromium | Needs free |
+|---|---|---|---|---|---|
+| tiny (measured) | 166 MB | 564 MB | 85 MB | 407 MB | 1.5 GB |
+| small (measured) | 205 MB | 504 MB | 87 MB | 519 MB | 1.7 GB |
+| medium | 328 MB (seed) | estimated | estimated | estimated | 2.7 GB |
+| large | estimated | estimated | estimated | estimated | 4.8 GB |
+
+`memory.peak` counts page cache the kernel can reclaim, so these overstate what a part strictly
+needs; the API idles near 170 MB with `tiny`. The Postgres limit does not slow the seed: 10,000
+songs seeded in 24 s with the `medium` limit and in 32 s without.
+
+The build (`dotnet build` and the frontend's Vite build, about 1.7 GB together at their peak) runs
+before the stack starts, so the check asks for whichever is larger. Re-measure after a change that
+moves these much, and update `FOOTPRINT_MB`.
+
 ## The generated library
 
 `seed/` is a small .NET program that uses the API's own EF model, so it follows schema changes. It
@@ -117,7 +197,8 @@ same seed always produces the same library.
 
 The stack runs with every outside call switched off (enrichment providers, cover and lyrics
 lookups, update checks). Its Postgres listens on loopback only, and the data lives in
-`~/.cache/musichoarder-perf` (override with `PERF_WORK_DIR`) and a Docker volume per size.
+`~/.cache/musichoarder-perf` (override with `PERF_WORK_DIR`) and a Docker volume per size and work
+dir.
 
 ## A live instance
 

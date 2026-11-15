@@ -6,15 +6,18 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { join, resolve } from 'node:path'
 import { runApiBench, type ApiReport } from './api/bench.ts'
 import { compare } from './compare.ts'
-import { PERF_ROOT, SIZES, stackConfig, type SizeName, type Target } from './config.ts'
+import { PERF_ROOT, SIZES, stackConfig, type SizeName, type StackConfig, type Target } from './config.ts'
+import { acquire, describeHolder, ref, releaseLock, releaseMine, running, updateLock, type LockHolder } from './lock.ts'
+import { FOOTPRINT_MB } from './memory.ts'
 import { renderHtml, renderMarkdown, type RunResult } from './report.ts'
+import { scoped, unitName, useScopes } from './scope.ts'
 import { down, target as localTarget, up } from './stack.ts'
 import { PROFILES, type WebBenchOptions, type WebReport } from './web/bench.ts'
 
 const HELP = `MusicHoarder performance suite
 
   bun perf all      [options]   start a local stack, measure the API and the web app, write a report, stop
-  bun perf up       [options]   start the local stack and leave it running
+  bun perf up       [options]   start the local stack and leave it running (it keeps the machine's stack lock until "down")
   bun perf measure  [options]   measure both against the running stack (or --url)
   bun perf api      [options]   measure the API (against the running stack, or --url)
   bun perf web      [options]   measure the web app in a browser (against the running stack, or --url)
@@ -27,7 +30,11 @@ Options
   --size tiny|small|medium|large   library to seed: ${Object.entries(SIZES).map(([k, v]) => `${k} ${v.toLocaleString('en')}`).join(', ')} songs (default medium)
   --label <name>                   name the run (default: the git branch)
   --no-build                       reuse the last API and frontend builds
-  --keep                           with "all": leave the stack running afterwards
+  --keep                           with "all": leave the stack running afterwards (and the lock taken, until "down")
+  --no-wait                        with "up"/"all": fail at once when another stack holds the machine's lock, instead of waiting
+  --force                          with "up"/"all": start even when the machine looks short of memory
+  --scope                          run the API, the frontend and Chromium in systemd scopes with memory limits
+                                   (Linux with systemd only; same as PERF_SYSTEMD_SCOPE=1)
   --iterations <n>                 samples per endpoint (default 12)
   --concurrency <n>                parallel callers in the load pass, 0 to skip (default 8)
   --only <text>                    only endpoints / scenarios whose name contains this
@@ -64,13 +71,18 @@ const resultsRoot = join(PERF_ROOT, 'results')
  * The browser scenarios run in a Node child process: Playwright drives Chromium over pipes, which
  * Bun does not keep open reliably. Node runs the same TypeScript as it is (22.18 or newer).
  */
-function runWebInNode(dir: string, target: Target, options: WebBenchOptions): WebReport {
+function runWebInNode(dir: string, target: Target, options: WebBenchOptions, scope: { cfg: StackConfig } | null): WebReport {
   const job = join(dir, 'web-job.json')
   const out = join(dir, 'web-report.json')
   // The job holds the session cookie, so it is removed again whatever happens.
   writeFileSync(job, JSON.stringify({ target, options, out }), { mode: 0o600 })
   try {
-    const result = Bun.spawnSync(['node', join(PERF_ROOT, 'src/web/run.ts'), job], { stdio: ['ignore', 'inherit', 'inherit'] })
+    // Chromium is a child of this Node process, so a scope around Node holds the browser too.
+    const args = [join(PERF_ROOT, 'src/web/run.ts'), job]
+    const [command, argv] = scope
+      ? scoped('node', args, { name: unitName(['mh-perf', scope.cfg.instance, scope.cfg.size, 'web']), peakMb: FOOTPRINT_MB[scope.cfg.size].web })
+      : ['node', args]
+    const result = Bun.spawnSync([command, ...argv], { stdio: ['ignore', 'inherit', 'inherit'] })
     if (!result.success) throw new Error('The browser scenarios failed (see above). They need Node 22.18 or newer on PATH.')
     return JSON.parse(readFileSync(out, 'utf8')) as WebReport
   } finally {
@@ -89,12 +101,65 @@ function resolveRun(name: string): string {
 
 const loadRun = (dir: string) => JSON.parse(readFileSync(join(dir, 'result.json'), 'utf8')) as RunResult
 
+/**
+ * Takes the machine's stack lock for `up`/`all`, waiting for another stack to finish unless told
+ * not to. A stack this same work dir left running is taken over, since `up` restarts it anyway.
+ * The lock goes with this process when it exits, unless `handOver` gave it to the stack.
+ */
+async function takeStackLock(cfg: StackConfig, command: string, wait: boolean) {
+  const me: LockHolder = {
+    owner: ref(process.pid),
+    stack: [],
+    command,
+    workDir: cfg.workDir,
+    size: cfg.size,
+    startedAt: new Date().toISOString(),
+  }
+  await acquire(cfg.lockFile, me, {
+    wait,
+    takeOver: (holder) => holder.workDir === cfg.workDir && !(holder.owner && running(holder.owner)),
+    onBusy: (holder) =>
+      console.log(`[lock] waiting for ${holder ? describeHolder(holder) : 'a perf command that is just starting'} (--no-wait fails instead)`),
+  })
+  process.on('exit', () => releaseMine(cfg.lockFile))
+  // Ctrl-C or a kill: stop what this run started, then let the lock go.
+  let stopping = false
+  const stop = (signal: NodeJS.Signals) => {
+    if (stopping) return
+    stopping = true
+    console.log(`\n[stack] ${signal}: stopping the stack`)
+    down(cfg, { quiet: true }).finally(() => process.exit(signal === 'SIGINT' ? 130 : 143))
+  }
+  const signals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP']
+  for (const signal of signals) process.on(signal, stop)
+  return {
+    /** The stack's processes keep the lock alive from here on. */
+    follow: (pids: number[]) => updateLock(cfg.lockFile, (holder) => ({ ...holder, stack: pids.map(ref) })),
+    /** The stack stays up after this process: the lock is the stack's now, released by `down`. */
+    handOver: () => {
+      for (const signal of signals) process.off(signal, stop)
+      updateLock(cfg.lockFile, (holder) => ({ ...holder, owner: null }))
+    },
+  }
+}
+
+/** `down`'s release: this work dir's lock, unless a live command elsewhere still owns it (it releases it itself). */
+const releaseStackLock = (cfg: StackConfig) =>
+  releaseLock(cfg.lockFile, (holder) => holder.workDir === cfg.workDir && !(holder.owner && holder.owner.pid !== process.pid && running(holder.owner)))
+
 async function main() {
   const [command = 'help', ...rest] = process.argv.slice(2)
   const { flags, positional } = parseArgs(rest)
   const size = (flags.get('size') ?? 'medium') as SizeName
   if (!(size in SIZES)) throw new Error(`Unknown size "${size}". Use one of: ${Object.keys(SIZES).join(', ')}.`)
   const cfg = stackConfig(size)
+  const scopes = useScopes(flags.has('scope'))
+  const upOptions = (lock: { follow: (pids: number[]) => void }) => ({
+    build: !flags.has('no-build'),
+    force: flags.has('force'),
+    scopes,
+    onStarted: lock.follow,
+  })
 
   const remoteUrl = flags.get('url')?.replace(/\/$/, '')
   const remoteTarget = (): Target => {
@@ -139,7 +204,7 @@ async function main() {
         runs: Number(flags.get('runs') ?? 3),
         filter: flags.get('only') ?? null,
         cpuProfileDir: flags.has('cpu-profile') ? dir : null,
-      })
+      }, scopes ? { cfg } : null)
     }
 
     writeFileSync(join(dir, 'result.json'), JSON.stringify(run, null, 2))
@@ -156,12 +221,23 @@ async function main() {
   }
 
   switch (command) {
-    case 'up':
-      await up(cfg, { build: !flags.has('no-build') })
+    case 'up': {
+      const lock = await takeStackLock(cfg, 'up', !flags.has('no-wait'))
+      try {
+        await up(cfg, upOptions(lock))
+      } catch (error) {
+        // Nothing half-started stays behind holding memory (or the lock).
+        await down(cfg, { quiet: true })
+        throw error
+      }
+      lock.handOver()
       console.log(`API ${cfg.apiUrl} · web ${cfg.webUrl} · logs ${join(cfg.workDir, 'logs')}`)
+      console.log(`This stack holds the machine's perf lock until "bun perf down --size ${cfg.size}".`)
       break
+    }
     case 'down':
       await down(cfg, { purge: flags.has('purge') })
+      if (releaseStackLock(cfg)) console.log('[lock] released the machine\'s perf lock')
       break
     case 'measure':
     case 'api':
@@ -173,11 +249,16 @@ async function main() {
         await measure(remoteTarget(), { api: true, web: true })
         break
       }
-      const target = await up(cfg, { build: !flags.has('no-build') })
+      const lock = await takeStackLock(cfg, 'all', !flags.has('no-wait'))
+      let started = false
       try {
+        const target = await up(cfg, upOptions(lock))
+        started = true
         await measure(target, { api: true, web: true })
       } finally {
-        if (!flags.has('keep')) await down(cfg)
+        // --keep leaves a stack that came up running, even when measuring it failed.
+        if (started && flags.has('keep')) lock.handOver()
+        else await down(cfg)
       }
       break
     }
