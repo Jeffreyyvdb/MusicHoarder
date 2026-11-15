@@ -94,8 +94,11 @@
           />
           <span class="text-caption-2 max-w-full truncate px-1">{tab.label}</span>
           {#if badge != null}
+            <!-- z-10: every tab is positioned, so a later tab (the active one's fill) would otherwise
+                 paint over a badge wide enough ("99+") to reach into it. -->
             <span
-              class="bg-destructive text-destructive-foreground text-caption-2 absolute top-[3px] left-[calc(50%+4px)] grid h-[18px] min-w-[18px] place-items-center rounded-full px-[5px] font-semibold tabular-nums"
+              data-mh-tab-badge=""
+              class="bg-destructive text-destructive-foreground text-caption-2 absolute top-[3px] left-[calc(50%+4px)] z-10 grid h-[18px] min-w-[18px] place-items-center rounded-full px-[5px] font-semibold tabular-nums"
               aria-hidden="true">{badge > 99 ? '99+' : badge}</span
             >
           {/if}
