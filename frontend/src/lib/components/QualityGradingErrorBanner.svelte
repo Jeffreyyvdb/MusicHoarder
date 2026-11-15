@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { poll } from '#lib/poll.ts';
   import { CircleAlert } from '@lucide/svelte';
   import { fetchQualityProgress, type QualityProgress } from '#lib/api-client.ts';
   import * as Alert from '#lib/components/ui/alert/index.js';
@@ -30,11 +31,7 @@
     }
   }
 
-  onMount(() => {
-    void refresh();
-    const handle = setInterval(() => void refresh(), POLL_INTERVAL_MS);
-    return () => clearInterval(handle);
-  });
+  onMount(() => poll(() => void refresh(), POLL_INTERVAL_MS, { immediate: true }));
 </script>
 
 {#if lastError && !suppressed}

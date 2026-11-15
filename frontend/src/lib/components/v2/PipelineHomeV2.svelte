@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { poll } from '#lib/poll.ts';
   import { LinearProgress } from '#lib/components/ui/progress/index.ts';
   import {
     ChevronRight,
@@ -125,14 +126,11 @@
     }
   }
 
-  $effect(() => {
-    void loadAll();
-    // Re-poll on the same cadence as the rest of the app so counts stay fresh
-    // while a job runs. The SSE-backed conveyor updates independently, and the
-    // in-flight guard above keeps a slow refresh from stacking up.
-    const poll = setInterval(() => void loadAll(), 8_000);
-    return () => clearInterval(poll);
-  });
+  // Re-poll on the same cadence as the rest of the app so counts stay fresh
+  // while a job runs (paused while the page is hidden). The SSE-backed conveyor
+  // updates independently, and the in-flight guard above keeps a slow refresh
+  // from stacking up.
+  $effect(() => poll(() => void loadAll(), 8_000, { immediate: true }));
 
   // ── live pipeline (SSE) ────────────────────────────────────────────────────
   const snap = $derived(pipelineOverlay.snapshot);

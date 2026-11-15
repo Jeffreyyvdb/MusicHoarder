@@ -8,6 +8,34 @@ import noLayoutReadBeforeResizeObserver from './eslint/no-layout-read-before-res
 
 const svelteConfig = (await loadConfig('./', { traverse: false }))?.config;
 
+/** Whole-library scans of `songsStore.songs` outside the store (see the block that uses it). */
+const songScans = [
+  {
+    selector:
+      "CallExpression[callee.type='MemberExpression'][callee.object.type='MemberExpression'][callee.object.object.name='songsStore'][callee.object.property.name='songs'][callee.property.name=/^(filter|find|findIndex|findLast|findLastIndex|reduce|reduceRight|some|every|forEach|map|flatMap)$/]",
+    message:
+      'Do not scan songsStore.songs in a component. Read a shared cut (songsStore.builtSongs, .trackListSongs, .leadArtistGroups, .albums, .libraryCounts, .enrichmentStatusCounts), look a row up with songsStore.songsById, or add a cut to lib/stores/songs.svelte.ts.'
+  },
+  {
+    selector:
+      "CallExpression > MemberExpression.arguments[object.name='songsStore'][property.name='songs'], VariableDeclarator > MemberExpression.init[object.name='songsStore'][property.name='songs'], ForOfStatement > MemberExpression.right[object.name='songsStore'][property.name='songs'], SpreadElement > MemberExpression.argument[object.name='songsStore'][property.name='songs']",
+    message:
+      'Do not pass or alias songsStore.songs outside the store: that hides a whole-library scan. Read a shared cut (songsStore.builtSongs, .trackListSongs, .leadArtistGroups, .albums, .libraryCounts, .enrichmentStatusCounts) or songsStore.songsById, or add a cut to lib/stores/songs.svelte.ts. Reading .length is fine.'
+  }
+];
+
+/**
+ * A bare setInterval keeps polling while the tab is hidden or the installed app is in the
+ * background. Polls go through #lib/poll; a timer that is not a poll says why on its disable line
+ * (`// eslint-disable-next-line no-restricted-syntax -- <reason>`).
+ */
+const pollMessage =
+  'Poll with `poll()` from #lib/poll (it pauses while the page is hidden). A timer that is not a poll: disable this line with the reason.';
+const barePolls = [
+  { selector: "CallExpression[callee.name='setInterval']", message: pollMessage },
+  { selector: "CallExpression[callee.property.name='setInterval']", message: pollMessage }
+];
+
 export default ts.config(
   js.configs.recommended,
   ...ts.configs.recommended,
@@ -57,6 +85,8 @@ export default ts.config(
       }
     }
   },
+  // Both guards below use no-restricted-syntax, and a later block's setting of a rule replaces an
+  // earlier one for the files both match, so each block lists every selector that applies to it.
   {
     // The library is thousands of rows. A component that filters, searches or folds the whole of
     // `songsStore.songs` repeats that walk on every refresh, like and patchSong, once per mounted
@@ -66,21 +96,14 @@ export default ts.config(
     files: ['src/**/*.ts', 'src/**/*.svelte'],
     ignores: ['src/lib/stores/**', 'src/**/*.test.ts'],
     rules: {
-      'no-restricted-syntax': [
-        'error',
-        {
-          selector:
-            "CallExpression[callee.type='MemberExpression'][callee.object.type='MemberExpression'][callee.object.object.name='songsStore'][callee.object.property.name='songs'][callee.property.name=/^(filter|find|findIndex|findLast|findLastIndex|reduce|reduceRight|some|every|forEach|map|flatMap)$/]",
-          message:
-            'Do not scan songsStore.songs in a component. Read a shared cut (songsStore.builtSongs, .trackListSongs, .leadArtistGroups, .albums, .libraryCounts, .enrichmentStatusCounts), look a row up with songsStore.songsById, or add a cut to lib/stores/songs.svelte.ts.'
-        },
-        {
-          selector:
-            "CallExpression > MemberExpression.arguments[object.name='songsStore'][property.name='songs'], VariableDeclarator > MemberExpression.init[object.name='songsStore'][property.name='songs'], ForOfStatement > MemberExpression.right[object.name='songsStore'][property.name='songs'], SpreadElement > MemberExpression.argument[object.name='songsStore'][property.name='songs']",
-          message:
-            'Do not pass or alias songsStore.songs outside the store: that hides a whole-library scan. Read a shared cut (songsStore.builtSongs, .trackListSongs, .leadArtistGroups, .albums, .libraryCounts, .enrichmentStatusCounts) or songsStore.songsById, or add a cut to lib/stores/songs.svelte.ts. Reading .length is fine.'
-        }
-      ]
+      'no-restricted-syntax': ['error', ...songScans, ...barePolls]
+    }
+  },
+  {
+    files: ['src/lib/stores/**/*.ts'],
+    ignores: ['src/**/*.test.ts'],
+    rules: {
+      'no-restricted-syntax': ['error', ...barePolls]
     }
   },
   {

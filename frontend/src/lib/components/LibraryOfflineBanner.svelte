@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { poll } from '#lib/poll.ts';
   import { fetchLibraryAvailability, type LibraryAvailability } from '#lib/api-client.ts';
 
   const POLL_INTERVAL_MS = 15_000;
@@ -37,11 +38,7 @@
     }
   }
 
-  onMount(() => {
-    void refresh();
-    const handle = setInterval(() => void refresh(), POLL_INTERVAL_MS);
-    return () => clearInterval(handle);
-  });
+  onMount(() => poll(() => void refresh(), POLL_INTERVAL_MS, { immediate: true }));
 </script>
 
 <!--

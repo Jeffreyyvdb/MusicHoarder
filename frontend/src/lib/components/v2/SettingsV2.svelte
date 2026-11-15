@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { poll } from '#lib/poll.ts';
   import { isSubmitEnter } from '#lib/keyboard.ts';
   import { refreshAll } from '$app/navigation';
   import { replaceUrl } from '#lib/navigation/replace-url.ts';
@@ -587,10 +588,10 @@
         // keep polling on transient errors
       }
     };
-    const id = setInterval(tick, 1500);
+    const stop = poll(tick, 1500);
     return () => {
       cancelled = true;
-      clearInterval(id);
+      stop();
     };
   });
 
@@ -608,10 +609,10 @@
         // keep polling on transient errors
       }
     };
-    const id = setInterval(tick, 1500);
+    const stop = poll(tick, 1500);
     return () => {
       cancelled = true;
-      clearInterval(id);
+      stop();
     };
   });
 

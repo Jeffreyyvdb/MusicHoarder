@@ -2,6 +2,7 @@
   import { LinearProgress } from '#lib/components/ui/progress/index.ts';
   import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
   import { onMount } from 'svelte';
+  import { poll } from '#lib/poll.ts';
   import { Disc3, History, Loader2, RefreshCw, Sparkles, TriangleAlert } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
   import * as AlertDialog from '#lib/components/ui/alert-dialog/index.ts';
@@ -42,11 +43,11 @@
 
   // The run's poll outlives the click that started it, so it belongs to the page: cleared on
   // teardown, or leaving mid-run would keep polling and reload into a destroyed component.
-  let poll: ReturnType<typeof setInterval> | null = null;
+  let stopRunPoll: (() => void) | null = null;
   let destroyed = false;
   function stopPolling() {
-    if (poll) clearInterval(poll);
-    poll = null;
+    stopRunPoll?.();
+    stopRunPoll = null;
   }
 
   async function load() {
@@ -100,7 +101,7 @@
       }
       // Poll until the run drains, then reload the overview.
       stopPolling();
-      poll = setInterval(async () => {
+      stopRunPoll = poll(async () => {
         try {
           const p = await fetchAlbumQualityProgress();
           if (destroyed) return;

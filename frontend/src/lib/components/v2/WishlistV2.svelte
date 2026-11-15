@@ -75,6 +75,7 @@
 </script>
 
 <script lang="ts">
+  import { poll } from '#lib/poll.ts';
   import { Button } from '#lib/components/ui/button/index.ts';
   import { Badge } from '#lib/components/ui/badge/index.ts';
   import FilterChip from '#lib/components/v2/FilterChip.svelte';
@@ -357,8 +358,7 @@
   // live instead of only refreshing once the run completes. Quiet reload = no spinner flicker.
   $effect(() => {
     if (!downloadingNow) return;
-    const id = setInterval(() => void loadItems(true), 3000);
-    return () => clearInterval(id);
+    return poll(() => void loadItems(true), 3000);
   });
 
   async function onTriggerDownload() {
