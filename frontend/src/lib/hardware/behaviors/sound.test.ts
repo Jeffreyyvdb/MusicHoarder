@@ -122,11 +122,14 @@ describe('key sounds', () => {
     expect(started).toEqual(['running', 'running']);
   });
 
-  it('declare playback in the app shell, so the silent switch does not mute them', async () => {
+  it('leave the app shell’s audio session to its native player', async () => {
+    // Declaring `playback` here took the session from the native player: Play played nothing.
     stubPage({ shell: true });
     const { soundFor } = await load();
     soundFor('success');
-    expect(session.type).toBe('playback');
+    contexts[0].start();
+    await flush();
+    expect(session.type).toBe('auto');
   });
 
   it('leave a browser page’s audio session alone', async () => {

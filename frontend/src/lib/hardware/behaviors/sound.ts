@@ -21,7 +21,6 @@
 // Sound follows the haptics: `haptic(kind)` plays the matching sound, so
 // every press, tick and drag that buzzes also clicks. It can be muted, and
 // the choice is remembered.
-import { isNativeShell } from "#lib/native/shell.ts"
 import { skinActive } from "./active.ts"
 import { type Haptic } from "./haptics.ts"
 
@@ -80,27 +79,13 @@ let ctx: AudioContext | null = null
 let master: GainNode | null = null
 let noise: AudioBuffer | null = null
 
-// MusicHoarder: in the app shell (mobile/) the music plays natively and the page never claims an
-// audio session (player.svelte.ts skips it there), so iOS takes these clicks for ambient sound and
-// the silent switch mutes them. The app's own session is `playback` already (AudioEngine.swift), so
-// the page declares the same before it sounds, and the clicks play in silent mode as the music
-// does. A browser is left alone: its player claims `playback` while music plays, and a silent
-// phone that plays nothing stays silent, as the iOS keyboard does.
-type AudioSessionNavigator = Navigator & { audioSession?: { type: string } }
-
-function claimShellSession() {
-  if (!isNativeShell()) return
-  const session = (navigator as AudioSessionNavigator).audioSession
-  if (!session || session.type === "playback") return
-  try {
-    session.type = "playback"
-  } catch {
-    // Refused by this engine: the clicks follow the silent switch, as before.
-  }
-}
-
+// MusicHoarder: the page never claims an audio session for these clicks, in the app shell least of
+// all. There the music is the native player's (AudioEngine.swift holds a `playback` session), and a
+// page that declared `playback` too had WebKit run its own non-mixing session beside it: the first
+// click took the session from the native player, and pressing Play played nothing. Left on `auto`,
+// WebKit treats the clicks as ambient sound, which mixes with the music and, like the iOS keyboard,
+// follows the silent switch.
 function audio() {
-  claimShellSession()
   // A context the browser closed is replaced.
   if (ctx?.state === "closed") ctx = null
   if (!ctx) {
