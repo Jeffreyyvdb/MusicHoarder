@@ -267,11 +267,16 @@
 
 /* ── The desk ───────────────────────────────────────────────────────────────────────────────── */
 
-/* Paper, not a pattern: a faint grain over the desk colour. */
-:root[data-mh-skin='hardware'] body,
-:root[data-mh-skin='hardware'] [data-slot='sidebar-wrapper'] {
-  background-color: var(--mh-desk);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+/* Paper, not a pattern: a faint grain over the desk colour. Only from md, where the devices sit on
+   it with a margin: on a phone the page fills the screen, and Safari paints the body's colour
+   behind the status bar and the toolbar, so a desk there showed as a darker band at both ends.
+   Below md the body keeps the app's own --background, the device's colour. */
+@media (min-width: 768px) {
+  :root[data-mh-skin='hardware'] body,
+  :root[data-mh-skin='hardware'] [data-slot='sidebar-wrapper'] {
+    background-color: var(--mh-desk);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
 }
 
 /* ── Bodies: the sidebar and the page are two devices on the desk ───────────────────────────── */
