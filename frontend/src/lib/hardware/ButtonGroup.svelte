@@ -29,11 +29,13 @@
   let root: HTMLDivElement;
 
   // The tilt is worked out from the cap's width, so every cap's ends travel the same distance.
+  // The cap rests level whatever the width, so the observer's first callback is early enough.
   $effect(() => {
     const el = root;
-    const measure = () => el.style.setProperty('--cap-w', `${el.offsetWidth}px`);
-    measure();
-    const observer = new ResizeObserver(measure);
+    const observer = new ResizeObserver(([entry]) => {
+      const width = `${Math.round(entry.borderBoxSize[0].inlineSize)}px`;
+      if (el.style.getPropertyValue('--cap-w') !== width) el.style.setProperty('--cap-w', width);
+    });
     observer.observe(el);
     return () => observer.disconnect();
   });

@@ -4,6 +4,7 @@ import svelte from 'eslint-plugin-svelte';
 import globals from 'globals';
 import ts from 'typescript-eslint';
 import { loadConfig } from '@sveltejs/load-config';
+import noLayoutReadBeforeResizeObserver from './eslint/no-layout-read-before-resize-observer.mjs';
 
 const svelteConfig = (await loadConfig('./', { traverse: false }))?.config;
 
@@ -17,7 +18,15 @@ export default ts.config(
     languageOptions: {
       globals: { ...globals.browser, ...globals.node }
     },
+    plugins: {
+      local: {
+        rules: { 'no-layout-read-before-resize-observer': noLayoutReadBeforeResizeObserver }
+      }
+    },
     rules: {
+      // A ResizeObserver's first callback already reports the size, after layout and before
+      // paint; measuring beside it forces an extra layout of the page being mounted.
+      'local/no-layout-read-before-resize-observer': 'error',
       '@typescript-eslint/no-unused-vars': [
         'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }

@@ -16,6 +16,6 @@ export default defineConfig({
   plugins: [svelte()],
   test: {
     environment: 'node',
-    include: ['src/**/*.{test,spec}.ts']
+    include: ['src/**/*.{test,spec}.ts', 'eslint/**/*.test.ts']
   }
 });

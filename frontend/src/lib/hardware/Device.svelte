@@ -29,6 +29,10 @@
       const room = width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
       if (room > 0 && el.offsetWidth > room) el.style.zoom = String(room / el.offsetWidth);
     };
+    // Fitted now, not in the observer's first callback: zooming there would resize the page it is
+    // watching before the callback returns, and deferring that to a frame would show the device
+    // unzoomed (overflowing a phone) for one paint.
+    // eslint-disable-next-line local/no-layout-read-before-resize-observer -- the first paint must already be zoomed to fit
     fit();
     // Refits wait a frame: zooming inside the observer's callback would resize the page it's
     // watching before the callback returns.

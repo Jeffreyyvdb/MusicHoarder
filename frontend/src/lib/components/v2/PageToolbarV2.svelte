@@ -278,8 +278,10 @@
       if (seeded && seeded !== root) seeded.style.removeProperty('--mh-navbar-h');
       if (!root) return;
       const target = root;
-      ro = new ResizeObserver(() => {
-        const h = bar.offsetHeight;
+      ro = new ResizeObserver(([entry]) => {
+        // The entry's box, not offsetHeight: an earlier observer's callback in the same frame may
+        // have changed the page, and reading layout here would lay it out again on the spot.
+        const h = Math.round(entry.borderBoxSize[0].blockSize);
         lastNavbarH[layout] = h;
         if (target.style.getPropertyValue('--mh-navbar-h') === `${h}px`) return;
         target.style.setProperty('--mh-navbar-h', `${h}px`);
@@ -297,15 +299,18 @@
   // ── trailing items (compact) ────────────────────────────────────────────────
   // Actions and More share one glass capsule. A page whose actions are all hidden at this width
   // (labels and inputs that only show from sm) would leave an empty glass sliver, so the capsule
-  // only takes its material while something in it has a box.
+  // only takes its material while something in it has a box. Measured by the observer alone: its
+  // first callback comes after layout and before the first paint (the capsule is 44px tall, so
+  // never the 0×0 an observer stays silent about), and a synchronous read here would make the
+  // browser lay out the page being mounted twice — this bar is on every page.
   let itemsEl = $state<HTMLElement | null>(null);
   let itemsEmpty = $state(false);
   $effect(() => {
     const el = itemsEl;
     if (!el) return;
-    const measure = () => (itemsEmpty = el.getBoundingClientRect().width < 1);
-    measure();
-    const ro = new ResizeObserver(measure);
+    const ro = new ResizeObserver(([entry]) => {
+      itemsEmpty = entry.borderBoxSize[0].inlineSize < 1;
+    });
     ro.observe(el);
     return () => ro.disconnect();
   });

@@ -132,7 +132,7 @@
   $effect(() => {
     const el = contentEl;
     if (!el) return;
-    measureEdge();
+    // The observer's first callback measures, after layout and before the first paint.
     const ro = new ResizeObserver(measureEdge);
     ro.observe(el);
     for (const child of el.children) ro.observe(child);
