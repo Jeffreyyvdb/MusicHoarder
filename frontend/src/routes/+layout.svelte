@@ -131,6 +131,14 @@
       ? 'bottom-center'
       : 'top-center'
   );
+  // Over Now Playing on a phone a top toast would sit on its top bar (grabber, ⌄, the song and ⋯:
+  // 12px + 56px, TrackPanel's topBar), and the ⋯ menu was out of reach until it timed out. There it
+  // starts below the bar instead, over the art or lyrics.
+  const toastMobileTop = $derived(
+    themeSurface.media
+      ? 'calc(76px + env(safe-area-inset-top))'
+      : 'calc(16px + env(safe-area-inset-top))'
+  );
 </script>
 
 <ModeWatcher defaultMode="system" disableHeadScriptInjection />
@@ -146,7 +154,7 @@
   richColors
   closeButton
   offset={{ top: 'calc(24px + env(safe-area-inset-top))', bottom: 'var(--mh-toast-bottom)' }}
-  mobileOffset={{ top: 'calc(16px + env(safe-area-inset-top))', bottom: 'var(--mh-toast-bottom)' }}
+  mobileOffset={{ top: toastMobileTop, bottom: 'var(--mh-toast-bottom)' }}
 />
 
 {@render children()}

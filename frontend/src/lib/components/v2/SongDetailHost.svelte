@@ -20,6 +20,7 @@
   import { isAdmin } from '#lib/auth/capabilities.ts';
   import { hardwareMode } from '#lib/hardware/hardware-mode.svelte.ts';
   import { DISMISS_VELOCITY, EASE_PRESENT, prefersReducedMotion } from '#lib/motion.ts';
+  import { keepOpenForToasts } from '#lib/components/ui/sonner/index.ts';
 
   // The single global mount of Now Playing — an Apple-Music-style full-screen overlay (a portaled
   // bits-ui Dialog: focus trap, Escape and body scroll-lock for free). It has its own MEDIA
@@ -346,6 +347,7 @@
         desk ? 'bg-background' : 'dark bg-black'
       ]}
       style="--mh-content-pad: 0px"
+      onInteractOutside={keepOpenForToasts}
     >
       {#if desk}
         <!-- The desk: app-skin.css paints it. -->

@@ -8,6 +8,7 @@
 	import { IsMobile } from "#lib/hooks/is-mobile.svelte.js";
 	import { DISMISS_VELOCITY, EASE_PRESENT, prefersReducedMotion } from "#lib/motion.js";
 	import { cn, type WithoutChildrenOrChild } from "#lib/utils.js";
+	import { keepOpenForToasts } from "#lib/components/ui/sonner/index.js";
 
 	type Props = WithoutChildrenOrChild<DialogPrimitive.ContentProps> & {
 		open?: boolean;
@@ -266,6 +267,7 @@
 					: "data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 ring-foreground/10 top-1/2 left-1/2 max-h-[85svh] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-xl shadow-[0_10px_40px_rgb(0_0_0/0.18)] ring-1 [--tw-animation-duration:200ms] [--tw-ease:cubic-bezier(0.23,1,0.32,1)]",
 				className
 			)}
+			onInteractOutside={nested ? keepOpenForToasts : undefined}
 			{...restProps}
 		>
 			{#if compact}
