@@ -12,7 +12,7 @@
 #                             ("No supported JavaScript runtime could be found" → ERROR otherwise).
 #                             yt-dlp auto-detects it on PATH. Keep in sync with ./Dockerfile (preview).
 #   - curl / unzip          → container healthchecks + fetching the yt-dlp & deno binaries.
-FROM mcr.microsoft.com/dotnet/aspnet:10.0
+FROM mcr.microsoft.com/dotnet/aspnet:11.0
 
 # Pinned tool versions. The checksums are the ones each project publishes for the asset
 # (yt-dlp: SHA2-256SUMS, deno: <asset>.sha256sum); the build fails if a download differs.

@@ -5,7 +5,7 @@ running locally and the conventions we follow.
 
 ## Prerequisites
 
-- [.NET 10 SDK](https://dotnet.microsoft.com/download)
+- [.NET 11 SDK](https://dotnet.microsoft.com/download)
 - [Docker](https://www.docker.com/) — Aspire provisions PostgreSQL as a container, so it must be running
 - [Bun](https://bun.sh/) — frontend toolchain
 - Node.js 22 — only needed for the semantic-release step

@@ -1,5 +1,5 @@
 # Build stage
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:11.0 AS build
 WORKDIR /src
 
 # Copy project files first so NuGet restore is cached independently of source changes
@@ -18,7 +18,7 @@ RUN dotnet publish MusicHoarder.Api/MusicHoarder.Api.csproj \
     --no-restore
 
 # Runtime stage
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:11.0 AS runtime
 
 # Pinned tool versions. The checksums are the ones each project publishes for the asset
 # (yt-dlp: SHA2-256SUMS, deno: <asset>.sha256sum); the build fails if a download differs.
