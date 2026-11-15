@@ -113,17 +113,22 @@
   let enrichOutcome = $state<string | null>(null);
   let enrichError = $state<string | null>(null);
 
-  // Provider attempts (real candidate matches) are loaded lazily when the
-  // Fingerprint tab is first viewed, and refetched when the song changes.
+  // The track's detail (provider attempts, the fingerprint, and the descriptive tags the song list
+  // does not carry) is loaded lazily when a section that shows it is first viewed, and refetched
+  // when the song changes.
   let enrichmentDetail = $state<EnrichmentDetail | null>(null);
   let detailLoading = $state(false);
   let detailError = $state<string | null>(null);
   let loadedSongId = $state<number | null>(null);
-  // The song list only says a fingerprint exists; the string comes with the track's detail, and
-  // only while that detail is this song's.
-  const fingerprint = $derived(loadedSongId === song.id ? (enrichmentDetail?.fingerprint ?? null) : null);
+  // A failed load is not retried for the same song and section, or the effect below would ask
+  // again the moment `detailLoading` clears.
+  let failedFor = $state<{ id: number; section: Section } | null>(null);
+  // Only while the loaded detail is this song's.
+  const songDetail = $derived(loadedSongId === song.id ? enrichmentDetail : null);
+  // The song list only says a fingerprint exists; the string comes with the track's detail.
+  const fingerprint = $derived(songDetail?.fingerprint ?? null);
 
-  async function loadEnrichmentDetail(id: number) {
+  async function loadEnrichmentDetail(id: number, section: Section) {
     detailLoading = true;
     detailError = null;
     try {
@@ -133,20 +138,25 @@
       loadedSongId = id;
     } catch (err) {
       if (id !== song.id) return; // stale failure for a song we navigated away from
+      failedFor = { id, section };
       detailError = err instanceof Error ? err.message : 'Failed to load provider attempts';
     } finally {
       detailLoading = false; // ALWAYS clear — gating this on id === song.id deadlocks the effect
     }
   }
 
+  // Details wants it too, for composer, copyright, catalog number and barcode, but only for your
+  // own songs: a shared song's detail is its owner's, and the endpoint answers 404 for it.
+  const wantsDetail = $derived(
+    loadSection === 'fingerprint' ||
+      loadSection === 'enrichment' ||
+      (loadSection === 'details' && !songsStore.grantorOf(song))
+  );
+
   $effect(() => {
-    if (
-      (loadSection !== 'fingerprint' && loadSection !== 'enrichment') ||
-      detailLoading ||
-      loadedSongId === song.id
-    )
-      return;
-    void loadEnrichmentDetail(song.id);
+    if (!wantsDetail || !loadSection || detailLoading || loadedSongId === song.id) return;
+    if (failedFor?.id === song.id && failedFor.section === loadSection) return;
+    void loadEnrichmentDetail(song.id, loadSection);
   });
 
   // ── How it got here ─────────────────────────────────────────────────────────
@@ -230,7 +240,7 @@
     try {
       await soulseek.requestUpgrade({ songId: song.id });
       loadedSongId = null; // force a refetch so the button reflects the new active state
-      await loadEnrichmentDetail(song.id);
+      await loadEnrichmentDetail(song.id, section);
     } catch (err) {
       upgradeError = err instanceof Error ? err.message : 'Failed to queue upgrade';
     } finally {
@@ -515,13 +525,13 @@
     { label: 'Year', value: album.year != null ? String(album.year) : '—' },
     ...present('Release date', song.releaseDate ? formatReleaseDate(song.releaseDate) : null),
     { label: 'Genre', value: song.genre ?? album.genre ?? '—' },
-    ...present('Composer', song.composer)
+    ...present('Composer', songDetail?.composer)
   ]);
   const releaseRows = $derived<Row[]>([
     ...present('Label', song.label ?? album.label),
-    ...present('Catalog number', song.catalogNumber ?? album.catalogNumber),
-    ...present('Barcode', song.upc ?? album.upc, { copy: true }),
-    ...present('Copyright', song.copyright)
+    ...present('Catalog number', songDetail?.catalogNumber ?? album.catalogNumber),
+    ...present('Barcode', songDetail?.upc ?? album.upc, { copy: true }),
+    ...present('Copyright', songDetail?.copyright)
   ]);
   // Identifiers are what people copy into MusicBrainz/AcoustID: mono, and a tap copies them.
   const identifierRows = $derived<Row[]>([

@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using MusicHoarder.Api.Persistence;
 
 namespace MusicHoarder.Api.Contracts;
@@ -71,8 +72,12 @@ public sealed record SharedSongRowDto
     public bool IsInstrumental { get; init; }
     public bool HasMusicVideo { get; init; }
 
-    public DateTime IndexedAtUtc { get; init; }
-    public DateTime? AcquiredAtUtc { get; init; }
+    /// <summary>
+    /// When the track entered the owner's collection: <c>AcquiredAtUtc</c>, or for a row from before
+    /// that column existed, when it was indexed — the fallback the client used to apply itself, which
+    /// is why the row no longer carries <c>IndexedAtUtc</c> (the owner's rows fold the same way).
+    /// </summary>
+    public DateTime AcquiredAtUtc { get; init; }
 
     /// <summary>
     /// Server-authoritative "is this playable from the built library". Granted rows carry no
@@ -129,8 +134,7 @@ public sealed record SharedSongRowDto
             HasPlainLyrics = !string.IsNullOrWhiteSpace(song.DisplayPlainLyrics),
             IsInstrumental = song.IsInstrumental == true,
             HasMusicVideo = hasMusicVideo,
-            IndexedAtUtc = song.IndexedAtUtc,
-            AcquiredAtUtc = song.AcquiredAtUtc,
+            AcquiredAtUtc = song.AcquiredAtUtc ?? song.IndexedAtUtc,
             IsBuilt = song.LibraryBuildStatus == LibraryBuildStatus.Done
                 && !string.IsNullOrWhiteSpace(song.DestinationPath),
             SharedByUserId = sharedByUserId,
@@ -144,4 +148,11 @@ public sealed record SharedSongRowDto
 /// <param name="DisplayName">
 /// Null when the grantor never set one. Never their email — the UI picks neutral wording instead.
 /// </param>
-public sealed record GrantorDto(Guid UserId, string? DisplayName, int SongCount);
+/// <remarks>
+/// <c>GET /songs</c> omits null properties, but this key is always written: the client types it as
+/// <c>string | null</c>, present.
+/// </remarks>
+public sealed record GrantorDto(
+    Guid UserId,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? DisplayName,
+    int SongCount);

@@ -137,24 +137,16 @@ export interface ApiSong {
   releaseDate?: string | null
   /** Original (first) release date of the release-group, ISO string. */
   label?: string | null
-  catalogNumber?: string | null
-  /** Album barcode / UPC. */
-  upc?: string | null
-  composer?: string | null
-  copyright?: string | null
   enrichmentStatus?: string | number | null
-  /** When the scanner first indexed the file (always set). */
-  indexedAtUtc?: string | null
   /** Set on a soft-deleted row, which the list only carries when asked to include them. */
   deletedAtUtc?: string | null
   /**
    * When the track entered the collection — stamped once at first index and never rewritten. This is
-   * the field "recently added" sorts on: `indexedAtUtc` moves whenever the file changes on disk and
-   * `libraryBuiltAtUtc` is cleared by any rebuild, so both drag long-owned tracks back to the top.
+   * the field "recently added" sorts on: the index time moves whenever the file changes on disk and
+   * the build time is cleared by any rebuild, so both drag long-owned tracks back to the top. For a
+   * row from before the column existed the server sends the older of those two instead.
    */
   acquiredAtUtc?: string | null
-  /** When the track was copied/tagged into the destination library; null until built. */
-  libraryBuiltAtUtc?: string | null
   /** Pipeline build state: Pending/Copied/Tagged/Done/Failed (number or string). */
   libraryBuildStatus?: string | number | null
   matchedBy?: string | null
@@ -166,11 +158,7 @@ export interface ApiSong {
    * category the enrichment match recorded. "Unknown" when nothing in the row says either way.
    */
   releaseClassification?: ReleaseClassification | null
-  enrichmentError?: string | null
   originalMetadataCaptured?: boolean | null
-  originalArtist?: string | null
-  originalAlbum?: string | null
-  originalTitle?: string | null
   lyricsStatus?: string | null
   hasSyncedLyrics?: boolean | null
   hasPlainLyrics?: boolean | null
@@ -179,16 +167,12 @@ export interface ApiSong {
   plainLyrics?: string | null
   /** True when an AI transcription exists. The (large) text is fetched on demand via fetchTrackLyrics. */
   hasTranscribedLyrics?: boolean | null
-  /** "NotRequested" | "Pending" | "Completed" | "Failed". */
-  transcribedAtUtc?: string | null
-  transcriptionModel?: string | null
   /** Which lyrics the synced viewer shows when both exist: "Lrclib" | "Transcribed". */
   preferredLyricsSource?: string | null
   /** How much of this song's displayed lyrics came from an AI. */
   lyricsProvenance?: LyricsProvenance | null
   /** What the timing check concluded about the stored LRC. */
   lyricsSyncStatus?: LyricsSyncStatus | null
-  lyricsSyncIssue?: string | null
   lyricsSyncOffsetMs?: number | null
   /** Sample rate in Hz (e.g. 44100). Shown in track details when present. */
   sampleRate?: number | null
@@ -406,6 +390,28 @@ interface SongsResponse {
   songs: ApiSong[]
   /** One entry per account whose music appears in `songs`. Empty when nothing was shared with you. */
   grantors?: Grantor[]
+  /**
+   * Only on a status-filtered request (Tag review's queue): the file's own tags for each row whose
+   * enrichment changed them, keyed by song id. The library list does not carry them.
+   */
+  originalTags?: Record<string, OriginalTags>
+}
+
+/** A file's tags from before enrichment changed them. */
+export interface OriginalTags {
+  title?: string | null
+  artist?: string | null
+  album?: string | null
+}
+
+/**
+ * A row of Tag review's queue: a library row plus the file's own tags, which the queue titles a row
+ * with before its detail has loaded.
+ */
+export type ReviewQueueSong = ApiSong & {
+  originalTitle?: string | null
+  originalArtist?: string | null
+  originalAlbum?: string | null
 }
 
 /** An account whose music appears in your library, for the "Shared by …" attribution. */
@@ -765,12 +771,9 @@ function nonEmpty(value: string | null | undefined): string | null {
 }
 
 /**
- * When a song entered the collection, as an ISO string — {@link ApiSong.acquiredAtUtc} when the API
- * has it.
- *
- * Rows predating that column fall back to the OLDEST of the two churn-prone stamps rather than
- * preferring either: a re-index bumps `indexedAtUtc` while a rebuild clears and re-sets
- * `libraryBuiltAtUtc`, so whichever survived un-bumped is the closer guess at the real date.
+ * When a song entered the collection, as an ISO string — {@link ApiSong.acquiredAtUtc}, which the
+ * server already falls back for on a row predating that column (to the older of its index and build
+ * stamps, the same rule `GET /api/albums` applies).
  *
  * An EARLIER {@link ApiSong.spotifyAddedAtUtc} wins over all of them. `acquiredAtUtc` is the moment
  * the file landed, which for a wishlist download is when the downloader got round to it — so a
@@ -780,14 +783,7 @@ function nonEmpty(value: string | null | undefined): string | null {
  * ripped years before saving it on Spotify keeps its acquisition date.
  */
 export function songAddedIso(s: ApiSong): string | null {
-  return oldestIso([s.spotifyAddedAtUtc, s.acquiredAtUtc ?? fallbackAddedIso(s)])
-}
-
-/**
- * Acquisition date for rows predating `acquiredAtUtc` — see {@link songAddedIso}.
- */
-function fallbackAddedIso(s: ApiSong): string | null {
-  return oldestIso([s.libraryBuiltAtUtc, s.indexedAtUtc])
+  return oldestIso([s.spotifyAddedAtUtc, s.acquiredAtUtc])
 }
 
 /** The earliest parseable stamp of the candidates, or null when none parse. */
@@ -4627,11 +4623,17 @@ export async function fetchReviewTracks(): Promise<ApiSong[]> {
 export type ReviewQueueFilter = "needsreview" | "matched"
 
 /** Fetch songs for the Provenance & review queue by enrichment status. */
-export async function fetchReviewQueue(filter: ReviewQueueFilter): Promise<ApiSong[]> {
+export async function fetchReviewQueue(filter: ReviewQueueFilter): Promise<ReviewQueueSong[]> {
   const result = await requestJson<SongsResponse>(
     `/songs?enrichmentStatus=${filter}`
   )
-  return result.songs ?? []
+  const originals = result.originalTags ?? {}
+  return (result.songs ?? []).map((song) => {
+    const tags = originals[song.id]
+    return tags
+      ? { ...song, originalTitle: tags.title, originalArtist: tags.artist, originalAlbum: tags.album }
+      : song
+  })
 }
 
 // ── Duplicates (acoustic + metadata clusters) ──────────────────────────────────
@@ -4962,6 +4964,16 @@ export interface EnrichmentDetail {
   matchConfidence?: number | null
   matchWarnings?: string[] | null
   enrichmentError?: string | null
+  /** When the scanner (re)indexed the file: the pipeline timeline's first stamp. */
+  indexedAtUtc?: string | null
+  /** When the track was copied and tagged into the library; null until built. */
+  libraryBuiltAtUtc?: string | null
+  /** Now Playing's Details rows. */
+  composer?: string | null
+  copyright?: string | null
+  catalogNumber?: string | null
+  /** Album barcode / UPC. */
+  upc?: string | null
   originalMetadataCaptured: boolean
   source: EnrichmentCandidate | null
   current: EnrichmentCandidate

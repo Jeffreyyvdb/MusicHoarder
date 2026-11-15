@@ -23,7 +23,7 @@ public class SharedProjectionSurfaceTests
         "Genre", "ReleaseDate", "OriginalReleaseDate", "Label",
         "MusicBrainzId", "MusicBrainzReleaseId", "Isrc", "SpotifyId",
         "HasCoverArt", "HasSyncedLyrics", "HasPlainLyrics", "IsInstrumental", "HasMusicVideo",
-        "IndexedAtUtc", "AcquiredAtUtc",
+        "AcquiredAtUtc",
         "IsBuilt", "SharedByUserId",
         "LikedAtUtc", "PlayCount", "LastPlayedAtUtc",
     ];
@@ -61,6 +61,9 @@ public class SharedProjectionSurfaceTests
     [InlineData("OriginalArtist")]
     [InlineData("OriginalAlbum")]
     [InlineData("OriginalTitle")]
+    // Pipeline stamps; the row's AcquiredAtUtc already falls back to the index time.
+    [InlineData("IndexedAtUtc")]
+    [InlineData("LibraryBuiltAtUtc")]
     // The owner's personal Spotify save history. Nothing to do with what they shared.
     [InlineData("SpotifyAddedAtUtc")]
     [InlineData("SpotifyLikedAtUtc")]
