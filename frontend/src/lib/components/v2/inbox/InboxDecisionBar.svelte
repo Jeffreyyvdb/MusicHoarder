@@ -33,8 +33,10 @@
 
   // Measured with the fallback off, in one synchronous pass (no frame shows the overflow): the
   // buttons never shrink until tight, so an overflow is the honest signal that the labels do not
-  // fit. Re-measured when the bar resizes (rotation), when the text size changes, and when a
-  // label changes (a spinner, the AI flagged trailing action arriving).
+  // fit. First measured by the observer's first callback (after layout, before the first paint;
+  // the bar's size is fixed, so toggling the fallback cannot resize what it observes), then
+  // re-measured when the bar resizes (rotation), when the text size changes, and when a label
+  // changes (a spinner, the AI flagged trailing action arriving).
   $effect(() => {
     const el = bar;
     if (!el) return;
@@ -42,7 +44,6 @@
       el.removeAttribute('data-tight');
       if (el.scrollWidth > el.clientWidth + 1) el.setAttribute('data-tight', '');
     };
-    measure();
     const frame = requestAnimationFrame(measure); // after web fonts settle the first layout
     const ro = new ResizeObserver(measure);
     ro.observe(el);

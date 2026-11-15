@@ -64,21 +64,21 @@
       scrollStripToActive(el, el.querySelector<HTMLElement>('[data-active]'));
       measureEdges(el);
     };
-    // Once now (layout is usually already settled on a client-side navigation)
-    // and once after the next frame, for the mount case where it isn't.
-    centre();
-    const frame = requestAnimationFrame(centre);
-
+    // Centred from the observer's callback, which runs after layout and before paint: its first
+    // one (a new observation always reports) centres before the strip is first shown, without
+    // asking a page that is still mounting for its layout, which a synchronous call here did.
+    //
     // The strip shares the top bar with the action cluster, so its width is not
     // final on the frame after mount — the first centring attempt can see a
     // still-wide, not-yet-overflowing strip and no-op, stranding the active tab
     // off-screen on a phone. Re-centre whenever its own width actually changes;
     // guarding on the width means a user's manual sideways scroll is never
     // yanked back.
-    let lastWidth = el.clientWidth;
+    let lastWidth = -1;
     const ro = new ResizeObserver(() => {
-      if (el.clientWidth !== lastWidth) {
-        lastWidth = el.clientWidth;
+      const width = el.clientWidth;
+      if (width !== lastWidth) {
+        lastWidth = width;
         centre();
       } else {
         measureEdges(el);
@@ -86,10 +86,7 @@
     });
     ro.observe(el);
     for (const child of el.children) ro.observe(child);
-    return () => {
-      cancelAnimationFrame(frame);
-      ro.disconnect();
-    };
+    return () => ro.disconnect();
   });
   // Spelled out as whole literals rather than composed at runtime: Tailwind
   // scans source text for candidates, so an interpolated arbitrary value would

@@ -180,7 +180,14 @@
   // The header is measured as the rows' offset (no wrapper to measure — it would break sticky).
   // Anything above the rows can change height (the filter tokens appear, the search field, a
   // Dynamic Type change), so every direct child of the scroller's content is observed, and
-  // re-observed when the children change. Resize ticks are coalesced into one rAF read.
+  // re-observed when the children change.
+  //
+  // Measured in the observer's callback, which runs after layout and before paint: the first one
+  // (every newly observed element reports its size) fills the window before the list's first
+  // paint, and the reads cost nothing there because the layout is already done. Measuring
+  // synchronously when the effect runs instead made the browser lay out the page being mounted on
+  // the spot, and then again. Writing the window from the callback cannot feed back into it: the
+  // rows are absolutely placed in a container whose height is the whole list's.
   $effect(() => {
     const el = scrollEl;
     if (!el) return;
@@ -190,29 +197,18 @@
       viewportH = el.clientHeight;
       headerH = rowsEl ? rowsEl.offsetTop : 0;
     };
-    let frame = 0;
-    const schedule = () => {
-      if (frame) return;
-      frame = requestAnimationFrame(() => {
-        frame = 0;
-        measure();
-      });
-    };
-    const ro = new ResizeObserver(schedule);
+    const ro = new ResizeObserver(measure);
     const observeAll = () => {
       ro.disconnect();
       ro.observe(el);
       for (const child of content.children) ro.observe(child);
     };
-    const mo = new MutationObserver(() => {
-      observeAll();
-      schedule();
-    });
-    measure();
+    // A child added or removed above the rows moves them without resizing anything observed;
+    // re-observing reports every child again, which re-measures in the next callback.
+    const mo = new MutationObserver(observeAll);
     observeAll();
     mo.observe(content, { childList: true });
     return () => {
-      if (frame) cancelAnimationFrame(frame);
       ro.disconnect();
       mo.disconnect();
     };

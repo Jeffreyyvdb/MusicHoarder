@@ -80,7 +80,8 @@ export function cropMatte(
   observer?.observe(node);
   node.addEventListener('loadedmetadata', apply);
   node.addEventListener('resize', apply);
-  apply();
+  // No first apply() here: the observer's first callback runs it after layout and before paint,
+  // and until the video's metadata is in there is nothing to crop anyway.
 
   return {
     update(next: Matte) {

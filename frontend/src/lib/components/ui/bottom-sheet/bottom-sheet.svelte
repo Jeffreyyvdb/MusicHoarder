@@ -100,25 +100,31 @@
 	// so it never pushes the header down. A sheet standing nearly full height (History's filters)
 	// has less room than that above it, and the strip would run off the top of the screen; then it
 	// takes the room there is and reaches the rest of the way down, over the header's centred title
-	// (never its side buttons: the strip is only the grabber's width). Measured from layout
-	// (offsetHeight, not the rect) so the slide-in transform does not count, and it does not
-	// change the sheet's height, so the measurement cannot feed back into itself.
+	// (never its side buttons: the strip is only the grabber's width). Measured from the layout box
+	// (the observer's border box, not the rect) so the slide-in transform does not count, and it
+	// does not change the sheet's height, so the measurement cannot feed back into itself. The
+	// observer's first callback reports the height after layout and before the first paint, so
+	// nothing is read while the sheet is being mounted (which would lay the page out early).
 	const GRAB_REACH = 28;
 	let grabUp = $state(GRAB_REACH);
 	$effect(() => {
 		const el = ref;
 		if (!open || !compact || !el) return;
-		const measure = () => {
-			const room = Math.floor(window.innerHeight - el.offsetHeight);
+		let sheetH: number | null = null;
+		const fit = () => {
+			if (sheetH == null) return;
+			const room = Math.floor(window.innerHeight - sheetH);
 			grabUp = Math.max(0, Math.min(GRAB_REACH, room));
 		};
-		measure();
-		const ro = new ResizeObserver(measure);
+		const ro = new ResizeObserver(([entry]) => {
+			sheetH = entry.borderBoxSize[0].blockSize;
+			fit();
+		});
 		ro.observe(el);
-		window.addEventListener("resize", measure);
+		window.addEventListener("resize", fit);
 		return () => {
 			ro.disconnect();
-			window.removeEventListener("resize", measure);
+			window.removeEventListener("resize", fit);
 		};
 	});
 
