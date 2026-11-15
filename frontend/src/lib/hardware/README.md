@@ -7,7 +7,8 @@ desk, every list is data on a grey LCD (a black screen in dark mode), buttons ar
 a red LED, and the selection is red between two dashes. Some detail goes on purpose: the nav and
 chip icons, the tracks table's covers and its size, match and source columns, the cover wash on the
 album page and behind Now Playing. Now Playing becomes the MH-1, a device built from SPEC-01's
-components on Vercel's [UI SDK](https://ui-sdk.dev), sitting on the same desk.
+components on Vercel's [UI SDK](https://ui-sdk.dev), sitting on the same desk, and its Video mode
+plays the clip on the MH-2, a monitor beside it.
 
 It is hidden. It unlocks with the **Konami code** (↑ ↑ ↓ ↓ ← → ← → B A, anywhere outside a text
 field) or by searching for **`spec-01`** (phones have no arrow keys). Finding it switches it on and
@@ -33,6 +34,13 @@ like Appearance: `localStorage['mh:hardware']` is absent (locked), `on` or `off`
 - `HardwareNowPlaying.svelte` → `HardwarePlayer.svelte` — the device, which `TrackPanel` loads on
   demand in place of the art, title and transport for the loaded song (not while the music plays on
   another device). Lazy because its stylesheet, the vendored skin, is ~150 KB gzipped.
+- `HardwareVideo.svelte` — the MH-2: the bezel, plate, sync LCD and fullscreen key around Video
+  mode's picture. It is a *housing* for `VideoWatchTab` (its `housing` prop), which keeps the
+  picture, its sync and fullscreen, renders the frame as the bezel's `display-screen`, and fits the
+  picture into the stage less whatever the housing measures around it. Hand-built rather than a
+  `Device`, which zooms itself to fit and would scale the fullscreen overlay inside it. Loaded on
+  demand from `TrackPanel`, like the MH-1; unlike the MH-1 it also houses a browsed song's clip,
+  since its one key works for any song.
 - `behaviors/` — haptics, key sounds, keyboard-only focus rings and the block caret, loaded only once
   the skin is on.
 

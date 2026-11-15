@@ -16,7 +16,9 @@
   import { Button } from '#lib/components/ui/button/index.ts';
   import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
   import SongTransport from '#lib/components/file-browser/SongTransport.svelte';
-  import VideoWatchTab from '#lib/components/file-browser/VideoWatchTab.svelte';
+  import VideoWatchTab, {
+    type VideoHousing
+  } from '#lib/components/file-browser/VideoWatchTab.svelte';
   import AiLyricsBadge, { AI_LYRICS_COPY } from '#lib/components/file-browser/AiLyricsBadge.svelte';
   import NowPlayingArt from '#lib/components/file-browser/now-playing/NowPlayingArt.svelte';
   import { hardwareMode } from '#lib/hardware/hardware-mode.svelte.ts';
@@ -617,6 +619,17 @@
   </p>
 {/snippet}
 
+<!-- Under the hardware skin the clip plays on the MH-2, a monitor that carries the status line on
+     its LCD. Loaded on demand like the MH-1 (same stylesheet). Unlike the MH-1 it is not tied to
+     the loaded song: its one key is fullscreen, which works for a browsed song too. -->
+{#snippet videoHousing(housing: VideoHousing)}
+  {#await import('#lib/hardware/HardwareVideo.svelte') then { default: HardwareVideo }}
+    <HardwareVideo {housing} status={videoLine} />
+  {:catch}
+    {@render housing.screen()}
+  {/await}
+{/snippet}
+
 <!-- The swapping region: the compact middle, or the lg right column. Info stays mounted (hidden)
      so its lazy loads settle once per song however often the mode changes. -->
 {#snippet modeContent()}
@@ -642,7 +655,8 @@
         title={trackTitle}
         artist={trackArtist}
         fallbackDuration={song.durationSeconds ?? 0}
-        caption={videoLine ? videoCaption : undefined}
+        caption={videoLine && !hardwareMode.enabled ? videoCaption : undefined}
+        housing={hardwareMode.enabled ? videoHousing : undefined}
         onPlayRequest={handlePlayToggle}
       />
     </div>

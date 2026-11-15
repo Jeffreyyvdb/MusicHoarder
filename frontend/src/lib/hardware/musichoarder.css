@@ -82,3 +82,65 @@
   background: #ff3b10;
   box-shadow: 0 0 6px rgb(255 59 16 / 0.7);
 }
+
+/* ── The MH-2 (HardwareVideo): Now Playing's Video mode as a monitor ─────────────────────────── */
+
+/* As wide as its screen, which VideoWatchTab fits to the room the stage leaves it. No max-width:
+   the fit measures the device around the picture, and a clamped device would measure short. */
+[data-skin='hardware'] [data-device][aria-label='Video']:not(#_):not(#_) {
+  width: auto;
+  gap: 12px;
+}
+
+/* The picture's own overlays (the play hint, "Clip ended") are the app's, not printed on the
+   device: they keep the app's type rather than the skin root's small lowercase print. */
+[data-skin='hardware'] [data-mh-video-frame] {
+  font-family: 'Spec Mono', 'IBM Plex Mono', ui-monospace, monospace;
+  text-transform: none;
+  letter-spacing: normal;
+}
+/* The frame takes the clip's shape, so `contain` loses nothing; the skin's `cover` would crop the
+   picture by a pixel wherever the fit rounds. */
+[data-skin='hardware'] [data-mh-video-frame][data-kit='display-screen']:not(#_) > video {
+  object-fit: contain;
+}
+
+/* Under the screen: the sync line on an LCD, taking the room, and the fullscreen key at the end
+   with its legend printed under it, like the MH-1's. */
+[data-skin='hardware'] [data-mh-video-controls] {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-bottom: 8px;
+}
+[data-skin='hardware'] [data-mh-video-status]:not(#_) {
+  flex: 1;
+  min-width: 0;
+  text-transform: none;
+
+  & [data-kit='lcd-body'] {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+}
+[data-skin='hardware'] [data-mh-video-status][data-tone='destructive'] [data-kit='lcd-body'] {
+  color: #8f1a02;
+}
+[data-skin='hardware'] [data-mh-video-key] {
+  position: relative;
+  margin-inline-start: auto;
+
+  & > small {
+    position: absolute;
+    bottom: -13px;
+    left: 0;
+    right: 0;
+    font: var(--label);
+    font-size: 7px;
+    letter-spacing: 0.14em;
+    text-align: center;
+    text-transform: uppercase;
+    color: #8f8e89;
+  }
+}
