@@ -23,7 +23,11 @@ const SOUND_KEY = 'spec01:sound';
  * once the skin is on: nobody who never finds the egg downloads them.
  */
 function loadBehaviors(): void {
-  void import('./behaviors/install.ts').then((m) => m.installHardware());
+  void import('./behaviors/install.ts')
+    .then((m) => m.installHardware())
+    .catch(() => {
+      // A failed chunk (offline, a stale deploy): the skin still shows, just without haptics.
+    });
 }
 
 /** Hex mirrors of the skin's `--background` (app-skin.css), for the theme-color meta. */
@@ -176,6 +180,8 @@ export const hardwareMode = {
   setSounds(on: boolean): void {
     sounds = on;
     // Through the module, which stores it too and keeps its own copy in step.
-    void import('./behaviors/sound.ts').then((m) => m.setSoundEnabled(on));
+    void import('./behaviors/sound.ts')
+      .then((m) => m.setSoundEnabled(on))
+      .catch(() => {});
   }
 };

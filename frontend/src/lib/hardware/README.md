@@ -31,9 +31,15 @@ like Appearance: `localStorage['mh:hardware']` is absent (locked), `on` or `off`
 - `skin/` — SPEC-01's stylesheets, verbatim, from `registry/hardware/ui/hardware/` at commit
   `b8f91b6646d9280d9de8e0f5b2c6453cb4f237cb`. MIT, © Shu Ding (`./LICENSE`). Keep them verbatim so
   they can be refreshed; MusicHoarder's changes go in `musichoarder.css` and `app-skin.css`.
+  They load with the device, and stay in the document once loaded. Most of their rules are under
+  `[data-skin="hardware"]`, but `devices.css` and `layout.css` also carry bare attribute selectors
+  (`[data-row]`, `[data-section]`, `[data-art]`, `[data-kit="field"]`, …). Nothing outside the
+  device uses those attributes; keep it that way, or the skin's layout reaches the app after the
+  switch is turned off.
 - `behaviors/` — SPEC-01's page-wide behaviours, same commit and licence, with local changes:
   - everything checks `skinActive()` (`active.ts`) first, because these listen at the document and
-    cannot be uninstalled — switching the skin off must make the app feel exactly as before;
+    cannot be uninstalled — switching the skin off must make the app feel exactly as before (the
+    caret only follows a skin field, and the popup watcher only works while sounds are on);
   - the app's own buttons, switches, rows and tabs are added to the haptic and sound selectors;
   - sounds are **off unless turned on** (a second Web Audio context clicking over the music could
     disturb the iOS audio session that background playback relies on);

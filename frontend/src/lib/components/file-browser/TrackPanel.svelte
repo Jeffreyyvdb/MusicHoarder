@@ -587,6 +587,8 @@
 {#snippet hardwareDevice(maxRows: number)}
   {#await import('#lib/hardware/HardwareNowPlaying.svelte') then { default: HardwareNowPlaying }}
     <HardwareNowPlaying {maxRows} />
+  {:catch}
+    {@render transport()}
   {/await}
 {/snippet}
 
@@ -850,7 +852,7 @@
         <div class="mt-1">{@render bottomRow()}</div>
         <!-- md–lg with a mouse (a narrow desktop window, an iPad with a trackpad): Now Playing hides
              the mini player that holds the volume, so it needs its own here too. -->
-        {#if !elsewhere}
+        {#if !elsewhere && !(hardware && content === 'player')}
           <div class="mt-3 hidden md:pointer-fine:block">
             <VolumeControl />
           </div>

@@ -149,7 +149,9 @@
       />
       <small aria-hidden="true">Like</small>
     </div>
-    <div data-player-cell>
+    <!-- Mute and Volume only where audio.volume does anything: iOS ignores it, so like the plain
+         Now Playing's VolumeControl they are for a fine pointer (style block below). -->
+    <div data-player-cell data-mh-volume-cell>
       <Latch
         label="Mute"
         icon="volume-mute"
@@ -158,7 +160,7 @@
       />
       <small aria-hidden="true">Mute</small>
     </div>
-    <div data-player-cell>
+    <div data-player-cell data-mh-volume-cell>
       <FlatKnob
         label="Volume"
         color="white"
@@ -203,6 +205,11 @@
 </Device>
 
 <style>
+  @media not (pointer: fine) {
+    [data-mh-volume-cell] {
+      display: none;
+    }
+  }
   [data-hw-cover] {
     position: absolute;
     inset: 0;

@@ -44,7 +44,14 @@ type Voice =
 const storageKey = "spec01:sound"
 // MusicHoarder: off unless turned on. A second Web Audio context clicking over the music could
 // disturb the audio session iOS keeps for background playback (see player.svelte.ts).
-let enabled = typeof localStorage !== "undefined" && localStorage.getItem(storageKey) === "on"
+let enabled = (() => {
+  try {
+    return typeof localStorage !== "undefined" && localStorage.getItem(storageKey) === "on"
+  } catch {
+    // Storage blocked: sounds stay off.
+    return false
+  }
+})()
 const listeners = new Set<(on: boolean) => void>()
 
 function soundEnabled() {
@@ -242,6 +249,8 @@ function watchPopups() {
     return true
   }
   new MutationObserver((records) => {
+    // MusicHoarder: nothing to sound while muted (the default) or with the skin off.
+    if (!enabled || !skinActive()) return
     let open = false
     for (const record of records) {
       if (record.type === "attributes") {

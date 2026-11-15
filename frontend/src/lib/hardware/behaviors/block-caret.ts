@@ -97,12 +97,15 @@ function installBlockCaret() {
     requestAnimationFrame(place)
   })
   document.addEventListener("focusout", (event) => event.target === field && hide())
-  document.addEventListener("selectionchange", () => requestAnimationFrame(place))
-  document.addEventListener("input", () => requestAnimationFrame(place), true)
-  document.addEventListener("scroll", () => requestAnimationFrame(place), true)
-  window.addEventListener("resize", () => requestAnimationFrame(place))
-  window.visualViewport?.addEventListener("resize", () => requestAnimationFrame(place))
-  window.visualViewport?.addEventListener("scroll", () => requestAnimationFrame(place))
+  // MusicHoarder: only while a skin field holds the caret, so the app's own scrolling and typing
+  // never ask for a frame (the skin can be switched off without a reload).
+  const follow = () => field && requestAnimationFrame(place)
+  document.addEventListener("selectionchange", follow)
+  document.addEventListener("input", follow, true)
+  document.addEventListener("scroll", follow, true)
+  window.addEventListener("resize", follow)
+  window.visualViewport?.addEventListener("resize", follow)
+  window.visualViewport?.addEventListener("scroll", follow)
 }
 
 export { installBlockCaret }
