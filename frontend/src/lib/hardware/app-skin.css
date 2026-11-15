@@ -101,7 +101,13 @@
   --mh-lcd-ink: #1b1b19;
   --mh-lcd-dim: #3f3e3a;
   --mh-lcd-red: #8f1a02;
+  /* Warning and destructive text on the LCD: 4.99 and 5.07:1 at its darkest. */
+  --mh-lcd-warn: #7a3600;
+  --mh-lcd-bad: #8f1a02;
   --mh-lcd-rule: rgb(27 27 25 / 0.32);
+  /* A key's red legend and its printed counts. */
+  --mh-key-red-ink: var(--primary);
+  --mh-key-dim: var(--muted-foreground);
   --mh-key: linear-gradient(180deg, #fefefd, #efeeea);
   --mh-key-shadow:
     inset 0 1px 0 #fff, inset 0 -1px 0 rgb(0 0 0 / 0.04), 0 0 0 1px rgb(0 0 0 / 0.07),
@@ -109,8 +115,8 @@
   --mh-key-down:
     inset 0 1px 2px rgb(0 0 0 / 0.08), 0 0 0 1px rgb(0 0 0 / 0.08), 0 1px 0 #d3d2cc,
     0 2px 3px rgb(0 0 0 / 0.1);
-  /* White legend on the red key: 4.71:1 at its middle. */
-  --mh-key-red: linear-gradient(180deg, #ea4612, #d93508 60%, #cf3106);
+  /* White legend on the red key: 4.6:1 at its lightest (the top), 5.1 below. */
+  --mh-key-red: linear-gradient(180deg, #d93d0d, #cf3106 60%, #c52e05);
   --mh-key-red-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.3), inset 0 -1px 0 rgb(0 0 0 / 0.1),
     0 0 0 1px rgb(150 30 0 / 0.35), 0 3px 0 #9a2504, 0 6px 12px rgb(210 60 10 / 0.32);
@@ -180,7 +186,12 @@
   --mh-lcd-ink: #ecebe5;
   --mh-lcd-dim: #a9a8a1;
   --mh-lcd-red: #ff6b3d;
+  --mh-lcd-warn: #ffad33;
+  --mh-lcd-bad: #ff7b6b;
   --mh-lcd-rule: rgb(236 235 229 / 0.25);
+  /* On a graphite key: red 5.26:1, counts 6.17. */
+  --mh-key-red-ink: #ff9a75;
+  --mh-key-dim: #c4c3bc;
   --mh-key: linear-gradient(180deg, #3d3d39, #2e2e2b);
   --mh-key-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.1), 0 0 0 1px rgb(0 0 0 / 0.6), 0 3px 0 #0e0e0d,
@@ -288,12 +299,6 @@
     [data-slot='sidebar-inset'] {
     margin-left: 8px;
   }
-}
-/* A page's own fills are the body (they would paint over its gradient and molding). */
-:root[data-mh-skin='hardware']
-  [data-slot='sidebar-inset']
-  :is(.bg-background, .bg-background-grouped) {
-  background-color: transparent;
 }
 :root[data-mh-skin='hardware'] [data-slot='sidebar-inset'] {
   background-color: var(--background);
@@ -504,7 +509,7 @@
 }
 :root[data-mh-skin='hardware']
   [data-slot='button']:is([data-variant='tinted'], [data-variant='destructive']) {
-  color: var(--primary);
+  color: var(--mh-key-red-ink);
 }
 :root[data-mh-skin='hardware'] [data-slot='button'][data-variant='default'] {
   background: var(--mh-key-red);
@@ -561,7 +566,7 @@
   box-shadow: var(--mh-led-glow);
 }
 :root[data-mh-skin='hardware'] [data-slot='filter-chip'] > span {
-  color: var(--muted-foreground);
+  color: var(--mh-key-dim);
 }
 
 /* Segmented controls: white keys in a black tray, the chosen one down. */
@@ -605,6 +610,8 @@
   --muted-foreground: var(--mh-lcd-dim);
   --muted-foreground-dim: var(--mh-lcd-dim);
   --primary: var(--mh-lcd-red);
+  --warning-text: var(--mh-lcd-warn);
+  --destructive-text: var(--mh-lcd-bad);
   --separator: var(--mh-lcd-rule);
   --accent: rgb(0 0 0 / 0.05);
   --secondary: rgb(0 0 0 / 0.07);
@@ -695,12 +702,13 @@
     :is([data-mh-tracks-head], [data-mh-tracks='wide'] > [role='button']) {
     grid-template-columns: 40px minmax(0, 1.5fr) minmax(0, 1fr) 56px 28px 52px 32px;
   }
-  /* The artist has its own column from here: the title is one line (TrackList's 40px rows). */
+  /* The artist has its own column from here, so the title's second line goes unless it carries
+     a Review badge or a shared-by badge (which has a title): the title is then one line. */
   :root[data-mh-skin='hardware']
     [data-mh-tracks='wide']
     > [role='button']
     > :nth-child(3)
-    > :last-child {
+    > :last-child:not(:has([data-slot='badge'], [title])) {
     display: none;
   }
 }
@@ -710,6 +718,14 @@
     grid-template-columns:
       44px minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr) 52px 64px 28px 52px
       32px;
+  }
+  /* The format column stays narrow, so the bitrate TrackList adds from 64rem stays out. */
+  :root[data-mh-skin='hardware']
+    [data-mh-tracks='wide']
+    > [role='button']
+    > :nth-child(7)
+    > :not(:first-child) {
+    display: none;
   }
 }
 /* On a phone the list is one LCD under the header, the art kept small in its bezel. */
@@ -983,7 +999,8 @@
   --np-secondary: var(--muted-foreground);
   --np-fill: var(--secondary);
   --np-liked: var(--primary);
-  background-color: var(--mh-desk);
+  /* The body colour, which is also what theme-color paints the status bar. */
+  background-color: var(--background);
 }
 
 /* ── The phone's tab bar: a strip of keys, the current one held down ─────────────────────────── */
@@ -1098,4 +1115,40 @@
 }
 :root[data-mh-skin='hardware'] [data-mh-lcd-list] [role='button'][aria-current='true']::after {
   right: -8px;
+}
+
+/* ── Focus: one ring for every control the skin restyles ────────────────────────────────────── */
+
+/* The skin's own borders and shadows replace the controls' focus rings (Tailwind's ring is a
+   box-shadow, and they hide the outline), so keyboard focus is drawn again here, outside the key. */
+:root[data-mh-skin='hardware']
+  :is(
+    [data-slot='button'],
+    [data-slot='filter-chip'],
+    [data-slot='switch'],
+    [data-slot='segmented-control'] [role='tab'],
+    [data-mh-readout],
+    [data-mh-nav-item],
+    [data-mh-tabbar] > a,
+    [data-mh-tabbar-search],
+    [data-mh-tracks] [role='button'],
+    [data-mh-tracks] [data-row-main],
+    [data-mh-lcd-list] [role='button'],
+    [data-mh-lcd-list] a,
+    .mh-chrome a,
+    .mh-chrome button
+  ):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+:root[data-mh-skin='hardware']
+  :is(
+    [data-slot='input-group'],
+    [data-slot='search-field'],
+    [data-slot='command-input-wrapper']
+  ):has(:focus-visible),
+:root[data-mh-skin='hardware']
+  :is(input[data-slot='input'], textarea[data-slot='textarea']):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }

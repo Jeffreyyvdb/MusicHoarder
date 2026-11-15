@@ -281,7 +281,7 @@ let pointerAt = 0
 let downKey: Element | null = null
 
 // MusicHoarder: plus the app's own buttons and switches (see haptics.ts).
-const keyLike = '[data-kit="button"], [data-kit="code-copy"], [data-kit="check"], [data-kit="checkbox"], [data-kit="dpad-zone"], [data-kit="rocker-part"], [data-kit="jog-center"], [data-slot="button"], [data-slot="switch"]'
+const keyLike = '[data-kit="button"], [data-kit="code-copy"], [data-kit="check"], [data-kit="checkbox"], [data-kit="dpad-zone"], [data-kit="rocker-part"], [data-kit="jog-center"], [data-slot="button"], [data-slot="filter-chip"], [data-slot="switch"]'
 
 function context() {
   return performance.now() - pointerAt < 1500 ? pointerTarget : document.activeElement

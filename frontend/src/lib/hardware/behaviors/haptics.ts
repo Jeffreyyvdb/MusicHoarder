@@ -140,8 +140,11 @@ const presses: [string, Haptic | "none" | ((el: Element) => Haptic | "none")][] 
   // MusicHoarder: the app's own controls, so the skin feels like hardware everywhere, not only on
   // the device. (Menu items and options are already covered by their roles above.)
   ['[data-slot="switch"]', "medium"],
-  ['[data-slot="segmented-control"] button, [data-slot="tabs-trigger"], [role="tab"]', "selection"],
-  ['[data-slot="button"], [data-slot="grouped-list-row"]', "light"],
+  [
+    '[data-slot="segmented-control"] button, [data-slot="tabs-trigger"], [role="tab"], [data-mh-tabbar] > a, [data-mh-nav-item]',
+    "selection",
+  ],
+  ['[data-slot="button"], [data-slot="filter-chip"], [data-slot="grouped-list-row"]', "light"],
 ]
 
 function installHaptics() {
