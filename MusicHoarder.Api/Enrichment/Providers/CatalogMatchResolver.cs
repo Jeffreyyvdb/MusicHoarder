@@ -79,11 +79,17 @@ public static class CatalogMatchResolver
         if (score < thresholds.MinConfidence - ThresholdEpsilon)
             return new ProviderNoMatch(buildResult(EnrichmentStatus.NeedsReview));
 
-        var blocking = MatchWarnings.AnyBlocking(warnings);
-        var status = score >= thresholds.MatchedThreshold - ThresholdEpsilon && !blocking
+        var status = IsAutomaticMatch(score, warnings, thresholds)
             ? EnrichmentStatus.Matched
             : EnrichmentStatus.NeedsReview;
 
         return new ProviderMatched(buildResult(status));
     }
+
+    /// <summary>
+    /// Whether <see cref="Finalize"/> would call this score an automatic
+    /// <see cref="EnrichmentStatus.Matched"/>: at or above the matched threshold, with no blocking warning.
+    /// </summary>
+    public static bool IsAutomaticMatch(double score, IReadOnlyList<string> warnings, MatchThresholds thresholds)
+        => score >= thresholds.MatchedThreshold - ThresholdEpsilon && !MatchWarnings.AnyBlocking(warnings);
 }

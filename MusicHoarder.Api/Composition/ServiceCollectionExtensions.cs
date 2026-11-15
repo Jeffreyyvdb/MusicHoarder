@@ -604,6 +604,7 @@ public static class ServiceCollectionExtensions
             var logger = sp.GetRequiredService<ILogger<AppleMusicCatalogService>>();
             return new AppleMusicCatalogService(httpClient, cache, options, logger);
         });
+        services.AddSingleton<AppleMusicAlbumIndex>();
 
         services.AddSingleton<ICoverArtArchiveClient>(sp =>
         {

@@ -66,6 +66,27 @@ public class AppleMusicCatalogServiceTests
         Assert.Equal(1, handler.SendCount);
     }
 
+    [Fact]
+    public async Task GetAlbumAsync_KeepsEachTracksOwnArtist()
+    {
+        // A compilation's tracks are credited to their own artists, not the album's.
+        const string json = """
+            {"resultCount":3,"results":[
+              {"wrapperType":"collection","collectionId":42,"collectionName":"Hits","artistName":"Various Artists","releaseDate":"2020-01-01T08:00:00Z"},
+              {"wrapperType":"track","trackId":1,"trackName":"One","artistName":"Artist A","discNumber":1,"trackNumber":1,"trackTimeMillis":200000},
+              {"wrapperType":"track","trackId":2,"trackName":"Two","discNumber":1,"trackNumber":2,"trackTimeMillis":180000}
+            ]}
+            """;
+        var handler = new FakeHttpHandler();
+        handler.AlwaysRespond(() => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") });
+
+        var album = await CreateService(handler).GetAlbumAsync("42", CancellationToken.None);
+
+        Assert.NotNull(album);
+        Assert.Equal(["Artist A", null], album!.Tracks.Select(t => t.Artist));
+        Assert.Equal(2020, album.Year);
+    }
+
     private static HttpResponseMessage RateLimited(HttpStatusCode status, TimeSpan retryAfter)
     {
         var response = new HttpResponseMessage(status);
