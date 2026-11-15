@@ -180,6 +180,39 @@ for (const forcedColors of ['none', 'active'] as const) {
   check('demo sign-in', signedIn, new URL(page.url()).pathname)
   if (!signedIn) await finish(browser)
 
+  // A Chromium (app) document preloads the library (frontend `#lib/server/library-preload`), and the
+  // store's fetch() takes the preload: one Resource Timing entry per list, started by the `link`.
+  // A second, `fetch`-initiated entry would mean the store asked for a different URL than the
+  // header preloads, and every cold start downloads the library twice.
+  {
+    const libraryUrls = ['/api/mh/songs?includeDeleted=false', '/api/mh/api/albums']
+    const doc = await page.goto(base + '/overview', { waitUntil: 'networkidle' })
+    const link = (await doc?.allHeaders())?.link ?? ''
+    check(
+      'app document preloads the library',
+      libraryUrls.every((url) => link.includes(`<${url}>; rel=preload; as=fetch; crossorigin`)),
+      link ? `Link: ${link}` : 'no Link header',
+    )
+    const initiators = await page.evaluate(
+      (urls) =>
+        urls.map((url) =>
+          performance
+            .getEntriesByType('resource')
+            .filter((e) => {
+              const u = new URL(e.name)
+              return u.pathname + u.search === url
+            })
+            .map((e) => (e as PerformanceResourceTiming).initiatorType),
+        ),
+      libraryUrls,
+    )
+    check(
+      'library preload used, downloaded once',
+      initiators.every((list) => list.length === 1 && list[0] === 'link'),
+      JSON.stringify(initiators),
+    )
+  }
+
   for (const path of ['/overview', '/library', '/artists', '/tracks', '/playlists', '/pipeline', '/quality', '/playlist-sync', '/settings']) {
     await page.goto(base + path, { waitUntil: 'networkidle' })
     await page.waitForTimeout(500)

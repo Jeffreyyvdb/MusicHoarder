@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { RequestEvent } from '@sveltejs/kit';
 import { handle } from './hooks.server';
+import { LIBRARY_PRELOAD_LINK } from '#lib/server/library-preload.ts';
 
 vi.mock('$app/env/public', () => ({
   PUBLIC_UMAMI_SRC: undefined,
@@ -13,13 +14,20 @@ vi.mock('$app/env/private', () => ({
 
 const SITE = 'https://musichoarder.app';
 
+interface EventExtras {
+  /** SvelteKit's `route.id` for the matched route; null (no match) by default. */
+  routeId?: string | null;
+  headers?: Record<string, string>;
+}
+
 /** Minimal stand-in for the parts of `RequestEvent` the hook actually reads. */
-function makeEvent(path: string, accept?: string | null): RequestEvent {
-  const headers = new Headers();
+function makeEvent(path: string, accept?: string | null, extras: EventExtras = {}): RequestEvent {
+  const headers = new Headers(extras.headers);
   if (accept) headers.set('accept', accept);
   return {
     url: new URL(`${SITE}${path}`),
-    request: new Request(`${SITE}${path}`, { headers })
+    request: new Request(`${SITE}${path}`, { headers }),
+    route: { id: extras.routeId ?? null }
   } as unknown as RequestEvent;
 }
 
@@ -33,11 +41,12 @@ function htmlResponse(status = 200, headers: Record<string, string> = {}) {
 async function run(
   path: string,
   accept?: string | null,
-  resolved: Response = htmlResponse()
+  resolved: Response = htmlResponse(),
+  extras: EventExtras = {}
 ): Promise<{ response: Response; resolve: ReturnType<typeof vi.fn> }> {
   const resolve = vi.fn(async () => resolved);
   const response = await handle({
-    event: makeEvent(path, accept),
+    event: makeEvent(path, accept, extras),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     resolve: resolve as any
   });
@@ -201,5 +210,50 @@ describe('security headers', () => {
     expect(response.status).toBe(302);
     expect(response.headers.get('Location')).toBe('https://musichoarder.app/login');
     expect(response.headers.get('X-Frame-Options')).toBe('DENY');
+  });
+});
+
+describe('library preload', () => {
+  const CHROME =
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36';
+  const SAFARI_IPHONE =
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
+  const signedIn = (userAgent: string): EventExtras => ({
+    routeId: '/(app)/overview',
+    headers: { cookie: 'mh_session=abc', 'user-agent': userAgent }
+  });
+
+  it('preloads the library with a signed-in (app) document in Chromium', async () => {
+    const { response } = await run('/overview', 'text/html', htmlResponse(), signedIn(CHROME));
+    expect(response.headers.get('link')).toBe(LIBRARY_PRELOAD_LINK);
+  });
+
+  it('appends to the Link header SvelteKit already set', async () => {
+    const { response } = await run(
+      '/overview',
+      'text/html',
+      htmlResponse(200, { Link: '</_app/immutable/entry/start.js>; rel="modulepreload"' }),
+      signedIn(CHROME)
+    );
+    expect(response.headers.get('link')).toBe(
+      `</_app/immutable/entry/start.js>; rel="modulepreload", ${LIBRARY_PRELOAD_LINK}`
+    );
+  });
+
+  it('leaves WebKit alone, which would download the library twice', async () => {
+    const { response } = await run(
+      '/overview',
+      'text/html',
+      htmlResponse(),
+      signedIn(SAFARI_IPHONE)
+    );
+    expect(response.headers.get('link')).toBeNull();
+  });
+
+  it("passes the auth gate's redirect through untouched", async () => {
+    const redirect = Response.redirect('https://musichoarder.app/login', 303);
+    const { response } = await run('/overview', 'text/html', redirect, signedIn(CHROME));
+    expect(response.status).toBe(303);
+    expect(response.headers.get('link')).toBeNull();
   });
 });

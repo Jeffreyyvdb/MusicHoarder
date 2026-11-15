@@ -8,6 +8,11 @@ export const SESSION_COOKIE = 'mh_session';
 /** Matches the session cookie in a raw `Cookie` header without matching `x_mh_session=` etc. */
 const SESSION_COOKIE_PATTERN = new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=`);
 
+/** Whether a raw `Cookie` header carries a session cookie at all (valid or not). */
+export function hasSessionCookie(cookieHeader: string | null | undefined): cookieHeader is string {
+  return !!cookieHeader && SESSION_COOKIE_PATTERN.test(cookieHeader);
+}
+
 /**
  * The three genuinely different answers to "is this request signed in?".
  *
@@ -37,7 +42,7 @@ export async function probeSession(
   cookieHeader: string | null | undefined,
   { userAgent = null, timeoutMs = 8000 }: ProbeSessionOptions = {}
 ): Promise<SessionProbe> {
-  if (!cookieHeader || !SESSION_COOKIE_PATTERN.test(cookieHeader)) {
+  if (!hasSessionCookie(cookieHeader)) {
     return { status: 'anonymous' };
   }
 
