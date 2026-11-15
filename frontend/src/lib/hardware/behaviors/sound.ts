@@ -21,6 +21,7 @@
 // Sound follows the haptics: `haptic(kind)` plays the matching sound, so
 // every press, tick and drag that buzzes also clicks. It can be muted, and
 // the choice is remembered.
+import { isNativeShell } from "#lib/native/shell.ts"
 import { skinActive } from "./active.ts"
 import { type Haptic } from "./haptics.ts"
 
@@ -79,7 +80,27 @@ let ctx: AudioContext | null = null
 let master: GainNode | null = null
 let noise: AudioBuffer | null = null
 
+// MusicHoarder: in the app shell (mobile/) the music plays natively and the page never claims an
+// audio session (player.svelte.ts skips it there), so iOS takes these clicks for ambient sound and
+// the silent switch mutes them. The app's own session is `playback` already (AudioEngine.swift), so
+// the page declares the same before it sounds, and the clicks play in silent mode as the music
+// does. A browser is left alone: its player claims `playback` while music plays, and a silent
+// phone that plays nothing stays silent, as the iOS keyboard does.
+type AudioSessionNavigator = Navigator & { audioSession?: { type: string } }
+
+function claimShellSession() {
+  if (!isNativeShell()) return
+  const session = (navigator as AudioSessionNavigator).audioSession
+  if (!session || session.type === "playback") return
+  try {
+    session.type = "playback"
+  } catch {
+    // Refused by this engine: the clicks follow the silent switch, as before.
+  }
+}
+
 function audio() {
+  claimShellSession()
   // A context the browser closed is replaced.
   if (ctx?.state === "closed") ctx = null
   if (!ctx) {
@@ -223,13 +244,39 @@ const voices: Record<Voice, (at: number) => void> = {
 }
 
 let lastPlayed = 0
+// MusicHoarder: a sound asked for while the context was not running, waiting for it to start.
+let waiting = false
+// How long a waiting sound still belongs to the press that asked for it.
+const waitLimitMs = 400
 
 function play(voice: Voice) {
   if (!enabled || typeof window === "undefined" || !skinActive()) return
   const c = audio()
   if (!c || !master) return
   lastPlayed = performance.now()
-  voices[voice](c.currentTime + 0.002)
+  if (c.state === "running") {
+    voices[voice](c.currentTime + 0.002)
+    return
+  }
+  // MusicHoarder: a context that is not running yet has a stopped clock. WebKit makes it on the
+  // first press but starts it only at the touch's end (a press is not a gesture it lets audio start
+  // from), and Safari parks it whenever the page is in the background. A sound scheduled on that
+  // clock waits for the start and then plays together with everything queued behind it, so the
+  // first tap's key-down and key-up came out late, as one. Instead, the first sound waits for the
+  // start and plays then, if that is still soon after the press; the others asked meanwhile are
+  // dropped.
+  if (waiting) return
+  waiting = true
+  const asked = performance.now()
+  c.resume().then(
+    () => {
+      waiting = false
+      if (performance.now() - asked < waitLimitMs && c.state === "running") voices[voice](c.currentTime + 0.002)
+    },
+    () => {
+      waiting = false
+    },
+  )
 }
 
 // Popups that make a sound as they open: their content parts, marked open
