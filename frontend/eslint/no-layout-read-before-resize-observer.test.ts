@@ -60,6 +60,14 @@ tester.run('no-layout-read-before-resize-observer', rule, {
       errors: [{ messageId: 'read' }]
     },
     {
+      // At the top level of a module.
+      code: `const el = document.body;
+      const measure = () => el.offsetWidth;
+      measure();
+      new ResizeObserver(measure).observe(el);`,
+      errors: [{ messageId: 'call', data: { name: 'measure' } }]
+    },
+    {
       // Through a helper defined elsewhere in the file, and after the observer is made.
       code: `function edges(el) { return el.scrollWidth; }
       function setup(el) {

@@ -58,7 +58,8 @@ function walkSync(node, visit, keys) {
     const child = node[key];
     if (Array.isArray(child)) {
       for (const c of child) {
-        if (c && typeof c.type === 'string' && !FUNCTION_TYPES.has(c.type)) walkSync(c, visit, keys);
+        if (c && typeof c.type === 'string' && !FUNCTION_TYPES.has(c.type))
+          walkSync(c, visit, keys);
       }
     } else if (child && typeof child.type === 'string' && !FUNCTION_TYPES.has(child.type)) {
       walkSync(child, visit, keys);
@@ -131,7 +132,7 @@ export default {
         let fn = node.parent;
         while (fn && !FUNCTION_TYPES.has(fn.type)) fn = fn.parent;
         const body = fn ? fn.body : sourceCode.ast;
-        if (!body || body.type !== 'BlockStatement') return;
+        if (!body || (body.type !== 'BlockStatement' && body.type !== 'Program')) return;
         for (const statement of body.body) {
           walkSync(
             statement,
