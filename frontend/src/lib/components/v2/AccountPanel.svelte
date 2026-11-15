@@ -38,6 +38,7 @@
   import { DropdownMenu as DropdownMenuPrimitive } from 'bits-ui';
   import {
     Check,
+    ExternalLink,
     FolderSync,
     HardDrive,
     Loader2,
@@ -155,7 +156,19 @@
   function accountSubtitle(account: AccountView): string {
     return isAdmin(account) ? account.email : `${account.email} · ${roleLabel(account.role)}`;
   }
+
+  // The hardware skin's design is Shu Ding's SPEC-01 (MIT); the menu credits it with a link.
+  const SPEC01_URL = 'https://github.com/shuding/spec-01';
 </script>
+
+{#snippet hardwareCredit()}
+  The look is <a
+    href={SPEC01_URL}
+    target="_blank"
+    rel="noopener noreferrer"
+    class="text-primary underline underline-offset-2">SPEC-01</a
+  > by Shu Ding (MIT), built on Vercel's UI SDK and set in IBM Plex Mono.
+{/snippet}
 
 {#snippet avatar(label: string, email: string, sizeClass: string)}
   <!-- The initials avatar every account surface uses. A darker end of the old cyan ramp so the
@@ -274,7 +287,7 @@
       <!-- The hardware skin: an easter egg, so the switch exists only once someone has found it
            (the Konami code, or "spec-01" in search). The credit is the kit's author's. -->
       {#if hardwareMode.unlocked}
-        <GroupedList.Section footer="SPEC-01 hardware kit by Shu Ding, MIT licensed.">
+        <GroupedList.Section footer={hardwareCredit}>
           <SwitchRow
             label="Hardware"
             sublabel="Dress the app as a pocket instrument"
@@ -439,6 +452,14 @@
           Key sounds
         </DropdownMenu.CheckboxItem>
       {/if}
+      <!-- The credit, as in the sheet's footer: the design is Shu Ding's SPEC-01. -->
+      <DropdownMenu.Item>
+        {#snippet child({ props })}
+          <a href={SPEC01_URL} target="_blank" rel="noopener noreferrer" {...props}>
+            <ExternalLink /> SPEC-01 by Shu Ding
+          </a>
+        {/snippet}
+      </DropdownMenu.Item>
     {/if}
 
     <DropdownMenu.Separator />

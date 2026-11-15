@@ -444,3 +444,8 @@ steps are required after a new image is deployed.
   semantic-release version.
 - **Security:** report vulnerabilities per [SECURITY.md](SECURITY.md).
 - **License:** [MIT](LICENSE).
+- **Credits:** the hidden hardware skin (`frontend/src/lib/hardware/`) is the work of
+  [Shu Ding](https://github.com/shuding): its look, stylesheets and page-wide behaviours come
+  from the [SPEC-01](https://github.com/shuding/spec-01) kit (MIT), ported to Svelte on Vercel's
+  [UI SDK](https://ui-sdk.dev). It also ships IBM Plex Mono (OFL 1.1) and IBM Carbon icon paths
+  (Apache-2.0); each licence sits beside the files it covers.
