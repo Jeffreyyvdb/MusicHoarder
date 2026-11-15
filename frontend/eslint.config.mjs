@@ -49,6 +49,32 @@ export default ts.config(
     }
   },
   {
+    // The library is thousands of rows. A component that filters, searches or folds the whole of
+    // `songsStore.songs` repeats that walk on every refresh, like and patchSong, once per mounted
+    // copy. The store computes the shared cuts once; read those. Lookups by id go through
+    // `songsById`. Handing the array to a helper or keeping an alias of it is the same walk with
+    // a step in between, so both are flagged too; `.length` is fine.
+    files: ['src/**/*.ts', 'src/**/*.svelte'],
+    ignores: ['src/lib/stores/**', 'src/**/*.test.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            "CallExpression[callee.type='MemberExpression'][callee.object.type='MemberExpression'][callee.object.object.name='songsStore'][callee.object.property.name='songs'][callee.property.name=/^(filter|find|findIndex|findLast|findLastIndex|reduce|reduceRight|some|every|forEach|map|flatMap)$/]",
+          message:
+            'Do not scan songsStore.songs in a component. Read a shared cut (songsStore.builtSongs, .trackListSongs, .leadArtistGroups, .albums, .libraryCounts, .enrichmentStatusCounts), look a row up with songsStore.songsById, or add a cut to lib/stores/songs.svelte.ts.'
+        },
+        {
+          selector:
+            "CallExpression > MemberExpression.arguments[object.name='songsStore'][property.name='songs'], VariableDeclarator > MemberExpression.init[object.name='songsStore'][property.name='songs'], ForOfStatement > MemberExpression.right[object.name='songsStore'][property.name='songs'], SpreadElement > MemberExpression.argument[object.name='songsStore'][property.name='songs']",
+          message:
+            'Do not pass or alias songsStore.songs outside the store: that hides a whole-library scan. Read a shared cut (songsStore.builtSongs, .trackListSongs, .leadArtistGroups, .albums, .libraryCounts, .enrichmentStatusCounts) or songsStore.songsById, or add a cut to lib/stores/songs.svelte.ts. Reading .length is fine.'
+        }
+      ]
+    }
+  },
+  {
     ignores: ['build/', '.svelte-kit/', 'dist/', 'node_modules/']
   }
 );

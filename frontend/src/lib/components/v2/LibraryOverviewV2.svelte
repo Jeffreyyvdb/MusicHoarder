@@ -40,7 +40,7 @@
   const admin = $derived(isAdmin(user));
 
   // ── data (shared songs store, same live-refresh contract as LibraryV2) ──────
-  const songs = $derived(songsStore.songs);
+  const songCount = $derived(songsStore.songs.length);
   const isLoading = $derived(songsStore.isLoading);
 
   $effect(() => {
@@ -228,7 +228,7 @@
     />
 
     <div class="mx-auto flex w-full max-w-[1400px] flex-col gap-7 pt-2 pb-6 md:gap-8 md:pt-4">
-      {#if isLoading && songs.length === 0}
+      {#if isLoading && songCount === 0}
         <div
           class="text-muted-foreground text-subheadline flex items-center justify-center py-24 md:text-sm"
         >

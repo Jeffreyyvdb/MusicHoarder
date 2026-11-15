@@ -5,8 +5,6 @@
   import BrandMark from '#lib/components/BrandMark.svelte';
   import { navGroupsFor, resolveNav, type NavGroupId, type NavItem } from '#lib/nav.ts';
   import { APP_HOME } from '#lib/app-home.ts';
-  import { isBuiltSong } from '#lib/album-sections.ts';
-  import { isTrackListSong } from '#lib/track-list-view.svelte.ts';
   import { songsStore } from '#lib/stores/songs.svelte.ts';
   import { inboxCounts, refreshInboxNameCounts } from '#lib/stores/nav-badges.svelte.ts';
   import { chatStore } from '#lib/stores/chat.svelte.ts';
@@ -35,16 +33,12 @@
   // Members see only the Listen group; the guard bounces them off everything else anyway.
   const navGroups = $derived(navGroupsFor(user));
 
-  const songs = $derived(songsStore.songs);
-
   // ── derived counts ────────────────────────────────────────────────────────
-  // Albums and Artists reflect the clean output only, so their counts are over built
-  // (LibraryBuildStatus.Done + destinationPath) songs — matching what those grids list.
-  const builtSongs = $derived(songs.filter(isBuiltSong));
-  // The Tracks list's own predicate, so this badge and the page's "N tracks" cannot disagree.
-  const trackCount = $derived.by(() =>
-    songs.length === 0 ? null : songs.filter(isTrackListSong).length
-  );
+  // Tracks, Albums and Artists are the store's shared figures: the Tracks list's, the Albums grid's
+  // and the Artists grid's own lists, so a badge cannot disagree with the page it opens (the
+  // artist badge once counted distinct album-artist strings, which reads "A & B" as an artist the
+  // grid splits in two). Null until the library has loaded.
+  const libraryCounts = $derived(songsStore.libraryCounts);
   // Storage is measured on disk by the API (every managed folder, not the DB's source-size sum)
   // and shown against the real volume capacity — the same figure and bar as the Manage hub and
   // the account panel.
@@ -70,26 +64,13 @@
     if (sidebar.isMobile || isFriend || collapsed.inbox) return;
     void refreshInboxNameCounts();
   });
-  // The grid's own list, so this badge and its "N albums" footer cannot disagree.
-  const albumCount = $derived.by(() => (songs.length === 0 ? null : songsStore.albums.length));
-
-  const artistCount = $derived.by(() => {
-    if (songs.length === 0) return null;
-    const set = new Set<string>();
-    for (const s of builtSongs) {
-      const a = (s.albumArtist ?? s.artist ?? '').trim();
-      if (a) set.add(a.toLowerCase());
-    }
-    return set.size;
-  });
-
   // Counts stay here rather than in $lib/nav: that module is pure data with no store access,
   // which is what lets the tests import it. Keyed by item id; a count shows once it is known (the
   // name-merge queues' only after the Inbox hub has fetched them).
   const COUNTS: Record<string, () => number | string | null> = {
-    albums: () => albumCount,
-    artists: () => artistCount,
-    tracks: () => trackCount,
+    albums: () => libraryCounts?.albums ?? null,
+    artists: () => libraryCounts?.artists ?? null,
+    tracks: () => libraryCounts?.tracks ?? null,
     review: () => inbox.review,
     dupes: () => inbox.dupes,
     aiflag: () => inbox.ai,

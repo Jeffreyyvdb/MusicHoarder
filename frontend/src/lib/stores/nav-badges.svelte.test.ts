@@ -17,13 +17,25 @@ vi.mock('#lib/api-client.ts', async (importOriginal) => ({
   fetchAlbumDuplicates: () => fetchAlbumDuplicates(),
   fetchSplitAlbums: () => fetchSplitAlbums()
 }));
-vi.mock('#lib/stores/songs.svelte.ts', () => ({ songsStore: { songs: [], isLoading: false } }));
+const songsFake = vi.hoisted(() => ({
+  songs: [] as unknown[],
+  isLoading: false,
+  enrichmentStatusCounts: {} as Record<string, number>
+}));
+vi.mock('#lib/stores/songs.svelte.ts', () => ({ songsStore: songsFake }));
 
 beforeEach(() => {
   vi.resetModules();
+  songsFake.songs = [];
+  songsFake.enrichmentStatusCounts = {};
   // The store does nothing during server rendering; any window will do.
   vi.stubGlobal('window', {});
-  for (const mock of [fetchInboxNameCounts, fetchArtistDuplicates, fetchAlbumDuplicates, fetchSplitAlbums])
+  for (const mock of [
+    fetchInboxNameCounts,
+    fetchArtistDuplicates,
+    fetchAlbumDuplicates,
+    fetchSplitAlbums
+  ])
     mock.mockReset();
 });
 
@@ -92,3 +104,26 @@ describe('refreshInboxNameCounts', () => {
     expect(store.inboxCounts()).toMatchObject({ artists: 6, albums: 824 });
   });
 });
+
+describe('inboxCounts', () => {
+  it("reads Tag review and failed from the store's one tally, not by filtering the rows", async () => {
+    // Rows whose own statuses disagree with the tally: a count taken by filtering them would say 0.
+    songsFake.songs = [{ id: 1 }, { id: 2 }];
+    songsFake.enrichmentStatusCounts = { needsreview: 7, failed: 3 };
+    const store = await freshStore();
+    publishDecisionCounts(store);
+
+    expect(store.inboxCounts()).toMatchObject({ review: 7, failed: 3, total: 7 + 2 + 1 });
+    expect(store.tagReviewCount()).toBe(7);
+  });
+
+  it('knows no song figure before the library has loaded', async () => {
+    const store = await freshStore();
+    expect(store.inboxCounts()).toMatchObject({ review: null, failed: null, total: null });
+  });
+});
+
+function publishDecisionCounts(store: Awaited<ReturnType<typeof freshStore>>) {
+  store.publishInboxQueueCount('dupes', 2);
+  store.publishInboxQueueCount('ai', 1);
+}

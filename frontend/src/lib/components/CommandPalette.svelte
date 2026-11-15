@@ -102,8 +102,8 @@
   // one full-library download per session, already warm on any page that has
   // shown the library, and the exact rows the detail panel resolves against —
   // so picking a track can open it with no further request.
-  const songs = $derived(songsStore.songs);
-  const loading = $derived(songsStore.isLoading && songs.length === 0);
+  const songCount = $derived(songsStore.songs.length);
+  const loading = $derived(songsStore.isLoading && songCount === 0);
 
   // Warm the store the first time the palette opens (a no-op once loaded).
   // untrack: ensureLoaded reads the same isLoading flag the fetch writes, and a

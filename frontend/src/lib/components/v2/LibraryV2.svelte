@@ -119,7 +119,7 @@
   }
 
   // ── data layer (shared songs store, also feeds the global detail panel) ─────
-  const songs = $derived(songsStore.songs);
+  const songCount = $derived(songsStore.songs.length);
   const isLoading = $derived(songsStore.isLoading);
   const loadError = $derived(songsStore.error);
 
@@ -471,7 +471,7 @@
   // Pipeline-health stat — always library-wide, so it doesn't move with the view filters.
   const enrichedPct = $derived.by(() => {
     if (builtSongs.length === 0) return null;
-    return (builtSongs.length / Math.max(1, songs.length)) * 100;
+    return (builtSongs.length / Math.max(1, songCount)) * 100;
   });
 
   // ── artist view (/library?artist=) ──────────────────────────────────────────
@@ -1050,7 +1050,7 @@
 
 <!-- ── pages ─────────────────────────────────────────────────────────────── -->
 
-{#if loadError && songs.length === 0 && !isLoading}
+{#if loadError && songCount === 0 && !isLoading}
   <!-- Nothing loaded at all: the error and Retry, whatever the URL asked for (an album link must
        not read "Album not found" when the library simply failed to load). -->
   <ScrollArea class="min-h-0 flex-1">
@@ -1068,7 +1068,7 @@
 {:else if tab === 'albums' && albumKey}
   <!-- Album drilldown. It renders its own nav bar; while the library loads (or when the key
        resolves to nothing) AlbumPage shows its own loading / not-found states. -->
-  <AlbumPage album={openAlbum} isLoading={isLoading || songs.length === 0} />
+  <AlbumPage album={openAlbum} isLoading={isLoading || songCount === 0} />
 {:else if isListTab}
   <!-- Tracks: the virtualized TrackList. The min-h-0 flex chain keeps its scroll viewport bounded
        so virtualization works. On a phone a row tap follows the tap rule; on desktop it toggles

@@ -145,6 +145,64 @@ describe('shared cuts', () => {
     release(); // a second release is a no-op, not a stolen hold
     expect(store.builtSongs.map((s) => s.id)).toEqual([1, 3]);
   });
+
+  it("gives the sidebar the pages' own figures, however the artists are credited", async () => {
+    fetchSongs.mockResolvedValue([
+      // A duo credited as one album artist: the Artists grid lists its members, not "A & B".
+      song(1, { isBuilt: true, artist: 'A & B', albumArtist: 'A & B', artists: 'A;B' }),
+      song(2, { isBuilt: true, artist: 'A' }),
+      // A featured-only guest never leads a release, so the grid leaves them out.
+      song(3, { isBuilt: true, artist: 'Nina', artists: 'Nina;Guest' }),
+      // The same lead in other capitals is one artist.
+      song(4, { isBuilt: true, artist: 'NINA' }),
+      // Not built: in no grid.
+      song(5, { isBuilt: false, artist: 'Otis' }),
+      // Album fill: an artist in the grid, but not a row in the Tracks list.
+      song(6, { isBuilt: true, artist: 'Zed', acquisitionIntent: 'AlbumFill' })
+    ]);
+    fetchAlbums.mockResolvedValue([{ key: 'one' }, { key: 'two' }]);
+    const store = await freshStore();
+    expect(store.libraryCounts).toBeNull();
+    const release = store.retainViews();
+    await store.loadSongs();
+    await flush();
+
+    expect(store.leadArtistGroups.map((g) => g.label)).toEqual(['A', 'Nina', 'Zed']);
+    expect(store.libraryCounts).toEqual({
+      tracks: store.trackListSongs.length,
+      albums: store.albums.length,
+      artists: store.leadArtistGroups.length
+    });
+    expect(store.libraryCounts).toEqual({ tracks: 4, albums: 2, artists: 3 });
+
+    // The rule the sidebar used to apply on its own (distinct album-artist strings over built
+    // songs) said 4 here — "A & B" counted as an artist the grid does not list.
+    const oldRule = new Set(
+      store.builtSongs.map((s) => (s.albumArtist ?? s.artist ?? '').trim().toLowerCase())
+    ).size;
+    expect(oldRule).toBe(4);
+    release();
+  });
+
+  it('counts the songs per enrichment status in one tally', async () => {
+    fetchSongs.mockResolvedValue([
+      song(1, { enrichmentStatus: 'NeedsReview' }),
+      song(2, { enrichmentStatus: 2 }),
+      song(3, { enrichmentStatus: 'Failed' }),
+      song(4, { enrichmentStatus: 'Matched' }),
+      song(5, {})
+    ]);
+    fetchAlbums.mockResolvedValue([]);
+    const store = await freshStore();
+    await store.loadSongs();
+    expect(store.enrichmentStatusCounts).toEqual({
+      pending: 1,
+      processing: 0,
+      complete: 1,
+      needsreview: 2,
+      failed: 1
+    });
+  });
 });
 
 describe('a play', () => {
