@@ -290,10 +290,10 @@
   );
 </script>
 
-<!-- The chip set, in whichever band holds it (the phone's pinned strip, the desktop bar's band;
-     both scroll sideways). -->
+<!-- The chip set, in whichever band holds it: the phone's pinned strip scrolls sideways (shrink-0
+     keeps it one row there), the desktop bar's band wraps (md:shrink lets it). -->
 {#snippet filterChips()}
-  <div role="group" aria-label="Show folders" class="flex shrink-0 items-center gap-2">
+  <div role="group" aria-label="Show folders" class="flex shrink-0 flex-wrap items-center gap-2 md:shrink">
     {#each FILTERS as p (p.id)}
       <FilterChip pressed={filter === p.id} onclick={() => (filter = p.id)} count={p.n}>
         {p.label}
