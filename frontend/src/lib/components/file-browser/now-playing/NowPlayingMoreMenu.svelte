@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { mediaAppearance } from '#lib/hardware/hardware-mode.svelte.ts';
   import {
     Disc3,
     Ellipsis,
@@ -150,9 +151,9 @@
       </Button>
     {/snippet}
   </DropdownMenu.Trigger>
-  <!-- dark: the menu belongs to Now Playing's media appearance, whatever the app theme. z-[70]:
+  <!-- Now Playing's media appearance (dark whatever the app theme; none under the hardware skin). z-[70]:
        above the overlay's z-60. -->
-  <DropdownMenu.Content align="end" class="dark z-[70] min-w-56">
+  <DropdownMenu.Content align="end" class={["z-[70] min-w-56", mediaAppearance()]}>
     <DropdownMenu.Group>
       <DropdownMenu.Item onSelect={onAddToPlaylist}>
         <ListPlus />

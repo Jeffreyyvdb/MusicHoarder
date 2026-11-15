@@ -59,6 +59,7 @@
   `default`); it stays for fullscreen and landscape notches.
 -->
 <header
+  data-mh-topbar=""
   class="border-separator bg-background hidden h-[calc(3rem_+_env(safe-area-inset-top))] shrink-0 items-center gap-2 border-b px-3.5 pt-[env(safe-area-inset-top)] md:flex"
 >
   <Sidebar.Trigger class="-ml-1 size-7 shrink-0" />

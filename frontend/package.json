@@ -26,6 +26,8 @@
     "@opentelemetry/auto-instrumentations-node": "^0.83.0",
     "@opentelemetry/exporter-trace-otlp-grpc": "^0.301.0",
     "@opentelemetry/sdk-node": "^0.301.0",
+    "@ui-sdk/core": "0.1.0-beta.2",
+    "@ui-sdk/svelte": "0.1.0-beta.2",
     "bits-ui": "^2.20.6",
     "clsx": "^2.1.1",
     "import-in-the-middle": "^3.6.0",

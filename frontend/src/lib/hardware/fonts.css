@@ -1,0 +1,66 @@
+/* Spec Mono: IBM Plex Mono 2.3 subset by SPEC-01 (OFL 1.1, see /static/fonts/spec-mono/OFL.txt).
+   Self-hosted because the CSP's font-src is 'self'. */
+@font-face {
+  font-family: 'Spec Mono';
+  font-style: normal;
+  font-weight: 200;
+  font-display: swap;
+  src: url('/fonts/spec-mono/spec-mono-200-core.woff2') format('woff2');
+  unicode-range: U+0020-007E, U+00B7, U+2013-2014, U+2018-2019, U+201C-201D, U+2026;
+}
+@font-face {
+  font-family: 'Spec Mono';
+  font-style: normal;
+  font-weight: 200;
+  font-display: swap;
+  src: url('/fonts/spec-mono/spec-mono-200-ext.woff2') format('woff2');
+  unicode-range: U+00A0-00B6, U+00B8-017F, U+2212;
+}
+@font-face {
+  font-family: 'Spec Mono';
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  src: url('/fonts/spec-mono/spec-mono-300-core.woff2') format('woff2');
+  unicode-range: U+0020-007E, U+00B7, U+2013-2014, U+2018-2019, U+201C-201D, U+2026;
+}
+@font-face {
+  font-family: 'Spec Mono';
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  src: url('/fonts/spec-mono/spec-mono-300-ext.woff2') format('woff2');
+  unicode-range: U+00A0-00B6, U+00B8-017F, U+2212;
+}
+@font-face {
+  font-family: 'Spec Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/spec-mono/spec-mono-400-core.woff2') format('woff2');
+  unicode-range: U+0020-007E, U+00B7, U+2013-2014, U+2018-2019, U+201C-201D, U+2026;
+}
+@font-face {
+  font-family: 'Spec Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/spec-mono/spec-mono-400-ext.woff2') format('woff2');
+  unicode-range: U+00A0-00B6, U+00B8-017F, U+2212;
+}
+@font-face {
+  font-family: 'Spec Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/spec-mono/spec-mono-500-core.woff2') format('woff2');
+  unicode-range: U+0020-007E, U+00B7, U+2013-2014, U+2018-2019, U+201C-201D, U+2026;
+}
+@font-face {
+  font-family: 'Spec Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/spec-mono/spec-mono-500-ext.woff2') format('woff2');
+  unicode-range: U+00A0-00B6, U+00B8-017F, U+2212;
+}

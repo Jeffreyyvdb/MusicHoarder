@@ -1,5 +1,6 @@
 <script lang="ts">
   import { FastForward, Pause, Play, Rewind } from '@lucide/svelte';
+  import { mediaAppearance } from '#lib/hardware/hardware-mode.svelte.ts';
   import { Button } from '#lib/components/ui/button/index.ts';
   import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
   import Scrubber from './Scrubber.svelte';
@@ -100,7 +101,7 @@
     </DropdownMenu.Trigger>
     <!-- z-[70]: this menu can open from inside Now Playing (z-[60]); the default z-50 would render
          it invisibly behind the overlay. -->
-    <DropdownMenu.Content align="center" class={cn('z-[70] min-w-36', media && 'dark')}>
+    <DropdownMenu.Content align="center" class={cn('z-[70] min-w-36', media && mediaAppearance())}>
       <DropdownMenu.RadioGroup
         value={String(playerStore.playbackRate)}
         onValueChange={(v) => playerStore.setPlaybackRate(Number(v))}

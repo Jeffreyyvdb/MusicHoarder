@@ -1,5 +1,6 @@
 <script lang="ts">
   import { isSubmitEnter } from '#lib/keyboard.ts';
+  import { mediaAppearance } from '#lib/hardware/hardware-mode.svelte.ts';
   import { ListPlus, Loader2 } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
   import * as BottomSheet from '#lib/components/ui/bottom-sheet/index.ts';
@@ -90,7 +91,7 @@
 <BottomSheet.Root
   bind:open
   {nested}
-  class={nested ? 'dark' : undefined}
+  class={nested ? mediaAppearance() : undefined}
   title={mode === 'create' ? 'New Playlist' : 'Add to Playlist'}
   description={what}
 >

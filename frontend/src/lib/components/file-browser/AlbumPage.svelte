@@ -788,6 +788,7 @@
     <div class="album-wash relative isolate -mt-[49px] pt-[57px] md:-mt-12 md:pt-14">
       <div
         aria-hidden="true"
+        data-mh-wash=""
         class="mh-crossfade pointer-events-none absolute inset-0 -z-10 transition-opacity duration-300 ease-out"
         style:background={heroWash}
         style:opacity={heroWash ? 1 : 0}
@@ -811,6 +812,7 @@
         >
           <h2
             bind:this={heroTitleEl}
+            data-mh-hero-title=""
             class="text-title-2 max-w-full text-balance md:text-[28px] md:leading-tight"
           >
             {album.title}
@@ -892,6 +894,7 @@
             <!-- Admin status row → the album info sheet (link, completeness, AI grade). -->
             <button
               type="button"
+              data-mh-readout=""
               onclick={() => (infoOpen = true)}
               class="bg-secondary hover:bg-secondary-hover text-subheadline focus-visible:ring-ring mt-3 flex min-h-11 w-full max-w-full items-center gap-2 rounded-xl px-3 text-left focus-visible:outline-hidden focus-visible:ring-2 md:w-auto md:max-w-[min(100%,28rem)] md:text-sm"
             >
@@ -928,6 +931,7 @@
                  album fill, the tracks you already had that started it. -->
             <button
               type="button"
+              data-mh-readout=""
               onclick={() => (provenanceOpen = true)}
               disabled={!provenance}
               aria-label={provenance?.summary
@@ -966,7 +970,7 @@
 
     <!-- Track list -->
     {#if compact}
-      <ol class="mt-4" aria-label="Tracks">
+      <ol data-mh-lcd-list="" class="mt-4" aria-label="Tracks">
         {#each visibleRows as row, ri (row.key)}
           {@const numLabel = multiDisc ? `${row.disc}.${row.n}` : String(row.n)}
           {@const separated = ri < visibleRows.length - 1}
@@ -1099,8 +1103,9 @@
         {/each}
       </ol>
     {:else}
-      <div class="@container px-4 pt-5 pb-2">
+      <div data-mh-lcd-list="" class="@container px-4 pt-5 pb-2">
         <div
+          data-mh-list-head=""
           class={cn(
             'border-border text-muted-foreground grid items-center gap-4 border-b px-3 py-2 text-[11px] font-medium',
             DESKTOP_GRID

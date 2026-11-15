@@ -38,6 +38,7 @@
   import { DropdownMenu as DropdownMenuPrimitive } from 'bits-ui';
   import {
     Check,
+    ExternalLink,
     FolderSync,
     HardDrive,
     Loader2,
@@ -60,6 +61,8 @@
   import { pipelineOverlay } from '#lib/stores/pipeline-overlay.svelte.ts';
   import { storageUsage } from '#lib/stores/storage-usage.svelte.ts';
   import { storageSummary, watchedFolders, watchingLabel } from '#lib/storage-usage-meta.ts';
+  import SwitchRow from '#lib/components/settings/SwitchRow.svelte';
+  import { hardwareMode } from '#lib/hardware/hardware-mode.svelte.ts';
 
   // The account panel: who you are, the other accounts this browser remembers, the
   // appearance override, the admin's storage and folder status, the version, and sign out. One
@@ -153,7 +156,19 @@
   function accountSubtitle(account: AccountView): string {
     return isAdmin(account) ? account.email : `${account.email} · ${roleLabel(account.role)}`;
   }
+
+  // The hardware skin's design is Shu Ding's SPEC-01 (MIT); the menu credits it with a link.
+  const SPEC01_URL = 'https://github.com/shuding/spec-01';
 </script>
+
+{#snippet hardwareCredit()}
+  The look is <a
+    href={SPEC01_URL}
+    target="_blank"
+    rel="noopener noreferrer"
+    class="text-primary underline underline-offset-2">SPEC-01</a
+  > by Shu Ding (MIT), built on Vercel's UI SDK and set in IBM Plex Mono.
+{/snippet}
 
 {#snippet avatar(label: string, email: string, sizeClass: string)}
   <!-- The initials avatar every account surface uses. A darker end of the old cyan ramp so the
@@ -268,6 +283,26 @@
           onValueChange={(v) => setMode(v)}
         />
       </div>
+
+      <!-- The hardware skin: an easter egg, so the switch exists only once someone has found it
+           (the Konami code, or "spec-01" in search). The credit is the kit's author's. -->
+      {#if hardwareMode.unlocked}
+        <GroupedList.Section footer={hardwareCredit}>
+          <SwitchRow
+            label="Hardware"
+            sublabel="Dress the app as a pocket instrument"
+            checked={hardwareMode.enabled}
+            onCheckedChange={(v) => hardwareMode.setEnabled(v)}
+          />
+          {#if hardwareMode.enabled}
+            <SwitchRow
+              label="Key sounds"
+              checked={hardwareMode.sounds}
+              onCheckedChange={(v) => hardwareMode.setSounds(v)}
+            />
+          {/if}
+        </GroupedList.Section>
+      {/if}
 
       <GroupedList.Section footer={admin && folders.length ? watchingFooter : undefined}>
         <GroupedList.Row
@@ -399,6 +434,33 @@
         {/each}
       </div>
     </DropdownMenuPrimitive.RadioGroup>
+    {#if hardwareMode.unlocked}
+      <!-- The hardware skin's switches, once the egg is found (see the sheet above). -->
+      <DropdownMenu.CheckboxItem
+        checked={hardwareMode.enabled}
+        closeOnSelect={false}
+        onCheckedChange={(v) => hardwareMode.setEnabled(v)}
+      >
+        Hardware
+      </DropdownMenu.CheckboxItem>
+      {#if hardwareMode.enabled}
+        <DropdownMenu.CheckboxItem
+          checked={hardwareMode.sounds}
+          closeOnSelect={false}
+          onCheckedChange={(v) => hardwareMode.setSounds(v)}
+        >
+          Key sounds
+        </DropdownMenu.CheckboxItem>
+      {/if}
+      <!-- The credit, as in the sheet's footer: the design is Shu Ding's SPEC-01. -->
+      <DropdownMenu.Item>
+        {#snippet child({ props })}
+          <a href={SPEC01_URL} target="_blank" rel="noopener noreferrer" {...props}>
+            <ExternalLink /> SPEC-01 by Shu Ding
+          </a>
+        {/snippet}
+      </DropdownMenu.Item>
+    {/if}
 
     <DropdownMenu.Separator />
     <DropdownMenu.Item>

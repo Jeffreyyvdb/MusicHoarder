@@ -62,6 +62,7 @@
     class="pointer-events-none fixed inset-x-0 bottom-(--mh-tabbar-offset) z-40 flex gap-2 pr-[max(16px,env(safe-area-inset-right))] pl-[max(16px,env(safe-area-inset-left))] md:hidden"
   >
     <div
+      data-mh-tabbar=""
       class="mh-glass mh-chrome pointer-events-auto flex h-(--mh-tabbar-h) min-w-0 flex-1 items-stretch rounded-full p-1"
     >
       {#each tabs as tab (tab.id)}
@@ -113,6 +114,7 @@
     <button
       type="button"
       aria-label="Search"
+      data-mh-tabbar-search=""
       class="mh-glass mh-chrome text-foreground focus-visible:ring-ring pointer-events-auto grid size-(--mh-tabbar-h) shrink-0 place-items-center rounded-full focus-visible:outline-hidden focus-visible:ring-2"
       onpointerdown={() => songsStore.ensureLoaded()}
       onfocus={() => songsStore.ensureLoaded()}

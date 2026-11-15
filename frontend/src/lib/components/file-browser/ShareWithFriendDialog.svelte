@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Loader2, UserRoundPlus } from '@lucide/svelte';
+  import { mediaAppearance } from '#lib/hardware/hardware-mode.svelte.ts';
   import { toast } from 'svelte-sonner';
   import * as BottomSheet from '#lib/components/ui/bottom-sheet/index.ts';
   import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
@@ -105,7 +106,7 @@
 <BottomSheet.Root
   bind:open
   {nested}
-  class={nested ? 'dark' : undefined}
+  class={nested ? mediaAppearance() : undefined}
   title="Share with a friend"
   description="Pick who can see and stream {album} by {artist}. It shows up in their library, marked as shared by you."
 >

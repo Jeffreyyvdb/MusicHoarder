@@ -39,6 +39,7 @@
 
 <button
   type="button"
+  data-slot="filter-chip"
   {onclick}
   {title}
   aria-pressed={pressed}

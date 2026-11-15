@@ -1,5 +1,6 @@
 <script lang="ts">
   import * as BottomSheet from '#lib/components/ui/bottom-sheet/index.ts';
+  import { mediaAppearance } from '#lib/hardware/hardware-mode.svelte.ts';
   import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
   import { cn } from '#lib/utils.ts';
 
@@ -32,7 +33,7 @@
 </script>
 
 <!-- showClose off: Cancel is the way out, at the bottom; a desktop X beside it would be a second. -->
-<BottomSheet.Root bind:open nested showClose={false} class="dark" {title} {description}>
+<BottomSheet.Root bind:open nested showClose={false} class={mediaAppearance()} {title} {description}>
   <div class="flex flex-col gap-3">
     <GroupedList.Section>
       <GroupedList.Row

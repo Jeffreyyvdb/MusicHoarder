@@ -19,6 +19,7 @@
   import VideoWatchTab from '#lib/components/file-browser/VideoWatchTab.svelte';
   import AiLyricsBadge, { AI_LYRICS_COPY } from '#lib/components/file-browser/AiLyricsBadge.svelte';
   import NowPlayingArt from '#lib/components/file-browser/now-playing/NowPlayingArt.svelte';
+  import { hardwareMode } from '#lib/hardware/hardware-mode.svelte.ts';
   import NowPlayingInfo from '#lib/components/file-browser/now-playing/NowPlayingInfo.svelte';
   import NowPlayingLyrics from '#lib/components/file-browser/now-playing/NowPlayingLyrics.svelte';
   import NowPlayingMoreMenu from '#lib/components/file-browser/now-playing/NowPlayingMoreMenu.svelte';
@@ -280,6 +281,10 @@
   const showDevices = $derived(playbackSync.enabled);
   // The art rests at full size for a browsed song (nothing is paused — it just isn't playing).
   const artPlaying = $derived(!isCurrentlyLoaded || playerStore.isPlaying);
+  // The hardware skin (an easter egg, #lib/hardware): the loaded song's art, title and transport
+  // become the MH-1 device. Not for a song that is only being looked at, nor while the music plays
+  // on another device — the device's keys act on the music here.
+  const hardware = $derived(hardwareMode.enabled && isCurrentlyLoaded && !elsewhere);
 
   const trackTitle = $derived((song.title ?? song.fileName).trim() || song.fileName);
   const trackArtist = $derived((song.artist ?? album.artist).trim() || album.artist);
@@ -577,6 +582,16 @@
   {/if}
 {/snippet}
 
+<!-- Loaded on demand: the device's stylesheet is the vendored SPEC-01 skin, which nobody without
+     the easter egg should download. -->
+{#snippet hardwareDevice(maxRows: number)}
+  {#await import('#lib/hardware/HardwareNowPlaying.svelte') then { default: HardwareNowPlaying }}
+    <HardwareNowPlaying {maxRows} />
+  {:catch}
+    {@render transport()}
+  {/await}
+{/snippet}
+
 <!-- At lg the meta line above the scrubber already reads "FLAC 1411 · 3:06 · …", so the format
      capsule would say it twice; only the speed capsule (when not 1×) stays under the bar there. -->
 {#snippet transport()}
@@ -719,6 +734,10 @@
           viewportClass="px-12 pt-6 pb-8"
         >
           <div class="my-auto flex w-full flex-col">
+            {#if hardware}
+              {@render hardwareDevice(6)}
+              <div class="mt-4">{@render bottomRow()}</div>
+            {:else}
             <!-- The art gives way first on a short window (the transport, title and volume below it
                  need ~430px), and never shrinks under 200px. -->
             <NowPlayingArt
@@ -740,6 +759,7 @@
               <div class="mt-4 hidden pointer-fine:block">
                 <VolumeControl />
               </div>
+            {/if}
             {/if}
           </div>
         </ScrollArea>
@@ -791,7 +811,14 @@
       {@render topBar()}
 
       <div class="flex min-h-0 flex-1 flex-col">
-        {#if content === 'player'}
+        {#if content === 'player' && hardware}
+          <!-- The device, set on the dark media surface like a player on a desk. The top bar stays
+               the drag-to-dismiss zone: the device takes its own drags (the fader, the knob), and
+               its queue scrolls if a short phone needs it. -->
+          <div class="flex min-h-0 flex-1 flex-col justify-center overflow-y-auto px-4 py-2">
+            {@render hardwareDevice(4)}
+          </div>
+        {:else if content === 'player'}
           <!-- The artwork and title — also a drag-to-dismiss zone, as in Apple Music. -->
           <div
             class="flex min-h-0 flex-1 touch-none flex-col justify-center px-8 select-none"
@@ -818,11 +845,14 @@
       </div>
 
       <footer class="shrink-0 px-7 pt-3 pb-2">
-        {@render transport()}
+        <!-- Under the hardware skin the device on the player page carries the transport. -->
+        {#if !(hardware && content === 'player')}
+          {@render transport()}
+        {/if}
         <div class="mt-1">{@render bottomRow()}</div>
         <!-- md–lg with a mouse (a narrow desktop window, an iPad with a trackpad): Now Playing hides
              the mini player that holds the volume, so it needs its own here too. -->
-        {#if !elsewhere}
+        {#if !elsewhere && !(hardware && content === 'player')}
           <div class="mt-3 hidden md:pointer-fine:block">
             <VolumeControl />
           </div>

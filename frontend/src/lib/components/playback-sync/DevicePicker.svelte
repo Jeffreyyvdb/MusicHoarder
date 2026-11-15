@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Check } from '@lucide/svelte';
+  import { mediaAppearance } from '#lib/hardware/hardware-mode.svelte.ts';
   import type { Snippet } from 'svelte';
   import * as BottomSheet from '#lib/components/ui/bottom-sheet/index.ts';
   import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
@@ -55,7 +56,7 @@
     'aria-expanded': open
   })}
   <!-- `dark` inside Now Playing: its sheets keep the media appearance whatever the app theme. -->
-  <BottomSheet.Root bind:open title="Play on" {nested} class={nested ? 'dark' : undefined}>
+  <BottomSheet.Root bind:open title="Play on" {nested} class={nested ? mediaAppearance() : undefined}>
     {#snippet trailing()}
       <BottomSheet.Action prominent onclick={() => (open = false)}>Done</BottomSheet.Action>
     {/snippet}
@@ -108,7 +109,7 @@
       {side}
       {align}
       sideOffset={8}
-      class={cn('w-72', nested && 'dark z-[70]')}
+      class={cn('w-72', nested && 'z-[70]', nested && mediaAppearance())}
     >
       <DropdownMenu.Label>Play on</DropdownMenu.Label>
       {#each entries as entry (entry.deviceId)}
