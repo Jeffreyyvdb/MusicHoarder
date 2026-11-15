@@ -21,7 +21,7 @@ like Appearance: `localStorage['mh:hardware']` is absent (locked), `on` or `off`
   root layout follows it for `theme-color` (`HARDWARE_THEME_COLOR`, mirrored in `app.html`).
 - `app-skin.css` — the whole app under the skin, imported from `app.css`. Its header lists the
   vocabulary (desk, body, LCD, keys, labels, LED) and every hook it styles: the primitives by
-  `data-slot` (plus `filter-chip`), Button's `data-variant`, `.mh-chrome`, `.mh-cover`, and a few
+  `data-slot` (plus `filter-chip`), Button's `data-variant`, `.mh-chrome`, `.mh-cover` / `.mh-cover-img`, and a few
   `data-mh-*` attributes in the shell, TrackList, AlbumPage, By folder, the mini player and the tab
   bar. Those attributes style nothing without the skin; renaming one means following it there. The
   tracks table re-declares TrackList's column grid with fewer columns, so a new column there must be

@@ -146,7 +146,8 @@
       radial-gradient(circle at 70% 80%, rgba(0, 0, 0, 0.2), transparent 50%);
   }
 
-  /* Ease the cover in over the tinted tile so scrolling doesn't snap-flash each image. */
+  /* Ease the cover in over the tinted tile so scrolling doesn't snap-flash each image. The hardware
+     skin turns this off (app-skin.css): on iOS the fading image paints over the skin's bezel. */
   .mh-cover-img {
     animation: mh-cover-fade 240ms ease-out;
   }
