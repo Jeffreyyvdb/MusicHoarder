@@ -390,6 +390,17 @@
   * {
     @apply border-border outline-ring;
   }
+  /* No double-tap zoom: a quick second tap (Next twice, a lyric line, a sheet row) zoomed the page
+     on iOS, the installed app included. `manipulation` keeps panning and pinch-zoom (Dynamic Type's
+     partner for low vision), so the viewport stays scalable. It is set on every element, not only
+     html, because WebKit restarts the touch-action chain at each scroll container, and nearly every
+     page lives inside one. Utilities (`touch-none`, `touch-pan-y`) and the skin still override it,
+     and an element's touch-action intersects its ancestors', so this never loosens one of those. */
+  *,
+  ::before,
+  ::after {
+    touch-action: manipulation;
+  }
   html {
     scroll-behavior: smooth;
   }
