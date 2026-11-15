@@ -210,7 +210,8 @@ public sealed class AppleMusicCatalogService(
                     var tName = item.TryGetProperty("trackName", out var nm) && nm.ValueKind == JsonValueKind.String ? nm.GetString() : null;
                     var dur = item.TryGetProperty("trackTimeMillis", out var tm) && tm.ValueKind == JsonValueKind.Number ? tm.GetInt32() : 0;
                     var tId = item.TryGetProperty("trackId", out var ti) && ti.ValueKind == JsonValueKind.Number ? ti.GetInt64().ToString() : null;
-                    tracks.Add(new AppleAlbumTrackItem(disc, num, tName, dur, tId));
+                    var tArtist = item.TryGetProperty("artistName", out var ta) && ta.ValueKind == JsonValueKind.String ? ta.GetString() : null;
+                    tracks.Add(new AppleAlbumTrackItem(disc, num, tName, dur, tId, tArtist));
                 }
             }
 

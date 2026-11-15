@@ -26,9 +26,11 @@ public record AppleAlbumDetail(
     string? ArtworkUrl,
     IReadOnlyList<AppleAlbumTrackItem> Tracks);
 
+/// <param name="Artist">The track's own artist credit, which differs from the album's on a compilation.</param>
 public record AppleAlbumTrackItem(
     int DiscNumber,
     int TrackNumber,
     string? Title,
     int DurationMs,
-    string? Id);
+    string? Id,
+    string? Artist = null);

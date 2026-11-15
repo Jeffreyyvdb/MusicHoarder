@@ -10,9 +10,17 @@ namespace MusicHoarder.Api.Enrichment.Providers;
 /// Free, no-auth Apple/iTunes name-based enrichment provider. Search-only (iTunes carries no
 /// ISRC), so it acts purely as a corroborating voter. Priority 350 so it runs after the
 /// ISRC-bearing providers (Deezer 250 / Spotify 300).
+/// <para>
+/// A track tagged with an album is first scored against that album's whole iTunes tracklist
+/// (<see cref="AppleMusicAlbumIndex"/>, two requests per album, shared by all its tracks); a clean
+/// match there needs no request of its own. Anything else — no album, an album iTunes does not
+/// carry, a track the album does not hold — falls through to the per-track search, scored together
+/// with the album's tracks, so the album can only add candidates.
+/// </para>
 /// </summary>
 public class AppleMusicEnrichmentProvider(
     IAppleMusicCatalogService catalog,
+    AppleMusicAlbumIndex albumIndex,
     IOptions<MusicEnricherOptions> options,
     ILogger<AppleMusicEnrichmentProvider> logger) : IEnrichmentProvider
 {
@@ -31,10 +39,22 @@ public class AppleMusicEnrichmentProvider(
             return new ProviderNoMatch();
         }
 
-        IReadOnlyList<AppleMusicCatalogTrack> tracks;
+        var opts = options.Value;
+        var thresholds = new CatalogMatchResolver.MatchThresholds(opts.AppleMusicApiMinConfidence, opts.AppleMusicApiMatchedThreshold);
+        IReadOnlyList<AppleMusicCatalogTrack> albumTracks = [];
+        IReadOnlyList<AppleMusicCatalogTrack> searched;
         try
         {
-            tracks = await CatalogSearchPlanner.SearchAsync(
+            albumTracks = await AlbumTracksAsync(song, resolved, ct);
+            var fromAlbum = CatalogMatchResolver.SelectBest(
+                albumTracks, track => ScoreCandidate(song, resolved, track, opts));
+            if (fromAlbum is not null && CatalogMatchResolver.IsAutomaticMatch(fromAlbum.Score, fromAlbum.Warnings, thresholds))
+            {
+                logger.LogDebug("Apple Music matched SongId={SongId} on its album's tracklist", song.Id);
+                return Finalize(song, fromAlbum, thresholds);
+            }
+
+            searched = await CatalogSearchPlanner.SearchAsync(
                 resolved, (query, token) => catalog.SearchTracksAsync(query, token), ct);
         }
         catch (ProviderRateLimitedException ex)
@@ -44,24 +64,39 @@ public class AppleMusicEnrichmentProvider(
             return new ProviderRateLimited(ex.RetryAfter);
         }
 
-        if (tracks.Count == 0)
+        if (albumTracks.Count == 0 && searched.Count == 0)
         {
             logger.LogDebug("Apple Music search returned no tracks for SongId={SongId}", song.Id);
             return new ProviderNoMatch();
         }
 
-        var opts = options.Value;
         var best = CatalogMatchResolver.SelectBest(
-            tracks, track => ScoreCandidate(song, resolved, track, opts));
-        if (best is null)
-            return new ProviderNoMatch();
+            albumTracks.Concat(searched), track => ScoreCandidate(song, resolved, track, opts));
+        return best is null ? new ProviderNoMatch() : Finalize(song, best, thresholds);
+    }
 
-        return CatalogMatchResolver.Finalize(
+    /// <summary>The tracklist of the album the song is tagged with, when iTunes carries it.</summary>
+    private Task<IReadOnlyList<AppleMusicCatalogTrack>> AlbumTracksAsync(
+        SongMetadata song, SongSearchText.Resolved resolved, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(resolved.Album))
+            return Task.FromResult<IReadOnlyList<AppleMusicCatalogTrack>>([]);
+
+        // The album's own artist when tagged: a featured credit on the track ("A feat. B") would
+        // otherwise make every track of the album a different search.
+        var artist = string.IsNullOrWhiteSpace(song.AlbumArtist) ? resolved.Artist : song.AlbumArtist.Trim();
+        return albumIndex.GetTracksAsync(artist, resolved.Album, ct);
+    }
+
+    private ProviderOutcome Finalize(
+        SongMetadata song,
+        CatalogMatchResolver.ScoredCandidate<AppleMusicCatalogTrack> best,
+        CatalogMatchResolver.MatchThresholds thresholds)
+        => CatalogMatchResolver.Finalize(
             best.Score,
             best.Warnings,
-            new CatalogMatchResolver.MatchThresholds(opts.AppleMusicApiMinConfidence, opts.AppleMusicApiMatchedThreshold),
+            thresholds,
             status => BuildResult(song, best.Candidate, best.Score, best.Warnings, status));
-    }
 
     private EnrichmentProviderResult BuildResult(
         SongMetadata song,
