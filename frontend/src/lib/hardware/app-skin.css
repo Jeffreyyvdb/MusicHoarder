@@ -29,7 +29,8 @@
  * `data-variant`, and a few `data-mh-*` hooks in the shell: `data-mh-nav-item` / `-nav-heading` /
  * `-nav-icon` / `-brand` (AppSidebarV2), `data-mh-topbar`, `data-mh-banner`, `data-mh-navbar`
  * (PageToolbarV2), `data-mh-tracks` / `-tracks-head` (TrackList), `data-mh-mini` /
- * `-transport` (MiniPlayer), `data-mh-desk` (Now Playing) and `data-mh-lcd`.
+ * `-transport` (MiniPlayer), `data-mh-tabbar` / `-tabbar-search` / `-tab-badge` (BottomNavV2),
+ * `data-mh-desk` (Now Playing) and `data-mh-lcd`.
  */
 
 @import './fonts.css';
@@ -1022,6 +1023,11 @@
 :root[data-mh-skin='hardware'] [data-mh-tabbar] > a > span:not([class*='absolute']) {
   font-size: 10px;
   font-weight: 600;
+}
+/* The count is a number, not a printed label: no tracking, which would push "99+" into the next
+   key. */
+:root[data-mh-skin='hardware'] [data-mh-tabbar] [data-mh-tab-badge] {
+  letter-spacing: 0;
 }
 :root[data-mh-skin='hardware'] [data-mh-tabbar] > a[data-active] {
   background: var(--mh-key);
