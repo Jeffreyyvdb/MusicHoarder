@@ -15,7 +15,7 @@
     type AlbumSummary
   } from '#lib/api-client.ts';
   import { playerStore } from '#lib/stores/player.svelte.ts';
-  import { cn, shuffle } from '#lib/utils.ts';
+  import { cn } from '#lib/utils.ts';
   import { carryBuiltTiles, watchNearViewport } from '#lib/viewport-fill.ts';
 
   // Safe to server-render: everything interactive is opt-in and browser-only — the menu is off
@@ -87,7 +87,7 @@
   function playAlbum(album: AlbumSummary, shuffled = false) {
     if (album.songs.length === 0) return;
     const ordered = album.songs.map((s) => toPlayerSong(s, album.artist));
-    void playerStore.startQueue(shuffled ? shuffle(ordered) : ordered);
+    void playerStore.startQueue(ordered, 0, { shuffle: shuffled });
   }
 
   function playFirst(album: AlbumSummary, e: MouseEvent) {

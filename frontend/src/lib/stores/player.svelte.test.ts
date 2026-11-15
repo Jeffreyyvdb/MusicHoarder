@@ -1004,3 +1004,95 @@ describe('the station', () => {
     expect(playerStore.hasNext).toBe(false);
   });
 });
+
+describe('shuffle', () => {
+  const album = [1, 2, 3, 4, 5, 6, 7, 8].map((id) => song(id));
+  const upNextIds = (store: { upNext: readonly PlayerSong[] }) => store.upNext.map((s) => s.id);
+
+  it('reorders only what follows the playing song, and off carries on in the list order', async () => {
+    const { playerStore, audio } = await loadPlayer();
+    await playerStore.startQueue(album, 2);
+    const src = audio.src;
+    expect(playerStore.shuffle).toBe(false);
+
+    playerStore.toggleShuffle();
+    expect(playerStore.shuffle).toBe(true);
+    expect(playerStore.currentSong?.id).toBe(3);
+    expect(audio.src).toBe(src); // the song plays on: nothing reloads
+    expect([...upNextIds(playerStore)].sort()).toEqual([4, 5, 6, 7, 8]);
+
+    playerStore.toggleShuffle();
+    expect(playerStore.shuffle).toBe(false);
+    expect(upNextIds(playerStore)).toEqual([4, 5, 6, 7, 8]);
+  });
+
+  it('keeps the shuffled order across Next, and off goes back to the list from the new song', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0); // a fixed draw: upcoming [2..8] becomes [3..8, 2]
+    try {
+      const { playerStore } = await loadPlayer();
+      await playerStore.startQueue(album, 0);
+      playerStore.toggleShuffle();
+      expect(upNextIds(playerStore)).toEqual([3, 4, 5, 6, 7, 8, 2]);
+
+      playerStore.playNext();
+      await vi.waitFor(() => expect(playerStore.currentSong?.id).toBe(3));
+      playerStore.toggleShuffle();
+      expect(upNextIds(playerStore)).toEqual([4, 5, 6, 7, 8]);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('is turned on by a Shuffle button, and a later Play of a list turns it off', async () => {
+    const { playerStore } = await loadPlayer();
+    await playerStore.startQueue(album, 0, { shuffle: true });
+    expect(playerStore.shuffle).toBe(true);
+    const first = playerStore.currentSong!.id;
+    expect([first, ...upNextIds(playerStore)].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+
+    // Off: the album's own order from the song the shuffle started on.
+    playerStore.toggleShuffle();
+    expect(upNextIds(playerStore)).toEqual(album.slice(first).map((s) => s.id));
+
+    playerStore.toggleShuffle();
+    await playerStore.startQueue(album, 0);
+    expect(playerStore.shuffle).toBe(false);
+    expect(upNextIds(playerStore)).toEqual([2, 3, 4, 5, 6, 7, 8]);
+  });
+
+  it('survives pausing the loaded song from its row: the queue is not re-seeded', async () => {
+    const { playerStore, audio } = await loadPlayer();
+    await playerStore.startQueue(album, 0);
+    audio.playFrom(10);
+    playerStore.toggleShuffle();
+    const shuffled = upNextIds(playerStore);
+
+    await playerStore.playSong(album[0], album, 0); // the row glyph: a pause
+    expect(audio.pause).toHaveBeenCalled();
+    expect(playerStore.shuffle).toBe(true);
+    expect(upNextIds(playerStore)).toEqual(shuffled);
+  });
+
+  it('does nothing with no queue, and stop turns it off', async () => {
+    const { playerStore } = await loadPlayer();
+    expect(playerStore.shuffleAvailable).toBe(false);
+    playerStore.toggleShuffle();
+    expect(playerStore.shuffle).toBe(false);
+
+    await playerStore.startQueue(album, 0);
+    playerStore.toggleShuffle();
+    playerStore.stop();
+    expect(playerStore.shuffle).toBe(false);
+  });
+});
+
+describe('shuffle in the session report', () => {
+  it('is part of what this device reports, so a device picking the session up shows it', async () => {
+    const { playerStore } = await loadPlayer();
+    const { localPlayback } = await import('./player.svelte');
+    await playerStore.startQueue([song(1), song(2), song(3)], 0);
+    expect(localPlayback.state()?.shuffle).toBe(false);
+    playerStore.toggleShuffle();
+    expect(localPlayback.state()?.shuffle).toBe(true);
+  });
+});

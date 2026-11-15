@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { FastForward, Pause, Play, Rewind } from '@lucide/svelte';
+  import { FastForward, Pause, Play, Rewind, Shuffle } from '@lucide/svelte';
   import { mediaAppearance } from '#lib/hardware/hardware-mode.svelte.ts';
   import { Button } from '#lib/components/ui/button/index.ts';
   import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
@@ -11,7 +11,9 @@
    * The iOS Now Playing transport: the scrubber, the times UNDER it (elapsed at leading, time
    * remaining at trailing, a format capsule between), then previous / play-pause / next spaced
    * across the width at 56 / 72 / 56pt. Shared by Now Playing and the public share page; parents
-   * control width and placement via a wrapper element.
+   * control width and placement via a wrapper element. With `shuffle`, Spotify's row: a Shuffle
+   * toggle at the leading edge, and an empty slot of the same width at the trailing one, so
+   * play/pause stays centred.
    */
   type Props = {
     /** Whether this transport's track is the one loaded in the player. */
@@ -31,6 +33,8 @@
     speedAlways?: boolean;
     /** Inside Now Playing: its menus take the dark media appearance and open above its z-60. */
     media?: boolean;
+    /** Show the Shuffle toggle (Now Playing; the share page has no queue to shuffle). */
+    shuffle?: boolean;
   };
   const {
     isActive,
@@ -40,7 +44,8 @@
     minimal = false,
     format = null,
     speedAlways = false,
-    media = false
+    media = false,
+    shuffle = false
   }: Props = $props();
 
   // Prev/next walk the active playback queue, so they only act while this track is the one loaded
@@ -48,6 +53,9 @@
   // always live (it restarts the first item), next while the queue or the radio can supply.
   const canGoPrevious = $derived(isActive && playerStore.hasPrevious);
   const canGoNext = $derived(isActive && playerStore.hasNext);
+  // Shuffle reorders this device's queue, so like prev/next it acts only on the loaded track.
+  const canShuffle = $derived(isActive && playerStore.shuffleAvailable);
+  const shuffleOn = $derived(canShuffle && playerStore.shuffle);
 
   // Playback-speed presets (pitch-preserved — for singing/playing along, the slow end is
   // deliberately finer-grained than the fast end).
@@ -167,6 +175,37 @@
   <!-- Naked solid glyphs, no disc and no hover wash (a translucent circle reads as a smudge on
        artwork); feedback is press-scale on the glyph itself. Evenly spread, like iOS. -->
   <div class="mt-2 flex items-center justify-evenly">
+    {#if shuffle}
+      <!-- On: a dot under the glyph (Spotify's), so the state is not colour alone, and the green
+           Now Playing keeps for live state (the liked heart's): its --primary is white there, since
+           the brand green cannot hold contrast over every cover. -->
+      <Button
+        variant="ghost"
+        size="icon"
+        class={cn(
+          transportGlyphClass,
+          'relative size-11 disabled:opacity-30',
+          shuffleOn &&
+            'text-[var(--np-liked,var(--primary))] hover:text-[var(--np-liked,var(--primary))]'
+        )}
+        onclick={(e) => {
+          blurAfterPointerClick(e);
+          playerStore.toggleShuffle();
+        }}
+        disabled={!canShuffle}
+        aria-label="Shuffle"
+        aria-pressed={shuffleOn}
+        title={shuffleOn ? 'Shuffle on' : 'Shuffle off'}
+      >
+        <Shuffle class="size-6" />
+        {#if shuffleOn}
+          <span
+            aria-hidden="true"
+            class="absolute bottom-0.5 left-1/2 size-1 -translate-x-1/2 rounded-full bg-current"
+          ></span>
+        {/if}
+      </Button>
+    {/if}
     <Button
       variant="ghost"
       size="icon"
@@ -209,5 +248,8 @@
     >
       <FastForward class="size-8" fill="currentColor" />
     </Button>
+    {#if shuffle}
+      <span class="size-11" aria-hidden="true"></span>
+    {/if}
   </div>
 {/if}

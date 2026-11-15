@@ -39,7 +39,7 @@
   import { songsStore } from '#lib/stores/songs.svelte.ts';
   import { tabMemory } from '#lib/stores/tab-memory.svelte.ts';
   import { artistOf, titleOf } from '#lib/track-list-view.svelte.ts';
-  import { cn, shuffle } from '#lib/utils.ts';
+  import { cn } from '#lib/utils.ts';
 
   // A playlist's page (/playlists/[id]): the album page's shape — cover, name, Play / Shuffle — over
   // the songs in play order. A synced playlist lists its own tracks first, then "Added here"; only
@@ -101,10 +101,11 @@
     return (s.albumArtist ?? s.artist ?? '').trim() || 'Unknown Artist';
   }
   /** Plays `list` from `from`. Never pauses: every caller is labelled Play or Shuffle, or is a tap. */
-  function playQueue(list: ApiSong[], from = 0) {
+  function playQueue(list: ApiSong[], from = 0, shuffle = false) {
     void playerStore.startQueue(
       list.map((s) => toPlayerSong(s, fallbackArtist(s))),
-      from
+      from,
+      { shuffle }
     );
   }
   function activate(song: ApiSong, index: number) {
@@ -190,7 +191,7 @@
         variant="gray"
         size="pill"
         class="text-primary flex-1"
-        onclick={() => playQueue(shuffle(songs))}
+        onclick={() => playQueue(songs, 0, true)}
       >
         <Shuffle /> Shuffle
       </Button>
@@ -204,7 +205,7 @@
         variant="gray"
         size="sm"
         class="h-8 gap-1.5 rounded-full px-3"
-        onclick={() => playQueue(shuffle(songs))}
+        onclick={() => playQueue(songs, 0, true)}
       >
         <Shuffle class="size-4" /> Shuffle
       </Button>

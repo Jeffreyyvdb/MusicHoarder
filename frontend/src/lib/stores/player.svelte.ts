@@ -28,6 +28,7 @@ import {
   type PlaybackSnapshotStore
 } from '#lib/player-snapshot.ts';
 import { previousAction } from '#lib/player-seek.ts';
+import { shuffleUpcoming, startShuffled, unshuffle } from '#lib/player-shuffle.ts';
 import { songsStore } from '#lib/stores/songs.svelte.ts';
 import { artistOf } from '#lib/track-list-view.svelte.ts';
 
@@ -76,6 +77,19 @@ let playbackRateState = $state(1);
  */
 let queue = $state.raw<PlayerSong[]>([]);
 let queueIndex = $state(-1);
+/**
+ * Shuffle, as a mode of the current queue (Now Playing's button, or a list's Shuffle): what follows
+ * the playing song is in random order. It belongs to the queue, not to the account: a new list
+ * started without asking for shuffle plays in its own order and turns it off, so an album's Play
+ * (or an agent's "play these in order") never comes out scrambled by a setting left on.
+ */
+let shuffleOn = $state(false);
+/**
+ * The list the shuffled queue was made from, in its own order: what turning shuffle off goes back
+ * to. Null when that order is not known here (a reload, a session picked up from another device);
+ * turning shuffle off then keeps the queue as it is.
+ */
+let unshuffledQueue: PlayerSong[] | null = null;
 
 /**
  * The track this station was built from: the last song the user *chose*, not
@@ -970,15 +984,26 @@ function reportPlay(songId: number) {
   void reportSongPlayed(songId).catch(() => {});
 }
 
-/** Make `contextQueue` (or just `song`) the queue, positioned at `song`. */
-function seedQueue(song: PlayerSong, contextQueue?: PlayerSong[], index?: number) {
+/**
+ * Make `contextQueue` (or just `song`) the queue, positioned at `song`. With `shuffle`, `song` plays
+ * first and the rest of the list follows in random order; without it, shuffle goes off.
+ */
+function seedQueue(song: PlayerSong, contextQueue?: PlayerSong[], index?: number, shuffle = false) {
   if (contextQueue && contextQueue.length > 0) {
-    queue = contextQueue;
-    queueIndex = index ?? contextQueue.findIndex((s) => s.id === song.id);
+    const at = index ?? contextQueue.findIndex((s) => s.id === song.id);
+    if (shuffle) {
+      queue = startShuffled(contextQueue, at >= 0 ? at : undefined);
+      queueIndex = 0;
+    } else {
+      queue = contextQueue;
+      queueIndex = at;
+    }
   } else {
     queue = [song];
     queueIndex = 0;
   }
+  shuffleOn = shuffle;
+  unshuffledQueue = shuffle && contextQueue && contextQueue.length > 0 ? contextQueue : null;
 
   // A deliberate pick re-seeds the station and revives an exhausted one: the user has just said
   // what they want to hear next, which is exactly the question the radio answers.
@@ -1006,10 +1031,12 @@ async function playSong(song: PlayerSong, contextQueue?: PlayerSong[], index?: n
   }
   if (!ensureAudioEl() || !audioEl) return;
 
-  seedQueue(song, contextQueue, index);
-
   // A superseded device's paused leftovers are not "the loaded song": a pick starts it afresh.
-  if (!remote && currentSong?.id === song.id) {
+  const toggles = !remote && currentSong?.id === song.id;
+  // Pausing the loaded song from its row's glyph is not a new list: a shuffled queue stays as it is.
+  if (!(toggles && shuffleOn)) seedQueue(song, contextQueue, index);
+
+  if (toggles) {
     if (audioEl.paused) {
       localResume();
     } else {
@@ -1031,6 +1058,11 @@ export interface StartQueueOptions {
    * queue is left as it is.
    */
   resumeIfLoaded?: boolean;
+  /**
+   * A Shuffle button: play the list in random order with shuffle on, starting at a random song
+   * (`index` is ignored). Turning shuffle off in Now Playing then carries on in the list's order.
+   */
+  shuffle?: boolean;
 }
 
 /**
@@ -1046,6 +1078,11 @@ export interface StartQueueOptions {
  * song instead.
  */
 async function startQueue(contextQueue: PlayerSong[], index = 0, options: StartQueueOptions = {}) {
+  if (options.shuffle && contextQueue.length > 0) {
+    // The random first song is drawn here, so the rest of this function (the session, the
+    // already-loaded check) sees the song that will actually play.
+    index = Math.floor(Math.random() * contextQueue.length);
+  }
   const song = contextQueue[index];
   if (!song) return;
 
@@ -1060,7 +1097,7 @@ async function startQueue(contextQueue: PlayerSong[], index = 0, options: StartQ
   // Starting a list here while the session plays elsewhere takes the session (a local play
   // intent); the paused leftovers of a superseded device are not "already loaded".
   const leftovers = remote !== null;
-  seedQueue(song, contextQueue, index);
+  seedQueue(song, contextQueue, index, options.shuffle === true);
   sync?.playIntent();
 
   if (!leftovers && currentSong?.id === song.id) {
@@ -1123,6 +1160,28 @@ function advance() {
 function canAdvance(): boolean {
   if (queueIndex < 0) return false;
   return queueIndex < queue.length - 1 || (radioSeedId !== null && !radioExhausted);
+}
+
+/**
+ * Now Playing's Shuffle button. On: what follows the playing song is reordered at random (the song
+ * plays on, and what was heard stays behind it for Previous). Off: the list's own order from the
+ * playing song on, when this device knows it. Changes the queue on this device only — while the
+ * session plays elsewhere there is no command to carry it there, so the button is not offered.
+ */
+function toggleShuffle() {
+  if (remoteView() || queueIndex < 0) return;
+  if (shuffleOn) {
+    if (unshuffledQueue) queue = unshuffle(queue, queueIndex, unshuffledQueue);
+    shuffleOn = false;
+    unshuffledQueue = null;
+  } else {
+    unshuffledQueue = queue;
+    queue = shuffleUpcoming(queue, queueIndex);
+    shuffleOn = true;
+  }
+  refreshActionHandlers(); // the device's own upcoming tracks follow the new order
+  maybePrefetchRadio();
+  sync?.changed(); // "up next" is news to a device that picks the session up
 }
 
 /** Fetch the next batch before the queue actually runs out, so no gap is heard. */
@@ -1376,6 +1435,8 @@ function stop() {
   duration = 0;
   queue = [];
   queueIndex = -1;
+  shuffleOn = false;
+  unshuffledQueue = null;
   radioSeedId = null;
   radioExhausted = false;
   miniPlayerDismissed = false;
@@ -1454,6 +1515,7 @@ function composePlaybackSnapshot(): PlaybackSnapshot | null {
     volume: volumeState,
     radioSeedId,
     radioExhausted,
+    shuffle: shuffleOn,
     miniPlayerDismissed,
     savedAt: Date.now()
   };
@@ -1574,6 +1636,9 @@ function restorePlayback(userId: string) {
   queueIndex = snapshot.queueIndex;
   radioSeedId = snapshot.radioSeedId;
   radioExhausted = snapshot.radioExhausted;
+  // The list's own order is not kept across a reload: shuffle stays on, and off keeps this order.
+  shuffleOn = snapshot.shuffle;
+  unshuffledQueue = null;
   miniPlayerDismissed = snapshot.miniPlayerDismissed;
   setVolume(snapshot.volume);
 
@@ -1633,6 +1698,8 @@ export interface AdoptTarget {
   index: number;
   positionSec: number;
   radioSeedId: number | null;
+  /** The session's queue is in shuffled order (its list order is not known here). */
+  shuffle?: boolean;
   /**
    * The start is a new listen: Next or Previous onto another song, which starts it from 0:00.
    * Picking the session up at its own song carries on a listen already counted.
@@ -1658,6 +1725,8 @@ function adoptQueue(target: AdoptTarget): Promise<PlayOutcome> {
   // A session without a station (an older client) still should not end in silence here.
   radioSeedId = target.radioSeedId ?? song.id;
   radioExhausted = false;
+  shuffleOn = target.shuffle === true;
+  unshuffledQueue = null;
 
   loadGeneration += 1; // a pick still in its pre-flight must not land over this
   currentSong = song;
@@ -1726,6 +1795,7 @@ export interface LocalPlaybackState {
   loading: boolean;
   playbackRate: number;
   radioSeedId: number | null;
+  shuffle: boolean;
 }
 
 function localState(): LocalPlaybackState | null {
@@ -1760,7 +1830,8 @@ function localState(): LocalPlaybackState | null {
       isPlaying: elementPlaying(),
       loading,
       playbackRate: playbackRateState,
-      radioSeedId
+      radioSeedId,
+      shuffle: shuffleOn
     };
   });
 }
@@ -1882,6 +1953,18 @@ export const playerStore = {
     if (remote) return remote.song !== null;
     return currentSong !== null && queueIndex >= 0;
   },
+  /** Now Playing's Shuffle button is lit. Off while the session plays elsewhere (see below). */
+  get shuffle() {
+    return remoteView() ? false : shuffleOn;
+  },
+  /**
+   * Whether Shuffle can be pressed: a queue is loaded here. Not while the player shows the
+   * account's session from another device — the queue is that device's, and the session has no
+   * command to reorder it there.
+   */
+  get shuffleAvailable() {
+    return remoteView() === null && queueIndex >= 0;
+  },
   /** AirPlay routes this device's element, which is not the one playing while another device is. */
   get airPlayAvailable() {
     return remoteView() ? false : airPlayAvailable;
@@ -1904,6 +1987,7 @@ export const playerStore = {
   startQueue,
   playNext,
   playPrevious,
+  toggleShuffle,
   pause,
   resume,
   togglePlay,

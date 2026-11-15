@@ -84,7 +84,7 @@
   import { songsStore } from '#lib/stores/songs.svelte.ts';
   import { songDetail } from '#lib/stores/song-detail.svelte.ts';
   import { tabMemory } from '#lib/stores/tab-memory.svelte.ts';
-  import { cn, shuffle } from '#lib/utils.ts';
+  import { cn } from '#lib/utils.ts';
   import { isAdmin } from '#lib/auth/capabilities.ts';
 
   // The song-detail panel is the global SongDetailHost (mounted in the app shell), so Library
@@ -363,10 +363,11 @@
     return (s.albumArtist ?? s.artist ?? '').trim() || 'Unknown Artist';
   }
   /** Plays `list` from `from`. Never pauses: every caller is labelled Play or Shuffle, or is a tap. */
-  function playQueue(list: ApiSong[], from = 0) {
+  function playQueue(list: ApiSong[], from = 0, shuffle = false) {
     void playerStore.startQueue(
       list.map((s) => toPlayerSong(s, fallbackArtist(s))),
-      from
+      from,
+      { shuffle }
     );
   }
   /** Plays exactly what the list is showing, in the order it is showing it. */
@@ -375,7 +376,7 @@
   }
   /** Shuffles exactly what the list is showing, filters and sort included. */
   function shuffleList() {
-    playQueue(shuffle(listView.sorted));
+    playQueue(listView.sorted, 0, true);
   }
 
   const totalTracks = $derived(releaseScoped.length);
@@ -1135,7 +1136,7 @@
           page={showCatalog ? artistPage : null}
           canPlay={artistSongs.length > 0}
           onplay={() => playQueue(artistSongs)}
-          onshuffle={() => playQueue(shuffle(artistSongs))}
+          onshuffle={() => playQueue(artistSongs, 0, true)}
         />
       </div>
 

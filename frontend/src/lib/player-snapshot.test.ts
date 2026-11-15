@@ -44,6 +44,7 @@ function snapshot(over: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
     volume: 0.8,
     radioSeedId: 1,
     radioExhausted: false,
+    shuffle: false,
     miniPlayerDismissed: false,
     savedAt: 1_000_000,
     ...over
@@ -88,6 +89,17 @@ describe('playback snapshot round-trip', () => {
     const written = snapshot();
     createPlaybackSnapshotStore(storage).write(written);
     expect(storage.reloaded().read()).toEqual(written);
+  });
+
+  it('keeps shuffle, and reads an entry written before it existed as off', () => {
+    const storage = new MemoryStorage();
+    createPlaybackSnapshotStore(storage).write(snapshot({ shuffle: true }));
+    expect(storage.reloaded().read()?.shuffle).toBe(true);
+
+    const raw = JSON.parse(storage.map.get(PLAYBACK_SNAPSHOT_KEY)!);
+    delete raw.shuffle;
+    storage.map.set(PLAYBACK_SNAPSHOT_KEY, JSON.stringify(raw));
+    expect(storage.reloaded().read()?.shuffle).toBe(false);
   });
 
   it('reads back a library-sized queue, in its order', () => {

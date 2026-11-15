@@ -602,6 +602,7 @@
     onPlayToggle={handlePlayToggle}
     format={wide.current ? null : formatCapsule}
     media
+    shuffle
   />
 {/snippet}
 
