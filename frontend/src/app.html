@@ -37,8 +37,13 @@
         document.documentElement.classList.toggle('dark', dark);
         // The hardware skin (an easter egg, #lib/hardware/hardware-mode.svelte.ts) before the first
         // frame, so a reload never shows the plain skin first. Its paper and graphite are mirrored
-        // there as HARDWARE_THEME_COLOR.
+        // there as HARDWARE_THEME_COLOR. Its stylesheet is requested only here and only then
+        // (#lib/hardware/skin-stylesheet; the server fills the hashed href in). document.write
+        // makes it a parser-inserted, render-blocking stylesheet, which an appended <link> is not.
         if (localStorage.getItem('mh:hardware') === 'on') {
+          document.write(
+            '<link rel="stylesheet" href="%mh.skinStylesheet%" data-mh-skin-css="" />'
+          );
           document.documentElement.setAttribute('data-mh-skin', 'hardware');
           document
             .querySelector('meta[name="theme-color"]')

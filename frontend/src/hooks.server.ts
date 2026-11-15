@@ -19,6 +19,10 @@ import {
   markdownSiblingPath,
   notFoundMarkdown
 } from '#lib/content/site-markdown.ts';
+import {
+  SKIN_STYLESHEET_HREF,
+  SKIN_STYLESHEET_PLACEHOLDER
+} from '#lib/hardware/skin-stylesheet.ts';
 
 const MARKDOWN_TYPE = 'text/markdown; charset=utf-8';
 
@@ -27,7 +31,7 @@ const PRODUCES = ['text/html', 'text/markdown'];
 
 /** Every response: security headers (`#lib/server/security-headers`) over the negotiation below. */
 export const handle: Handle = async (input) => {
-  const response = await negotiate(input);
+  const response = await negotiate({ ...input, resolve: withPageFills(input.resolve) });
   const { url, request } = input.event;
   const context = {
     https: requestIsHttps(url, request.headers.get('x-forwarded-proto')),
@@ -45,6 +49,22 @@ export const handle: Handle = async (input) => {
     return copy;
   }
 };
+
+/**
+ * Fills app.html's own placeholders on every page render. Today one: the hashed URL of the
+ * hardware skin's stylesheet, which the first-paint script requests only when the skin is on
+ * (`#lib/hardware/skin-stylesheet`).
+ */
+function withPageFills(resolve: Parameters<Handle>[0]['resolve']): Parameters<Handle>[0]['resolve'] {
+  return (event, opts) =>
+    resolve(event, {
+      ...opts,
+      transformPageChunk: async (chunk) => {
+        const html = opts?.transformPageChunk ? await opts.transformPageChunk(chunk) : chunk.html;
+        return html?.replace(SKIN_STYLESHEET_PLACEHOLDER, SKIN_STYLESHEET_HREF);
+      }
+    });
+}
 
 /** The Umami script origins, for the CSP. The env is read once at start, so this is computed once. */
 const ANALYTICS_ORIGINS: string[] = [

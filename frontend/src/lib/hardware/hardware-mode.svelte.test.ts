@@ -75,15 +75,42 @@ function memoryStorage(): Storage {
   };
 }
 
+type FakeLink = { rel: string; href: string; attrs: Record<string, string> };
+
+/** Just enough of a document for the skin's stylesheet link: head, createElement, querySelector. */
+function fakeDocument(root: { dataset: Record<string, string | undefined> }) {
+  const links: FakeLink[] = [];
+  return {
+    links,
+    documentElement: root,
+    head: { appendChild: (link: FakeLink) => void links.push(link) },
+    createElement: (): FakeLink & { setAttribute(k: string, v: string): void } => {
+      const link = {
+        rel: '',
+        href: '',
+        attrs: {} as Record<string, string>,
+        setAttribute: (k: string, v: string) => void (link.attrs[k] = v)
+      };
+      return link;
+    },
+    querySelector: (selector: string) =>
+      selector === 'link[data-mh-skin-css]'
+        ? (links.find((l) => 'data-mh-skin-css' in l.attrs) ?? null)
+        : null
+  };
+}
+
 describe('hardwareMode', () => {
   let root: { dataset: Record<string, string | undefined> };
+  let doc: ReturnType<typeof fakeDocument>;
 
   beforeEach(() => {
     vi.resetModules();
     install.mockClear();
     root = { dataset: {} };
+    doc = fakeDocument(root);
     vi.stubGlobal('window', {});
-    vi.stubGlobal('document', { documentElement: root });
+    vi.stubGlobal('document', doc);
     vi.stubGlobal('localStorage', memoryStorage());
   });
   afterEach(() => vi.unstubAllGlobals());
@@ -100,6 +127,25 @@ describe('hardwareMode', () => {
     expect(hw.enabled).toBe(false);
     expect(root.dataset.mhSkin).toBeUndefined();
     expect(install).not.toHaveBeenCalled();
+    // Nobody who never finds the egg downloads its stylesheet.
+    expect(doc.links).toHaveLength(0);
+  });
+
+  it('asks for the skin stylesheet when switched on, once', async () => {
+    const hw = await load();
+    hw.unlock();
+    expect(doc.links).toHaveLength(1);
+    expect(doc.links[0]).toMatchObject({ rel: 'stylesheet' });
+    hw.setEnabled(false);
+    hw.setEnabled(true);
+    expect(doc.links).toHaveLength(1);
+  });
+
+  it('reuses the stylesheet app.html already asked for on a reload', async () => {
+    localStorage.setItem('mh:hardware', 'on');
+    doc.links.push({ rel: 'stylesheet', href: '/x.css', attrs: { 'data-mh-skin-css': '' } });
+    await load();
+    expect(doc.links).toHaveLength(1);
   });
 
   it('unlocking switches the skin on and is remembered', async () => {

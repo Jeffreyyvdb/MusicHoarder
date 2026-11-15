@@ -3,9 +3,11 @@
  * (#lib/hardware/hardware-mode.svelte.ts); everything here hangs off `:root[data-mh-skin=hardware]`,
  * which only that store and app.html's first-paint script set, so with it off nothing here applies.
  *
- * Imported from app.css. These rules are unlayered on purpose: Tailwind's utilities live in a cascade
- * layer, and an unlayered rule beats a layered one whatever the specificity — which is also why every
- * selector here must stay scoped to the attribute.
+ * Its own stylesheet, requested only while the skin is on (./skin-stylesheet.ts). On a reload it
+ * comes before app.css, when switched on it comes after, so no rule here may depend on source
+ * order against an unlayered app.css rule. These rules are unlayered on purpose: Tailwind's
+ * utilities live in a cascade layer, and an unlayered rule beats a layered one whatever the
+ * specificity — which is also why every selector here must stay scoped to the attribute.
  *
  * The look follows SPEC-01 (MIT, Shu Ding — ./skin, ./LICENSE) and the Teenage Engineering school it
  * comes from. The vocabulary, used the same way everywhere:
