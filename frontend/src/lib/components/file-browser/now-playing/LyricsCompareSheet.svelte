@@ -1,5 +1,6 @@
 <script lang="ts">
   import * as BottomSheet from '#lib/components/ui/bottom-sheet/index.ts';
+  import { mediaAppearance } from '#lib/hardware/hardware-mode.svelte.ts';
   import { SegmentedControl } from '#lib/components/ui/segmented-control/index.ts';
   import type { AiLyrics, LyricsSource } from '#lib/lyrics/ai-lyrics.svelte.ts';
   import type { LyricsDoc } from '#lib/lyrics/lyrics-doc.svelte.ts';
@@ -39,7 +40,7 @@
 <BottomSheet.Root
   bind:open
   nested
-  class="dark"
+  class={mediaAppearance()}
   title="Compare lyrics"
   description="Pick which version the player shows."
 >

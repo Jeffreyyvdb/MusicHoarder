@@ -1,5 +1,6 @@
 <script lang="ts">
   import { isSubmitEnter } from '#lib/keyboard.ts';
+  import { mediaAppearance } from '#lib/hardware/hardware-mode.svelte.ts';
   import { Loader2 } from '@lucide/svelte';
   import * as BottomSheet from '#lib/components/ui/bottom-sheet/index.ts';
   import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
@@ -63,7 +64,7 @@
 <BottomSheet.Root
   bind:open
   {nested}
-  class={nested ? 'dark' : undefined}
+  class={nested ? mediaAppearance() : undefined}
   {title}
   {description}
   onOpenAutoFocus={(e) => {

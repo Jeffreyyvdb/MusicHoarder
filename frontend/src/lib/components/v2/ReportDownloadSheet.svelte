@@ -24,6 +24,7 @@
 
 <script lang="ts">
   import { Check, Loader2 } from '@lucide/svelte';
+  import { mediaAppearance } from '#lib/hardware/hardware-mode.svelte.ts';
   import { toast } from 'svelte-sonner';
   import * as BottomSheet from '#lib/components/ui/bottom-sheet/index.ts';
   import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
@@ -93,7 +94,7 @@
 <BottomSheet.Root
   bind:open
   {nested}
-  class={nested ? 'dark' : undefined}
+  class={nested ? mediaAppearance() : undefined}
   title="Report Download"
   description={label}
 >

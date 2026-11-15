@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import { mediaAppearance } from '#lib/hardware/hardware-mode.svelte.ts';
   import { toast } from 'svelte-sonner';
   import { Check, ImageOff, Loader2, RotateCcw } from '@lucide/svelte';
   import * as BottomSheet from '#lib/components/ui/bottom-sheet/index.ts';
@@ -235,7 +236,7 @@
   ];
 </script>
 
-<BottomSheet.Root bind:open nested class="dark" title="Music video" description={title}>
+<BottomSheet.Root bind:open nested class={mediaAppearance()} title="Music video" description={title}>
   {#snippet trailing()}
     <BottomSheet.Action prominent onclick={() => (open = false)}>Done</BottomSheet.Action>
   {/snippet}

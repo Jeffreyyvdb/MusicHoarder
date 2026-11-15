@@ -78,9 +78,12 @@
   const position = $derived(scrub ?? currentTime);
 
   let coverFailed = $state(false);
+  // The cover shows once decoded, never half-painted; the screen stays black until then.
+  let coverLoaded = $state(false);
   $effect(() => {
     void current?.coverUrl;
     coverFailed = false;
+    coverLoaded = false;
   });
 
   const tag = $derived(
@@ -106,7 +109,15 @@
       <Display aspect="1 / 1">
         <div data-art>
           {#if current?.coverUrl && !coverFailed}
-            <img src={current.coverUrl} alt="" data-hw-cover onerror={() => (coverFailed = true)} />
+            <img
+              src={current.coverUrl}
+              alt=""
+              decoding="async"
+              data-hw-cover
+              data-loaded={coverLoaded || undefined}
+              onload={() => (coverLoaded = true)}
+              onerror={() => (coverFailed = true)}
+            />
           {:else}
             <div data-mh-noart>{current ? (current.album ?? current.title) : 'MusicHoarder'}</div>
           {/if}
@@ -216,6 +227,11 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+    opacity: 0;
+    transition: opacity 160ms ease-out;
+  }
+  [data-hw-cover][data-loaded] {
+    opacity: 1;
   }
   [data-mh-artist] {
     overflow: hidden;

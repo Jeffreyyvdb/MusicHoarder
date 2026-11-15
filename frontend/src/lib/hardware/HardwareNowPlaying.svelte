@@ -27,14 +27,23 @@
       title: song.title,
       artist: song.artist,
       album: song.album,
-      // A sized thumbnail, never the original: the screen is 196px, and a multi-megabyte original
-      // painted its top rows first, which read as a cover cut off at the top of the screen.
+      // A sized thumbnail, never the original: the screen is 196px.
       coverUrl: coverThumbUrl(song.coverUrl, 600),
       format: song.format,
       length: songsStore.songsById.get(song.id)?.durationSeconds ?? null
     }))
   );
   const librarySong = $derived(loaded ? songsStore.songsById.get(loaded.id) : undefined);
+
+  // The next few covers load ahead, so Next shows the picture at once rather than a black screen.
+  $effect(() => {
+    for (const row of rows.slice(1, 4)) {
+      if (!row.coverUrl) continue;
+      const img = new Image();
+      img.decoding = 'async';
+      img.src = row.coverUrl;
+    }
+  });
 
   async function like(next: boolean) {
     if (!librarySong || Boolean(librarySong.likedAtUtc) === next) return;

@@ -5,25 +5,32 @@
 @import './fonts.css';
 
 /* The skin's spectrum animates `height`, a layout property. While a song plays nothing may animate
-   one (CLAUDE.md, "The library is thousands of rows"), so the bars scale instead. */
+   one (CLAUDE.md, "The library is thousands of rows"), so the bars are full height and clipped
+   instead: a paint-only animation. Not `transform`: sixteen composited bars inside the screen's
+   isolated blend group made Safari paint the cover under them as a strip at the screen's top-left
+   for as long as the music played. */
 [data-skin='hardware'] [data-spectrum]:not(#_) i {
   height: 100%;
-  transform: scaleY(0.2);
-  transform-origin: bottom;
+  clip-path: inset(80% 0 0 0);
 }
 [data-skin='hardware'] [data-spectrum][data-playing]:not(#_) i {
   animation-name: mh-spectrum;
 }
 @keyframes mh-spectrum {
   0% {
-    transform: scaleY(0.15);
+    clip-path: inset(85% 0 0 0);
   }
   50% {
-    transform: scaleY(0.85);
+    clip-path: inset(15% 0 0 0);
   }
   100% {
-    transform: scaleY(0.35);
+    clip-path: inset(65% 0 0 0);
   }
+}
+/* The screen's pixel grid, without a blend mode: multiplying black at 2.5% looks the same as laying
+   it over, and a blend group over a changing picture is the other half of that Safari bug. */
+[data-skin='hardware'] [data-device] [data-kit='display-screen']:not(#_)::before {
+  mix-blend-mode: normal;
 }
 @media (prefers-reduced-motion: reduce) {
   [data-skin='hardware'] [data-spectrum][data-playing]:not(#_) i {

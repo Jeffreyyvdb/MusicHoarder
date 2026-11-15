@@ -136,6 +136,15 @@ function apply(): void {
   }
 }
 
+/**
+ * The class that gives a surface Now Playing's media appearance (forced dark), for the sheets and
+ * menus opened from it: `'dark'`, or nothing under the skin, where Now Playing sits on the skin's
+ * desk in the app's own theme (SongDetailHost). Reactive: read it in markup.
+ */
+export function mediaAppearance(): 'dark' | undefined {
+  return enabled ? undefined : 'dark';
+}
+
 export const hardwareMode = {
   /** Found on this browser: the account menu shows the switch. */
   get unlocked(): boolean {
