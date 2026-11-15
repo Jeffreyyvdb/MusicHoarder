@@ -202,6 +202,7 @@ public class WishlistDownloadProcessor(
                 item.AttemptCount += 1;
                 item.NextAttemptAtUtc = null;
                 item.DownloadedFilePath = NormalizePath(result.FilePath);
+                item.DownloadedSourceId = Truncate(result.SourceId, 128);
                 item.LastError = null;
                 // Delivered by a provider behind one that was down: remember which, so the upgrade
                 // sweep offers this song to the preferred provider once it is reachable again.
@@ -485,4 +486,7 @@ public class WishlistDownloadProcessor(
 
     /// <summary>Normalize to forward slashes to match how the scanner stores <see cref="SongMetadata.SourcePath"/>.</summary>
     private static string NormalizePath(string path) => path.Replace('\\', '/');
+
+    private static string? Truncate(string? value, int maxLength)
+        => value is null || value.Length <= maxLength ? value : value[..maxLength];
 }

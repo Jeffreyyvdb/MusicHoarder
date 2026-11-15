@@ -11,6 +11,7 @@ import Disc from '@lucide/svelte/icons/disc';
 import Disc3 from '@lucide/svelte/icons/disc-3';
 import Download from '@lucide/svelte/icons/download';
 import FileMusic from '@lucide/svelte/icons/file-music';
+import Flag from '@lucide/svelte/icons/flag';
 import FlaskConical from '@lucide/svelte/icons/flask-conical';
 import FolderTree from '@lucide/svelte/icons/folder-tree';
 import Gauge from '@lucide/svelte/icons/gauge';
@@ -407,6 +408,14 @@ export const NAV_GROUPS: NavGroup[] = [
         icon: Link2,
         keywords:
           'share links public shared url clicks opens views visitors analytics revoke tiktok'
+      },
+      {
+        // Downloads reported as wrong from a track's ⋯ menu, kept to learn which sources fail.
+        id: 'reports',
+        label: 'Reported downloads',
+        href: '/reports',
+        icon: Flag,
+        keywords: 'report wrong download bad song removed deleted mistake feedback'
       },
       {
         id: 'settings',
@@ -839,7 +848,8 @@ const GROUPED_PAGES: readonly string[] = [
   '/performance',
   '/stats',
   '/history',
-  '/shares'
+  '/shares',
+  '/reports'
 ];
 
 /**

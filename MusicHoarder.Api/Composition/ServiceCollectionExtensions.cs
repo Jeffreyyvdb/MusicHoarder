@@ -358,6 +358,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<Artists.ArtistCatalogResolver>();
         services.AddScoped<Artists.ArtistReleaseQueuer>();
         services.AddScoped<Artists.ArtistDiscographyService>();
+        services.AddScoped<Library.SongReportService>();
         services.AddScoped<Artists.IArtistReleaseNotifier, Artists.ArtistReleaseNotifier>();
         services.AddScoped<Artists.ArtistMonitorSweep>();
         services.AddHostedService<Artists.ArtistMonitorBackgroundService>();

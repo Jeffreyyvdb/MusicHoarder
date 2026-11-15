@@ -213,6 +213,14 @@ public class WishlistItem
     public string? DownloadedVideoYouTubeId { get; set; }
 
     /// <summary>
+    /// The provider's id for the media the audio was taken from (yt-dlp: the YouTube video id, also for
+    /// a search result), when the provider reports one. Provenance: it is what a report of a wrong
+    /// download records as the source that was wrong.
+    /// </summary>
+    [MaxLength(128)]
+    public string? DownloadedSourceId { get; set; }
+
+    /// <summary>
     /// True when the audio was extracted by yt-dlp from the <em>same</em> YouTube video the clip was
     /// downloaded from — sync offset is then 0 by construction (<see cref="MusicVideoSyncSource.SameSource"/>).
     /// </summary>
