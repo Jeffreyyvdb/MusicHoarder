@@ -61,25 +61,12 @@ function card(over: Partial<AlbumSummaryDto> = {}): AlbumSummaryDto {
 }
 
 describe('songAddedTime', () => {
-  it('prefers the immutable acquisition stamp over pipeline timestamps', () => {
-    const t = songAddedTime(
-      song({
-        acquiredAtUtc: '2020-01-01T00:00:00Z',
-        indexedAtUtc: '2026-07-01T00:00:00Z',
-        libraryBuiltAtUtc: '2026-07-02T00:00:00Z'
-      })
-    );
+  it('is the acquisition stamp when there is no Spotify save', () => {
+    // Rows predating the column get the older of their index and build stamps from the server
+    // (SongsListContractTests); the list carries neither.
+    const t = songAddedTime(song({ acquiredAtUtc: '2020-01-01T00:00:00Z' }));
 
     expect(t).toBe(Date.parse('2020-01-01T00:00:00Z'));
-  });
-
-  it('falls back to the oldest churn-prone stamp for rows predating the column', () => {
-    // A re-tag or re-index would have bumped only one of the two; the older one is the better guess.
-    const t = songAddedTime(
-      song({ indexedAtUtc: '2026-07-01T00:00:00Z', libraryBuiltAtUtc: '2022-05-05T00:00:00Z' })
-    );
-
-    expect(t).toBe(Date.parse('2022-05-05T00:00:00Z'));
   });
 
   it('prefers an earlier Spotify save date over the download date', () => {

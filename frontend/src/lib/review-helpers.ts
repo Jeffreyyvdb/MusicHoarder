@@ -2,6 +2,7 @@
 
 import type {
   ApiSong,
+  ReviewQueueSong,
   EnrichmentCandidate,
   EnrichmentDetail,
   ProviderAttempt
@@ -272,16 +273,16 @@ export function contributedProviders(detail: EnrichmentDetail | null | undefined
 }
 
 /** Total wall-clock the pipeline spent on this song, derived from stored timestamps. */
-export function elapsedMs(track: ApiSong, detail: EnrichmentDetail | null | undefined): number | null {
+export function elapsedMs(detail: EnrichmentDetail | null | undefined): number | null {
   const times: number[] = [];
   const push = (iso: string | null | undefined) => {
     if (!iso) return;
     const t = new Date(iso).getTime();
     if (Number.isFinite(t)) times.push(t);
   };
-  push(track.indexedAtUtc);
-  push(track.libraryBuiltAtUtc);
   if (detail) {
+    push(detail.indexedAtUtc);
+    push(detail.libraryBuiltAtUtc);
     push(detail.manuallyApprovedAtUtc);
     for (const a of detail.providerAttempts) push(a.attemptedAtUtc);
     for (const c of detail.changeLog) {
@@ -353,12 +354,13 @@ export interface OriginalInfo {
  * The metadata the file *originally* carried, for the prominent header/queue display.
  *
  * For matched/done tracks `track.title` holds the enriched value and the original lives in
- * `track.original*` / `detail.source`; for needsreview tracks the match isn't applied yet so
+ * `detail.source` (or, for a queue row whose detail has not loaded, the `original*` tags the review
+ * queue brings beside its rows); for needsreview tracks the match isn't applied yet so
  * `track.title` is still the original embedded value. The fallback chain handles both, and the
  * filename is surfaced separately since it's often the truest signal when tags are wrong/empty.
  */
 export function originalInfo(
-  track: ApiSong,
+  track: ReviewQueueSong,
   detail: EnrichmentDetail | null | undefined
 ): OriginalInfo {
   const src = detail?.source;
@@ -530,6 +532,9 @@ export interface TimelineEvent {
 
 /** Reconstruct what the pipeline did, oldest-first, from stored timestamps + attempts. */
 export function buildTimeline(track: ApiSong, detail: EnrichmentDetail | null | undefined): TimelineEvent[] {
+  // The pipeline stamps come with the track's detail; the library list does not carry them.
+  const indexedAtUtc = detail?.indexedAtUtc ?? null;
+  const libraryBuiltAtUtc = detail?.libraryBuiltAtUtc ?? null;
   const events: Omit<TimelineEvent, 'deltaMs'>[] = [];
   const attempts = detail?.providerAttempts ?? [];
   const firstAttempt = attempts
@@ -537,11 +542,11 @@ export function buildTimeline(track: ApiSong, detail: EnrichmentDetail | null | 
     .filter((n) => Number.isFinite(n))
     .sort((a, b) => a - b)[0];
 
-  if (track.indexedAtUtc) {
+  if (indexedAtUtc) {
     const noTags = !detail?.source?.title && !detail?.source?.artist;
     events.push({
       key: 'scan',
-      time: track.indexedAtUtc,
+      time: indexedAtUtc,
       stage: 'SCAN',
       tint: 'neutral',
       provider: { label: 'Embedded tags', color: providerColor(null), pct: null },
@@ -601,11 +606,11 @@ export function buildTimeline(track: ApiSong, detail: EnrichmentDetail | null | 
   // Terminal event: flagged for review, matched, or written.
   const status = (detail?.enrichmentStatus ?? '').toLowerCase();
   const lastTime =
-    events.length > 0 ? events[events.length - 1].time : (track.indexedAtUtc ?? new Date().toISOString());
-  if (track.libraryBuiltAtUtc) {
+    events.length > 0 ? events[events.length - 1].time : (indexedAtUtc ?? new Date().toISOString());
+  if (libraryBuiltAtUtc) {
     events.push({
       key: 'write',
-      time: track.libraryBuiltAtUtc,
+      time: libraryBuiltAtUtc,
       stage: 'WRITE',
       tint: 'ok',
       provider: null,

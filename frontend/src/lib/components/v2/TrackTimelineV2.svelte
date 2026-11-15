@@ -151,7 +151,7 @@
     if (ms < 60_000) return `${(ms / 1000).toFixed(1)} sec`;
     return formatTotalDuration(ms / 1000);
   }
-  const wallClock = $derived(song ? readableElapsed(elapsedMs(song, detail)) : '—');
+  const wallClock = $derived(song ? readableElapsed(elapsedMs(detail)) : '—');
 
   const sourcePath = $derived(song?.sourcePath ?? '');
   const destinationPath = $derived(song?.destinationPath ?? null);

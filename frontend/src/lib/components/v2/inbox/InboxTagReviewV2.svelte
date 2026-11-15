@@ -14,7 +14,7 @@
     SkipForward
   } from '@lucide/svelte';
   import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
-  import type { ApiSong, EnrichmentDetail } from '#lib/api-client.ts';
+  import type { ApiSong, EnrichmentDetail, ReviewQueueSong } from '#lib/api-client.ts';
   import {
     fetchReviewQueue,
     fetchEnrichmentDetail,
@@ -82,7 +82,7 @@
     ok: 'bg-primary'
   };
 
-  let tracks = $state<ApiSong[]>([]);
+  let tracks = $state<ReviewQueueSong[]>([]);
   let editedMetadata = $state<Record<number, MetadataEdits>>({});
   let pickedKey = $state<Record<number, string>>({});
   let decisions = $state<Record<number, Decision>>({});
@@ -314,7 +314,7 @@
     return track.bitRate ? `${fmt} ${track.bitRate}kbps` : fmt;
   }
 
-  function rowOriginal(track: ApiSong): {
+  function rowOriginal(track: ReviewQueueSong): {
     title: string;
     subtitle: string;
     titleFromFilename: boolean;

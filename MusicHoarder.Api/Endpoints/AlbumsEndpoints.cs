@@ -178,7 +178,9 @@ public static class AlbumsEndpoints
         row.Genre, row.Label, CatalogNumber: null, Upc: null, row.ReleaseDate,
         row.MusicBrainzReleaseId, row.HasCoverArt, row.PlayCount, row.LikedAtUtc,
         IsAlbumFill: false, row.IsBuilt, IsUnreleased: false, SpotifyAddedAtUtc: null,
-        row.AcquiredAtUtc, LibraryBuiltAtUtc: null, row.IndexedAtUtc);
+        // The shared row's acquisition date already falls back to its index time, so the index
+        // stamp AddedAt would fall back to is never read; it is given the same value.
+        row.AcquiredAtUtc, LibraryBuiltAtUtc: null, IndexedAtUtc: row.AcquiredAtUtc);
 
     /// <summary>
     /// The optional narrowing, applied to the songs before they are grouped rather than to the cards

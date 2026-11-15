@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using MusicHoarder.Api.Artwork;
 using MusicHoarder.Api.Audio;
@@ -261,9 +262,13 @@ public static class SongsEndpoints
     /// <para>
     /// This is the response every client downloads whole, so it carries only what a list or a
     /// player reads. What a single track's detail needs and no list does (the fingerprint, the
-    /// pre-enrichment tags beyond the ones Tag review shows, build errors, sort names) is in
-    /// <c>GET /songs/{id}/enrichment-detail</c>. Add a field here only when a list uses it:
-    /// every field costs its name and value once per song.
+    /// pre-enrichment tags, the enrichment error, the pipeline stamps, composer, copyright, catalog
+    /// number and barcode) is in <c>GET /songs/{id}/enrichment-detail</c>, and the lyrics' own
+    /// metadata (transcription model and date, the timing check's finding) in
+    /// <c>GET /api/tracks/{id}/lyrics</c>. Add a field here only when a list uses it: every field
+    /// costs its name and value once per song. <c>SongsListContractTests</c> pins the exact key set,
+    /// so a new one is a deliberate edit there too. Nulls are not written at all (see
+    /// <see cref="SongsListJson"/>).
     /// </para>
     ///
     /// <para>
@@ -288,11 +293,11 @@ public static class SongsEndpoints
         if (!includeDeleted)
             query = query.Where(s => s.DeletedAtUtc == null);
 
-        if (!string.IsNullOrWhiteSpace(enrichmentStatus) &&
-            Enum.TryParse<EnrichmentStatus>(enrichmentStatus, ignoreCase: true, out var parsedStatus))
-        {
+        var parsedStatus = default(EnrichmentStatus);
+        var parsedStatusFilter = !string.IsNullOrWhiteSpace(enrichmentStatus) &&
+            Enum.TryParse(enrichmentStatus, ignoreCase: true, out parsedStatus);
+        if (parsedStatusFilter)
             query = query.Where(s => s.EnrichmentStatus == parsedStatus);
-        }
 
         // Provenance and Spotify save dates, loaded once and shared with GET /api/albums so the
         // track list and the album grid can never disagree about when a track arrived.
@@ -342,19 +347,11 @@ public static class SongsEndpoints
                 s.Genre,
                 s.ReleaseDate,
                 s.Label,
-                s.CatalogNumber,
-                s.Upc,
-                s.Composer,
-                s.Copyright,
                 s.EnrichmentStatus,
                 s.MatchedBy,
                 s.MatchConfidence,
                 s.MatchWarnings,
-                s.EnrichmentError,
                 s.OriginalMetadataCaptured,
-                s.OriginalArtist,
-                s.OriginalAlbum,
-                s.OriginalTitle,
                 s.IsUnreleased,
                 s.IsDuplicate,
                 s.DuplicateOfId,
@@ -374,12 +371,9 @@ public static class SongsEndpoints
                 HasTranscribedLyrics =
                     (s.TranscribedSyncedLyrics != null && s.TranscribedSyncedLyrics != string.Empty)
                     || (s.TranscribedPlainLyrics != null && s.TranscribedPlainLyrics != string.Empty),
-                s.TranscribedAtUtc,
-                s.TranscriptionModel,
                 s.PreferredLyricsSource,
                 s.TranscriptionAlignedToReference,
                 s.LyricsSyncStatus,
-                s.LyricsSyncIssue,
                 s.LyricsSyncOffsetMs,
                 s.LikedAtUtc,
                 s.PlayCount,
@@ -409,15 +403,19 @@ public static class SongsEndpoints
             return new
             {
             s.Id, s.SourcePath, s.FileName, s.Extension, s.FileSizeBytes,
-            s.IndexedAtUtc, s.AcquiredAtUtc, s.DeletedAtUtc,
+            // When the track entered the collection. A row from before that column existed (the
+            // migration backfilled it, so this is a safety net) takes the oldest of the two stamps
+            // it does carry, the same fallback AlbumProjection.AddedAt applies — decided here so
+            // the list need not carry IndexedAtUtc and LibraryBuiltAtUtc just for it.
+            AcquiredAtUtc = s.AcquiredAtUtc ?? OldestOf(s.LibraryBuiltAtUtc, s.IndexedAtUtc),
+            s.DeletedAtUtc,
             s.Artist, s.Artists, s.AlbumArtist, s.Album, s.Title, s.Year, s.TrackNumber,
             s.DurationSeconds, s.DurationMs,
             s.Bitrate,
             s.HasCoverArt,
             s.HasFingerprint,
                 s.Isrc, s.MusicBrainzId, s.MusicBrainzReleaseId, s.SpotifyId, s.AcoustIdTrackId, s.LrclibId,
-            s.Genre, s.ReleaseDate, s.Label, s.CatalogNumber, s.Upc,
-            s.Composer, s.Copyright,
+            s.Genre, s.ReleaseDate, s.Label,
             s.EnrichmentStatus, s.MatchedBy, s.MatchConfidence,
             MatchWarnings = matchWarnings,
             // Released vs unreleased (leak/snippet/stem), derived from the tracker category the
@@ -425,19 +423,15 @@ public static class SongsEndpoints
             ReleaseClassification = ReleaseClassifier
                 .Classify(s.IsUnreleased, s.EnrichmentStatus, s.MatchedBy, matchWarnings, s.Isrc, s.SpotifyId)
                 .ToString(),
-            s.EnrichmentError,
-            s.OriginalMetadataCaptured, s.OriginalArtist,
-            s.OriginalAlbum, s.OriginalTitle,
+            s.OriginalMetadataCaptured,
             s.IsDuplicate, s.DuplicateOfId,
-            s.LibraryBuildStatus, s.LibraryBuiltAtUtc,
+            s.LibraryBuildStatus,
             s.DestinationPath,
             LyricsStatus = s.LyricsStatus.ToString(),
             s.HasSyncedLyrics,
             s.HasPlainLyrics,
             s.IsInstrumental,
             s.HasTranscribedLyrics,
-            s.TranscribedAtUtc,
-            s.TranscriptionModel,
             PreferredLyricsSource = s.PreferredLyricsSource.ToString(),
             // How much AI is in the lyrics this row would display, plus what the timing check concluded —
             // the badge in the player and the "timing looks off" affordance both read these.
@@ -450,7 +444,6 @@ public static class SongsEndpoints
                 hasSyncedLyrics: !s.SyncedLyricsBlank,
                 syncOffsetMs: s.LyricsSyncOffsetMs).ToString(),
             LyricsSyncStatus = s.LyricsSyncStatus.ToString(),
-            s.LyricsSyncIssue,
             s.LyricsSyncOffsetMs,
             s.LikedAtUtc,
             s.PlayCount,
@@ -506,14 +499,56 @@ public static class SongsEndpoints
         allRows.AddRange(projected);
         allRows.AddRange(sharedSongs);
 
-        return Results.Ok(new
+        // Tag review lists its queue through this route (?enrichmentStatus=NeedsReview) and titles
+        // each row with the file's own tags before its detail has loaded. Those are detail-only for
+        // the library list, so they come beside the rows, only for a status-filtered request and only
+        // for rows that have them. Stamp: Songs rows, already covered.
+        Dictionary<int, OriginalTagsDto>? originalTags = null;
+        if (parsedStatusFilter)
         {
-            Count = allRows.Count,
-            IncludeDeleted = includeDeleted,
-            Songs = allRows,
-            Grantors = grantors,
-        });
+            originalTags = await query
+                .Where(s => s.OriginalMetadataCaptured)
+                .Select(s => new { s.Id, s.OriginalTitle, s.OriginalArtist, s.OriginalAlbum })
+                .ToDictionaryAsync(
+                    s => s.Id,
+                    s => new OriginalTagsDto(s.OriginalTitle, s.OriginalArtist, s.OriginalAlbum),
+                    ct);
+        }
+
+        // Status 200 spelled out: without it the result carries no status code, and the ETag filter
+        // only tags a result that says it is a 200.
+        return Results.Json(
+            new SongsListResponse(allRows.Count, includeDeleted, allRows, grantors, originalTags),
+            SongsListJson,
+            statusCode: StatusCodes.Status200OK);
     }
+
+    /// <summary>
+    /// The library list's serializer: the web defaults, minus every null-valued property. Most rows
+    /// leave a third of their optional fields unset, and writing <c>"isrc":null</c> ten thousand
+    /// times was 14% of the response and a quarter of the time the client spent parsing it. Clients
+    /// read a missing field and a null one alike (<c>?? / == null</c>, never <c>=== null</c>);
+    /// <c>SongsListContractTests</c> pins that the response is written this way.
+    /// </summary>
+    internal static readonly JsonSerializerOptions SongsListJson = new(JsonSerializerDefaults.Web)
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    };
+
+    /// <summary>The body of <c>GET /songs</c>.</summary>
+    /// <param name="Songs">Own rows (anonymous, see <see cref="ListSongs"/>) then <see cref="SharedSongRowDto"/>s.</param>
+    /// <param name="OriginalTags">Only for a status-filtered request; absent otherwise.</param>
+    internal sealed record SongsListResponse(
+        int Count,
+        bool IncludeDeleted,
+        IReadOnlyList<object> Songs,
+        IReadOnlyList<GrantorDto> Grantors,
+        IReadOnlyDictionary<int, OriginalTagsDto>? OriginalTags);
+
+    /// <summary>A file's tags from before enrichment changed them, for Tag review's queue rows.</summary>
+    internal sealed record OriginalTagsDto(string? Title, string? Artist, string? Album);
+
+    private static DateTime OldestOf(DateTime? a, DateTime b) => a is { } value && value < b ? value : b;
 
     private static async Task<IResult> GetTrackLyrics(
         int id, MusicHoarderDbContext db, ILibraryScopeResolver scopeResolver, CancellationToken ct)
@@ -1394,7 +1429,7 @@ public static class SongsEndpoints
         });
     }
 
-    private static async Task<IResult> GetEnrichmentDetail(int id, MusicHoarderDbContext db)
+    internal static async Task<IResult> GetEnrichmentDetail(int id, MusicHoarderDbContext db)
     {
         var song = await db.Songs
             .AsNoTracking()
@@ -1492,6 +1527,14 @@ public static class SongsEndpoints
             enrichmentError = song.EnrichmentError,
             // The full Chromaprint fingerprint lives here; the song list only says whether one exists.
             fingerprint = song.Fingerprint,
+            // Read only by a single track's panes, so they live here rather than in GET /songs: the
+            // pipeline timeline's first and last stamps, and Now Playing's Details rows.
+            indexedAtUtc = song.IndexedAtUtc,
+            libraryBuiltAtUtc = song.LibraryBuiltAtUtc,
+            composer = song.Composer,
+            copyright = song.Copyright,
+            catalogNumber = song.CatalogNumber,
+            upc = song.Upc,
             originalMetadataCaptured = song.OriginalMetadataCaptured,
             source,
             current,
