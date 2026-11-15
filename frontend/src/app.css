@@ -563,6 +563,15 @@
   --width: min(356px, calc(100vw - 2rem));
 }
 
+/* A modal bits-ui dialog sets `pointer-events: none` on <body> while it is open, and Sonner's
+   toasts live in the body, so over Now Playing a tap went straight through a toast — its X too —
+   to whatever was under it: the grabber, which closes Now Playing. The toasts take their taps back
+   while Now Playing is up; it and its nested sheets keep themselves open for them
+   (`keepOpenForToasts`, ui/sonner). A hidden toast stays click-through, as Sonner has it. */
+body:has(.mh-np[data-state='open']) [data-sonner-toast]:not([data-visible='false']) {
+  pointer-events: auto;
+}
+
 /* Live "job running" pulse dot shared by the sidebar, pipeline sub-nav, bottom
    nav and pipeline home. Under prefers-reduced-motion the animation stops and
    the dot stays as a static status indicator. */
