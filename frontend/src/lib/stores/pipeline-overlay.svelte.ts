@@ -2,7 +2,8 @@
  * Pipeline overlay store — owns the open/closed flag for the bottom-of-screen
  * import-pipeline drawer, plus the live data feeding the drawer:
  *   - `ProgressSnapshot` from the SSE stream at `/api/enrichment/progress`
- *   - `ApiOverview` polled every 5s for `recentActivity[]` + source/destination paths
+ *   - `ApiOverview` polled every 5s (while the page is visible, `#lib/poll`) for
+ *     `recentActivity[]` + source/destination paths
  *
  * The store is mounted once at the `(app)` layout level. It only opens the SSE
  * connection / polling loop while the drawer is visible OR a job is running,
@@ -19,6 +20,7 @@ import {
   type ApiOverview,
   type ProgressSnapshot
 } from '#lib/api-client.ts';
+import { poll } from '#lib/poll.ts';
 
 const STORAGE_KEY = 'mh:pipeline-open';
 const POLL_INTERVAL_MS = 5_000;
@@ -71,7 +73,7 @@ let refCount = 0;
 let liveRefCount = 0;
 let sseCleanup: (() => void) | null = null;
 let sseReconnect: ReturnType<typeof setTimeout> | null = null;
-let pollHandle: ReturnType<typeof setInterval> | null = null;
+let stopPoll: (() => void) | null = null;
 let active = false;
 // Guard so the 5s /overview poll never overlaps itself when the API is slow
 // (e.g. during a scan). Overlapping requests saturate the same-origin proxy,
@@ -306,16 +308,14 @@ function activate(): void {
   active = true;
   void loadOverview();
   startSse();
-  pollHandle = setInterval(() => void loadOverview(), POLL_INTERVAL_MS);
+  stopPoll = poll(() => void loadOverview(), POLL_INTERVAL_MS);
 }
 
 function deactivate(): void {
   if (!active) return;
   active = false;
-  if (pollHandle) {
-    clearInterval(pollHandle);
-    pollHandle = null;
-  }
+  stopPoll?.();
+  stopPoll = null;
   stopSse();
 }
 

@@ -3,7 +3,7 @@
  * they can never disagree about the number. The sidebar loads it once per page load; the dialog
  * re-reads on open and can ask the API to measure again. Measuring walks every managed folder
  * (minutes on a large share) and runs in the API's background, so while `computing` is set the
- * store polls until the snapshot lands.
+ * store polls until the snapshot lands (paused while the page is hidden, `#lib/poll`).
  */
 import {
   ApiError,
@@ -12,6 +12,7 @@ import {
   type StorageUsageResponse,
   type StorageUsageSnapshot
 } from '#lib/api-client.ts';
+import { poll } from '#lib/poll.ts';
 
 const POLL_INTERVAL_MS = 2_000;
 
@@ -22,24 +23,32 @@ let loaded = $state(false);
 let dialogOpen = $state(false);
 
 let inFlight = false;
-let pollHandle: ReturnType<typeof setTimeout> | null = null;
+let stopPoll: (() => void) | null = null;
+let followUp: ReturnType<typeof setTimeout> | null = null;
 
 function apply(response: StorageUsageResponse): void {
   snapshot = response.snapshot;
   computing = response.computing;
   error = response.lastError;
   loaded = true;
-  schedulePoll();
+  syncPoll();
 }
 
-function schedulePoll(once = false): void {
-  if (pollHandle) {
-    clearTimeout(pollHandle);
-    pollHandle = null;
+/** Poll while a measurement runs; stop once a read says it is done. */
+function syncPoll(): void {
+  if (computing && typeof window !== 'undefined') {
+    stopPoll ??= poll(() => void load(), POLL_INTERVAL_MS);
+  } else {
+    stopPoll?.();
+    stopPoll = null;
   }
-  if ((!computing && !once) || typeof window === 'undefined') return;
-  pollHandle = setTimeout(() => {
-    pollHandle = null;
+}
+
+/** One read a moment from now, for a run that may have finished before its reply arrived. */
+function readOnceSoon(): void {
+  if (followUp || typeof window === 'undefined') return;
+  followUp = setTimeout(() => {
+    followUp = null;
     void load();
   }, POLL_INTERVAL_MS);
 }
@@ -52,6 +61,7 @@ async function load(): Promise<void> {
   } catch (e) {
     // A transport error ends the poll; the dialog offers a manual retry.
     computing = false;
+    syncPoll();
     error = e instanceof Error ? e.message : 'Could not load storage usage.';
     loaded = true;
   } finally {
@@ -64,12 +74,12 @@ async function refresh(): Promise<void> {
     apply(await refreshStorageUsage());
     // A small library measures in milliseconds, so the run can already be over by the time the
     // reply lands. One follow-up read catches that instead of waiting for the next open.
-    if (!computing) schedulePoll(true);
+    if (!computing) readOnceSoon();
   } catch (e) {
     if (e instanceof ApiError && e.status === 409) {
       // Already measuring — follow that run instead.
       computing = true;
-      schedulePoll();
+      syncPoll();
       return;
     }
     error = e instanceof Error ? e.message : 'Could not start a measurement.';

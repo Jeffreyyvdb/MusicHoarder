@@ -1,4 +1,5 @@
 import { untrack } from 'svelte';
+import { poll as pollWhileVisible } from '#lib/poll.ts';
 import {
   deleteSongVideo,
   fetchSongVideo,
@@ -80,7 +81,7 @@ export class SongVideo {
   /** While a fetch runs server-side, poll until it settles. Returns the stop, for the effect. */
   poll(): () => void {
     const id = untrack(() => this.songId);
-    const timer = setInterval(() => {
+    return pollWhileVisible(() => {
       if (id === null) return;
       getSongVideoInfo(id).then(
         (result) => {
@@ -94,7 +95,6 @@ export class SongVideo {
         () => {}
       );
     }, POLL_MS);
-    return () => clearInterval(timer);
   }
 
   /** Start a download: the auto search, a pasted URL, or a candidate the owner picked. */
