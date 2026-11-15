@@ -63,6 +63,23 @@
           document.documentElement.setAttribute('data-mh-ios-app', '');
         }
       } catch (_) {}
+      // The app shell (mobile/, which appends MusicHoarderApp to its user agent) does not zoom. Its
+      // web view (Capacitor's default, zoomEnabled: false) turns off the pinch gesture the moment a
+      // zoom begins, so a double-tap that zoomed the page in could never be pinched back out. In a
+      // web view the viewport's scale limits are honoured (Safari ignores them), and a page that
+      // cannot be scaled gets no double-tap zoom at all, nor a zoom on focusing a field. Browsers
+      // and the Home Screen app keep the scalable viewport: touch-action in app.css stops their
+      // double-tap zoom, and pinch-zoom stays theirs.
+      try {
+        if (/\bMusicHoarderApp\b/.test(navigator.userAgent)) {
+          document
+            .querySelector('meta[name="viewport"]')
+            .setAttribute(
+              'content',
+              'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover'
+            );
+        }
+      } catch (_) {}
       // iOS Dynamic Type: scale the iOS text styles by the iPhone's Text Size setting before the
       // first frame, so the app does not open at the default size and then jump. The same
       // measurement as $lib/dynamic-type.ts (which keeps it current); iOS only, as there.
