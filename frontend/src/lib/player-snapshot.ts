@@ -30,6 +30,8 @@ export interface PlaybackSnapshot {
   volume: number;
   radioSeedId: number | null;
   radioExhausted: boolean;
+  /** Shuffle was on. Absent in entries written before it existed, which read as off. */
+  shuffle: boolean;
   miniPlayerDismissed: boolean;
   /** Epoch milliseconds; see {@link canAutoResume}. */
   savedAt: number;
@@ -241,6 +243,7 @@ function parseFields(value: Record<string, unknown>): Omit<PlaybackSnapshot, 'qu
     volume: value.volume,
     radioSeedId: value.radioSeedId as number | null,
     radioExhausted: value.radioExhausted,
+    shuffle: value.shuffle === true,
     miniPlayerDismissed: value.miniPlayerDismissed,
     savedAt: value.savedAt as number
   };

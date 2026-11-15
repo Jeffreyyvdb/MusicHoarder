@@ -588,7 +588,7 @@ function buildReport(
     isPlaying: state.isPlaying || state.loading,
     playbackRate: state.playbackRate,
     radioSeedId: state.radioSeedId,
-    shuffle: false
+    shuffle: state.shuffle
   };
 }
 
@@ -716,6 +716,7 @@ function adoptHere(s: PlaybackSession, step: StepAction): Promise<PlayOutcome> |
     index: start.index,
     positionSec: start.positionMs / 1000,
     radioSeedId: s.radioSeedId,
+    shuffle: s.shuffle,
     // Next or Previous onto another song starts it from 0:00 — a listen, as it would be locally.
     listen: start.index !== resolved.index
   });

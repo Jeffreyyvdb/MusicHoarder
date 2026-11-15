@@ -81,7 +81,7 @@
   import { songsStore } from '#lib/stores/songs.svelte.ts';
   import { songDetail } from '#lib/stores/song-detail.svelte.ts';
   import { tabMemory } from '#lib/stores/tab-memory.svelte.ts';
-  import { cn, shuffle } from '#lib/utils.ts';
+  import { cn } from '#lib/utils.ts';
   import { can, isAdmin } from '#lib/auth/capabilities.ts';
 
   type Props = {
@@ -517,7 +517,11 @@
   // Shuffle never pauses, even when the shuffle happens to start on the song already playing.
   function playAlbumShuffle() {
     if (!album || tracks.length === 0) return;
-    void playerStore.startQueue(shuffle(tracks.map((t) => toPlayerSong(t, album.artist))));
+    void playerStore.startQueue(
+      tracks.map((t) => toPlayerSong(t, album.artist)),
+      0,
+      { shuffle: true }
+    );
   }
 
   /** The desktop row's glyph shows Play/Pause for its own song, so it is the one that toggles. */

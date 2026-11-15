@@ -971,6 +971,7 @@ describe('the reload restore', () => {
       volume: 1,
       radioSeedId: 1,
       radioExhausted: false,
+      shuffle: false,
       miniPlayerDismissed: false,
       savedAt: Date.now()
     });
