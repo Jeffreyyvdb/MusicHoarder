@@ -401,9 +401,18 @@
               <!-- Before the first timestamp (activeLineIndex = -1) every line is still to come, so
                    the whole document dims rather than sitting at full weight and reading as unsynced. -->
               {@const isFuture = isTracking && i > activeLineIndex}
+              <!-- data-lyric-state names the karaoke state for the hardware skin, which prints it in
+                   opaque inks of its own (app-skin.css) instead of the alpha dim below. -->
               <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
               <div
                 data-lyric-line={i}
+                data-lyric-state={theater && isTracking
+                  ? isActive
+                    ? 'active'
+                    : isPast
+                      ? 'past'
+                      : 'future'
+                  : undefined}
                 class={cn(
                   '-mx-1 flex gap-2 rounded-md px-1 transition-colors duration-300',
                   theater ? 'text-title-1 py-1.5 font-bold sm:py-2' : 'py-0.5',

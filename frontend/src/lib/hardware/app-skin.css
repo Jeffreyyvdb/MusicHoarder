@@ -30,7 +30,8 @@
  * `-nav-icon` / `-brand` (AppSidebarV2), `data-mh-topbar`, `data-mh-banner`, `data-mh-navbar`
  * (PageToolbarV2), `data-mh-tracks` / `-tracks-head` (TrackList), `data-mh-mini` /
  * `-transport` (MiniPlayer), `data-mh-tabbar` / `-tabbar-search` / `-tab-badge` (BottomNavV2),
- * `data-mh-desk` (Now Playing) and `data-mh-lcd`.
+ * `data-mh-desk` (Now Playing) and `data-mh-lcd`, plus `data-lyric-state` on Now Playing's lyric
+ * lines (LyricsPanel).
  */
 
 @import './fonts.css';
@@ -1007,6 +1008,24 @@
   --np-liked: var(--primary);
   /* The body colour, which is also what theme-color paints the status bar. */
   background-color: var(--background);
+}
+
+/* The lyrics print in opaque inks: the line being sung in the red of every other "current" row,
+   the rest in the label grey (6.23:1 dark, 5.22:1 light; the red is 5.64 / 5.09). Not the theater's
+   55% alpha with its colour transition: on the desk, with no cover wash behind it, iOS Safari showed
+   every line at full white, so nothing marked the one being sung. The state flips at once. */
+:root[data-mh-skin='hardware'] [data-lyric-line][data-lyric-state] {
+  color: var(--muted-foreground);
+  transition: none;
+}
+:root[data-mh-skin='hardware'] [data-lyric-line][data-lyric-state='active'] {
+  color: var(--primary);
+}
+@media (pointer: fine) {
+  :root[data-mh-skin='hardware']
+    [data-lyric-line][data-lyric-state]:not([data-lyric-state='active']):hover {
+    color: var(--foreground);
+  }
 }
 
 /* ── The phone's tab bar: a strip of keys, the current one held down ─────────────────────────── */
