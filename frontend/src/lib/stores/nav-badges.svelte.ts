@@ -22,7 +22,7 @@ import {
   fetchDuplicates,
   fetchInboxNameCounts,
   fetchQualityOverview,
-  mapEnrichmentStatus
+  type NormalizedEnrichmentStatus
 } from '#lib/api-client.ts';
 import { songsStore } from '#lib/stores/songs.svelte.ts';
 
@@ -62,10 +62,11 @@ const inFlight: Record<'decisions' | 'names', Promise<void> | null> = {
   names: null
 };
 
-function songCount(status: string): number | null {
-  const songs = songsStore.songs;
-  if (songs.length === 0) return null;
-  return songs.filter((s) => mapEnrichmentStatus(s.enrichmentStatus) === status).length;
+// The store counts every status in one pass per library change; this only reads the tally, so the
+// five surfaces that show these figures no longer walk the library each.
+function songCount(status: NormalizedEnrichmentStatus): number | null {
+  if (songsStore.songs.length === 0) return null;
+  return songsStore.enrichmentStatusCounts[status];
 }
 
 /**

@@ -74,7 +74,7 @@
   // lookup misses for non-library playback (e.g. share links), hiding the heart.
   const librarySong = $derived.by(() => {
     const id = playerStore.currentSong?.id;
-    return id == null ? undefined : songsStore.songs.find((s) => s.id === id);
+    return id == null ? undefined : songsStore.songsById.get(id);
   });
   const isLiked = $derived(Boolean(librarySong?.likedAtUtc));
 

@@ -18,12 +18,14 @@ import {
   fetchSongsIfChanged,
   hydrateAlbums,
   likeSong,
+  mapEnrichmentStatus,
   openProgressStream,
   unlikeSong,
   type AlbumQuery,
   type AlbumSummaryDto,
   type ApiSong,
   type Grantor,
+  type NormalizedEnrichmentStatus,
   type ProgressSnapshot,
   type Revalidated
 } from '#lib/api-client.ts';
@@ -455,6 +457,35 @@ const builtSongs = $derived(songs.filter(isBuiltSong));
 const trackListSongs = $derived(songs.filter(isTrackListSong));
 /** The Artists grid's default: built songs grouped by lead artist. */
 const leadArtistGroups = $derived(buildArtistGroups(builtSongs, { primaryOnly: true }));
+/**
+ * Songs per enrichment status, in one pass. The Inbox counts read it from every nav surface (tab
+ * bar, sidebar, hubs, Pipeline); each used to filter the whole library per read.
+ */
+const enrichmentStatusCounts = $derived.by(() => {
+  const counts: Record<NormalizedEnrichmentStatus, number> = {
+    pending: 0,
+    processing: 0,
+    complete: 0,
+    needsreview: 0,
+    failed: 0
+  };
+  for (const s of songs) counts[mapEnrichmentStatus(s.enrichmentStatus)] += 1;
+  return counts;
+});
+/**
+ * The Listen pages' sizes as their own pages count them — the Tracks list, the Albums grid and the
+ * Artists grid — or null before the library has loaded. The sidebar's badges read this, so a badge
+ * cannot promise a number its page does not list.
+ */
+const libraryCounts = $derived(
+  songs.length === 0
+    ? null
+    : {
+        tracks: trackListSongs.length,
+        albums: albums.length,
+        artists: leadArtistGroups.length
+      }
+);
 
 let viewHolds = 0;
 let releaseViews: (() => void) | null = null;
@@ -466,6 +497,8 @@ function retainViews(): () => void {
         void builtSongs;
         void trackListSongs;
         void leadArtistGroups;
+        void enrichmentStatusCounts;
+        void libraryCounts;
       });
     });
   }
@@ -514,6 +547,14 @@ export const songsStore = {
   /** Built songs by lead artist: the Artists grid's default grouping and the Overview's count. */
   get leadArtistGroups() {
     return leadArtistGroups;
+  },
+  /** Songs per normalized enrichment status (one pass); the Inbox counts' source. */
+  get enrichmentStatusCounts() {
+    return enrichmentStatusCounts;
+  },
+  /** Tracks / albums / artists as their pages count them; null until the library has loaded. */
+  get libraryCounts() {
+    return libraryCounts;
   },
   /**
    * Keep the shared cuts computed while the caller lives, so a page visit reuses them instead of
