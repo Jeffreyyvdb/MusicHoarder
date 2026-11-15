@@ -7,6 +7,7 @@ import {
   type PasskeySignalInfo,
 } from "#lib/webauthn-client.ts"
 import { formatOf } from "#lib/audio-formats.ts"
+import { API_PREFIX, LIBRARY_ALBUMS_PATH, LIBRARY_SONGS_PATH } from "#lib/library-requests.ts"
 import type { PlayerSong } from "#lib/stores/player.svelte.ts"
 import type { LyricsProvenance, LyricsSyncStatus } from "#lib/types.ts"
 import {
@@ -25,8 +26,6 @@ import {
   type PlaybackStateReport,
   type PlaybackStateResponse,
 } from "#lib/playback-sync/wire.ts"
-
-const API_PREFIX = "/api/mh"
 
 export interface ApiStats {
   tracks?: {
@@ -723,7 +722,7 @@ function albumsPath(query: AlbumQuery): string {
   if (query.artist) params.set("artist", query.artist)
   if (query.year) params.set("year", query.year)
   if (query.unreleased) params.set("unreleased", "true")
-  return `/api/albums${params.size > 0 ? `?${params}` : ""}`
+  return `${LIBRARY_ALBUMS_PATH}${params.size > 0 ? `?${params}` : ""}`
 }
 
 export async function fetchAlbums(query: AlbumQuery = {}): Promise<AlbumSummaryDto[]> {
@@ -1306,7 +1305,7 @@ export async function fetchSongs(includeDeleted = false): Promise<ApiSong[]> {
  * so the copy from the load that produced those rows still describes them.
  */
 export async function fetchSongsIfChanged(etag: string | null): Promise<Revalidated<ApiSong[]>> {
-  const result = await requestJsonIfChanged<SongsResponse>("/songs?includeDeleted=false", etag)
+  const result = await requestJsonIfChanged<SongsResponse>(LIBRARY_SONGS_PATH, etag)
   if (result.notModified) return result
   grantors = result.data.grantors ?? []
   rememberFolderCovers(result.data.songs ?? [])

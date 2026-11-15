@@ -6,10 +6,11 @@ import {
 } from '#lib/server/content-negotiation.ts';
 import { resolveSiteUrl } from '#lib/server/site-url.ts';
 import {
-  applySecurityHeaders,
-  originOf,
-  requestIsHttps
-} from '#lib/server/security-headers.ts';
+  appendLink,
+  LIBRARY_PRELOAD_LINK,
+  shouldPreloadLibrary
+} from '#lib/server/library-preload.ts';
+import { applySecurityHeaders, originOf, requestIsHttps } from '#lib/server/security-headers.ts';
 import { PUBLIC_UMAMI_RECORDER_SRC, PUBLIC_UMAMI_SRC } from '$app/env/public';
 import { WEBMCP_ORIGIN_TRIAL_TOKEN } from '$app/env/private';
 import {
@@ -120,14 +121,29 @@ const negotiate: Handle = async ({ event, resolve }) => {
 
   if (response.status === 404) return agentFriendly404(response, siteUrl, pathname, accept);
 
+  // An (app) page: start the library download with the document (`#lib/server/library-preload`).
+  if (
+    shouldPreloadLibrary({
+      method: event.request.method,
+      routeId: event.route.id,
+      cookieHeader: event.request.headers.get('cookie'),
+      userAgent: event.request.headers.get('user-agent'),
+      status: response.status,
+      contentType: response.headers.get('content-type')
+    })
+  ) {
+    appendLink(response.headers, LIBRARY_PRELOAD_LINK);
+  }
+
   // HTML variant of a negotiable URL: advertise the Markdown sibling and vary on Accept, so a CDN
   // cannot hand a cached HTML variant to an agent that asked for Markdown.
   if (markdown) {
     appendVaryAccept(response.headers);
     const canonical = canonicalizePath(pathname);
-    const link = `<${markdownSiblingPath(canonical)}>; rel="alternate"; type="text/markdown"`;
-    const existing = response.headers.get('link');
-    response.headers.set('Link', existing ? `${existing}, ${link}` : link);
+    appendLink(
+      response.headers,
+      `<${markdownSiblingPath(canonical)}>; rel="alternate"; type="text/markdown"`
+    );
   }
 
   return response;
