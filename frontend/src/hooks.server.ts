@@ -1,4 +1,6 @@
 import type { Handle } from '@sveltejs/kit/hooks';
+import type { RequestEvent } from '@sveltejs/kit';
+import { loopingHandle, loopingHandleError } from '#lib/server/looping.ts';
 import {
   appendVaryAccept,
   explicitlyAcceptsHtml,
@@ -11,7 +13,7 @@ import {
   shouldPreloadLibrary
 } from '#lib/server/library-preload.ts';
 import { applySecurityHeaders, originOf, requestIsHttps } from '#lib/server/security-headers.ts';
-import { PUBLIC_UMAMI_RECORDER_SRC, PUBLIC_UMAMI_SRC } from '$app/env/public';
+import { PUBLIC_LOOPING_URL, PUBLIC_UMAMI_RECORDER_SRC, PUBLIC_UMAMI_SRC } from '$app/env/public';
 import { WEBMCP_ORIGIN_TRIAL_TOKEN } from '$app/env/private';
 import {
   canonicalizePath,
@@ -30,8 +32,22 @@ const MARKDOWN_TYPE = 'text/markdown; charset=utf-8';
 /** The representations a negotiable URL can produce, best-default first. */
 const PRODUCES = ['text/html', 'text/markdown'];
 
-/** Every response: security headers (`#lib/server/security-headers`) over the negotiation below. */
-export const handle: Handle = async (input) => {
+/**
+ * Every response: a request id first (`#lib/server/looping`: the `x-request-id` header, on every
+ * log line, and forwarded to the API by the proxy, so a Looping problem report leads to the logs),
+ * then the security headers (`#lib/server/security-headers`) over the negotiation below.
+ */
+export const handle: Handle = (input) =>
+  requestIds({ event: input.event, resolve: () => withSecurityHeaders(input) });
+
+// Composed by hand rather than with `sequence`, which needs SvelteKit's request store and so cannot
+// run under the hook's unit tests.
+const requestIds = loopingHandle<RequestEvent>({ ignorePaths: ['/api/health'] });
+
+/** Logs an unexpected error with the id of the request it broke. */
+export const handleError = loopingHandleError;
+
+async function withSecurityHeaders(input: Parameters<Handle>[0]): Promise<Response> {
   const response = await negotiate({ ...input, resolve: withPageFills(input.resolve) });
   const { url, request } = input.event;
   const context = {
@@ -49,7 +65,7 @@ export const handle: Handle = async (input) => {
     applySecurityHeaders(copy.headers, context);
     return copy;
   }
-};
+}
 
 /**
  * Fills app.html's own placeholders on every page render. Today one: the hashed URL of the
@@ -67,12 +83,18 @@ function withPageFills(resolve: Parameters<Handle>[0]['resolve']): Parameters<Ha
     });
 }
 
-/** The Umami script origins, for the CSP. The env is read once at start, so this is computed once. */
+/**
+ * The third-party script origins, for the CSP: Umami's, and the Looping inbox (#lib/looping), whose
+ * widget is fetched from it and posts reports back to it. The env is read once at start, so this is
+ * computed once.
+ */
 const ANALYTICS_ORIGINS: string[] = [
   ...new Set(
-    [originOf(PUBLIC_UMAMI_SRC), originOf(PUBLIC_UMAMI_RECORDER_SRC)].filter(
-      (o): o is string => o !== null
-    )
+    [
+      originOf(PUBLIC_UMAMI_SRC),
+      originOf(PUBLIC_UMAMI_RECORDER_SRC),
+      originOf(PUBLIC_LOOPING_URL)
+    ].filter((o): o is string => o !== null)
   )
 ];
 

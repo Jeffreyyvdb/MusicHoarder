@@ -14,6 +14,7 @@
   import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
   import { surfaceFor } from '#lib/nav.ts';
   import { themeSurface } from '#lib/stores/theme-surface.svelte.ts';
+  import { installLooping } from '#lib/looping.svelte.ts';
   import {
     createKonamiMatcher,
     hardwareMode,
@@ -63,6 +64,9 @@
   // Track the browser's bottom chrome (e.g. Chrome Android's bottom address bar)
   // so the floating bottom nav / mini-player never hide behind it.
   onMount(() => installBottomInsetTracker());
+
+  // Looping, the problem reporter: picks up the widget app.html loaded, on a device with a key.
+  onMount(() => installLooping());
 
   // The hardware skin, an easter egg: restore it, and listen for the Konami code that finds it
   // (search finds it on a phone — CommandPalette). Arrow keys typed into a field don't count.

@@ -37,6 +37,7 @@
   import { setMode, userPrefersMode } from 'mode-watcher';
   import { DropdownMenu as DropdownMenuPrimitive } from 'bits-ui';
   import {
+    Bug,
     Check,
     ExternalLink,
     FolderSync,
@@ -63,6 +64,7 @@
   import { storageSummary, watchedFolders, watchingLabel } from '#lib/storage-usage-meta.ts';
   import SwitchRow from '#lib/components/settings/SwitchRow.svelte';
   import { hardwareMode } from '#lib/hardware/hardware-mode.svelte.ts';
+  import { looping } from '#lib/looping.svelte.ts';
 
   // The account panel: who you are, the other accounts this browser remembers, the
   // appearance override, the admin's storage and folder status, the version, and sign out. One
@@ -126,6 +128,14 @@
   // Not a reactive read: the bridge is there from the page's first script or not at all.
   const serverChangeable = canChangeServer();
   const serverHost = typeof location === 'undefined' ? '' : location.host;
+
+  // Looping, the problem reporter (#lib/looping.svelte.ts), only on a device that holds a key. On a
+  // phone its floating button is hidden (it would cover the tab bar), so this is the way in. It
+  // screenshots the page as it opens, so it waits for this sheet or menu to finish leaving.
+  function reportProblem() {
+    close();
+    looping.open(presentation === 'sheet' ? 450 : 200);
+  }
 
   function retryAccounts() {
     accountsError = false;
@@ -312,6 +322,9 @@
           label="Settings"
           chevron
         />
+        {#if looping.active}
+          <GroupedList.Row onclick={reportProblem} icon={Bug} label="Report a problem" />
+        {/if}
         {#if admin}
           <GroupedList.Row
             onclick={onstorage}
@@ -468,6 +481,11 @@
         <a href={settingsHref} {...props}><Settings /> Settings</a>
       {/snippet}
     </DropdownMenu.Item>
+    {#if looping.active}
+      <DropdownMenu.Item onSelect={reportProblem}>
+        <Bug /> Report a problem
+      </DropdownMenu.Item>
+    {/if}
     {#if admin}
       <DropdownMenu.Item onSelect={onstorage} class="flex-col items-stretch gap-1.5 py-1.5">
         <span class="flex items-center gap-1.5">

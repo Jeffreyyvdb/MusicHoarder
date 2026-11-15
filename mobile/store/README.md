@@ -81,6 +81,12 @@ nudity or pornography gives 18+ everywhere and ESRB *Adults Only*.)
 **Data safety** (`play/data-safety.csv`). Everything is *collected* (stored on the server). Nothing
 is *shared*: Resend (sign-in emails) and Cloudflare are service providers, and Umami is self-hosted.
 
+The Looping problem reporter (`frontend/src/lib/looping.svelte.ts`) is not declared, on purpose: it
+loads only on a device holding a reporter key, which only the maintainer and their testers are
+given, so it never collects anything from a user of the app. It sends a report (screenshot,
+console errors, network calls, the account id) only when that person files one, to the maintainer's
+self-hosted inbox. If keys are ever handed to users, it becomes Diagnostics and needs declaring.
+
 | Data type | Required? | Purposes | Comes from |
 | --- | --- | --- | --- |
 | Name | optional | app functionality, account management | the account; shown in Chats |

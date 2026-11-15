@@ -5,7 +5,8 @@ import { LIBRARY_PRELOAD_LINK } from '#lib/server/library-preload.ts';
 
 vi.mock('$app/env/public', () => ({
   PUBLIC_UMAMI_SRC: undefined,
-  PUBLIC_UMAMI_RECORDER_SRC: undefined
+  PUBLIC_UMAMI_RECORDER_SRC: undefined,
+  PUBLIC_LOOPING_URL: undefined
 }));
 
 vi.mock('$app/env/private', () => ({
@@ -27,7 +28,8 @@ function makeEvent(path: string, accept?: string | null, extras: EventExtras = {
   return {
     url: new URL(`${SITE}${path}`),
     request: new Request(`${SITE}${path}`, { headers }),
-    route: { id: extras.routeId ?? null }
+    route: { id: extras.routeId ?? null },
+    locals: {}
   } as unknown as RequestEvent;
 }
 

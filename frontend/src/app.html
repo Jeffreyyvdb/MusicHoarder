@@ -2,6 +2,28 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <!-- Looping, the problem reporter (#lib/looping.svelte.ts). First in <head> so it sees the
+         page's earliest errors, and inert unless the instance names an inbox (PUBLIC_LOOPING_URL,
+         runtime env) AND this device holds a reporter key (`?looping=<key>` once, or a search for
+         `looping:<key>`). On a phone or a touch screen the floating button would cover the tab
+         bar's search circle, so it is hidden there; the account menu opens the reporter instead. -->
+    <script nonce="%sveltekit.nonce%">
+      (function () {
+        try {
+          var inbox = '%sveltekit.env.PUBLIC_LOOPING_URL%'.replace(/\/+$/, '');
+          if (!/^https?:\/\/[^/]+$/.test(inbox)) return;
+          if (!/[?&]looping=/.test(location.search) && !localStorage.getItem('looping:key')) return;
+          var s = document.createElement('script');
+          s.src = inbox + '/widget.js';
+          s.dataset.app = '%sveltekit.env.PUBLIC_LOOPING_APP%' || 'musichoarder';
+          s.dataset.release = '%sveltekit.version%';
+          if (matchMedia('(max-width: 767.98px), (pointer: coarse)').matches) {
+            s.dataset.button = 'false';
+          }
+          document.head.appendChild(s);
+        } catch (_) {}
+      })();
+    </script>
     <link rel="icon" type="image/svg+xml" href="%sveltekit.assets%/icon.svg" />
     <link rel="apple-touch-icon" sizes="180x180" href="%sveltekit.assets%/apple-icon.png" />
     <link rel="manifest" href="%sveltekit.assets%/manifest.webmanifest" />

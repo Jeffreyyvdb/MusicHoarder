@@ -2,7 +2,10 @@
 declare global {
   namespace App {
     // interface Error {}
-    // interface Locals {}
+    interface Locals {
+      /** This request's id (`#lib/server/looping`): sent back as `x-request-id`, on every log line. */
+      requestId: string;
+    }
     /**
      * `user` is present for every route in the `(app)` group (its layout load resolves the
      * session or redirects). Typing it here is what lets components read `page.data.user`
