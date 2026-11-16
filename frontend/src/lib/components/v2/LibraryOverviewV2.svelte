@@ -1,5 +1,14 @@
 <script lang="ts">
-  import { ChevronRight, Disc3, Heart, ListMusic, ListVideo, Mic2, Music2 } from '@lucide/svelte';
+  import {
+    AudioLines,
+    ChevronRight,
+    Disc3,
+    Heart,
+    ListMusic,
+    ListVideo,
+    Mic2,
+    Music2
+  } from '@lucide/svelte';
   import { page } from '$app/state';
   import Cover from '#lib/components/file-browser/Cover.svelte';
   import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
@@ -115,7 +124,7 @@
   // ── Library rows ────────────────────────────────────────────────────────────
   // The Listen pages the tab bar does not carry. An admin's and the demo's tab bar has one tab per
   // group, so every page is a row here; a member's tab bar already IS Overview / Albums / Artists /
-  // Tracks (and Chats), so only Playlists is. Phones only — the desktop sidebar lists them all.
+  // Tracks (and Chats), so only Playlists and Listening are. Phones only — the desktop sidebar lists them all.
   const groupTabs = $derived(navGroupsFor(user).length === NAV_GROUPS.length);
   // The Playlists row's count; the list is small, and opening Playlists next reuses it.
   $effect(() => {
@@ -125,8 +134,14 @@
     href: '/playlists',
     label: 'Playlists',
     icon: ListVideo,
-    count: playlistsStore.playlists.length
+    count: playlistsStore.playlists.length as number | undefined
   });
+  const listeningRow = {
+    href: '/listening',
+    label: 'Listening',
+    icon: AudioLines,
+    count: undefined as number | undefined
+  };
   const allLibraryRows = $derived([
     { href: '/library', label: 'Albums', icon: Disc3, count: allAlbums.length },
     { href: '/artists', label: 'Artists', icon: Mic2, count: artistGroups.length },
@@ -148,9 +163,10 @@
         ]
       : []),
     // After Tracks' own slices (Favourites, Spotify liked), which read as part of Tracks.
-    playlistsRow
+    playlistsRow,
+    listeningRow
   ]);
-  const libraryRows = $derived(groupTabs ? allLibraryRows : [playlistsRow]);
+  const libraryRows = $derived(groupTabs ? allLibraryRows : [playlistsRow, listeningRow]);
 
   // ── playback ────────────────────────────────────────────────────────────────
   function fallbackArtist(s: ApiSong): string {
@@ -255,16 +271,18 @@
                   <a
                     href={row.href}
                     class={cn(
-                      'focus-visible:ring-ring active:bg-accent relative flex min-h-11 items-center gap-4 px-4 transition-colors duration-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset',
+                      'focus-visible:ring-ring active:bg-accent relative flex min-h-11 items-center gap-4 px-4 transition-colors duration-100 focus-visible:ring-2 focus-visible:outline-hidden focus-visible:ring-inset',
                       i < libraryRows.length - 1 &&
                         "after:bg-separator after:absolute after:right-0 after:bottom-0 after:left-[54px] after:h-(--hairline) after:content-['']"
                     )}
                   >
                     <row.icon class="text-primary size-[22px] shrink-0" aria-hidden="true" />
                     <span class="text-body min-w-0 flex-1 truncate">{row.label}</span>
-                    <span class="text-body text-muted-foreground tabular-nums"
-                      >{row.count.toLocaleString()}</span
-                    >
+                    {#if row.count !== undefined}
+                      <span class="text-body text-muted-foreground tabular-nums"
+                        >{row.count.toLocaleString()}</span
+                      >
+                    {/if}
                     <ChevronRight
                       class="text-muted-foreground-dim -mr-1 size-4 shrink-0"
                       strokeWidth={2.5}
@@ -319,7 +337,7 @@
                     data-row-main=""
                     onclick={() => tapFavorite(song)}
                     aria-current={isLoaded ? 'true' : undefined}
-                    class="focus-visible:ring-ring flex min-h-14 min-w-0 flex-1 items-center gap-3 text-left focus-visible:outline-hidden focus-visible:ring-2 md:pl-1"
+                    class="focus-visible:ring-ring flex min-h-14 min-w-0 flex-1 items-center gap-3 text-left focus-visible:ring-2 focus-visible:outline-hidden md:pl-1"
                   >
                     <Cover
                       artist={fallbackArtist(song)}
@@ -400,7 +418,7 @@
                 {#each randomArtists as group (group.key)}
                   <a
                     href={artistHref(group)}
-                    class="group focus-visible:ring-ring flex w-[120px] shrink-0 snap-start flex-col items-center gap-2 rounded-lg focus-visible:outline-hidden focus-visible:ring-2 md:w-[136px]"
+                    class="group focus-visible:ring-ring flex w-[120px] shrink-0 snap-start flex-col items-center gap-2 rounded-lg focus-visible:ring-2 focus-visible:outline-hidden md:w-[136px]"
                     aria-label={`Browse ${group.label}`}
                   >
                     <Cover

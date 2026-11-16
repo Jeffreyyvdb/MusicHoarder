@@ -47,6 +47,7 @@ const APP_ROUTES: [path: string, group: NavGroupId][] = [
   ['/playlist-sync', 'add'],
   ['/playlists', 'listen'],
   ['/playlists/7', 'listen'],
+  ['/listening', 'listen'],
   ['/quality', 'manage'],
   ['/settings', 'manage'],
   ['/shares', 'manage'],
@@ -83,14 +84,15 @@ describe('NAV_GROUPS', () => {
   // Listen used to carry three flat track lists — /my-music, /tracks and /liked — that differed only
   // by a predicate. They are one route sliced by chips now, so an item appearing here should be a
   // deliberate act, not a filter that grew a URL. Playlists was one: a thing of its own, not a slice.
-  it('is Overview / Albums / Artists / Tracks / Playlists, in that order', () => {
+  it('is Overview / Albums / Artists / Tracks / Playlists / Listening, in that order', () => {
     const listen = NAV_GROUPS.find((g) => g.id === 'listen');
     expect(listen?.items.map((i) => i.id)).toEqual([
       'overview',
       'albums',
       'artists',
       'tracks',
-      'playlists'
+      'playlists',
+      'listening'
     ]);
   });
 
@@ -306,6 +308,7 @@ describe('what each account may see', () => {
       '/tracks',
       '/playlists',
       '/playlists/7',
+      '/listening',
       '/settings'
     ]) {
       expect(allowed(path, member)).toBe(true);
@@ -426,6 +429,13 @@ describe('tabsFor', () => {
     expect(backFor(url('/playlists'), member)).toEqual({ label: 'Overview', href: '/overview' });
   });
 
+  it('keeps Listening out of the member tab bar too, on the Overview that links to it', () => {
+    expect(tabsFor(member).some((t) => t.id === 'listening')).toBe(false);
+    expect(tabsFor(member)).toHaveLength(5);
+    expect(tabFor(url('/listening'), member)?.id).toBe('overview');
+    expect(surfaceFor(url('/listening'), true)).toBe('plain');
+  });
+
   it('is stable per audience, so a keyed each block does not churn', () => {
     expect(tabsFor(admin)).toBe(tabsFor(demo));
     expect(tabsFor(member)).toBe(tabsFor(null));
@@ -455,6 +465,7 @@ describe('isTabRoot', () => {
     // Not a member tab: five is all a phone tab bar holds, and a member's fifth is Chats.
     ['/playlists', false, false],
     ['/playlists/7', false, false],
+    ['/listening', false, false],
     ['/discover', false, false],
     ['/pipeline', false, false],
     ['/settings', false, false],

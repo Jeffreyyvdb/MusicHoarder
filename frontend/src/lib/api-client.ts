@@ -5631,3 +5631,93 @@ export interface ArtistMonitorResult {
 export async function checkFollowedArtist(id: number): Promise<ArtistMonitorResult> {
   return requestJson<ArtistMonitorResult>(`/api/artists/following/${id}/check`, { method: "POST" })
 }
+
+export type ListeningRange = '4w' | '6m' | '1y' | 'all'
+
+export interface ListeningTotals {
+  streams: number
+  minutes: number
+  distinctTracks: number
+  distinctArtists: number
+  distinctAlbums: number
+}
+
+export interface ListeningTopTrack {
+  songId: number
+  title: string
+  artist?: string
+  album?: string
+  streams: number
+  minutes: number
+}
+
+export interface ListeningTopArtist {
+  name: string
+  streams: number
+  minutes: number
+  songId: number
+}
+
+export interface ListeningTopAlbum {
+  album: string
+  albumArtist?: string
+  streams: number
+  minutes: number
+  songId: number
+}
+
+export interface ListeningTopGenre {
+  name: string
+  streams: number
+}
+
+export interface ListeningDay {
+  date: string
+  streams: number
+  minutes: number
+}
+
+export interface ListeningFacts {
+  longestStreak?: { days: number; start: string; end: string }
+  currentStreakDays: number
+  busiestDay?: { date: string; streams: number }
+  mostRepeated?: { songId: number; title: string; artist?: string; date: string; streams: number }
+  nightOwlShare?: number
+  peakHour?: number
+}
+
+export interface ListeningRecentStream {
+  songId: number
+  title: string
+  artist?: string
+  album?: string
+  playedAtUtc: string
+}
+
+export interface ListeningStats {
+  range: ListeningRange
+  fromUtc?: string
+  trackingSinceUtc?: string
+  totals: ListeningTotals
+  topTracks: ListeningTopTrack[]
+  topArtists: ListeningTopArtist[]
+  topAlbums: ListeningTopAlbum[]
+  topGenres: ListeningTopGenre[]
+  /** Streams per local hour, 24 entries. */
+  clock: number[]
+  /** Streams per weekday, Monday first. */
+  weekdays: number[]
+  days: ListeningDay[]
+  facts: ListeningFacts
+  recent: ListeningRecentStream[]
+}
+
+/** The caller's own listening stats; the offset puts the clock and the day buckets in local time. */
+export async function fetchListeningStats(
+  range: ListeningRange,
+  utcOffsetMinutes: number = -new Date().getTimezoneOffset(),
+): Promise<ListeningStats> {
+  return requestJson<ListeningStats>(
+    `/api/listening/stats?range=${range}&utcOffsetMinutes=${utcOffsetMinutes}`,
+  )
+}
