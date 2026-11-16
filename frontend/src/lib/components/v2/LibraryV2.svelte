@@ -1210,7 +1210,7 @@
       </div>
 
       {#if popularAll.length > 0 || likedArtistSongs.length > 0 || latestRelease}
-        <div class="grid gap-7 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-10">
+        <div class="grid grid-cols-1 gap-7 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-10">
           {#if popularAll.length > 0}
             <section aria-labelledby="artist-popular-heading">
               <h2 id="artist-popular-heading" class="text-title-2 mb-1 px-4 md:px-0 md:text-lg">
