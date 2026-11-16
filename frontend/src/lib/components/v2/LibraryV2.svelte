@@ -40,6 +40,8 @@
   import { popularSongs, releaseCaption } from '#lib/artist-discography.ts';
   import type { ArtistRelease } from '#lib/api-client.ts';
   import { longpress, type LongPressPoint } from '#lib/actions/long-press.ts';
+  import { swipeRow } from '#lib/actions/swipe-row.ts';
+  import { ADD_TO_QUEUE_ICON, queueSong } from '#lib/queue/queue-actions.ts';
   import {
     CHIP_KEYS,
     CHIP_LABELS,
@@ -975,6 +977,7 @@
   {@const plays = ranked ? (songsStore.playStatsOf(song).playCount ?? 0) : 0}
   <li
     use:longpress={{ onlongpress: (p) => artistMenus[song.id]?.openAt(p) }}
+    use:swipeRow={{ side: 'leading', tone: 'primary', icon: ADD_TO_QUEUE_ICON, onswipe: () => queueSong(song) }}
     oncontextmenu={(e) => {
       e.preventDefault();
       artistMenus[song.id]?.openAt({ x: e.clientX, y: e.clientY });

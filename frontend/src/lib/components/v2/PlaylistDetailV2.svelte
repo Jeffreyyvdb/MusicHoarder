@@ -24,6 +24,8 @@
   import TrackRowMenu, { activateTrack } from '#lib/components/v2/TrackRowMenu.svelte';
   import TrackRowText from '#lib/components/v2/TrackRowText.svelte';
   import { longpress, type LongPressPoint } from '#lib/actions/long-press.ts';
+  import { swipeRow } from '#lib/actions/swipe-row.ts';
+  import { ADD_TO_QUEUE_ICON, queueSong } from '#lib/queue/queue-actions.ts';
   import {
     rowCoverFallbackForSong,
     rowCoverUrlForSong,
@@ -248,6 +250,7 @@
   {@const isLoaded = playerStore.currentSong?.id === song.id}
   <li
     use:longpress={{ onlongpress: (p) => menus[song.id]?.openAt(p) }}
+    use:swipeRow={{ side: 'leading', tone: 'primary', icon: ADD_TO_QUEUE_ICON, onswipe: () => queueSong(song) }}
     oncontextmenu={(e) => {
       e.preventDefault();
       menus[song.id]?.openAt({ x: e.clientX, y: e.clientY });

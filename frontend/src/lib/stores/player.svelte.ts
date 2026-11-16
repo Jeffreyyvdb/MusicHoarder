@@ -30,6 +30,19 @@ import {
 import { describeDevice } from '#lib/playback-sync/device.ts';
 import { previousAction } from '#lib/player-seek.ts';
 import { shuffleUpcoming, startShuffled, unshuffle } from '#lib/player-shuffle.ts';
+import {
+  NO_QUEUED,
+  carryQueued,
+  clearQueued,
+  enqueue,
+  moveUpcoming,
+  queuedCount,
+  queuedRange,
+  queuedSongs,
+  removeUpcoming,
+  type QueueEdit,
+  type QueuedBlock
+} from '#lib/player-queue.ts';
 import { songsStore } from '#lib/stores/songs.svelte.ts';
 import { artistOf } from '#lib/track-list-view.svelte.ts';
 import {
@@ -98,6 +111,18 @@ let shuffleOn = $state(false);
  * turning shuffle off then keeps the queue as it is.
  */
 let unshuffledQueue: PlayerSong[] | null = null;
+/**
+ * "Next in queue": the run of `queue` holding the songs someone added by hand (a row's swipe, Add
+ * to queue, Play next). They play after the current song and before the rest of the list, survive
+ * Shuffle, and carry over to the next list started. See `#lib/player-queue`.
+ */
+let queuedBlock = $state<QueuedBlock>(NO_QUEUED);
+/**
+ * The entries `addToQueue` put in the queue: each add inserts a copy of its song, so an added entry
+ * is told apart from the list's own entry of the same song once it has played and left the run.
+ * Turning Shuffle off reads it to find where in the list the music had got to.
+ */
+const addedByHand = new WeakSet<PlayerSong>();
 
 /**
  * The track this station was built from: the last song the user *chose*, not
@@ -1027,6 +1052,8 @@ function reportPlay(songId: number) {
  * first and the rest of the list follows in random order; without it, shuffle goes off.
  */
 function seedQueue(song: PlayerSong, contextQueue?: PlayerSong[], index?: number, shuffle = false) {
+  // The songs added by hand and not yet played carry over to the new list (Spotify's queue does).
+  const pending = queueIndex >= 0 ? queuedSongs(queue, queueIndex, queuedBlock) : [];
   if (contextQueue && contextQueue.length > 0) {
     const at = index ?? contextQueue.findIndex((s) => s.id === song.id);
     if (shuffle) {
@@ -1040,6 +1067,9 @@ function seedQueue(song: PlayerSong, contextQueue?: PlayerSong[], index?: number
     queue = [song];
     queueIndex = 0;
   }
+  const carried = carryQueued(pending, queue, queueIndex);
+  if (pending.length > 0) queue = carried.queue;
+  queuedBlock = carried.block;
   shuffleOn = shuffle;
   unshuffledQueue = shuffle && contextQueue && contextQueue.length > 0 ? contextQueue : null;
 
@@ -1208,18 +1238,110 @@ function canAdvance(): boolean {
  */
 function toggleShuffle() {
   if (remoteView() || queueIndex < 0) return;
+  // The songs added by hand keep their place and order either way: only the list behind them
+  // shuffles or goes back to its own order.
+  const added = queuedSongs(queue, queueIndex, queuedBlock);
   if (shuffleOn) {
-    if (unshuffledQueue) queue = unshuffle(queue, queueIndex, unshuffledQueue);
+    if (unshuffledQueue) {
+      const list = clearQueued(queue, queueIndex, queuedBlock).queue;
+      // Playing a song added by hand, the list carries on from the last of its own songs played —
+      // unless Shuffle went on while that song played, which made it part of the saved order.
+      const saved = unshuffledQueue;
+      let anchor = queueIndex;
+      while (anchor > 0 && addedByHand.has(list[anchor]) && !saved.includes(list[anchor])) {
+        anchor -= 1;
+      }
+      const ordered = unshuffle(list, queueIndex, saved, anchor);
+      const edit = enqueue(ordered, queueIndex, NO_QUEUED, added, 'next');
+      queue = edit.queue;
+      queuedBlock = edit.block;
+    }
     shuffleOn = false;
     unshuffledQueue = null;
   } else {
-    unshuffledQueue = queue;
-    queue = shuffleUpcoming(queue, queueIndex);
+    unshuffledQueue = clearQueued(queue, queueIndex, queuedBlock).queue;
+    const live = queuedRange(queueIndex, queuedBlock);
+    queue = shuffleUpcoming(queue, added.length > 0 ? live.end - 1 : queueIndex);
     shuffleOn = true;
   }
   refreshActionHandlers(); // the device's own upcoming tracks follow the new order
   maybePrefetchRadio();
   sync?.changed(); // "up next" is news to a device that picks the session up
+}
+
+// ── The queue view ─────────────────────────────────────────────────────────
+// Now Playing's Queue lists what follows the current song and edits it; a row's swipe and its
+// menu add to it. Every edit is this device's own, like Shuffle: while the session plays on another
+// device its queue is that device's, and there is no command to carry an edit there.
+
+/** What adding to the queue did, so the caller can say so. */
+export type QueueAddOutcome = 'queued' | 'started' | 'elsewhere';
+
+function applyQueueEdit(edit: QueueEdit<PlayerSong>) {
+  queue = edit.queue;
+  queuedBlock = edit.block;
+  refreshActionHandlers(); // the device's own upcoming tracks, and whether Next is live
+  maybePrefetchRadio();
+  sync?.changed(); // "up next" is news to a device that picks the session up
+}
+
+/** Whether the queue can be edited here: something is loaded, and it plays on this device. */
+function queueEditable(): boolean {
+  return remoteView() === null && queueIndex >= 0;
+}
+
+/**
+ * Add a song to the queue: `last` (Add to queue, a row's swipe) after the songs already added,
+ * `next` (Play next) straight after the current song. With nothing loaded there is no queue to
+ * add to, so the song simply plays — what someone adding the first song wants to hear next.
+ */
+function addToQueue(song: PlayerSong, where: 'next' | 'last' = 'last'): QueueAddOutcome {
+  if (remoteView()) return 'elsewhere';
+  if (queueIndex < 0 || !currentSong) {
+    void startQueue([song], 0);
+    return 'started';
+  }
+  const entry = { ...song };
+  addedByHand.add(entry);
+  applyQueueEdit(enqueue(queue, queueIndex, queuedBlock, [entry], where));
+  return 'queued';
+}
+
+/** Remove the upcoming song at `position` (0 is the one that plays next). */
+function removeFromQueue(position: number) {
+  if (!queueEditable()) return;
+  const removed = queue[queueIndex + 1 + position];
+  // Under Shuffle, the list's own order is what turning it off goes back to: a song taken out of
+  // the queue must not come back with it.
+  if (unshuffledQueue && removed) unshuffledQueue = unshuffledQueue.filter((s) => s !== removed);
+  applyQueueEdit(removeUpcoming(queue, queueIndex, queuedBlock, position));
+}
+
+/** Move the upcoming song at `from` so it plays at `to` (both counted from the next song). */
+function moveInQueue(from: number, to: number) {
+  if (!queueEditable() || from === to) return;
+  applyQueueEdit(moveUpcoming(queue, queueIndex, queuedBlock, from, to));
+}
+
+/** Take the songs added by hand back out: what follows is the list again. */
+function clearAddedToQueue() {
+  if (!queueEditable() || queuedCount(queueIndex, queuedBlock) === 0) return;
+  applyQueueEdit(clearQueued(queue, queueIndex, queuedBlock));
+}
+
+/**
+ * Play the upcoming song at `position` now. The ones it jumps over stay behind it, for Previous,
+ * as a skip leaves them; the station keeps its seed (this is a step through the queue, not a new
+ * pick). A local play intent.
+ */
+function skipToInQueue(position: number) {
+  if (!queueEditable()) return;
+  const at = queueIndex + 1 + position;
+  if (position < 0 || at >= queue.length) return;
+  sync?.playIntent();
+  queueIndex = at;
+  void loadAndPlay(queue[queueIndex]);
+  maybePrefetchRadio();
 }
 
 /** Fetch the next batch before the queue actually runs out, so no gap is heard. */
@@ -1473,6 +1595,7 @@ function stop() {
   duration = 0;
   queue = [];
   queueIndex = -1;
+  queuedBlock = NO_QUEUED;
   shuffleOn = false;
   unshuffledQueue = null;
   radioSeedId = null;
@@ -1555,7 +1678,10 @@ function composePlaybackSnapshot(): PlaybackSnapshot | null {
     radioExhausted,
     shuffle: shuffleOn,
     miniPlayerDismissed,
-    savedAt: Date.now()
+    savedAt: Date.now(),
+    ...(queuedCount(queueIndex, queuedBlock) > 0
+      ? { queued: queuedRange(queueIndex, queuedBlock) }
+      : {})
   };
 }
 
@@ -1672,6 +1798,8 @@ function restorePlayback(userId: string) {
   const song = snapshot.queue[snapshot.queueIndex];
   queue = snapshot.queue;
   queueIndex = snapshot.queueIndex;
+  queuedBlock = snapshot.queued ?? NO_QUEUED;
+  for (const entry of queuedSongs(queue, queueIndex, queuedBlock)) addedByHand.add(entry);
   radioSeedId = snapshot.radioSeedId;
   radioExhausted = snapshot.radioExhausted;
   // The list's own order is not kept across a reload: shuffle stays on, and off keeps this order.
@@ -1760,6 +1888,8 @@ function adoptQueue(target: AdoptTarget): Promise<PlayOutcome> {
 
   queue = target.queue;
   queueIndex = target.index;
+  // The session carries the queue's order, not which songs were added by hand.
+  queuedBlock = NO_QUEUED;
   // A session without a station (an older client) still should not end in silence here.
   radioSeedId = target.radioSeedId ?? song.id;
   radioExhausted = false;
@@ -1805,6 +1935,7 @@ function hydrateStandIns(rows: ReadonlyMap<number, ApiSong>) {
     if (next.some((song, i) => song !== queue[i]) || next.length !== queue.length) {
       queue = next;
       queueIndex = index;
+      queuedBlock = NO_QUEUED;
       refreshActionHandlers();
       sync?.changed(); // "up next" is what this library holds now
     }
@@ -2021,6 +2152,31 @@ export const playerStore = {
     if (remoteView()) return [];
     return queueIndex < 0 ? [] : queue.slice(queueIndex + 1);
   },
+  /**
+   * How many of `upNext`, at its head, were added by hand ("Next in queue"); the rest is the list
+   * and the station's additions. Zero while the session plays elsewhere.
+   */
+  get upNextAdded(): number {
+    if (remoteView() || queueIndex < 0) return 0;
+    return queuedCount(queueIndex, queuedBlock);
+  },
+  /**
+   * Where the added songs begin in `upNext`. Normally 0; a Previous that stepped back past them
+   * leaves the song it stepped back from in front of them.
+   */
+  get upNextAddedFrom(): number {
+    if (remoteView() || queueIndex < 0) return 0;
+    return queuedRange(queueIndex, queuedBlock).from - queueIndex - 1;
+  },
+  /** Whether the queue view can edit the queue (see `queueEditable`). */
+  get queueEditable(): boolean {
+    return queueEditable();
+  },
+  addToQueue,
+  removeFromQueue,
+  moveInQueue,
+  clearAddedToQueue,
+  skipToInQueue,
   playSong,
   startQueue,
   playNext,

@@ -1,3 +1,4 @@
+import type { QueuedBlock } from '#lib/player-queue.ts';
 import type { PlayerSong } from '#lib/stores/player.svelte.ts';
 
 /**
@@ -32,6 +33,11 @@ export interface PlaybackSnapshot {
   radioExhausted: boolean;
   /** Shuffle was on. Absent in entries written before it existed, which read as off. */
   shuffle: boolean;
+  /**
+   * The songs added by hand ("Next in queue"), as positions in `queue`. Absent in entries written
+   * before it existed and when there are none.
+   */
+  queued?: QueuedBlock;
   miniPlayerDismissed: boolean;
   /** Epoch milliseconds; see {@link canAutoResume}. */
   savedAt: number;
@@ -109,6 +115,9 @@ export function createPlaybackSnapshotStore(storage: StorageLike | null): Playba
           return null;
         }
         if (state.snapshot.queueIndex >= queue.songs.length) return null;
+        if (state.snapshot.queued && state.snapshot.queued.end > queue.songs.length) {
+          delete state.snapshot.queued;
+        }
         stored = { queue: queue.songs, length: queue.songs.length, id: queue.id };
         return { ...state.snapshot, queue: queue.songs };
       } catch {
@@ -245,8 +254,21 @@ function parseFields(value: Record<string, unknown>): Omit<PlaybackSnapshot, 'qu
     radioExhausted: value.radioExhausted,
     shuffle: value.shuffle === true,
     miniPlayerDismissed: value.miniPlayerDismissed,
-    savedAt: value.savedAt as number
+    savedAt: value.savedAt as number,
+    ...queuedField(value.queued)
   };
+}
+
+/**
+ * The added songs' run, when the entry holds one this app could have written. Left out otherwise,
+ * so an entry without one reads back exactly as it was written.
+ */
+function queuedField(value: unknown): { queued?: QueuedBlock } {
+  if (!isRecord(value)) return {};
+  const { from, end } = value;
+  if (!Number.isInteger(from) || !Number.isInteger(end)) return {};
+  if ((from as number) < 0 || (end as number) <= (from as number)) return {};
+  return { queued: { from: from as number, end: end as number } };
 }
 
 function parseSongs(value: unknown): PlayerSong[] | null {

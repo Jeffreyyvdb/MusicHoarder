@@ -91,6 +91,16 @@ describe('playback snapshot round-trip', () => {
     expect(storage.reloaded().read()).toEqual(written);
   });
 
+  it('keeps the songs added to the queue, and drops a run the queue cannot hold', () => {
+    const storage = new MemoryStorage();
+    createPlaybackSnapshotStore(storage).write(snapshot({ queued: { from: 2, end: 3 } }));
+    expect(storage.reloaded().read()?.queued).toEqual({ from: 2, end: 3 });
+
+    const other = new MemoryStorage();
+    createPlaybackSnapshotStore(other).write(snapshot({ queued: { from: 2, end: 9 } }));
+    expect(other.reloaded().read()?.queued).toBeUndefined();
+  });
+
   it('keeps shuffle, and reads an entry written before it existed as off', () => {
     const storage = new MemoryStorage();
     createPlaybackSnapshotStore(storage).write(snapshot({ shuffle: true }));

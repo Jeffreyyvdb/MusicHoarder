@@ -4,6 +4,7 @@
     ChevronDown,
     Heart,
     Info,
+    ListMusic,
     MessageSquareQuote,
     MonitorPlay,
     MonitorSpeaker
@@ -25,6 +26,7 @@
   import NowPlayingInfo from '#lib/components/file-browser/now-playing/NowPlayingInfo.svelte';
   import NowPlayingLyrics from '#lib/components/file-browser/now-playing/NowPlayingLyrics.svelte';
   import NowPlayingMoreMenu from '#lib/components/file-browser/now-playing/NowPlayingMoreMenu.svelte';
+  import NowPlayingQueue from '#lib/components/file-browser/now-playing/NowPlayingQueue.svelte';
   import ManageVideoSheet from '#lib/components/file-browser/now-playing/ManageVideoSheet.svelte';
   import LyricsCompareSheet from '#lib/components/file-browser/now-playing/LyricsCompareSheet.svelte';
   import ActionSheet from '#lib/components/file-browser/now-playing/ActionSheet.svelte';
@@ -186,7 +188,24 @@
     const freshRequest = appliedSeq !== seq;
     appliedSeq = seq;
     appliedSongId = id;
-    mode = freshRequest && requestedMode ? requestedMode : ai.hasLyrics ? 'lyrics' : 'player';
+    // The Queue stays up while the music moves on under it (a row tapped in it plays that song):
+    // the host's follow-playback re-targets the panel with a request that names no mode.
+    const keepQueue = !(freshRequest && requestedMode) && untrack(() => mode) === 'queue';
+    mode =
+      freshRequest && requestedMode
+        ? requestedMode
+        : keepQueue
+          ? 'queue'
+          : ai.hasLyrics
+            ? 'lyrics'
+            : 'player';
+  });
+
+  // The Queue is the queue loaded on this device: offered while there is one, and left (back to the
+  // artwork) when there no longer is — the music stopped, or the session went to another device.
+  const queueAvailable = $derived(playerStore.queueEditable);
+  $effect(() => {
+    if (mode === 'queue' && !queueAvailable) mode = 'player';
   });
 
   // Video mode needs a watchable clip; when it turns out there is none (or it disappears), fall
@@ -513,8 +532,8 @@
 {/snippet}
 
 <!-- Lyrics · AirPlay (only where Safari reports a receiver) · Devices (signed in, not the demo) ·
-     Video (when watchable) · Info. While the music plays on another device, the line under the row
-     says where, and opens the same picker. -->
+     Video (when watchable) · Info · Queue (while a queue is loaded here). While the music plays on
+     another device, the line under the row says where, and opens the same picker. -->
 {#snippet bottomRow()}
   <div class="flex items-center justify-evenly">
     {@render modeButton('lyrics', 'Lyrics', MessageSquareQuote)}
@@ -561,6 +580,9 @@
       {@render modeButton('video', 'Video', MonitorPlay)}
     {/if}
     {@render modeButton('info', 'Info', Info)}
+    {#if queueAvailable}
+      {@render modeButton('queue', 'Queue', ListMusic)}
+    {/if}
   </div>
   {#if deviceLine}
     {@const DeviceIcon = DEVICE_ICONS[playbackSync.activeKind]}
@@ -660,6 +682,8 @@
         onPlayRequest={handlePlayToggle}
       />
     </div>
+  {:else if content === 'queue'}
+    <NowPlayingQueue wide={wide.current} />
   {/if}
   <div class={cn('flex min-h-0 flex-1 flex-col', content !== 'info' && 'hidden')}>
     <NowPlayingInfo

@@ -39,8 +39,10 @@
     HeartOff,
     History,
     Info,
+    ListEnd,
     ListMinus,
     ListPlus,
+    ListStart,
     Mic2,
     Play,
     Send,
@@ -60,12 +62,13 @@
   import { sendTo, sendToSong } from '#lib/stores/send-to.svelte.ts';
   import { songsStore } from '#lib/stores/songs.svelte.ts';
   import { artistOf, titleOf } from '#lib/track-list-view.svelte.ts';
+  import { queueSong } from '#lib/queue/queue-actions.ts';
 
   // The one action set for a song wherever it is listed — Tracks rows, album tracklists, the
   // Overview's favourites, an artist's songs — behind a visible ⋯ button and, on the row, a
   // touch-and-hold / right-click twin (the row calls `openAt`). iOS context-menu rules: at most
   // three groups by frequency, unavailable items hidden rather than disabled, destructive last.
-  //   1. Play (Play next is omitted: the player has no insert-into-queue API)
+  //   1. Play · Play next · Add to queue (a row's swipe right is the twin of the last)
   //   2. Add to / Remove from favourites · Add to playlist… · Go to album · Go to artist
   //   3. Song info · Share link… · Send to… · Share with a friend… · View timeline
   // and, on a playlist's own page, Remove from playlist — destructive, so last and on its own; for
@@ -271,15 +274,23 @@
       </Button>
     {/snippet}
   </DropdownMenu.Trigger>
+  <!-- Capped at the room the screen has: opened from a row mid-way down a phone, the full menu is
+       taller than the space on either side, and it would run off the top, Play and all. -->
   <DropdownMenu.Content
     {customAnchor}
     side="bottom"
     align={anchor ? 'start' : 'end'}
-    class="w-60 pointer-coarse:w-72"
+    class="max-h-(--bits-dropdown-menu-content-available-height) w-60 pointer-coarse:w-72"
   >
     <DropdownMenu.Group>
       <DropdownMenu.Item onSelect={onplay}>
         <Play /> Play
+      </DropdownMenu.Item>
+      <DropdownMenu.Item onSelect={() => queueSong(song, 'next')}>
+        <ListStart /> Play next
+      </DropdownMenu.Item>
+      <DropdownMenu.Item onSelect={() => queueSong(song, 'last')}>
+        <ListEnd /> Add to queue
       </DropdownMenu.Item>
     </DropdownMenu.Group>
     <DropdownMenu.Separator />
