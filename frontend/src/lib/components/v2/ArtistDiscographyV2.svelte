@@ -168,7 +168,7 @@
     <!-- One band: sideways on a phone (data-scroll-x keeps the edge swipe out of it), wrapping on md+.
          The vertical padding is the room each chip's 44pt touch area needs. -->
     <div
-      class="flex [scrollbar-width:none] items-center gap-2 overflow-x-auto px-4 py-1.5 md:flex-wrap md:overflow-visible md:px-0"
+      class="flex [scrollbar-width:none] items-center gap-2 overflow-x-auto overflow-y-hidden px-4 py-1.5 md:flex-wrap md:overflow-visible md:px-0"
       data-scroll-x=""
     >
       {#each DISCOGRAPHY_FILTERS.filter((f) => filters.includes(f.id)) as f (f.id)}

@@ -293,7 +293,7 @@
               class={cn(
                 'grid grid-flow-col gap-x-4 px-4 pt-1 md:px-7',
                 paged
-                  ? 'no-scrollbar snap-x snap-mandatory scroll-px-4 auto-cols-[calc(100%-3rem)] overflow-x-auto md:scroll-px-7 md:auto-cols-[minmax(18rem,1fr)]'
+                  ? 'no-scrollbar snap-x snap-mandatory scroll-px-4 auto-cols-[calc(100%-3rem)] overflow-x-auto overflow-y-hidden md:scroll-px-7 md:auto-cols-[minmax(18rem,1fr)]'
                   : 'auto-cols-[100%] md:auto-cols-[minmax(18rem,36rem)]'
               )}
             >

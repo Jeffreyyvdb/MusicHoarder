@@ -415,7 +415,7 @@
           data-stuck={stripStuck || undefined}
           class="bg-background border-separator before:bg-background sticky top-(--mh-navbar-h,0px) z-10 border-b before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:hidden before:h-4 data-stuck:before:block"
         >
-          <div data-scroll-x="" class="no-scrollbar flex items-center overflow-x-auto px-4 py-1.5">
+          <div data-scroll-x="" class="no-scrollbar flex items-center overflow-x-auto overflow-y-hidden px-4 py-1.5">
             {@render filterChips()}
           </div>
         </div>

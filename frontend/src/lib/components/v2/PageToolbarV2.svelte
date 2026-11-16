@@ -470,7 +470,7 @@
          clips anything that pokes out of it. -->
     <div
       data-scroll-x=""
-      class="no-scrollbar flex shrink-0 scroll-px-4 items-center gap-2 overflow-x-auto px-4 py-1.5"
+      class="no-scrollbar flex shrink-0 scroll-px-4 items-center gap-2 overflow-x-auto overflow-y-hidden px-4 py-1.5"
     >
       {@render filters()}
     </div>
@@ -478,7 +478,7 @@
   {#if filterRow}
     <div
       data-scroll-x=""
-      class="no-scrollbar flex shrink-0 scroll-px-4 items-center gap-2 overflow-x-auto px-4 py-1.5"
+      class="no-scrollbar flex shrink-0 scroll-px-4 items-center gap-2 overflow-x-auto overflow-y-hidden px-4 py-1.5"
     >
       {@render filterRow()}
     </div>
