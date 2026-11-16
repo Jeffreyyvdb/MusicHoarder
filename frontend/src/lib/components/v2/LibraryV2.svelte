@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import { MediaQuery } from 'svelte/reactivity';
   import { page } from '$app/state';
   import { replaceUrl } from '#lib/navigation/replace-url.ts';
   import {
@@ -31,6 +32,7 @@
   import FilterChip from '#lib/components/v2/FilterChip.svelte';
   import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
   import LibraryAlbumsGridV2 from '#lib/components/v2/LibraryAlbumsGridV2.svelte';
+  import { carryBuiltTiles, watchNearViewport } from '#lib/viewport-fill.ts';
   import LibraryArtistsGridV2 from '#lib/components/v2/LibraryArtistsGridV2.svelte';
   import TrackRowMenu, { activateTrack } from '#lib/components/v2/TrackRowMenu.svelte';
   import TrackRowText from '#lib/components/v2/TrackRowText.svelte';
@@ -485,6 +487,70 @@
   // tracks), and their songs, in album order, are the artist's song list.
   const artistAlbums = $derived(isArtistView ? sortAlbums(scopedAlbums, albumSort) : []);
   const artistSongs = $derived(artistAlbums.flatMap((a) => a.songs));
+
+  // An artist's songs can be thousands of rows (2,745 for one artist in a real library), and with
+  // every one built the page was some 40,000 elements: each frame of a scroll then took the main
+  // thread long enough that the album tiles above, which are built as they come near the screen,
+  // were still empty when a flick on a phone reached them. So the rows are built the way those
+  // tiles are (`LibraryAlbumsGridV2`, `#lib/viewport-fill.ts`): every song has its row from the first
+  // frame, at its resting height, so the page keeps its full height and scroll position; the
+  // inside of a row is built for the first few, then for each one that comes within two screens.
+  // With a mouse at md and wider the rest follow in idle slices, because find-in-page only finds
+  // what has been built.
+  const ROWS_FIRST_FILL = 30;
+  const ROWS_FILL_STEP = 60;
+  const rowsFillEverything = new MediaQuery('(min-width: 768px) and (pointer: fine)');
+  // A derived that is also written to: it starts over with each artist before that artist's rows
+  // render (an effect would reset it only after they had all been built once).
+  let rowsFilled = $derived.by(() => {
+    void artistName;
+    return ROWS_FIRST_FILL;
+  });
+  $effect(() => {
+    if (!rowsFillEverything.current || rowsFilled >= artistSongs.length) return;
+    const fill = () => (rowsFilled += ROWS_FILL_STEP);
+    if (typeof requestIdleCallback === 'function') {
+      const handle = requestIdleCallback(fill, { timeout: 200 });
+      return () => cancelIdleCallback(handle);
+    }
+    const handle = setTimeout(fill, 16);
+    return () => clearTimeout(handle);
+  });
+
+  let artistSongsEl = $state<HTMLElement | null>(null);
+  // Seeded with what the first frame builds by position, so the effect below finds nothing to add
+  // right after mount (a write there makes every row check again whether it is built).
+  let builtRowKeys = $state.raw<ReadonlySet<string>>(
+    carryBuiltTiles(
+      new Set(),
+      untrack(() => artistSongs).map((song) => ({ key: String(song.id) })),
+      ROWS_FIRST_FILL
+    )
+  );
+  $effect(() => {
+    const list = artistSongsEl;
+    const songs = artistSongs;
+    if (rowsFillEverything.current) return;
+    untrack(
+      () =>
+        (builtRowKeys = carryBuiltTiles(
+          builtRowKeys,
+          songs.map((song) => ({ key: String(song.id) })),
+          ROWS_FIRST_FILL
+        ))
+    );
+    if (!list) return;
+    // A new watcher per list: a changed list holds rows that did not exist a moment ago.
+    const watcher = watchNearViewport(list, {
+      attribute: 'data-song-row',
+      onnear: (keys) =>
+        untrack(() => {
+          const fresh = keys.filter((key) => !builtRowKeys.has(key));
+          if (fresh.length > 0) builtRowKeys = new Set([...builtRowKeys, ...fresh]);
+        })
+    });
+    return () => watcher.destroy();
+  });
   $effect(() => {
     if (isArtistView && artistName) tabMemory.setTitle(page.url, artistName);
   });
@@ -965,8 +1031,8 @@
   {/if}
 {/snippet}
 
-<!-- An artist's song row: the phone row design (48pt art, title over album, ⋯), not virtualized —
-     an artist's songs are a few dozen at most. -->
+<!-- An artist's song row: the phone row design (48pt art, title over album, ⋯). Not virtualized,
+     but the Tracks list builds a row only when it comes near the screen (see `builtRowKeys`). -->
 {#snippet artistSongRow(
   song: ApiSong,
   index: number,
@@ -1270,9 +1336,15 @@
           <h2 id="artist-songs-heading" class="text-title-2 mb-1 px-4 md:px-0 md:text-lg">
             Tracks
           </h2>
-          <ul>
+          <ul bind:this={artistSongsEl}>
             {#each artistSongs as song, index (song.id)}
-              {@render artistSongRow(song, index)}
+              {#if index < rowsFilled || builtRowKeys.has(String(song.id))}
+                {@render artistSongRow(song, index)}
+              {:else}
+                <!-- Not built yet (see `builtRowKeys`): a row of the resting height, so the list
+                     is its full length from the first frame. -->
+                <li data-song-row={song.id} class="min-h-16 md:min-h-14"></li>
+              {/if}
             {/each}
           </ul>
         </section>
