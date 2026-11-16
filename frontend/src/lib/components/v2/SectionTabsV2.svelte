@@ -144,7 +144,7 @@
 <svelte:element
   this={isTablist ? 'div' : 'nav'}
   bind:this={scroller}
-  class={cn('no-scrollbar flex items-center overflow-x-auto scroll-px-4', maskClass, className)}
+  class={cn('no-scrollbar flex items-center overflow-x-auto overflow-y-hidden scroll-px-4', maskClass, className)}
   onscroll={(e: Event) => measureEdges(e.currentTarget as HTMLElement)}
   aria-label={isTablist ? undefined : label}
   data-scroll-x=""

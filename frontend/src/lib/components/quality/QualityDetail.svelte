@@ -317,7 +317,7 @@
 
       <!-- The review components are wide tables; they scroll sideways inside the page rather than
            widening it. -->
-      <div data-scroll-x="" class="min-w-0 space-y-3 overflow-x-auto">
+      <div data-scroll-x="" class="min-w-0 space-y-3 overflow-x-auto overflow-y-hidden">
         {#if candidates.length > 0}
           <CandidateGrid {candidates} pickedKey={null} onpick={() => {}} readonly />
         {/if}

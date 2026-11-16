@@ -273,7 +273,7 @@
           </GroupedList.Section>
 
           <GroupedList.Section headingLevel={2} header="Speed and price" footer="Per grade, retries included. Costs are what OpenRouter billed (usage.cost).">
-            <div class="overflow-x-auto" data-scroll-x>
+            <div class="overflow-x-auto overflow-y-hidden" data-scroll-x>
               <table class="w-full min-w-[520px] text-sm tabular-nums">
                 <thead>
                   <tr class="text-muted-foreground text-left text-xs">
@@ -331,7 +331,7 @@
             <GroupedList.Row label="Same flag decision" value={pct(c.flagAgreement)} />
             <GroupedList.Row label="Cohen's kappa (verdict)" value={num(c.kappa)} />
             <GroupedList.Row label="Mean score difference" value={c.scoreMae == null ? '—' : `${num(c.scoreMae, 1)} points`} />
-            <div class="overflow-x-auto px-4 py-3" data-scroll-x>
+            <div class="overflow-x-auto overflow-y-hidden px-4 py-3" data-scroll-x>
               <table class="min-w-[420px] text-xs tabular-nums">
                 <thead>
                   <tr class="text-muted-foreground">

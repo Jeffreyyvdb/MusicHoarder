@@ -883,7 +883,7 @@
       data-scroll-x=""
       role="group"
       aria-label="Active filters"
-      class="no-scrollbar flex shrink-0 scroll-px-4 items-center gap-2 overflow-x-auto px-4 py-1"
+      class="no-scrollbar flex shrink-0 scroll-px-4 items-center gap-2 overflow-x-auto overflow-y-hidden px-4 py-1"
     >
       {#each listView.chips as key (key)}
         <button

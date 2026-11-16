@@ -64,5 +64,5 @@
   </div>
   <pre
     data-scroll-x
-    class="text-muted-foreground overflow-x-auto px-4 py-3.5 font-mono text-[12.5px] leading-[1.7]">{text}</pre>
+    class="text-muted-foreground overflow-x-auto overflow-y-hidden px-4 py-3.5 font-mono text-[12.5px] leading-[1.7]">{text}</pre>
 </div>

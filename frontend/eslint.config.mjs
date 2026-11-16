@@ -36,6 +36,24 @@ const barePolls = [
   { selector: "CallExpression[callee.property.name='setInterval']", message: pollMessage }
 ];
 
+/**
+ * `overflow-x: auto` on its own turns `overflow-y` into `auto` as well (CSS has no scroller that
+ * scrolls one axis and lets the other show), so a sideways row also scrolls up and down by
+ * whatever pokes out below it: a chip's 44pt hit area, a pressed hardware key's 2px. On a phone
+ * that is enough for a finger to drag the whole row off its line and let it bounce back. Every
+ * sideways scroller says `overflow-y-hidden` too; it clips nothing the row did not clip already.
+ */
+const sidewaysMessage =
+  'A sideways scroller also needs `overflow-y-hidden`: on its own, overflow-x-auto makes the row scroll vertically too, and a finger can drag it up and down.';
+const sidewaysScrollers = [
+  ['Literal', 'value'],
+  ['SvelteLiteral', 'value'],
+  ['TemplateElement', 'value.raw']
+].map(([node, text]) => ({
+  selector: `${node}[${text}=/overflow-x-(auto|scroll)/]:not([${text}=/overflow-y-/])`,
+  message: sidewaysMessage
+}));
+
 export default ts.config(
   js.configs.recommended,
   ...ts.configs.recommended,
@@ -96,7 +114,7 @@ export default ts.config(
     files: ['src/**/*.ts', 'src/**/*.svelte'],
     ignores: ['src/lib/stores/**', 'src/**/*.test.ts'],
     rules: {
-      'no-restricted-syntax': ['error', ...songScans, ...barePolls]
+      'no-restricted-syntax': ['error', ...songScans, ...barePolls, ...sidewaysScrollers]
     }
   },
   {

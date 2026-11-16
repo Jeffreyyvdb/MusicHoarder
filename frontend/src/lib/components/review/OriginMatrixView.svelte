@@ -12,7 +12,7 @@
     No provider proposed any values for this file.
   </div>
 {:else}
-  <div class="border-border overflow-x-auto rounded-lg border">
+  <div class="border-border overflow-x-auto overflow-y-hidden rounded-lg border">
     <Table.Root class="w-full border-collapse text-left">
       <Table.Header>
         <Table.Row class="bg-muted">
