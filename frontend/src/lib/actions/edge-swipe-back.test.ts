@@ -8,10 +8,29 @@ import { edgeSwipeBack } from './edge-swipe-back';
  * release decision, which are what make the gesture safe to put on every page.
  */
 
+vi.mock('#lib/navigation/back-preview.ts', () => ({
+  backPreviews: { get: () => null },
+  copyBackPreview: () => ({ element: new FakeElement() }),
+  mountBackPreview: (preview: { element: FakeElement }) => preview.element
+}));
+
 const WIDTH = 393;
+const REST = {
+  transform: '',
+  transition: '',
+  opacity: '',
+  boxShadow: '',
+  background: '',
+  position: '',
+  zIndex: ''
+};
 
 class FakeElement extends EventTarget {
-  style: Record<string, string> = { transform: '', transition: '', opacity: '' };
+  style: Record<string, string> = { ...REST };
+  clientWidth = WIDTH;
+  getBoundingClientRect() {
+    return { width: WIDTH };
+  }
   removed = false;
   innerHTML = '';
   className = '';
@@ -22,7 +41,8 @@ class FakeElement extends EventTarget {
 }
 
 let node: FakeElement;
-let chevrons: FakeElement[];
+let created: FakeElement[];
+let reduced: boolean;
 let openModal: boolean;
 let installed: boolean;
 let clock: number;
@@ -30,21 +50,26 @@ let clock: number;
 beforeEach(() => {
   vi.useFakeTimers();
   node = new FakeElement();
-  chevrons = [];
+  created = [];
+  reduced = false;
   openModal = false;
   installed = true;
   clock = 0;
   vi.stubGlobal('window', {
     innerWidth: WIDTH,
     innerHeight: 852,
-    matchMedia: (q: string) => ({ matches: q.includes('display-mode') && installed })
+    matchMedia: (q: string) => ({
+      matches:
+        (q.includes('display-mode') && installed) || (q.includes('reduced-motion') && reduced)
+    })
   });
+  vi.stubGlobal('getComputedStyle', () => ({ backgroundColor: 'white' }));
   vi.stubGlobal('navigator', { vibrate: vi.fn() });
   vi.stubGlobal('document', {
     querySelector: () => (openModal ? {} : null),
     createElement: () => {
       const el = new FakeElement();
-      chevrons.push(el);
+      created.push(el);
       return el;
     },
     body: { appendChild: () => {} }
@@ -96,38 +121,39 @@ function attach() {
 }
 
 describe('edgeSwipeBack', () => {
-  it('goes back past 30% of the width', async () => {
-    const { back, clear } = withBack();
+  it('slides an outgoing copy offscreen and waits for both motion and navigation', async () => {
+    let landed = () => {};
+    const back = vi.fn(() => new Promise<void>((resolve) => (landed = resolve)));
+    const clear = navBack.set(back);
     const action = attach();
     const moves = swipe(5, [20, 60, 100, 140]);
     expect(moves.every((e) => e.defaultPrevented)).toBe(true);
     expect(back).toHaveBeenCalledOnce();
-    // The page stays where the finger left it, fading, until the Back has run…
-    expect(node.style.transform).toBe('translate3d(40.5px, 0, 0)');
     expect(node.style.opacity).toBe('0');
-    await Promise.resolve();
-    // …and is then put back, with nothing lingering, for the incoming page.
-    expect(node.style).toEqual({ transform: '', transition: '', opacity: '' });
-    expect(chevrons).toHaveLength(1);
+    landed();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(node.style.opacity).toBe('0');
+    await vi.advanceTimersByTimeAsync(120);
+    expect(node.style).toEqual(REST);
+    // No floating chevron is created.
+    expect(created).toHaveLength(0);
     action.destroy();
-    expect(chevrons[0].removed).toBe(true);
     clear();
   });
 
-  it('holds the page it is leaving until the Back has landed', async () => {
+  it('holds until a delayed Back lands and refuses a second Back while committing', async () => {
     let landed = () => {};
     const back = vi.fn(() => new Promise<void>((resolve) => (landed = resolve)));
     const clear = navBack.set(back);
     const action = attach();
     swipe(5, [20, 60, 100, 140]);
-    await Promise.resolve();
-    // Never snapped home first: that read as the page jumping back against the gesture.
-    expect(node.style.transform).toBe('translate3d(40.5px, 0, 0)');
+    await vi.advanceTimersByTimeAsync(300);
     expect(node.style.opacity).toBe('0');
+    swipe(5, [20, 60, 100, 140]);
+    expect(back).toHaveBeenCalledOnce();
     landed();
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(node.style).toEqual({ transform: '', transition: '', opacity: '' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(node.style).toEqual(REST);
     action.destroy();
     clear();
   });
@@ -137,43 +163,57 @@ describe('edgeSwipeBack', () => {
     const clear = navBack.set(back);
     const action = attach();
     swipe(5, [20, 60, 100, 140]);
-    await Promise.resolve();
-    expect(node.style.opacity).toBe('0');
-    vi.advanceTimersByTime(1200);
-    expect(node.style).toEqual({ transform: '', transition: '', opacity: '' });
+    await vi.advanceTimersByTimeAsync(1200);
+    expect(node.style).toEqual(REST);
     action.destroy();
     clear();
   });
 
-  it('lets a new swipe take over from a page still waiting to land', async () => {
-    let landed = () => {};
-    const back = vi.fn(() => new Promise<void>((resolve) => (landed = resolve)));
-    const clear = navBack.set(back);
+  it('can interrupt a cancelled swipe with another drag', () => {
+    const { back, clear } = withBack();
     const action = attach();
-    swipe(5, [20, 60, 100, 140]);
-    node.dispatchEvent(touchEvent('touchstart', 5, 300, { dt: 0 }));
-    node.dispatchEvent(touchEvent('touchmove', 20, 300));
+    swipe(5, [20, 30, 40, 50], 120);
+    node.dispatchEvent(touchEvent('touchstart', 5, 300));
     node.dispatchEvent(touchEvent('touchmove', 95, 300));
-    // The new drag starts from the resting page, fully visible…
-    expect(node.style.opacity).toBe('');
-    expect(node.style.transform).toBe('translate3d(27px, 0, 0)');
-    // …and the first Back landing late does not yank it out from under the finger.
-    landed();
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(node.style.transform).toBe('translate3d(27px, 0, 0)');
+    expect(node.style.transform).toBe('translate3d(90px, 0, 0)');
+    expect(back).not.toHaveBeenCalled();
     action.destroy();
-    expect(node.style).toEqual({ transform: '', transition: '', opacity: '' });
+    expect(node.style).toEqual(REST);
     clear();
   });
 
-  it('follows the finger at a third of the distance', () => {
+  it('cancels when the finger reverses direction, even past the distance threshold', () => {
+    const { back, clear } = withBack();
+    const action = attach();
+    swipe(5, [100, 240, 220, 190]);
+    expect(back).not.toHaveBeenCalled();
+    action.destroy();
+    clear();
+  });
+
+  it('uses opacity feedback with Reduce Motion, without sliding pages', async () => {
+    reduced = true;
+    const { back, clear } = withBack();
+    const action = attach();
+    node.dispatchEvent(touchEvent('touchstart', 5, 300));
+    node.dispatchEvent(touchEvent('touchmove', 140, 300));
+    expect(node.style.transform).toBe('');
+    expect(Number(node.style.opacity)).toBeLessThan(1);
+    node.dispatchEvent(touchEvent('touchend', 140, 300));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(back).toHaveBeenCalledOnce();
+    expect(node.style).toEqual(REST);
+    action.destroy();
+    clear();
+  });
+
+  it('follows the finger one-to-one', () => {
     const { clear } = withBack();
     const action = attach();
     node.dispatchEvent(touchEvent('touchstart', 5, 300, { dt: 0 }));
     node.dispatchEvent(touchEvent('touchmove', 20, 300));
     node.dispatchEvent(touchEvent('touchmove', 95, 300));
-    expect(node.style.transform).toBe('translate3d(27px, 0, 0)');
+    expect(node.style.transform).toBe('translate3d(90px, 0, 0)');
     expect(node.style.transition).toBe('none');
     action.destroy();
     clear();
@@ -184,7 +224,7 @@ describe('edgeSwipeBack', () => {
     const action = attach();
     swipe(5, [20, 30, 40, 50], 120);
     expect(back).not.toHaveBeenCalled();
-    expect(node.style.transform).toBe('translate3d(0, 0, 0)');
+    expect(node.style.transform).toBe('');
     vi.advanceTimersByTime(300);
     // No lingering transform: it would make the content root a containing block.
     expect(node.style.transform).toBe('');
@@ -220,7 +260,7 @@ describe('edgeSwipeBack', () => {
     node.dispatchEvent(touchEvent('touchend', 150, 340));
     expect(down.defaultPrevented).toBe(false);
     expect(back).not.toHaveBeenCalled();
-    expect(chevrons).toHaveLength(0);
+    expect(created).toHaveLength(0);
     action.destroy();
     clear();
   });
@@ -249,7 +289,7 @@ describe('edgeSwipeBack', () => {
   it('does nothing without a Back action, in a browser tab, over a dialog, or when disabled', () => {
     const action = attach();
     swipe(5, [60, 140, 200]);
-    expect(chevrons).toHaveLength(0);
+    expect(created).toHaveLength(0);
 
     const { back, clear } = withBack();
     installed = false;

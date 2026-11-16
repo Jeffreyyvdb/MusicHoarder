@@ -157,7 +157,7 @@
   $effect(() => {
     const target = backTarget;
     if (!target) return;
-    return navBack.set(() => tabMemory.goBack(target));
+    return navBack.set(() => tabMemory.goBack(target), target.href);
   });
 
   function goBack(event: MouseEvent, target: NavBack) {
