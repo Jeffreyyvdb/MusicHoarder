@@ -274,11 +274,13 @@
       </Button>
     {/snippet}
   </DropdownMenu.Trigger>
+  <!-- Capped at the room the screen has: opened from a row mid-way down a phone, the full menu is
+       taller than the space on either side, and it would run off the top, Play and all. -->
   <DropdownMenu.Content
     {customAnchor}
     side="bottom"
     align={anchor ? 'start' : 'end'}
-    class="w-60 pointer-coarse:w-72"
+    class="max-h-(--bits-dropdown-menu-content-available-height) w-60 pointer-coarse:w-72"
   >
     <DropdownMenu.Group>
       <DropdownMenu.Item onSelect={onplay}>
