@@ -75,4 +75,28 @@ public class LyricsTimingOptions
     /// <summary>Give up probing a song after this many attempts, so an unfixable row stops costing budget.</summary>
     [Range(1, 10)]
     public int MaxProbeAttempts { get; set; } = 2;
+
+    /// <summary>
+    /// Whether the sweep also probes songs the free checks passed but no probe has listened to yet. The free
+    /// checks only catch gross mistakes (an LRC timed for a different-length recording, lines past the end), so
+    /// a sloppily timed or uniformly shifted LRC passes them and would otherwise never be looked at. These
+    /// come after every Suspect song, newest first, and draw on the same audio budget.
+    /// </summary>
+    public bool ProbeUnconfirmedSongs { get; set; } = true;
+
+    /// <summary>
+    /// Whether the sweep re-syncs a song by itself once a probe has found its timing drifting (wrong in a way
+    /// no single shift fixes). It runs the same full transcription and forced alignment as the "Sync with AI"
+    /// button, which keeps the song's official words and only re-times them, and makes that the version the
+    /// player shows. Off means those songs wait for the button.
+    /// </summary>
+    public bool EnableAutoResync { get; set; } = true;
+
+    /// <summary>
+    /// Most automatic re-syncs per rolling day. Each one transcribes the whole song, so it costs a song's
+    /// length in audio-seconds from the same budget as the probes (about 200s, against 30s for a probe); the
+    /// cap keeps re-syncs from crowding the probes out. <c>0</c> turns automatic re-syncs off.
+    /// </summary>
+    [Range(0, 1000)]
+    public int AutoResyncPerDay { get; set; } = 30;
 }
