@@ -373,6 +373,13 @@
         ></div>
       {/if}
 
+      <!-- Keep the departing dialog's own surface after its media claim is released. -->
+      <div
+        class="mh-surface-edges absolute inset-0"
+        style="--mh-page-surface: var(--background)"
+        aria-hidden="true"
+      ></div>
+
       <DialogPrimitive.Title class="sr-only">{dialogTitle}</DialogPrimitive.Title>
       <DialogPrimitive.Description class="sr-only">{dialogDescription}</DialogPrimitive.Description>
 
