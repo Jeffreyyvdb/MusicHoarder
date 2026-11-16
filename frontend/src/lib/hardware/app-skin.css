@@ -1018,6 +1018,17 @@
   background-color: var(--background);
 }
 
+/* The wider monospace face needs a smaller reading size than the default theater headings.
+   Scope the sizes to the viewer so synced, plain and translated lyrics agree. */
+:root[data-mh-skin='hardware'] [data-lyrics-variant='theater'] .text-title-1 {
+  font-size: calc(1.25rem * var(--mh-dt, 1));
+  line-height: 1.4;
+}
+:root[data-mh-skin='hardware'] [data-lyrics-variant='theater'] .text-title-3 {
+  font-size: calc(1rem * var(--mh-dt, 1));
+  line-height: 1.4;
+}
+
 /* The lyrics print in opaque inks: the line being sung in the red of every other "current" row,
    the rest in the label grey (6.23:1 dark, 5.22:1 light; the red is 5.64 / 5.09). Not the theater's
    55% alpha with its colour transition: on the desk, with no cover wash behind it, iOS Safari showed
