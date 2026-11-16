@@ -15,8 +15,8 @@ namespace MusicHoarder.Api.Enrichment;
 /// API, so it is allowed to chew through the entire library as fast as the database will serve it — which is
 /// how a pre-existing collection gets verdicts without a migration-time backfill.
 ///
-/// The <b>probe pass</b> spends real transcription quota, so it is bounded per batch and every window is
-/// reserved from <see cref="LyricsProbeBudget"/> first. Songs the free pass flagged as Suspect go first; after
+/// The <b>probe pass</b> spends real transcription quota, so it is bounded per batch and every window goes
+/// through <see cref="TranscriptionAudioBudget"/>, which keeps the sweeps out of the share left for manual runs. Songs the free pass flagged as Suspect go first; after
 /// them come songs the free checks passed but no probe has heard, because those checks only catch gross
 /// mistakes and a sloppily timed LRC sails through them. A song that has burned its probe attempts is left
 /// alone: the point of the budget is that an unfixable track cannot quietly consume the allowance the fixable
@@ -31,7 +31,7 @@ public sealed class LyricsTimingCheckService(
     IServiceScopeFactory scopeFactory,
     LyricsTimingProbe probe,
     ILyricsTranscriptionService transcriber,
-    LyricsProbeBudget budget,
+    TranscriptionAudioBudget budget,
     IOptionsMonitor<LyricsTimingOptions> options,
     ILogger<LyricsTimingCheckService> logger) : BackgroundService
 {
@@ -45,16 +45,6 @@ public sealed class LyricsTimingCheckService(
 
     /// <summary>The same, for the re-sync pass, which a closed budget or a busy provider stops just the same.</summary>
     private DateTime _resyncDeferredUntilUtc = DateTime.MinValue;
-
-    /// <summary>
-    /// When each automatic re-sync of the last day ran, for <see cref="LyricsTimingOptions.AutoResyncPerDay"/>.
-    /// In memory, like the audio budget: a restart forgets it, and the worst that costs is one extra day's
-    /// worth of re-syncs, which the audio budget still bounds.
-    /// </summary>
-    private readonly Queue<DateTime> _resyncsToday = new();
-
-    /// <summary>A song with no known length is budgeted as this long, so it cannot slip past the audio meter.</summary>
-    private const double UnknownDurationSeconds = 300;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -188,15 +178,22 @@ public sealed class LyricsTimingCheckService(
             if (path is null)
                 continue;
 
-            var result = await probe.ProbeAsync(song, path, ct);
-            if (result is null)
+            LyricsProbeResult? result;
+            try
+            {
+                result = await probe.ProbeAsync(song, path, TranscriptionPurpose.TimingProbe, ct);
+            }
+            catch (TranscriptionRateLimitedException ex)
             {
                 // Out of budget, or the provider is rate-limiting us. Either way nothing was learned about
-                // this song, so stop the batch and stand down for a while rather than queueing behind a
-                // limit that has not moved.
-                _probeDeferredUntilUtc = DateTime.UtcNow.AddMinutes(1);
+                // this song, so stop the batch and stand down until the limit has moved.
+                _probeDeferredUntilUtc = DeferUntil(ex);
+                logger.LogInformation(
+                    "Lyrics timing probe deferred until {Until:HH:mm} UTC: {Reason}", _probeDeferredUntilUtc, ex.Message);
                 break;
             }
+            if (result is null)
+                break;
 
             song.RecordLyricsSyncProbeAttempt();
             ApplyProbeResult(song, result, opts);
@@ -222,7 +219,7 @@ public sealed class LyricsTimingCheckService(
         if (DateTime.UtcNow < _resyncDeferredUntilUtc)
             return false;
 
-        var remaining = opts.AutoResyncPerDay - CountResyncsToday();
+        var remaining = opts.AutoResyncPerDay - await budget.CountLastDayAsync(TranscriptionPurpose.AutoResync, ct);
         if (remaining <= 0)
             return false;
 
@@ -249,16 +246,13 @@ public sealed class LyricsTimingCheckService(
             if (path is null)
                 continue;
 
-            var seconds = song.DurationSeconds is > 0 ? song.DurationSeconds.Value : UnknownDurationSeconds;
-            if (!budget.TryReserve(seconds))
-            {
-                _resyncDeferredUntilUtc = DateTime.UtcNow.AddMinutes(5);
-                break;
-            }
-
             try
             {
-                var result = await transcriber.TranscribeAsync(song, path, ct);
+                var result = await budget.SpendAsync(
+                    TranscriptionPurpose.AutoResync,
+                    TranscriptionAudioBudget.WholeSongSeconds(song),
+                    () => transcriber.TranscribeAsync(song, path, ct),
+                    ct);
                 var applied = LyricsResync.Apply(song, result);
                 logger.LogInformation(
                     "Lyrics auto re-sync for {Track} (SongId={SongId}): {Outcome}.",
@@ -268,15 +262,14 @@ public sealed class LyricsTimingCheckService(
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
-                budget.Refund(seconds);
                 throw;
             }
             catch (TranscriptionRateLimitedException ex)
             {
                 // We never got an answer, so nothing about the song is recorded and it stays due.
-                budget.Refund(seconds);
-                _resyncDeferredUntilUtc = DateTime.UtcNow.AddMinutes(1);
-                logger.LogInformation("Lyrics auto re-sync deferred for SongId={SongId}: {Reason}", song.Id, ex.Message);
+                _resyncDeferredUntilUtc = DeferUntil(ex);
+                logger.LogInformation(
+                    "Lyrics auto re-sync deferred until {Until:HH:mm} UTC: {Reason}", _resyncDeferredUntilUtc, ex.Message);
                 break;
             }
             catch (Exception ex)
@@ -287,7 +280,6 @@ public sealed class LyricsTimingCheckService(
                 song.MarkTranscriptionFailed(ex.Message);
             }
 
-            _resyncsToday.Enqueue(DateTime.UtcNow);
             resynced++;
         }
 
@@ -297,12 +289,13 @@ public sealed class LyricsTimingCheckService(
         return resynced > 0;
     }
 
-    private int CountResyncsToday()
+    /// <summary>When a pass that was told "not now" may try again: when it was told, and never sooner than a minute.</summary>
+    private static DateTime DeferUntil(TranscriptionRateLimitedException ex)
     {
-        var cutoff = DateTime.UtcNow.AddDays(-1);
-        while (_resyncsToday.Count > 0 && _resyncsToday.Peek() <= cutoff)
-            _resyncsToday.Dequeue();
-        return _resyncsToday.Count;
+        var wait = ex.RetryAfter is { } retryAfter && retryAfter > TimeSpan.FromMinutes(1)
+            ? retryAfter
+            : TimeSpan.FromMinutes(1);
+        return DateTime.UtcNow + wait;
     }
 
     /// <summary>

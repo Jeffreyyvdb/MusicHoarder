@@ -42,19 +42,22 @@ public record LyricsProbeResult(
 /// </summary>
 public sealed class LyricsTimingProbe(
     ILyricsTranscriptionService transcriber,
-    LyricsProbeBudget budget,
+    TranscriptionAudioBudget budget,
     IOptionsMonitor<LyricsTimingOptions> options,
     ILogger<LyricsTimingProbe> logger)
 {
-    /// <summary>True when a probe could run right now: enabled, transcription configured, budget left.</summary>
+    /// <summary>True when the probe is switched on and transcription is configured.</summary>
     public bool IsAvailable => options.CurrentValue.EnableAiProbe && transcriber.IsConfigured;
 
     /// <summary>
     /// Probes one song and returns the verdict. Does NOT write to <paramref name="song"/> — the caller decides
     /// whether to persist, because the sweep and the on-demand endpoint report differently. Returns null when
-    /// the probe could not run at all (disabled, no budget, nothing to check).
+    /// the probe is switched off or unconfigured. Throws <see cref="TranscriptionRateLimitedException"/> when it
+    /// could not listen right now (no budget, or the provider refused): that is "we did not look", never a
+    /// verdict, because recording one would spend a bounded probe attempt on our own throttling.
     /// </summary>
-    public async Task<LyricsProbeResult?> ProbeAsync(SongMetadata song, string audioFilePath, CancellationToken ct = default)
+    public async Task<LyricsProbeResult?> ProbeAsync(
+        SongMetadata song, string audioFilePath, TranscriptionPurpose purpose, CancellationToken ct = default)
     {
         var opts = options.CurrentValue;
         if (!IsAvailable)
@@ -72,34 +75,20 @@ public sealed class LyricsTimingProbe(
         // Keep the whole window inside the track — a window that runs off the end is paid-for silence.
         var start = Math.Clamp(duration * opts.ProbeWindowPosition, 0, Math.Max(0, duration - window));
 
-        if (!budget.TryReserve(window))
-        {
-            logger.LogDebug("Skipping lyrics timing probe for SongId={SongId}: probe budget exhausted.", song.Id);
-            return null;
-        }
-
         IReadOnlyList<TimedWord> words;
         try
         {
             // Prime Whisper with the words we expect to hear anywhere in the song. It cannot tell us WHERE
             // they are — that is the whole question — but it markedly improves which ones it gets right.
-            words = await transcriber.TranscribeClipAsync(audioFilePath, start, window, BuildPrompt(song), ct);
+            words = await budget.SpendAsync(
+                purpose,
+                window,
+                () => transcriber.TranscribeClipAsync(audioFilePath, start, window, BuildPrompt(song), ct),
+                ct);
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        catch (Exception ex) when (ex is OperationCanceledException or TranscriptionRateLimitedException)
         {
-            budget.Refund(window);
             throw;
-        }
-        catch (TranscriptionRateLimitedException ex)
-        {
-            // Our own throttling, not a fact about this song. Returning a verdict here would spend one of
-            // the song's bounded probe attempts on a request the provider refused to even look at, so two
-            // busy sweeps would leave it permanently unverifiable. Null means "we did not look": no verdict,
-            // no attempt recorded, and the sweep stops this batch rather than hammering a closed door.
-            budget.Refund(window);
-            logger.LogInformation(
-                "Lyrics timing probe deferred for SongId={SongId}: {Reason}", song.Id, ex.Message);
-            return null;
         }
         catch (Exception ex)
         {

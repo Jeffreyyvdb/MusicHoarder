@@ -556,9 +556,9 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<ILogger<LyricsTranscriptionService>>());
         });
 
-        // Lyrics timing validation. The budget meter is a singleton on purpose: it is one process-wide
-        // allowance, and two probes running concurrently must see each other's spend.
-        services.AddSingleton<LyricsProbeBudget>();
+        // The transcription audio meter. A singleton on purpose: it is one allowance for every caller (the
+        // sweeps and the AI lyrics button), and concurrent requests must see each other's spend.
+        services.AddSingleton<TranscriptionAudioBudget>();
         services.AddSingleton<LyricsTimingProbe>();
 
         // On-demand lyrics pronunciation + translation. Same OpenRouter creds as QualityGrading with its

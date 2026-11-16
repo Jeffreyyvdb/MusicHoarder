@@ -36,12 +36,17 @@ public class LyricsTimingOptions
     [Range(0.05, 0.9)]
     public double ProbeWindowPosition { get; set; } = 0.45;
 
-    /// <summary>Audio-seconds the probe may spend per rolling hour. Groq's free whisper tier allows 7,200.</summary>
+    /// <summary>
+    /// The background sweeps stop once total transcription spend in the rolling hour reaches this, manual runs
+    /// included. Groq's free whisper tier allows 7,200, so the difference is kept for the AI lyrics button.
+    /// </summary>
     [Range(0, 1_000_000)]
     public int AudioSecondsPerHour { get; set; } = 6000;
 
-    /// <summary>Audio-seconds per rolling day. Groq's free whisper tier allows 28,800; leave headroom for
-    /// full transcriptions the user asks for by hand.</summary>
+    /// <summary>
+    /// The same ceiling over the rolling day. Groq's free whisper tier allows 28,800, so the default keeps
+    /// 8,800 seconds (about thirty whole songs) a day for transcriptions someone asks for by hand.
+    /// </summary>
     [Range(0, 10_000_000)]
     public int AudioSecondsPerDay { get; set; } = 20000;
 

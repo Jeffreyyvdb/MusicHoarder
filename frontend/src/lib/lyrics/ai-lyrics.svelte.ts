@@ -122,8 +122,6 @@ export function createAiLyrics(opts: {
   // Shared progress for the combined run: which stage is in flight, plus the outcome banner.
   let enhanceState = $state<EnhanceState>('idle');
   let enhanceError = $state<string | null>(null);
-  // Non-fatal note when one stage failed but the other still produced something useful.
-  let enhanceNote = $state<string | null>(null);
   let enhanceTimer: ReturnType<typeof setTimeout> | null = null;
   const enhanceBusy = $derived(enhanceState === 'transcribing' || enhanceState === 'translating');
 
@@ -134,7 +132,6 @@ export function createAiLyrics(opts: {
       enhanceTimer = null;
       enhanceState = 'idle';
       enhanceError = null;
-      enhanceNote = null;
     }, ms);
   }
 
@@ -334,9 +331,6 @@ export function createAiLyrics(opts: {
     get enhanceError() {
       return enhanceError;
     },
-    get enhanceNote() {
-      return enhanceNote;
-    },
     get enhanceBusy() {
       return enhanceBusy;
     },
@@ -431,7 +425,6 @@ export function createAiLyrics(opts: {
       enhanceTimer = null;
       enhanceState = 'idle';
       enhanceError = null;
-      enhanceNote = null;
       preferredSource = current.preferredLyricsSource === 'Transcribed' ? 'transcribed' : 'lrclib';
       // The songs list carries no translation flag, so any song with lyrics may have one — one small
       // fetch covers both the transcription and the translation.
@@ -478,7 +471,6 @@ export function createAiLyrics(opts: {
       if (enhanceTimer) clearTimeout(enhanceTimer);
       enhanceTimer = null;
       enhanceError = null;
-      enhanceNote = null;
 
       let transcribeFailure: string | null = null;
       if (canTranscribe) {
@@ -491,30 +483,28 @@ export function createAiLyrics(opts: {
       }
       if (song.id !== loadedForSongId) return; // navigated away mid-run
 
+      let translateFailure: string | null = null;
       if (canTranslate) {
         enhanceState = 'translating';
         try {
           await runTranslate();
         } catch (err) {
-          if (song.id !== loadedForSongId) return;
-          enhanceState = 'error';
-          enhanceError = err instanceof Error ? err.message : 'Translation failed';
-          settleEnhance(6000);
-          return;
+          translateFailure = err instanceof Error ? err.message : 'Translation failed';
         }
       }
       if (song.id !== loadedForSongId) return;
 
-      if (transcribeFailure && !canTranslate) {
+      // A failed re-sync is the outcome to report even when the translation landed: the timing is what the
+      // button is pressed for, and "Done" over unchanged lyrics reads as "the AI found nothing to fix". It
+      // stays up until the next run or another song, since it may say when to try again.
+      const failure = transcribeFailure ? `Couldn't re-sync the lyrics. ${transcribeFailure}` : translateFailure;
+      if (failure) {
         enhanceState = 'error';
-        enhanceError = transcribeFailure;
-        settleEnhance(6000);
+        enhanceError = failure;
         return;
       }
       enhanceState = 'success';
-      // Half the run landed — say which half missed instead of flashing a plain "Done".
-      if (transcribeFailure) enhanceNote = `Lyrics re-sync failed — ${transcribeFailure}`;
-      settleEnhance(transcribeFailure ? 6000 : 3000);
+      settleEnhance(3000);
     },
 
     /** Choose the player default; optimistic, reverting on failure, regenerating a stale translation. */

@@ -100,6 +100,7 @@ public class MusicHoarderDbContext : DbContext
     public DbSet<ChatMessage> ChatMessages { get; set; } = null!;
     public DbSet<WebPushSubscription> WebPushSubscriptions { get; set; } = null!;
     public DbSet<WebPushKeys> WebPushKeys { get; set; } = null!;
+    public DbSet<TranscriptionAudioSpend> TranscriptionAudioSpends { get; set; } = null!;
     public DbSet<TrackSyncState> TrackSyncStates { get; set; } = null!;
     public DbSet<UpgradeRequest> UpgradeRequests { get; set; } = null!;
     public DbSet<User> Users { get; set; } = null!;
@@ -688,6 +689,13 @@ public class MusicHoarderDbContext : DbContext
             // Owner-scoped like its share (OwnerUserId is copied from it at write time); the
             // anonymous beacons write — and de-duplicate — via .IgnoreQueryFilters().
             entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+        });
+
+        modelBuilder.Entity<TranscriptionAudioSpend>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            // The meter reads the last day by time, and prunes what is older.
+            entity.HasIndex(e => e.AtUtc);
         });
 
         modelBuilder.Entity<LibraryShareGrant>(entity =>

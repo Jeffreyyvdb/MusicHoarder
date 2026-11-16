@@ -700,17 +700,20 @@ public static class SongsEndpoints
             var filePath = ResolveAudioFilePath(song);
             if (filePath is not null)
             {
-                var result = await probe.ProbeAsync(song, filePath, ct);
-                if (result is not null)
+                try
                 {
-                    song.RecordLyricsSyncProbeAttempt();
-                    LyricsTimingCheckService.ApplyProbeResult(song, result, timingOptions.CurrentValue);
-                    probed = true;
+                    var result = await probe.ProbeAsync(song, filePath, TranscriptionPurpose.ManualTimingProbe, ct);
+                    if (result is not null)
+                    {
+                        song.RecordLyricsSyncProbeAttempt();
+                        LyricsTimingCheckService.ApplyProbeResult(song, result, timingOptions.CurrentValue);
+                        probed = true;
+                    }
                 }
-                else
+                catch (TranscriptionRateLimitedException)
                 {
-                    // Rate-limited or out of audio budget. Nothing was learned and nothing was spent, so
-                    // say so plainly instead of letting the free verdict read as the final word.
+                    // The provider is refusing us. Nothing was learned and nothing was spent, so say so
+                    // plainly instead of letting the free verdict read as the final word.
                     deferred = true;
                 }
             }
@@ -742,6 +745,7 @@ public static class SongsEndpoints
         int id,
         MusicHoarderDbContext db,
         ILyricsTranscriptionService transcriber,
+        TranscriptionAudioBudget budget,
         CancellationToken ct)
     {
         if (!transcriber.IsConfigured)
@@ -771,7 +775,11 @@ public static class SongsEndpoints
 
         try
         {
-            var result = await transcriber.TranscribeAsync(song, filePath, ct);
+            var result = await budget.SpendAsync(
+                TranscriptionPurpose.ManualTranscribe,
+                TranscriptionAudioBudget.WholeSongSeconds(song),
+                () => transcriber.TranscribeAsync(song, filePath, ct),
+                ct);
             var (promoted, retagQueued) = LyricsResync.Apply(song, result);
             await db.SaveChangesAsync(ct);
 
@@ -801,6 +809,17 @@ public static class SongsEndpoints
         {
             throw;
         }
+        catch (TranscriptionRateLimitedException ex)
+        {
+            // The provider never looked at the song, so nothing about it is recorded as failed.
+            return Results.Json(
+                new
+                {
+                    message = TranscriptionRefusedMessage(ex.RetryAfter),
+                    retryAfterSeconds = ex.RetryAfter is { } wait ? (int?)Math.Ceiling(wait.TotalSeconds) : null,
+                },
+                statusCode: StatusCodes.Status429TooManyRequests);
+        }
         catch (Exception ex)
         {
             song.MarkTranscriptionFailed(ex.Message);
@@ -809,6 +828,19 @@ public static class SongsEndpoints
                 new { message = "Transcription failed.", error = ex.Message },
                 statusCode: StatusCodes.Status502BadGateway);
         }
+    }
+
+    /// <summary>What a person is told when the provider will not take a transcription right now.</summary>
+    internal static string TranscriptionRefusedMessage(TimeSpan? retryAfter)
+    {
+        if (retryAfter is not { } wait)
+            return "The transcription service is busy. Try again in a few minutes.";
+
+        var minutes = (int)Math.Ceiling(wait.TotalMinutes);
+        var when = minutes <= 1 ? "a minute"
+            : minutes < 90 ? $"about {minutes} minutes"
+            : $"about {(int)Math.Round(wait.TotalHours)} hours";
+        return $"The transcription quota is used up for now. Try again in {when}.";
     }
 
     private static async Task<IResult> TranslateLyrics(
