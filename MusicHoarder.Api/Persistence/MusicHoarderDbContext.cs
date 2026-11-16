@@ -37,11 +37,14 @@ public class MusicHoarderDbContext : DbContext
     private readonly ISecretColumnProtector? _secretProtector;
 
     /// <summary>
-    /// Used by <see cref="UserAwareModelCacheKeyFactory"/> to vary the compiled-model cache by the
-    /// captured user id. <c>"anon"</c> for design-time / background-service contexts.
+    /// Used by <see cref="UserAwareModelCacheKeyFactory"/> to vary the compiled-model cache by exactly what
+    /// <see cref="OnModelCreating"/> captures for the query filters: whether there is an accessor, and its
+    /// user id. A context with no accessor sees every row; one whose accessor has no signed-in user sees
+    /// only rows owned by <see cref="Guid.Empty"/>. Keying both as "anonymous" let whichever was built first
+    /// decide what the other could read.
     /// </summary>
     internal string ModelCacheKeySegment =>
-        (_currentUser?.User is { } u ? u.Id.ToString("N") : "anon")
+        (_currentUser is null ? "unfiltered" : _currentUser.UserId.ToString("N"))
         // The protector is baked into the model as a value converter, so a context must never
         // share a cached model with one built for another protector (or for none). Production has
         // one protector (a singleton), so this adds no models there.
