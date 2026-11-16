@@ -14,6 +14,7 @@
  * page-wide haptics and sounds check that attribute before they do anything
  * (behaviors/active.ts).
  */
+import { isNativeShell } from '#lib/native/shell.ts';
 import { ensureSkinStylesheet } from './skin-stylesheet.ts';
 
 export const STORAGE_KEY = 'mh:hardware';
@@ -161,6 +162,13 @@ export const hardwareMode = {
   /** Key sounds (synthesized clicks). Off unless turned on; see behaviors/sound.ts for why. */
   get sounds(): boolean {
     return sounds;
+  },
+  /**
+   * Whether key sounds are offered here: not in the app shell, where they would let WebKit take
+   * over the native player's audio session (behaviors/sound.ts, `soundsAvailable`).
+   */
+  get soundsAvailable(): boolean {
+    return !isNativeShell();
   },
   /** Read the stored state and apply it. Once per page; the root layout calls it. */
   init(): void {

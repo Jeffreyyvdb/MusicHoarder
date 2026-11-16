@@ -122,14 +122,17 @@ describe('key sounds', () => {
     expect(started).toEqual(['running', 'running']);
   });
 
-  it('leave the app shell’s audio session to its native player', async () => {
-    // Declaring `playback` here took the session from the native player: Play played nothing.
+  it('make no audio context in the app shell, whose audio session is the native player’s', async () => {
+    // A context there let WebKit set the shared session to ambient: swiping the app away to the
+    // Home Screen stopped the music. Declaring `playback` instead took the session from the player.
     stubPage({ shell: true });
-    const { soundFor } = await load();
+    const { soundFor, soundsAvailable } = await load();
     soundFor('success');
-    contexts[0].start();
+    soundFor('light');
     await flush();
+    expect(contexts).toEqual([]);
     expect(session.type).toBe('auto');
+    expect(soundsAvailable()).toBe(false);
   });
 
   it('leave a browser page’s audio session alone', async () => {
