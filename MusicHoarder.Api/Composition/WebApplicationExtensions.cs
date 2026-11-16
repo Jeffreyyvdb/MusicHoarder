@@ -33,6 +33,7 @@ public static class WebApplicationExtensions
         app.MapStorageEndpoints();
         app.MapRunsEndpoints();
         app.MapHistoryEndpoints();
+        app.MapListeningEndpoints();
         app.MapSongsEndpoints();
         app.MapMusicVideoEndpoints();
         app.MapDuplicatesEndpoints();
