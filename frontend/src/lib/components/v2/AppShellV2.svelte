@@ -10,6 +10,9 @@
   import LibraryOfflineBanner from '#lib/components/LibraryOfflineBanner.svelte';
   import QualityGradingErrorBanner from '#lib/components/QualityGradingErrorBanner.svelte';
   import VersionUpdateBanner from '#lib/components/VersionUpdateBanner.svelte';
+  import { beforeNavigate } from '$app/navigation';
+  import { isInstalledApp } from '#lib/hooks/viewport-insets.svelte.ts';
+  import { backPreviews } from '#lib/navigation/back-preview.ts';
   import { page } from '$app/state';
   import { fetchOverview, type ApiOverview } from '#lib/api-client.ts';
   import { edgeSwipeBack } from '#lib/actions/edge-swipe-back.ts';
@@ -117,6 +120,11 @@
   // suppressed while a higher one is visible.
   let offlineVisible = $state(false);
   let contentEl = $state<HTMLElement | null>(null);
+  beforeNavigate(({ from, shallow, willUnload }) => {
+    if (from && !shallow && !willUnload && contentEl && isMobile.current && isInstalledApp())
+      backPreviews.capture(from.url.href, contentEl);
+  });
+  $effect(() => () => backPreviews.clear());
   let gradingErrorVisible = $state(false);
 </script>
 
@@ -160,15 +168,17 @@
          data attributes on the provider above); every scroll viewport consumes it as trailing
          padding so the last items still clear the chrome. The edge-swipe-back gesture (installed
          app only) moves this column, so it is the content root. -->
-    <div
-      bind:this={contentEl}
-      id="mh-content"
-      tabindex="-1"
-      data-mh-content
-      use:edgeSwipeBack
-      class="flex min-h-0 flex-1 flex-col overflow-hidden focus-visible:outline-hidden"
-    >
-      {@render children()}
+    <div class="relative isolate flex min-h-0 flex-1 flex-col overflow-hidden bg-inherit">
+      <div
+        bind:this={contentEl}
+        id="mh-content"
+        tabindex="-1"
+        data-mh-content
+        use:edgeSwipeBack
+        class="flex min-h-0 flex-1 flex-col overflow-hidden focus-visible:outline-hidden"
+      >
+        {@render children()}
+      </div>
     </div>
   </Sidebar.Inset>
   <!-- The global Now Playing / song-detail overlay: a portaled full-screen dialog, opened from the

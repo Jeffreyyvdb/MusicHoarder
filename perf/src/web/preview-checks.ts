@@ -224,6 +224,59 @@ for (const forcedColors of ['none', 'active'] as const) {
     }))
     check(`${path}: one <main>, no hand-made progress bars`, info.mains === 1 && info.handMadeBars === 0, JSON.stringify(info))
   }
+  // Installed iOS apps have no browser Back gesture. Exercise the interactive page stack:
+  // cancelling must keep the route; committing must reveal live content and remove all copies.
+  await page.setViewportSize({ width: 393, height: 852 })
+  await page.addInitScript(() => Object.defineProperty(navigator, 'standalone', { value: true }))
+  await page.goto(base + '/overview', { waitUntil: 'networkidle' })
+  const scrollTop = await page.locator('[data-mh-content] [data-scroll-area-viewport]').first().evaluate((el) => {
+    el.scrollTop = el.scrollHeight
+    return el.scrollTop
+  })
+  // Playwright's click would scroll this link back into view, changing the saved offset.
+  await page.locator('[data-mh-content] a[href="/playlists"]').evaluate((el) => (el as HTMLElement).click())
+  await page.waitForURL('**/playlists')
+  await page.getByRole('heading', { name: 'Playlists', exact: true }).first().waitFor()
+  const outgoingTop = await page.locator('[data-mh-content] [data-scroll-area-viewport]').first().evaluate((el) => {
+    el.scrollTop = el.scrollHeight
+    return el.scrollTop
+  })
+  const touch = (type: string, x: number) => page.evaluate(({ type, x }) => {
+    const node = document.querySelector('[data-mh-content]')!
+    const point = new Touch({ identifier: 7, target: node, clientX: x, clientY: 300 })
+    node.dispatchEvent(new TouchEvent(type, {
+      bubbles: true, cancelable: true,
+      touches: type === 'touchend' || type === 'touchcancel' ? [] : [point], changedTouches: [point],
+    }))
+    // Sample synchronously: the outgoing copy only lives for the 220ms settle.
+    return [...document.querySelectorAll('[data-mh-back-preview]')].at(-1)
+      ?.querySelector('[data-scroll-area-viewport]')?.scrollTop
+  }, { type, x })
+  await touch('touchstart', 5)
+  await touch('touchmove', 180)
+  const drag = await page.evaluate(() => {
+    const node = document.querySelector<HTMLElement>('[data-mh-content]')!
+    const copy = document.querySelector<HTMLElement>('[data-mh-back-preview]')
+    return {
+      x: new DOMMatrix(getComputedStyle(node).transform).m41,
+      inert: copy?.inert, hidden: copy?.getAttribute('aria-hidden'),
+      scroll: copy?.querySelector('[data-scroll-area-viewport]')?.scrollTop,
+    }
+  })
+  check('swipe Back follows the finger and reveals an inert page at its old scroll position',
+    drag.x === 175 && drag.inert === true && drag.hidden === 'true' && drag.scroll === scrollTop, JSON.stringify(drag))
+  await touch('touchcancel', 180)
+  await page.waitForFunction(() => !document.querySelector('[data-mh-back-preview]'))
+  check('cancelled swipe Back keeps the page', new URL(page.url()).pathname === '/playlists')
+  await touch('touchstart', 5)
+  await touch('touchmove', 220)
+  const leavingTop = await touch('touchend', 220)
+  check('outgoing swipe copy keeps the bottom scroll offset', leavingTop === outgoingTop, `${leavingTop} vs ${outgoingTop}`)
+  await page.waitForURL('**/overview')
+  await page.waitForFunction(() => !document.querySelector('[data-mh-back-preview]') &&
+    document.querySelector<HTMLElement>('[data-mh-content]')?.style.opacity === '')
+  check('committed swipe Back returns to the live page without lingering layers', true)
+
   check('no CSP violations on app pages', violations.length === 0, [...new Set(violations)].slice(0, 6).join(' | '))
   check('no script errors on app pages', scriptErrors(errors).length === 0, scriptErrors(errors).slice(0, 6).join(' | '))
   const failedLoads = errors.length - scriptErrors(errors).length

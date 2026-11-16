@@ -15,9 +15,13 @@ import { untrack } from 'svelte';
 
 export type NavBackAction = () => void | Promise<void>;
 
+let href: string | null = null;
 let current = $state.raw<NavBackAction | null>(null);
 
 export const navBack = {
+  get href(): string | null {
+    return href;
+  },
   get current(): NavBackAction | null {
     return current;
   },
@@ -26,13 +30,17 @@ export const navBack = {
    * published action — when two nav bars overlap during a navigation, the outgoing one's cleanup
    * must not wipe the incoming one's action.
    */
-  set(fn: NavBackAction | null): () => void {
+  set(fn: NavBackAction | null, target: string | null = null): () => void {
     untrack(() => {
       current = fn;
+      href = target;
     });
     return () => {
       untrack(() => {
-        if (current === fn) current = null;
+        if (current === fn) {
+          current = null;
+          href = null;
+        }
       });
     };
   }
