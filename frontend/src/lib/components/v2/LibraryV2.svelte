@@ -513,7 +513,15 @@
   });
 
   let artistSongsEl = $state<HTMLElement | null>(null);
-  let builtRowKeys = $state.raw<ReadonlySet<string>>(new Set());
+  // Seeded with what the first frame builds by position, so the effect below finds nothing to add
+  // right after mount (a write there makes every row check again whether it is built).
+  let builtRowKeys = $state.raw<ReadonlySet<string>>(
+    carryBuiltTiles(
+      new Set(),
+      untrack(() => artistSongs).map((song) => ({ key: String(song.id) })),
+      ROWS_FIRST_FILL
+    )
+  );
   $effect(() => {
     const list = artistSongsEl;
     const songs = artistSongs;
@@ -571,6 +579,7 @@
     // A new artist starts collapsed.
     void artistName;
     popularExpanded = false;
+    rowsFilled = ROWS_FIRST_FILL;
   });
 
   // The catalog side is administration (it queues downloads), so only an admin's page asks for it.
