@@ -347,10 +347,10 @@ public sealed class LyricsTranscriptionService(
             // call would let one reservation fire three times and trip the very limit we are avoiding.
             if (!await rateLimiter.TryAcquireAsync(TimeSpan.FromSeconds(opts.RateLimitMaxWaitSeconds), ct))
             {
-                var backoff = rateLimiter.BackoffRemaining;
+                var wait = rateLimiter.RetryRemaining;
                 throw new TranscriptionRateLimitedException(
                     $"No transcription rate-limit slot came free within {opts.RateLimitMaxWaitSeconds}s.",
-                    backoff > TimeSpan.Zero ? backoff : TimeSpan.FromMinutes(1));
+                    wait > TimeSpan.Zero ? wait : null);
             }
 
             // A fresh stream + form per attempt — request content can't be replayed once consumed.
@@ -391,6 +391,14 @@ public sealed class LyricsTranscriptionService(
                     // The provider knows how long it wants us gone; guessing is how a back-off turns into a
                     // 429 storm. Tell the limiter so every other worker pauses too, not just this one.
                     rateLimiter.NoteBackoff(retryAfter ?? TimeSpan.FromSeconds(5));
+
+                    // A wait longer than any caller will sit through (a spent daily quota) is not worth a
+                    // retry: it is refused locally anyway, and only this response knows the real wait.
+                    if (retryAfter > TimeSpan.FromSeconds(opts.RateLimitMaxWaitSeconds))
+                    {
+                        throw new TranscriptionRateLimitedException(
+                            $"Transcription API is rate-limiting us: {Truncate(body, 300)}", retryAfter);
+                    }
                 }
 
                 if (attempt < maxAttempts - 1 && IsRetryableStatus(resp.StatusCode))

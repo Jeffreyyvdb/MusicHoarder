@@ -289,12 +289,17 @@ public sealed class LyricsTimingCheckService(
         return resynced > 0;
     }
 
-    /// <summary>When a pass that was told "not now" may try again: when it was told, and never sooner than a minute.</summary>
+    /// <summary>
+    /// When a pass that was told "not now" may try again: when it was told, but between a minute and an hour,
+    /// so a provider answer of "tomorrow" costs one cheap refusal an hour rather than a stalled sweep.
+    /// </summary>
     private static DateTime DeferUntil(TranscriptionRateLimitedException ex)
     {
-        var wait = ex.RetryAfter is { } retryAfter && retryAfter > TimeSpan.FromMinutes(1)
-            ? retryAfter
-            : TimeSpan.FromMinutes(1);
+        var wait = ex.RetryAfter ?? TimeSpan.Zero;
+        if (wait < TimeSpan.FromMinutes(1))
+            wait = TimeSpan.FromMinutes(1);
+        if (wait > TimeSpan.FromHours(1))
+            wait = TimeSpan.FromHours(1);
         return DateTime.UtcNow + wait;
     }
 

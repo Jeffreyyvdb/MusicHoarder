@@ -120,6 +120,11 @@ public sealed class TranscriptionAudioBudget(
         }
     }
 
+    /// <summary>
+    /// Takes a request off the meter. Never throws: it runs while a refusal is on its way to the caller, and a
+    /// database error here must not replace that refusal, which callers rely on to record nothing. A row that
+    /// could not be deleted only over-counts until it ages out, and only after a restart.
+    /// </summary>
     private async Task RefundAsync(TranscriptionAudioSpend entry)
     {
         await _gate.WaitAsync(CancellationToken.None);
@@ -130,6 +135,10 @@ public sealed class TranscriptionAudioBudget(
             var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
             db.TranscriptionAudioSpends.Remove(entry);
             await db.SaveChangesAsync(CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not remove a refunded transcription spend row (Id={Id}).", entry.Id);
         }
         finally
         {
