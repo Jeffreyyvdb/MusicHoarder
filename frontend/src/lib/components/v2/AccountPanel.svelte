@@ -294,7 +294,7 @@
             checked={hardwareMode.enabled}
             onCheckedChange={(v) => hardwareMode.setEnabled(v)}
           />
-          {#if hardwareMode.enabled}
+          {#if hardwareMode.enabled && hardwareMode.soundsAvailable}
             <SwitchRow
               label="Key sounds"
               checked={hardwareMode.sounds}
@@ -443,7 +443,7 @@
       >
         Hardware
       </DropdownMenu.CheckboxItem>
-      {#if hardwareMode.enabled}
+      {#if hardwareMode.enabled && hardwareMode.soundsAvailable}
         <DropdownMenu.CheckboxItem
           checked={hardwareMode.sounds}
           closeOnSelect={false}

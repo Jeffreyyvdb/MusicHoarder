@@ -63,7 +63,9 @@ like Appearance: `localStorage['mh:hardware']` is absent (locked), `on` or `off`
     caret only follows a skin field, and the popup watcher only works while sounds are on);
   - the app's own buttons, switches, rows and tabs are added to the haptic and sound selectors;
   - sounds are **off unless turned on** (a second Web Audio context clicking over the music could
-    disturb the iOS audio session that background playback relies on);
+    disturb the iOS audio session that background playback relies on), and not offered at all in
+    the app shell, whose web view shares the native player's session: a context there had WebKit
+    set it to ambient, which stopped the music when the app left the foreground;
   - Safari's Tab-order patch is left out (it retabs every button on the page).
 - `/static/fonts/spec-mono/` — SPEC-01's subset of IBM Plex Mono, OFL 1.1 (`OFL.txt` beside it).
   Self-hosted because the CSP's `font-src` is `'self'`.
