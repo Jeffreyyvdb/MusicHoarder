@@ -42,16 +42,22 @@ export function startShuffled<T>(list: readonly T[], index?: number, rng: Rng = 
  * Turning shuffle off: what was heard (and the song playing) stays where it is, and what follows
  * is the list's own order from the playing song on, then anything the queue gained since that the
  * list never held (the station's additions), in the order they were added. When the playing song
- * is not in the list (it can no longer be placed), the queue is left as it is.
+ * (or `anchor`) is not in the list (it can no longer be placed), the queue is left as it is.
  */
 export function unshuffle<T extends { id: number }>(
   queue: readonly T[],
   index: number,
-  original: readonly T[]
+  original: readonly T[],
+  /**
+   * The entry the list carries on from: the playing song unless that is not one of the list's
+   * own (a song added to the queue by hand), when it is the last list song played before it.
+   */
+  anchor = index
 ): T[] {
-  const current = queue[index];
+  const current = queue[anchor];
   if (!current) return queue.slice();
-  const at = original.findIndex((s) => s.id === current.id);
+  const same = original.indexOf(current);
+  const at = same >= 0 ? same : original.findIndex((s) => s.id === current.id);
   if (at < 0) return queue.slice();
   const listed = new Set(original.map((s) => s.id));
   const added = queue.slice(index + 1).filter((s) => !listed.has(s.id));

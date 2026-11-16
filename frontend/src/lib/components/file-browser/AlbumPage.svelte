@@ -42,6 +42,8 @@
   import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
   import TrackRowMenu, { activateTrack } from '#lib/components/v2/TrackRowMenu.svelte';
   import { longpress, type LongPressPoint } from '#lib/actions/long-press.ts';
+  import { swipeRow } from '#lib/actions/swipe-row.ts';
+  import { ADD_TO_QUEUE_ICON, queueSong } from '#lib/queue/queue-actions.ts';
   import { albumTint, coverTint } from '#lib/album-tint.ts';
   import { buildDisplayRows } from '#lib/album-rows.ts';
   import {
@@ -985,6 +987,7 @@
             {@const needsReview = mapEnrichmentStatus(song.enrichmentStatus) === 'needsreview'}
             <li
               use:longpress={{ onlongpress: (p) => menus[song.id]?.openAt(p) }}
+              use:swipeRow={{ side: 'leading', tone: 'primary', icon: ADD_TO_QUEUE_ICON, onswipe: () => queueSong(song) }}
               oncontextmenu={(e) => onRowContextMenu(e, song.id)}
               class={cn(
                 'has-[[data-row-main]:active]:bg-accent relative flex min-h-12 items-center pr-1 transition-colors duration-100',

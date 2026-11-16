@@ -755,6 +755,21 @@ describe('surviving a reload', () => {
   const library = (size: number) => Array.from({ length: size }, (_, i) => song(i + 1));
   const smallEntry = () => JSON.parse(stored.get(SMALL_ENTRY)!) as Record<string, unknown>;
 
+  it('keeps the songs added to the queue, and still knows them for Shuffle', async () => {
+    const { playerStore } = await boot();
+    await playerStore.startQueue([song(1), song(2), song(3)], 0);
+    playerStore.addToQueue(song(3));
+    await vi.advanceTimersByTimeAsync(5000);
+
+    const after = await reload();
+    expect(after.playerStore.upNextAdded).toBe(1);
+    after.playerStore.toggleShuffle();
+    after.playerStore.playNext();
+    await vi.waitFor(() => expect(after.playerStore.upNextAdded).toBe(0));
+    after.playerStore.toggleShuffle();
+    expect(after.playerStore.upNext.map((s) => s.id)).toEqual([2, 3]);
+  });
+
   it('writes the queue once, and only the small entry for as long as the song plays', async () => {
     const { playerStore, audio } = await boot();
     await playerStore.startQueue(library(10_000), 4);
@@ -1094,5 +1109,125 @@ describe('shuffle in the session report', () => {
     expect(localPlayback.state()?.shuffle).toBe(false);
     playerStore.toggleShuffle();
     expect(localPlayback.state()?.shuffle).toBe(true);
+  });
+});
+
+describe('the queue', () => {
+  const album = [1, 2, 3, 4, 5].map((id) => song(id));
+  const upNextIds = (store: { upNext: readonly PlayerSong[] }) => store.upNext.map((s) => s.id);
+
+  it('Add to queue plays the added songs next, in the order they were added', async () => {
+    const { playerStore } = await loadPlayer();
+    await playerStore.startQueue(album, 0);
+
+    expect(playerStore.addToQueue(song(9))).toBe('queued');
+    expect(playerStore.addToQueue(song(8))).toBe('queued');
+    expect(upNextIds(playerStore)).toEqual([9, 8, 2, 3, 4, 5]);
+    expect(playerStore.upNextAdded).toBe(2);
+
+    playerStore.playNext();
+    await vi.waitFor(() => expect(playerStore.currentSong?.id).toBe(9));
+    expect(playerStore.upNextAdded).toBe(1);
+  });
+
+  it('Play next goes ahead of the songs already added', async () => {
+    const { playerStore } = await loadPlayer();
+    await playerStore.startQueue(album, 0);
+    playerStore.addToQueue(song(9));
+    playerStore.addToQueue(song(8), 'next');
+    expect(upNextIds(playerStore)).toEqual([8, 9, 2, 3, 4, 5]);
+    expect(playerStore.upNextAdded).toBe(2);
+  });
+
+  it('with nothing loaded, adding a song plays it', async () => {
+    const { playerStore } = await loadPlayer();
+    expect(playerStore.addToQueue(song(9))).toBe('started');
+    await vi.waitFor(() => expect(playerStore.currentSong?.id).toBe(9));
+  });
+
+  it('keeps the added songs ahead of a shuffle, and in place when shuffle goes off', async () => {
+    const { playerStore } = await loadPlayer();
+    await playerStore.startQueue(album, 0);
+    playerStore.addToQueue(song(9));
+    playerStore.addToQueue(song(8));
+
+    playerStore.toggleShuffle();
+    expect(upNextIds(playerStore).slice(0, 2)).toEqual([9, 8]);
+    expect([...upNextIds(playerStore).slice(2)].sort()).toEqual([2, 3, 4, 5]);
+
+    playerStore.toggleShuffle();
+    expect(upNextIds(playerStore)).toEqual([9, 8, 2, 3, 4, 5]);
+  });
+
+  it('Shuffle off while an added song plays carries the list on from where it had got to', async () => {
+    const { playerStore } = await loadPlayer();
+    await playerStore.startQueue([song(1), song(2), song(3)], 0);
+    playerStore.addToQueue(song(3), 'next'); // a second copy of the list's last song
+    playerStore.toggleShuffle();
+    playerStore.playNext();
+    await vi.waitFor(() => expect(playerStore.upNextAdded).toBe(0));
+    expect(playerStore.currentSong?.id).toBe(3);
+
+    playerStore.toggleShuffle();
+    expect(upNextIds(playerStore)).toEqual([2, 3]);
+  });
+
+  it('Shuffle on and off while an added song plays does not play it again', async () => {
+    const { playerStore } = await loadPlayer();
+    await playerStore.startQueue([song(1), song(2), song(3)], 0);
+    playerStore.addToQueue(song(9));
+    playerStore.playNext();
+    await vi.waitFor(() => expect(playerStore.currentSong?.id).toBe(9));
+
+    playerStore.toggleShuffle();
+    playerStore.toggleShuffle();
+    expect(upNextIds(playerStore)).toEqual([2, 3]);
+  });
+
+  it('a song removed under Shuffle does not come back when it goes off', async () => {
+    const { playerStore } = await loadPlayer();
+    await playerStore.startQueue(album, 0);
+    playerStore.toggleShuffle();
+    const removed = playerStore.upNext[0].id;
+    playerStore.removeFromQueue(0);
+
+    playerStore.toggleShuffle();
+    expect(upNextIds(playerStore)).toEqual([2, 3, 4, 5].filter((id) => id !== removed));
+  });
+
+  it('carries the added songs over to the next list started', async () => {
+    const { playerStore } = await loadPlayer();
+    await playerStore.startQueue(album, 0);
+    playerStore.addToQueue(song(9));
+
+    await playerStore.startQueue([song(20), song(21)], 0);
+    expect(upNextIds(playerStore)).toEqual([9, 21]);
+    expect(playerStore.upNextAdded).toBe(1);
+  });
+
+  it('removes, moves and clears', async () => {
+    const { playerStore } = await loadPlayer();
+    await playerStore.startQueue(album, 0);
+    playerStore.addToQueue(song(9));
+    playerStore.addToQueue(song(8));
+
+    playerStore.moveInQueue(1, 0);
+    expect(upNextIds(playerStore)).toEqual([8, 9, 2, 3, 4, 5]);
+
+    playerStore.removeFromQueue(3);
+    expect(upNextIds(playerStore)).toEqual([8, 9, 2, 4, 5]);
+
+    playerStore.clearAddedToQueue();
+    expect(upNextIds(playerStore)).toEqual([2, 4, 5]);
+    expect(playerStore.upNextAdded).toBe(0);
+  });
+
+  it('skipping to a song plays it and leaves the ones it skipped behind it', async () => {
+    const { playerStore } = await loadPlayer();
+    await playerStore.startQueue(album, 0);
+    playerStore.skipToInQueue(2);
+    await vi.waitFor(() => expect(playerStore.currentSong?.id).toBe(4));
+    expect(upNextIds(playerStore)).toEqual([5]);
+    expect(playerStore.hasPrevious).toBe(true);
   });
 });

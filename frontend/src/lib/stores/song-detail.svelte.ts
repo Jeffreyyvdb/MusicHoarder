@@ -14,9 +14,10 @@ import { songsStore } from '#lib/stores/songs.svelte.ts';
 
 /**
  * What the middle of the player shows. `player` is the artwork, `lyrics` the karaoke view,
- * `video` the music video (only when one is watchable) and `info` the details/inspectors.
+ * `video` the music video (only when one is watchable), `info` the details/inspectors and `queue`
+ * what plays next (only while a queue is loaded on this device).
  */
-export type DetailMode = 'player' | 'lyrics' | 'video' | 'info';
+export type DetailMode = 'player' | 'lyrics' | 'video' | 'info' | 'queue';
 
 export interface DetailOpenOptions {
   /**

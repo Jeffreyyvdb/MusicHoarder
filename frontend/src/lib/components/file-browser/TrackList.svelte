@@ -10,6 +10,8 @@
   import TrackRowMenu from '#lib/components/v2/TrackRowMenu.svelte';
   import TrackRowText from '#lib/components/v2/TrackRowText.svelte';
   import { longpress, type LongPressPoint } from '#lib/actions/long-press.ts';
+  import { swipeRow } from '#lib/actions/swipe-row.ts';
+  import { ADD_TO_QUEUE_ICON, queueSong } from '#lib/queue/queue-actions.ts';
   import { DYNAMIC_TYPE_CHANGE, dynamicTypeScale } from '#lib/dynamic-type.ts';
   import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
   import { formatDuration, formatFamily, formatFileSize } from '#lib/formatters.ts';
@@ -369,6 +371,7 @@
               aria-setsize={sorted.length}
               aria-posinset={i + 1}
               use:longpress={{ onlongpress: (p) => openMenu(song.id, p) }}
+              use:swipeRow={{ side: 'leading', tone: 'primary', icon: ADD_TO_QUEUE_ICON, onswipe: () => queueSong(song) }}
               oncontextmenu={(e) => onRowContextMenu(e, song.id)}
               class={cn(
                 'has-[[data-row-main]:active]:bg-accent absolute inset-x-0 flex items-center pr-1 transition-colors duration-100',
