@@ -48,6 +48,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       kind: ${{ steps.tag.outputs.kind }}
+      mh_version: ${{ steps.tag.outputs.mh_version }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -180,28 +181,105 @@ jobs:
       # sends no branch, so Dokploy returns `301 {"message":"Branch Not Match"}`. We therefore send
       # the `X-GitHub-Event: push` header + `{"ref":"refs/heads/<DEPLOY_BRANCH>", ...}`. DEPLOY_BRANCH
       # must equal the branch configured on the compose in Dokploy (main for prod).
-      - name: Trigger Dokploy redeploy (webhook)
+      #
+      # A 200 from the webhook only means Dokploy ACCEPTED the request, not that the new images are
+      # running: on 2026-11-16 a deploy logged "Done" in 5s and left the stack on the previous build
+      # while this job went green. So the job now waits until the instance actually SERVES this
+      # build — the API's /api/version (through the frontend's proxy) must report this run's
+      # MH_VERSION, and the frontend's SvelteKit build hash must have changed — fires the webhook a
+      # second time if it has not after a few minutes (a second deploy is what got it out of that
+      # state), and fails the run if that does not help either. Set the DEPLOY_PUBLIC_URL repo
+      # variable (the instance's origin, no trailing slash) to turn the check on; without it the
+      # job only fires the webhook, as before.
+      - name: Redeploy Dokploy and wait until the new build is live
         env:
           WEBHOOK_URL: ${{ secrets.DOKPLOY_DEPLOY_WEBHOOK_URL }}
           DEPLOY_BRANCH: main
           REPO: ${{ github.repository }}
+          PUBLIC_URL: ${{ vars.DEPLOY_PUBLIC_URL }}
+          EXPECTED_VERSION: ${{ needs.push.outputs.mh_version }}
         run: |
           set -euo pipefail
           if [ -z "${WEBHOOK_URL:-}" ]; then
             echo "::notice::DOKPLOY_DEPLOY_WEBHOOK_URL not set — skipping redeploy (images were still pushed)."
             exit 0
           fi
-          # No -f and a trailing `|| true` so a 4xx/5xx still prints the body instead of dying with a
-          # bare "exit 22" that hides the cause. The GitHub-style payload satisfies Dokploy's branch check.
-          status=$(curl -sS --max-time 60 -o /tmp/deploy.out -w "%{http_code}" -X POST "${WEBHOOK_URL}" \
-            -H "Content-Type: application/json" \
-            -H "X-GitHub-Event: push" \
-            -d "{\"ref\":\"refs/heads/${DEPLOY_BRANCH}\",\"repository\":{\"full_name\":\"${REPO}\"}}" || true)
-          echo "HTTP ${status}"
-          echo "Response:"; cat /tmp/deploy.out 2>/dev/null || echo "(none)"; echo
-          case "${status}" in
-            2??) echo "Redeploy triggered." ;;
-            301) echo "::error::Dokploy rejected the redeploy (HTTP 301 \"Branch Not Match\"). The branch we send (refs/heads/${DEPLOY_BRANCH}) must equal the branch configured on the compose (Dokploy → service → Provider → Branch). Update DEPLOY_BRANCH here or the branch in Dokploy so they agree."; exit 1 ;;
-            400) echo "::error::Dokploy rejected the redeploy (HTTP 400). If the body says \"Automatic deployments are disabled for this compose\", enable Auto Deploy on the compose (Dokploy → service → Deployments → Auto Deploy) — the webhook requires it. This Action is the only caller, so there's no double-deploy risk."; exit 1 ;;
-            *) echo "::error::Dokploy redeploy webhook failed (HTTP ${status}). Check DOKPLOY_DEPLOY_WEBHOOK_URL (Dokploy → service → Deployments → Webhook URL; rotate the token if it leaked) and that Auto Deploy is enabled on the compose."; exit 1 ;;
-          esac
+
+          fire_webhook() {
+            # No -f and a trailing `|| true` so a 4xx/5xx still prints the body instead of dying with
+            # a bare "exit 22" that hides the cause. The GitHub-style payload satisfies Dokploy's
+            # branch check.
+            local status
+            status=$(curl -sS --max-time 60 -o /tmp/deploy.out -w "%{http_code}" -X POST "${WEBHOOK_URL}" \
+              -H "Content-Type: application/json" \
+              -H "X-GitHub-Event: push" \
+              -d "{\"ref\":\"refs/heads/${DEPLOY_BRANCH}\",\"repository\":{\"full_name\":\"${REPO}\"}}" || true)
+            echo "HTTP ${status}"
+            echo "Response:"; cat /tmp/deploy.out 2>/dev/null || echo "(none)"; echo
+            case "${status}" in
+              2??) echo "Redeploy requested." ;;
+              301) echo "::error::Dokploy rejected the redeploy (HTTP 301 \"Branch Not Match\"). The branch we send (refs/heads/${DEPLOY_BRANCH}) must equal the branch configured on the compose (Dokploy → service → Provider → Branch). Update DEPLOY_BRANCH here or the branch in Dokploy so they agree."; exit 1 ;;
+              400) echo "::error::Dokploy rejected the redeploy (HTTP 400). If the body says \"Automatic deployments are disabled for this compose\", enable Auto Deploy on the compose (Dokploy → service → Deployments → Auto Deploy) — the webhook requires it. This Action is the only caller, so there's no double-deploy risk."; exit 1 ;;
+              *) echo "::error::Dokploy redeploy webhook failed (HTTP ${status}). Check DOKPLOY_DEPLOY_WEBHOOK_URL (Dokploy → service → Deployments → Webhook URL; rotate the token if it leaked) and that Auto Deploy is enabled on the compose."; exit 1 ;;
+            esac
+          }
+
+          # Both reads bypass any cache in front of the instance; an unreachable instance (mid-restart)
+          # reads as an empty string rather than failing the step.
+          api_version() {
+            curl -sS --max-time 10 -H 'Cache-Control: no-cache' "${PUBLIC_URL}/api/mh/api/version?t=$(date +%s)" 2>/dev/null \
+              | jq -r '.version // empty' 2>/dev/null || true
+          }
+          frontend_build() {
+            curl -sS --max-time 10 -H 'Cache-Control: no-cache' "${PUBLIC_URL}/_app/version.json?t=$(date +%s)" 2>/dev/null \
+              | jq -r '.version // empty' 2>/dev/null || true
+          }
+
+          if [ -z "${PUBLIC_URL:-}" ]; then
+            fire_webhook
+            echo "::notice::DEPLOY_PUBLIC_URL not set — not checking that the new build went live."
+            exit 0
+          fi
+
+          # The frontend's build hash is a timestamp, so the only thing to compare it with is what was
+          # served before. A re-run against an instance already on this build has no "before" worth
+          # comparing (the API already reports it), so it checks the API alone.
+          baseline_api=$(api_version)
+          baseline_frontend=$(frontend_build)
+          echo "Before: API ${baseline_api:-unreachable}, frontend build ${baseline_frontend:-unreachable}; expecting API ${EXPECTED_VERSION}."
+          check_frontend=true
+          if [ "${baseline_api}" = "${EXPECTED_VERSION}" ] || [ -z "${baseline_frontend}" ]; then check_frontend=false; fi
+
+          is_live() {
+            local api frontend
+            api=$(api_version)
+            frontend=$(frontend_build)
+            echo "  API ${api:-unreachable}, frontend build ${frontend:-unreachable}"
+            [ "${api}" = "${EXPECTED_VERSION}" ] || return 1
+            if [ "${check_frontend}" = true ]; then
+              [ -n "${frontend}" ] && [ "${frontend}" != "${baseline_frontend}" ] || return 1
+            fi
+          }
+
+          # Up to 5 minutes per attempt: the API applies migrations on start and Swarm rolls one
+          # service at a time.
+          wait_until_live() {
+            local deadline=$(( $(date +%s) + 300 ))
+            while [ "$(date +%s)" -lt "${deadline}" ]; do
+              sleep 15
+              if is_live; then return 0; fi
+            done
+            return 1
+          }
+
+          for attempt in 1 2; do
+            echo "Deploy attempt ${attempt}:"
+            fire_webhook
+            if wait_until_live; then
+              echo "Live: ${PUBLIC_URL} serves ${EXPECTED_VERSION}."
+              exit 0
+            fi
+            echo "::warning::Attempt ${attempt}: Dokploy accepted the redeploy, but the instance still serves the previous build after 5 minutes."
+          done
+          echo "::error::Dokploy reported the deploy done, but ${PUBLIC_URL} never started serving ${EXPECTED_VERSION} (two attempts). Check the compose's Deployments log and Containers tab in Dokploy."
+          exit 1
