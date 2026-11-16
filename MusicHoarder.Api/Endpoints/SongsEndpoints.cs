@@ -772,33 +772,7 @@ public static class SongsEndpoints
         try
         {
             var result = await transcriber.TranscribeAsync(song, filePath, ct);
-            // Stored separately from SyncedLyrics/PlainLyrics so it never clobbers the LRCLIB version.
-            song.ApplyTranscriptionResult(
-                result.SyncedLyrics, result.PlainLyrics, result.Model, result.AlignedToReference);
-
-            // A re-sync of the song's OWN official lyrics (forced alignment against the LRCLIB text)
-            // is the same words with better timing, so it becomes the default automatically — that is
-            // the entire point of asking for a re-sync on a track that already has lyrics. A
-            // transcription with no reference text is the AI's guess at the words and is never
-            // promoted; the user picks that one from the compare view.
-            var promoted = false;
-            if (result.AlignedToReference
-                && !string.IsNullOrWhiteSpace(song.TranscribedSyncedLyrics)
-                && song.PreferredLyricsSource != PreferredLyricsSource.Transcribed)
-            {
-                song.PreferredLyricsSource = PreferredLyricsSource.Transcribed;
-                promoted = true;
-            }
-
-            // If the AI version is this song's chosen default, the file's effective lyrics just changed —
-            // re-tag the built destination so it reflects the fresh transcription.
-            var retagQueued = false;
-            if (song.PreferredLyricsSource == PreferredLyricsSource.Transcribed
-                && song.LibraryBuildStatus == LibraryBuildStatus.Done)
-            {
-                song.RequeueForRetag();
-                retagQueued = true;
-            }
+            var (promoted, retagQueued) = LyricsResync.Apply(song, result);
             await db.SaveChangesAsync(ct);
 
             return Results.Ok(new
