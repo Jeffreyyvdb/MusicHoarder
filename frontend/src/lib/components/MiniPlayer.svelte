@@ -28,6 +28,7 @@
   import { DEVICE_ICONS } from '#lib/components/playback-sync/device-icons.ts';
   import { seekTargetForKey } from '#lib/player-seek.ts';
   import { songDetail } from '#lib/stores/song-detail.svelte.ts';
+  import { playerSwipe } from '#lib/actions/player-swipe.ts';
   import { longpress, type LongPressPoint } from '#lib/actions/long-press.ts';
   import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
   import { albumKeyForSong } from '#lib/api-client.ts';
@@ -131,29 +132,6 @@
     librarySong ? `/library?artist=${encodeURIComponent(artistOf(librarySong))}` : null
   );
 
-  // ── compact: swipe up to open ─────────────────────────────────────────────
-  // A mostly-vertical upward drag past a small threshold opens Now Playing, the way the iOS
-  // mini player expands. A mouse keeps plain clicks.
-  const SWIPE_OPEN_PX = 24;
-  let swipe: { id: number; x: number; y: number } | null = null;
-
-  function onSwipeDown(e: PointerEvent) {
-    if (e.pointerType === 'mouse' || !e.isPrimary) return;
-    swipe = { id: e.pointerId, x: e.clientX, y: e.clientY };
-  }
-  function onSwipeMove(e: PointerEvent) {
-    if (!swipe || e.pointerId !== swipe.id) return;
-    const dx = e.clientX - swipe.x;
-    const dy = e.clientY - swipe.y;
-    if (dy < -SWIPE_OPEN_PX && Math.abs(dy) > Math.abs(dx)) {
-      swipe = null;
-      openNowPlaying();
-    }
-  }
-  function onSwipeEnd(e: PointerEvent) {
-    if (swipe && e.pointerId === swipe.id) swipe = null;
-  }
-
   let seekEl: HTMLDivElement | null = $state(null);
   // Drives the thumb + thickened track on a touch drag, which produces no `:hover` at all
   // (Tailwind gates `hover:` behind `@media (hover: hover)`).
@@ -255,10 +233,14 @@
       aria-label="Now playing"
       use:longpress={{ onlongpress: openMenuAt }}
       oncontextmenu={onContextMenu}
-      onpointerdown={onSwipeDown}
-      onpointermove={onSwipeMove}
-      onpointerup={onSwipeEnd}
-      onpointercancel={onSwipeEnd}
+      use:playerSwipe={{
+        disabled: menuOpen,
+        onnext: () => {
+          if (playerStore.hasNext) playerStore.playNext();
+        },
+        onprevious: () => playerStore.playPrevious(),
+        onopen: openNowPlaying
+      }}
       class="mh-mini-enter mh-glass mh-chrome fixed right-[max(16px,env(safe-area-inset-right))] bottom-(--mh-player-bottom) left-[max(16px,env(safe-area-inset-left))] z-40 flex h-(--mh-player-h) touch-none items-center rounded-full pr-1 select-none"
       out:fly={miniExit()}
     >
