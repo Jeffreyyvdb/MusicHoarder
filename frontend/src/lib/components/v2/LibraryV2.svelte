@@ -500,7 +500,12 @@
   const ROWS_FIRST_FILL = 30;
   const ROWS_FILL_STEP = 60;
   const rowsFillEverything = new MediaQuery('(min-width: 768px) and (pointer: fine)');
-  let rowsFilled = $state(ROWS_FIRST_FILL);
+  // A derived that is also written to: it starts over with each artist before that artist's rows
+  // render (an effect would reset it only after they had all been built once).
+  let rowsFilled = $derived.by(() => {
+    void artistName;
+    return ROWS_FIRST_FILL;
+  });
   $effect(() => {
     if (!rowsFillEverything.current || rowsFilled >= artistSongs.length) return;
     const fill = () => (rowsFilled += ROWS_FILL_STEP);
@@ -579,7 +584,6 @@
     // A new artist starts collapsed.
     void artistName;
     popularExpanded = false;
-    rowsFilled = ROWS_FIRST_FILL;
   });
 
   // The catalog side is administration (it queues downloads), so only an admin's page asks for it.
