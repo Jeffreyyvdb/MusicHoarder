@@ -227,12 +227,17 @@ public static class SongsEndpoints
         if (found is null)
             return SongNotFound();
 
+        var now = DateTime.UtcNow;
+
         if (!found.Value.Slice.IsSelf)
         {
+            // Added before the upsert so the event is saved by the same SaveChanges as the counter,
+            // and not twice when the upsert retries after losing an insert race.
+            db.ListeningEvents.Add(ListeningEvent.From(currentUser.UserId, found.Value.Song, now));
             var state = await UserSongStateWriter.UpsertAsync(db, currentUser.UserId, id, s =>
             {
                 s.PlayCount++;
-                s.LastPlayedAtUtc = DateTime.UtcNow;
+                s.LastPlayedAtUtc = now;
             }, ct);
             return Results.Ok(new { Id = id, state.PlayCount, state.LastPlayedAtUtc });
         }
@@ -242,7 +247,8 @@ public static class SongsEndpoints
             return SongNotFound();
 
         song.PlayCount++;
-        song.LastPlayedAtUtc = DateTime.UtcNow;
+        song.LastPlayedAtUtc = now;
+        db.ListeningEvents.Add(ListeningEvent.From(currentUser.UserId, song, now));
         await db.SaveChangesAsync(ct);
         return Results.Ok(new { song.Id, song.PlayCount, song.LastPlayedAtUtc });
     }
