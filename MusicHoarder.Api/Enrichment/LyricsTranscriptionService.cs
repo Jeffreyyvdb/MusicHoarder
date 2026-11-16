@@ -28,7 +28,11 @@ public record TranscriptionResult(string? SyncedLyrics, string? PlainLyrics, str
 /// told us nothing. Background callers must retry later rather than recording a verdict, because writing
 /// "inconclusive" here would burn a song's probe attempts on our own throttling.
 /// </summary>
-public sealed class TranscriptionRateLimitedException(string message) : Exception(message);
+/// <param name="retryAfter">How long until asking again could succeed, when anyone knows.</param>
+public sealed class TranscriptionRateLimitedException(string message, TimeSpan? retryAfter = null) : Exception(message)
+{
+    public TimeSpan? RetryAfter { get; } = retryAfter;
+}
 
 public interface ILyricsTranscriptionService
 {
@@ -343,8 +347,10 @@ public sealed class LyricsTranscriptionService(
             // call would let one reservation fire three times and trip the very limit we are avoiding.
             if (!await rateLimiter.TryAcquireAsync(TimeSpan.FromSeconds(opts.RateLimitMaxWaitSeconds), ct))
             {
+                var wait = rateLimiter.RetryRemaining;
                 throw new TranscriptionRateLimitedException(
-                    $"No transcription rate-limit slot came free within {opts.RateLimitMaxWaitSeconds}s.");
+                    $"No transcription rate-limit slot came free within {opts.RateLimitMaxWaitSeconds}s.",
+                    wait > TimeSpan.Zero ? wait : null);
             }
 
             // A fresh stream + form per attempt — request content can't be replayed once consumed.
@@ -379,11 +385,20 @@ public sealed class LyricsTranscriptionService(
                 // Never log the Authorization header; the URL/body here carry no secret.
                 logger.LogWarning("Transcription failed: {Status} {Body}", (int)resp.StatusCode, Truncate(body, 512));
 
+                var retryAfter = RetryAfterHeader.Read(resp, DateTimeOffset.UtcNow);
                 if (resp.StatusCode == HttpStatusCode.TooManyRequests)
                 {
                     // The provider knows how long it wants us gone; guessing is how a back-off turns into a
                     // 429 storm. Tell the limiter so every other worker pauses too, not just this one.
-                    rateLimiter.NoteBackoff(RetryAfterHeader.Read(resp, DateTimeOffset.UtcNow) ?? TimeSpan.FromSeconds(5));
+                    rateLimiter.NoteBackoff(retryAfter ?? TimeSpan.FromSeconds(5));
+
+                    // A wait longer than any caller will sit through (a spent daily quota) is not worth a
+                    // retry: it is refused locally anyway, and only this response knows the real wait.
+                    if (retryAfter > TimeSpan.FromSeconds(opts.RateLimitMaxWaitSeconds))
+                    {
+                        throw new TranscriptionRateLimitedException(
+                            $"Transcription API is rate-limiting us: {Truncate(body, 300)}", retryAfter);
+                    }
                 }
 
                 if (attempt < maxAttempts - 1 && IsRetryableStatus(resp.StatusCode))
@@ -395,7 +410,7 @@ public sealed class LyricsTranscriptionService(
                 if (resp.StatusCode == HttpStatusCode.TooManyRequests)
                 {
                     throw new TranscriptionRateLimitedException(
-                        $"Transcription API is rate-limiting us: {Truncate(body, 300)}");
+                        $"Transcription API is rate-limiting us: {Truncate(body, 300)}", retryAfter);
                 }
 
                 throw new HttpRequestException(

@@ -199,7 +199,7 @@ describe('enhance — the two-stage run', () => {
     translate.resolve({ id: 1, romanizedSynced: '[00:01.00] ro' });
     await run;
     expect(ai.enhanceState).toBe('success');
-    expect(ai.enhanceNote).toBeNull();
+    expect(ai.enhanceError).toBeNull();
     // The fresh pronunciation is shown right away…
     expect(ai.lyricsView).toBe('pronunciation');
     // …and the banner clears after a beat.
@@ -223,19 +223,23 @@ describe('enhance — the two-stage run', () => {
     expect(ai.preferredSource).toBe('transcribed');
   });
 
-  it('still translates when the transcription fails, and says which half missed', async () => {
+  it('still translates when the re-sync is refused, but reports the run as failed until the next one', async () => {
     const { ai, api } = setup({
       api: {
         transcribeSongLyrics: vi.fn(async () => {
-          throw new Error('no audio on disk');
+          throw new Error('The transcription quota is used up for now. Try again in about 8 minutes.');
         })
       }
     });
     ai.syncToSong();
     await ai.enhance();
     expect(api.translateSongLyrics).toHaveBeenCalled();
-    expect(ai.enhanceState).toBe('success');
-    expect(ai.enhanceNote).toBe('Lyrics re-sync failed — no audio on disk');
+    expect(ai.enhanceState).toBe('error');
+    expect(ai.enhanceError).toBe(
+      "Couldn't re-sync the lyrics. The transcription quota is used up for now. Try again in about 8 minutes."
+    );
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(ai.enhanceState).toBe('error');
   });
 
   it('fails outright when the transcription fails and translation is not available', async () => {
@@ -251,7 +255,7 @@ describe('enhance — the two-stage run', () => {
     ai.syncToSong();
     await ai.enhance();
     expect(ai.enhanceState).toBe('error');
-    expect(ai.enhanceError).toBe('no audio on disk');
+    expect(ai.enhanceError).toBe("Couldn't re-sync the lyrics. no audio on disk");
   });
 
   it('fails when the translation stage fails', async () => {

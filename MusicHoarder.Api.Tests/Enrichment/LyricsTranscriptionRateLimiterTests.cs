@@ -80,6 +80,19 @@ public class LyricsTranscriptionRateLimiterTests
     }
 
     [Fact]
+    public void a_long_backoff_still_reports_the_providers_real_wait_to_whoever_asks()
+    {
+        // A spent daily quota answers in hours. The pause stays capped, but a person told "try again in about
+        // 5 minutes" would come back to the same refusal, so the uncapped answer is what gets reported.
+        var limiter = New(new LyricsTranscriptionOptions { RequestsPerMinute = 50 });
+
+        limiter.NoteBackoff(TimeSpan.FromHours(3));
+
+        Assert.True(limiter.BackoffRemaining <= TimeSpan.FromMinutes(5));
+        Assert.InRange(limiter.RetryRemaining.TotalHours, 2.99, 3.0);
+    }
+
+    [Fact]
     public void a_longer_backoff_extends_the_pause_and_a_shorter_one_does_not_shorten_it()
     {
         // Two workers can discover the limit at once; the pause must settle on the later instant, or the

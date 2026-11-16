@@ -1,8 +1,11 @@
+using System.Text.Json;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Endpoints;
 using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Tests.Enrichment;
 
 namespace MusicHoarder.Api.Tests.Endpoints;
 
@@ -37,6 +40,19 @@ public class TranscribeLyricsEndpointTests : IDisposable
         public Task<IReadOnlyList<TimedWord>> TranscribeClipAsync(
             string audioFilePath, double startSeconds, double lengthSeconds, string? promptText = null, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<TimedWord>>(Array.Empty<TimedWord>());
+    }
+
+    private sealed class RefusingTranscriber(TimeSpan retryAfter) : ILyricsTranscriptionService
+    {
+        public bool IsConfigured => true;
+
+        public Task<TranscriptionResult> TranscribeAsync(
+            SongMetadata song, string audioFilePath, CancellationToken ct = default)
+            => throw new TranscriptionRateLimitedException("429 from the provider", retryAfter);
+
+        public Task<IReadOnlyList<TimedWord>> TranscribeClipAsync(
+            string audioFilePath, double startSeconds, double lengthSeconds, string? promptText = null, CancellationToken ct = default)
+            => throw new NotSupportedException();
     }
 
     /// <summary>A built song with LRCLIB lyrics and a real (stub) file the endpoint can resolve.</summary>
@@ -77,7 +93,7 @@ public class TranscribeLyricsEndpointTests : IDisposable
             "whisper-1",
             AlignedToReference: true));
 
-        await SongsEndpoints.TranscribeLyrics(song.Id, db, transcriber, CancellationToken.None);
+        await SongsEndpoints.TranscribeLyrics(song.Id, db, transcriber, TestBudget.Over(db), CancellationToken.None);
 
         var saved = await db.Songs.AsNoTracking().FirstAsync(s => s.Id == song.Id);
         Assert.Equal(PreferredLyricsSource.Transcribed, saved.PreferredLyricsSource);
@@ -103,7 +119,7 @@ public class TranscribeLyricsEndpointTests : IDisposable
             "whisper-1",
             AlignedToReference: false));
 
-        await SongsEndpoints.TranscribeLyrics(song.Id, db, transcriber, CancellationToken.None);
+        await SongsEndpoints.TranscribeLyrics(song.Id, db, transcriber, TestBudget.Over(db), CancellationToken.None);
 
         var saved = await db.Songs.AsNoTracking().FirstAsync(s => s.Id == song.Id);
         Assert.Equal(PreferredLyricsSource.Lrclib, saved.PreferredLyricsSource);
@@ -126,11 +142,34 @@ public class TranscribeLyricsEndpointTests : IDisposable
         var transcriber = new FakeTranscriber(new TranscriptionResult(
             "[00:02.10]official line one", "official line one", "whisper-1", AlignedToReference: true));
 
-        await SongsEndpoints.TranscribeLyrics(song.Id, db, transcriber, CancellationToken.None);
+        await SongsEndpoints.TranscribeLyrics(song.Id, db, transcriber, TestBudget.Over(db), CancellationToken.None);
 
         var saved = await db.Songs.AsNoTracking().FirstAsync(s => s.Id == song.Id);
         Assert.Equal(PreferredLyricsSource.Transcribed, saved.PreferredLyricsSource);
         // Already the default — the re-tag still fires because the embedded lyrics changed.
         Assert.Equal(LibraryBuildStatus.Pending, saved.LibraryBuildStatus);
+    }
+
+    [Fact]
+    public async Task a_refused_transcription_says_when_to_retry_and_is_not_recorded_as_failed()
+    {
+        await using var db = NewContext();
+        var song = NewBuiltSongWithLyrics();
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        var result = await SongsEndpoints.TranscribeLyrics(
+            song.Id, db, new RefusingTranscriber(TimeSpan.FromMinutes(8)), TestBudget.Over(db), CancellationToken.None);
+
+        Assert.Equal(StatusCodes.Status429TooManyRequests, Assert.IsAssignableFrom<IStatusCodeHttpResult>(result).StatusCode);
+        var body = JsonSerializer.SerializeToElement(Assert.IsAssignableFrom<IValueHttpResult>(result).Value);
+        Assert.Equal(
+            "The transcription quota is used up for now. Try again in about 8 minutes.",
+            body.GetProperty("message").GetString());
+        Assert.Equal(480, body.GetProperty("retryAfterSeconds").GetInt32());
+
+        var saved = await db.Songs.AsNoTracking().FirstAsync(s => s.Id == song.Id);
+        Assert.Equal(TranscriptionStatus.NotRequested, saved.TranscriptionStatus);
+        Assert.Empty(await db.TranscriptionAudioSpends.ToListAsync());
     }
 }

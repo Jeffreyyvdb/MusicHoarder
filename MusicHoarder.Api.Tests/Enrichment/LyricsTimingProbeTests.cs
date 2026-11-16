@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Enrichment;
@@ -81,10 +82,15 @@ public class LyricsTimingProbeTests : IDisposable
         var options = new StaticOptionsMonitor<LyricsTimingOptions>(opts ?? Options());
         return new LyricsTimingProbe(
             new FakeTranscriber(words),
-            new LyricsProbeBudget(options, NullLogger<LyricsProbeBudget>.Instance),
+            TestBudget.Over(NewDb(), opts ?? Options()),
             options,
             NullLogger<LyricsTimingProbe>.Instance);
     }
+
+    private static MusicHoarderDbContext NewDb() =>
+        new(new DbContextOptionsBuilder<MusicHoarderDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
+            .Options);
 
     private SongMetadata NewSong(string lrc, int durationSeconds = (int)TrackSeconds)
     {
@@ -111,7 +117,7 @@ public class LyricsTimingProbeTests : IDisposable
         var song = NewSong(BuildLrc());
         var probe = NewProbe((start, len) => WordsForWindow(start, len, LrcFirstLineAt, LrcGap));
 
-        var result = await probe.ProbeAsync(song, song.SourcePath!);
+        var result = await probe.ProbeAsync(song, song.SourcePath!, TranscriptionPurpose.TimingProbe);
 
         Assert.NotNull(result);
         Assert.Equal(LyricsSyncStatus.Ok, result!.Status);
@@ -125,7 +131,7 @@ public class LyricsTimingProbeTests : IDisposable
         var song = NewSong(BuildLrc());
         var probe = NewProbe((start, len) => WordsForWindow(start, len, trueFirstAt: 25, gap: LrcGap));
 
-        var result = await probe.ProbeAsync(song, song.SourcePath!);
+        var result = await probe.ProbeAsync(song, song.SourcePath!, TranscriptionPurpose.TimingProbe);
 
         Assert.NotNull(result);
         Assert.Equal(LyricsSyncStatus.Corrected, result!.Status);
@@ -138,7 +144,7 @@ public class LyricsTimingProbeTests : IDisposable
         var song = NewSong(BuildLrc());
         var probe = NewProbe((start, len) => WordsForWindow(start, len, trueFirstAt: 25, gap: LrcGap));
 
-        var result = await probe.ProbeAsync(song, song.SourcePath!);
+        var result = await probe.ProbeAsync(song, song.SourcePath!, TranscriptionPurpose.TimingProbe);
         LyricsTimingCheckService.ApplyProbeResult(song, result!, Options());
 
         Assert.Equal(LyricsSyncStatus.Corrected, song.LyricsSyncStatus);
@@ -164,7 +170,7 @@ public class LyricsTimingProbeTests : IDisposable
         var song = NewSong(BuildLrc());
         var probe = NewProbe((start, len) => WordsForWindow(start, len, trueFirstAt: LrcFirstLineAt, gap: 9));
 
-        var result = await probe.ProbeAsync(song, song.SourcePath!);
+        var result = await probe.ProbeAsync(song, song.SourcePath!, TranscriptionPurpose.TimingProbe);
 
         Assert.NotNull(result);
         Assert.Equal(LyricsSyncStatus.Suspect, result!.Status);
@@ -177,7 +183,7 @@ public class LyricsTimingProbeTests : IDisposable
         var song = NewSong(BuildLrc());
         var probe = NewProbe((_, _) => []);
 
-        var result = await probe.ProbeAsync(song, song.SourcePath!);
+        var result = await probe.ProbeAsync(song, song.SourcePath!, TranscriptionPurpose.TimingProbe);
 
         Assert.NotNull(result);
         Assert.Equal(LyricsSyncStatus.Unverifiable, result!.Status);
@@ -193,12 +199,12 @@ public class LyricsTimingProbeTests : IDisposable
         opts.ProbeWindowSeconds = 30;
         var probe = NewProbe((start, len) => WordsForWindow(start, len, LrcFirstLineAt, LrcGap), opts);
 
-        var first = await probe.ProbeAsync(NewSong(BuildLrc()), NewSong(BuildLrc()).SourcePath!);
-        var second = await probe.ProbeAsync(NewSong(BuildLrc()), NewSong(BuildLrc()).SourcePath!);
+        var first = await probe.ProbeAsync(NewSong(BuildLrc()), NewSong(BuildLrc()).SourcePath!, TranscriptionPurpose.TimingProbe);
 
         Assert.NotNull(first);
-        // Null, not a verdict: out of budget is "we did not look", never "the lyrics are fine".
-        Assert.Null(second);
+        // Not a verdict: out of budget is "we did not look", never "the lyrics are fine".
+        await Assert.ThrowsAsync<TranscriptionRateLimitedException>(
+            () => probe.ProbeAsync(NewSong(BuildLrc()), NewSong(BuildLrc()).SourcePath!, TranscriptionPurpose.TimingProbe));
     }
 
     [Fact]
@@ -208,7 +214,7 @@ public class LyricsTimingProbeTests : IDisposable
         var song = NewSong(lrc: string.Empty);
         var probe = NewProbe((start, len) => { probed = true; return WordsForWindow(start, len, LrcFirstLineAt, LrcGap); });
 
-        var result = await probe.ProbeAsync(song, song.SourcePath!);
+        var result = await probe.ProbeAsync(song, song.SourcePath!, TranscriptionPurpose.TimingProbe);
 
         Assert.Equal(LyricsSyncStatus.Unverifiable, result!.Status);
         Assert.False(probed);

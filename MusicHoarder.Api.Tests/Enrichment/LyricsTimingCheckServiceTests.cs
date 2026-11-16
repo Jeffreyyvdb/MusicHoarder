@@ -190,14 +190,13 @@ public class LyricsTimingCheckServiceTests : IDisposable
 
         var transcriber = new FakeTranscriber();
         var opts = new LyricsTimingOptions { AudioSecondsPerHour = 300, AudioSecondsPerDay = 300 };
-        var budget = NewBudget(opts);
-        var service = NewService(db, transcriber, opts, budget);
+        var service = NewService(db, transcriber, opts);
 
         await service.RunResyncPassAsync(CancellationToken.None);
 
         // One song fits; the second would take the budget past its limit.
         Assert.Single(transcriber.FullCalls);
-        Assert.Equal(100, budget.Remaining().Day, precision: 3);
+        Assert.Equal(200, Assert.Single(await db.TranscriptionAudioSpends.ToListAsync()).AudioSeconds, precision: 3);
     }
 
     [Fact]
@@ -208,14 +207,12 @@ public class LyricsTimingCheckServiceTests : IDisposable
         await db.SaveChangesAsync();
 
         var transcriber = new FakeTranscriber { Throw = new TranscriptionRateLimitedException("busy") };
-        var opts = new LyricsTimingOptions();
-        var budget = NewBudget(opts);
-        var service = NewService(db, transcriber, opts, budget);
+        var service = NewService(db, transcriber, new LyricsTimingOptions());
 
         Assert.False(await service.RunResyncPassAsync(CancellationToken.None));
 
         Assert.Equal(TranscriptionStatus.NotRequested, song.TranscriptionStatus);
-        Assert.Equal(opts.AudioSecondsPerDay, budget.Remaining().Day, precision: 3);
+        Assert.Empty(await db.TranscriptionAudioSpends.ToListAsync());
     }
 
     [Fact]
@@ -282,14 +279,11 @@ public class LyricsTimingCheckServiceTests : IDisposable
         return song;
     }
 
-    private static LyricsProbeBudget NewBudget(LyricsTimingOptions opts)
-        => new(new StaticOptionsMonitor<LyricsTimingOptions>(opts), NullLogger<LyricsProbeBudget>.Instance);
-
     private static LyricsTimingCheckService NewService(
-        MusicHoarderDbContext db, FakeTranscriber transcriber, LyricsTimingOptions opts, LyricsProbeBudget? budget = null)
+        MusicHoarderDbContext db, FakeTranscriber transcriber, LyricsTimingOptions opts)
     {
         var monitor = new StaticOptionsMonitor<LyricsTimingOptions>(opts);
-        budget ??= NewBudget(opts);
+        var budget = TestBudget.Over(db, opts);
         var probe = new LyricsTimingProbe(transcriber, budget, monitor, NullLogger<LyricsTimingProbe>.Instance);
         return new LyricsTimingCheckService(
             new FixedScopeFactory(db),
@@ -332,13 +326,5 @@ public class LyricsTimingCheckServiceTests : IDisposable
             ClipCalls.Add(audioFilePath);
             return Task.FromResult<IReadOnlyList<TimedWord>>([]);
         }
-    }
-
-    private sealed class FixedScopeFactory(MusicHoarderDbContext db) : IServiceScopeFactory, IServiceScope, IServiceProvider
-    {
-        public IServiceScope CreateScope() => this;
-        public IServiceProvider ServiceProvider => this;
-        public void Dispose() { }
-        public object? GetService(Type serviceType) => serviceType == typeof(MusicHoarderDbContext) ? db : null;
     }
 }

@@ -84,7 +84,6 @@
   const hasStatus = $derived(
     Boolean(aiLine) ||
       Boolean(ai.enhanceError) ||
-      Boolean(ai.enhanceNote) ||
       showTimingRow ||
       Boolean(sourceLine) ||
       ai.comparing
@@ -115,8 +114,6 @@
       {/if}
       {#if ai.enhanceError}
         <p class="text-footnote text-destructive-text" role="alert">{ai.enhanceError}</p>
-      {:else if ai.enhanceNote}
-        <p class="text-footnote text-muted-foreground">{ai.enhanceNote}</p>
       {/if}
       {#if sourceLine && !ai.comparing}
         <p class="text-footnote text-muted-foreground flex items-center gap-1.5">

@@ -32,6 +32,13 @@ public sealed class LyricsTranscriptionRateLimiter(
     private DateTime _notBeforeUtc = DateTime.MinValue;
 
     /// <summary>
+    /// When the provider said asking again could succeed, uncapped. The cooldown above is capped so a long
+    /// pause cannot wedge the pipeline, but a person told when to retry must hear the provider's real answer:
+    /// with a spent daily quota that is hours, and "about 5 minutes" would send them back to another refusal.
+    /// </summary>
+    private DateTime _providerRetryAtUtc = DateTime.MinValue;
+
+    /// <summary>
     /// Waits for a request slot. Returns false when the wait would exceed <paramref name="maxWait"/>, which
     /// callers must treat as "we did not call the provider" — never as a result.
     /// </summary>
@@ -93,6 +100,8 @@ public sealed class LyricsTranscriptionRateLimiter(
         if (retryAfter <= TimeSpan.Zero)
             return;
 
+        var providerRetryAt = DateTime.UtcNow + retryAfter;
+
         // Cap it: a provider that asks for an implausibly long pause must not wedge the pipeline for hours.
         if (retryAfter > TimeSpan.FromMinutes(5))
             retryAfter = TimeSpan.FromMinutes(5);
@@ -101,6 +110,9 @@ public sealed class LyricsTranscriptionRateLimiter(
         _gate.Wait();
         try
         {
+            if (providerRetryAt > _providerRetryAtUtc)
+                _providerRetryAtUtc = providerRetryAt;
+
             if (until > _notBeforeUtc)
             {
                 _notBeforeUtc = until;
@@ -125,6 +137,19 @@ public sealed class LyricsTranscriptionRateLimiter(
         get
         {
             var remaining = _notBeforeUtc - DateTime.UtcNow;
+            return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
+        }
+    }
+
+    /// <summary>
+    /// How long until the provider expects to take a request again: the longer of the cooldown and what it last
+    /// said, uncapped. Zero when neither is running, so a refusal is only the per-minute request count.
+    /// </summary>
+    public TimeSpan RetryRemaining
+    {
+        get
+        {
+            var remaining = (_providerRetryAtUtc > _notBeforeUtc ? _providerRetryAtUtc : _notBeforeUtc) - DateTime.UtcNow;
             return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
         }
     }

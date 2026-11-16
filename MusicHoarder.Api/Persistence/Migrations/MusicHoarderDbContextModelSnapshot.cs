@@ -2689,6 +2689,30 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.ToTable("TrackSyncStates");
                 });
 
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.TranscriptionAudioSpend", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("AtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<double>("AudioSeconds")
+                        .HasColumnType("double precision");
+
+                    b.Property<int>("Purpose")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AtUtc");
+
+                    b.ToTable("TranscriptionAudioSpends");
+                });
+
             modelBuilder.Entity("MusicHoarder.Api.Persistence.UpgradeRequest", b =>
                 {
                     b.Property<int>("Id")
