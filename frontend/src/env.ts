@@ -14,5 +14,9 @@ export const variables = defineEnvVars({
   PUBLIC_UMAMI_WEBSITE_ID: { public: true, schema: optional },
   PUBLIC_UMAMI_SRC: { public: true, schema: optional },
   PUBLIC_UMAMI_RECORDER_SRC: { public: true, schema: optional },
-  PUBLIC_SITE_URL: { public: true, schema: optional }
+  PUBLIC_SITE_URL: { public: true, schema: optional },
+  // Looping, the problem reporter (#lib/looping.svelte.ts): the inbox's origin, and the app id it
+  // is registered under (default "musichoarder"). Unset, nothing of it ever loads.
+  PUBLIC_LOOPING_URL: { public: true, schema: optional },
+  PUBLIC_LOOPING_APP: { public: true, schema: optional }
 });

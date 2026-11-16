@@ -22,6 +22,9 @@
   import { createSessionWatch, SESSION_DEPENDENCY } from '#lib/auth/session-watch.ts';
   import { fetchCurrentUser } from '#lib/api-client.ts';
   import { installWebMcp } from '#lib/webmcp/install.ts';
+  import { setLoopingContext } from '#lib/looping.svelte.ts';
+  import { isInstalledApp } from '#lib/hooks/viewport-insets.svelte.ts';
+  import { nativePlatform } from '#lib/native/shell.ts';
 
   type Props = { children: Snippet };
   const { children }: Props = $props();
@@ -172,6 +175,29 @@
   // Inbox for an admin). Nothing happens in a browser without the API. The tools go away when the
   // account changes or the shell unmounts, so an agent never holds another account's tools.
   $effect(() => installWebMcp(page.data.user));
+
+  // Looping, the problem reporter (#lib/looping.svelte.ts): what a report needs beyond the page —
+  // which account, which build (the API version carries the commit), whether it came from the
+  // app shell, and what was playing. Read when a report is sent; no email or name leaves here.
+  $effect(() => {
+    const offAccount = setLoopingContext('account', () => {
+      const user = page.data.user;
+      return user ? { id: user.id, role: user.role, isAdmin: isAdmin(user) } : null;
+    });
+    const offClient = setLoopingContext('client', () => ({
+      version: page.data.appVersion ?? null,
+      shell: nativePlatform() ?? (isInstalledApp() ? 'installed-web-app' : 'browser')
+    }));
+    const offPlayer = setLoopingContext('player', () => ({
+      songId: playerStore.currentSong?.id ?? null,
+      isPlaying: playerStore.isPlaying
+    }));
+    return () => {
+      offAccount();
+      offClient();
+      offPlayer();
+    };
+  });
 
   // Chat: the account's conversations over the chat stream (the Chats badge, the list), and this
   // browser's notification subscription kept current when the account turned notifications on.

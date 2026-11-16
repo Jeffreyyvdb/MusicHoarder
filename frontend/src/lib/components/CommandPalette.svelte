@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import {
+    Bug,
     CircleUser,
     Cpu,
     Clock,
@@ -31,6 +32,12 @@
   import { cn } from '#lib/utils.ts';
   import { toast } from 'svelte-sonner';
   import { hardwareMode, isSecretPhrase } from '#lib/hardware/hardware-mode.svelte.ts';
+  import {
+    applyLoopingCommand,
+    hasLoopingKey,
+    parseLoopingCommand,
+    type LoopingCommand
+  } from '#lib/looping.svelte.ts';
 
   // Cap each result group so typing stays snappy on large libraries.
   const MAX_PER_GROUP = 8;
@@ -145,6 +152,21 @@
   // The easter egg (#lib/hardware): a whole-query secret phrase reveals the hardware skin's switch.
   // Phones have no arrow keys for the Konami code, and search is where they type.
   const secret = $derived(isSecretPhrase(query));
+
+  // Looping, the problem reporter (#lib/looping.svelte.ts): `looping:<key>` turns it on for this
+  // device, `looping:off` off. This is how the app shell and the installed web app get a key — they
+  // have no address bar for `?looping=<key>`. Only where the instance names an inbox. The query is
+  // never remembered as a recent search (it holds the key): this dismisses, it doesn't navigate.
+  const loopingCommand = $derived(parseLoopingCommand(query));
+
+  function runLoopingCommand(command: LoopingCommand) {
+    dismiss();
+    if (!applyLoopingCommand(command)) {
+      toast.error('Couldn’t change the problem reporter', {
+        description: 'This browser isn’t letting the app store anything.'
+      });
+    }
+  }
 
   function toggleHardware() {
     const on = hardwareMode.unlocked ? hardwareMode.toggle() : hardwareMode.unlock();
@@ -322,7 +344,25 @@
           </Command.Group>
         {/if}
 
-        {#if hasQuery && !secret && !hasLibraryResults && navMatches.length === 0 && !loading}
+        {#if loopingCommand}
+          <Command.Group heading="Problem reporter">
+            <Command.Item
+              value="looping-command"
+              onSelect={() => runLoopingCommand(loopingCommand)}
+            >
+              <Bug class="text-muted-foreground" />
+              <span class="min-w-0 flex-1 truncate"
+                >{loopingCommand.kind === 'off'
+                  ? hasLoopingKey()
+                    ? 'Turn the problem reporter off on this device'
+                    : 'The problem reporter is already off here'
+                  : 'Turn the problem reporter on for this device'}</span
+              >
+            </Command.Item>
+          </Command.Group>
+        {/if}
+
+        {#if hasQuery && !secret && !loopingCommand && !hasLibraryResults && navMatches.length === 0 && !loading}
           <Command.Empty class="max-md:text-body text-muted-foreground"
             >No results for “{query}”.</Command.Empty
           >

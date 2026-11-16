@@ -30,6 +30,12 @@
       "skillPath": "packages/playground/.agents/skills/frontend-design/SKILL.md",
       "computedHash": "537c1df9d0c694ecf9139a911f9ad0bd111a7ebc173a55457568459e543fe75b"
     },
+    "looping-triage": {
+      "source": "Jeffreyyvdb/looping",
+      "sourceType": "github",
+      "skillPath": "skills/looping-triage/SKILL.md",
+      "computedHash": "215eaa10ca0b0f4c4211d38cd779b51322361615d92d1c21a9da54821446d76b"
+    },
     "modern-web-guidance": {
       "source": "GoogleChrome/modern-web-guidance",
       "sourceType": "github",

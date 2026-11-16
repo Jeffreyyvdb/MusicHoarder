@@ -64,6 +64,12 @@ var publicUmamiWebsiteId = builder.AddParameter("public-umami-website-id", build
 var publicUmamiRecorderSrc = builder.AddParameter("public-umami-recorder-src", builder.Configuration["Parameters:public-umami-recorder-src"] ?? "")
     .WithDescription("Optional Umami session-recorder URL ending in /recorder.js. Blank disables the recorder.");
 
+// Looping, the in-app problem reporter (frontend/src/lib/looping.svelte.ts): the inbox's origin. Read
+// by the frontend at runtime like Umami. Blank (the default, and every self-hosted instance) loads
+// nothing; set, the widget is still fetched only on devices that hold a reporter key.
+var publicLoopingUrl = builder.AddParameter("public-looping-url", builder.Configuration["Parameters:public-looping-url"] ?? "")
+    .WithDescription("Origin of a Looping problem-report inbox (https://…). Blank disables the reporter.");
+
 // Chrome's WebMCP origin-trial token for this deployment's origin (a token is valid for one origin
 // only). The frontend sends it as an `Origin-Trial` header; blank sends nothing, and WebMCP then
 // works only where a user turned on chrome://flags/#enable-webmcp-testing.
@@ -201,6 +207,7 @@ var frontend = builder.AddViteApp("frontend", "../frontend")
     .WithEnvironment("PUBLIC_UMAMI_SRC", publicUmamiSrc)
     .WithEnvironment("PUBLIC_UMAMI_WEBSITE_ID", publicUmamiWebsiteId)
     .WithEnvironment("PUBLIC_UMAMI_RECORDER_SRC", publicUmamiRecorderSrc)
+    .WithEnvironment("PUBLIC_LOOPING_URL", publicLoopingUrl)
     .WithEnvironment("WEBMCP_ORIGIN_TRIAL_TOKEN", webMcpOriginTrialToken)
     .WaitForStart(api)
     .WithExternalHttpEndpoints()

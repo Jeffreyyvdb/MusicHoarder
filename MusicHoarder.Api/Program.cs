@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.Middleware;
 using MusicHoarder.Api.Composition;
+using MusicHoarder.Api.Observability;
 using MusicHoarder.Api.OpenApi;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
@@ -105,6 +106,8 @@ if (app.Environment.IsDevelopment())
 // (Traefik/Dokploy) and the API only listens on HTTP, so UseHttpsRedirection can't
 // resolve an HTTPS port and just logs "Failed to determine the https port for redirect".
 
+// First, so every log line a request causes (auth included) carries its id. See RequestIdMiddleware.
+app.UseMiddleware<RequestIdMiddleware>();
 app.UseMiddleware<AuthenticationMiddleware>();
 app.UseMiddleware<RequireAuthMiddleware>();
 app.UseMiddleware<DemoReadOnlyMiddleware>();

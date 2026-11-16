@@ -7,13 +7,21 @@ function buildTargetUrl(pathSegments: string, search: string): string {
   return `${base}/${pathSegments}${search}`;
 }
 
-async function proxy(request: Request, pathSegments: string, search: string): Promise<Response> {
+async function proxy(
+  request: Request,
+  pathSegments: string,
+  search: string,
+  requestId: string | undefined
+): Promise<Response> {
   const target = buildTargetUrl(pathSegments, search);
   const method = request.method.toUpperCase();
   const shouldForwardBody = method !== 'GET' && method !== 'HEAD';
 
   const headers = new Headers(request.headers);
   headers.delete('host');
+  // The id this request is logged under here (#lib/server/looping), so the API logs it too and a
+  // problem report's network entry leads to both halves.
+  if (requestId) headers.set('x-request-id', requestId);
 
   // Bound the time-to-headers, not the body stream: abort if the API hasn't returned
   // response headers within the window, then clear the timer the moment it does. This keeps
@@ -89,8 +97,8 @@ async function proxy(request: Request, pathSegments: string, search: string): Pr
   });
 }
 
-const handler: RequestHandler = ({ request, params, url }) => {
-  return proxy(request, params.path ?? '', url.search);
+const handler: RequestHandler = ({ request, params, url, locals }) => {
+  return proxy(request, params.path ?? '', url.search, locals.requestId);
 };
 
 export const GET = handler;
