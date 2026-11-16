@@ -31,6 +31,9 @@ export function playerSwipe(node: HTMLElement, options: PlayerSwipeOptions) {
   }
 
   function end(e: PointerEvent) {
+    // Touch implicitly captures on the pressed button. Its capture loss bubbles when
+    // move() transfers capture to the bar; only losing the bar's own capture cancels.
+    if (e.type === 'lostpointercapture' && e.target !== node) return;
     const g = gesture;
     if (!g || e.pointerId !== g.id) return;
     gesture = null;

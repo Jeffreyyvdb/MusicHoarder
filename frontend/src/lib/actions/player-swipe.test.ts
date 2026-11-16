@@ -32,6 +32,16 @@ function setup() {
 }
 afterEach(() => vi.useRealTimers());
 describe('compact player swipes', () => {
+  it('keeps a swipe when implicit capture transfers from a child button to the bar', () => {
+    const { node, send, options } = setup();
+    send('pointerdown', 100);
+    send('pointermove', 20);
+    const lost = Object.assign(new Event('lostpointercapture'), { pointerId: 1 });
+    Object.defineProperty(lost, 'target', { value: new EventTarget() });
+    node.dispatchEvent(lost);
+    send('pointerup', 20);
+    expect(options.onnext).toHaveBeenCalledOnce();
+  });
   it.each([
     [-70, 'onnext'],
     [70, 'onprevious']
