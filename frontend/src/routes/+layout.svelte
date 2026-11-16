@@ -117,6 +117,9 @@
     else if (inApp && !dark && surfaceFor(page.url, isCompact.current) === 'grouped') {
       color = GROUPED_LIGHT;
     }
+    // Safari 26 samples the document canvas instead of theme-color. Keep both in sync,
+    // including grouped pages and portaled Now Playing, so chrome and overscroll match.
+    document.documentElement.style.setProperty('--mh-page-surface', color);
     for (const meta of document.querySelectorAll('meta[name="theme-color"]')) {
       meta.setAttribute('content', color);
     }

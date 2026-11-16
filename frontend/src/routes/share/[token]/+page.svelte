@@ -332,6 +332,9 @@
         pillarbox={activeTrack.videoPillarbox ?? null}
       />
     {/key}
+  {/if}
+  <div class="mh-surface-edges fixed inset-0" aria-hidden="true"></div>
+  {#if activeTrack?.hasVideo}
     <!-- The owner gets this opt-out inside the app's controls cluster; an anonymous visitor here
          has no such cluster, so it gets its own corner button instead — same store, same
          localStorage entry, so the preference already carries over if this is the owner's browser. -->

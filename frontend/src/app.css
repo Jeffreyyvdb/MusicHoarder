@@ -402,6 +402,7 @@
     touch-action: manipulation;
   }
   html {
+    background-color: var(--mh-page-surface, var(--background));
     scroll-behavior: smooth;
   }
   /* This clamp covers CSS transitions and animations only. Svelte's `transition:fly` (and friends)
@@ -430,7 +431,8 @@
     }
   }
   body {
-    @apply bg-background text-foreground;
+    @apply text-foreground;
+    background-color: var(--mh-page-surface, var(--background));
   }
   /* Installed (home-screen) app only: the app shell never scrolls the document, and the login /
      marketing pages have nothing past their edges, so stop iOS rubber-banding the whole app when a
@@ -605,4 +607,17 @@ body:has(.mh-np[data-state='open']) [data-sonner-toast]:not([data-visible='false
   .mh-v2-pulse {
     animation: none;
   }
+}
+
+/* Blend artwork/video into the document canvas that Safari uses for its chrome.
+   This sits above the backdrop and below content, never over controls. */
+.mh-surface-edges {
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    var(--mh-page-surface, var(--background)) env(safe-area-inset-top),
+    transparent calc(80px + env(safe-area-inset-top)),
+    transparent calc(100% - 80px - env(safe-area-inset-bottom)),
+    var(--mh-page-surface, var(--background)) calc(100% - env(safe-area-inset-bottom))
+  );
 }
