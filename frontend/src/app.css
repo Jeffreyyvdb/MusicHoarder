@@ -518,7 +518,7 @@
    are skipped: they never scroll vertically, so the clearance would only open a gap
    under the row. So is a pane that ends above a bar of its own (`data-mh-no-clearance`,
    e.g. an Inbox detail over its action bar): the bar takes the clearance, not the pane. */
-[data-mh-content]
+:is([data-mh-content], [data-mh-back-preview])
   [data-slot='scroll-area']:not([data-orientation='horizontal'], [data-mh-no-clearance])
   > .cn-scroll-area-viewport {
   padding-bottom: var(--mh-content-pad, 0px);

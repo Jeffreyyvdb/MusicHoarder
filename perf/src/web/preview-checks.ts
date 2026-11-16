@@ -230,12 +230,17 @@ for (const forcedColors of ['none', 'active'] as const) {
   await page.addInitScript(() => Object.defineProperty(navigator, 'standalone', { value: true }))
   await page.goto(base + '/overview', { waitUntil: 'networkidle' })
   const scrollTop = await page.locator('[data-mh-content] [data-scroll-area-viewport]').first().evaluate((el) => {
-    el.scrollTop = 100
+    el.scrollTop = el.scrollHeight
     return el.scrollTop
   })
-  await page.locator('[data-mh-content] a[href="/playlists"]').click()
+  // Playwright's click would scroll this link back into view, changing the saved offset.
+  await page.locator('[data-mh-content] a[href="/playlists"]').evaluate((el) => (el as HTMLElement).click())
   await page.waitForURL('**/playlists')
   await page.getByRole('heading', { name: 'Playlists', exact: true }).first().waitFor()
+  const outgoingTop = await page.locator('[data-mh-content] [data-scroll-area-viewport]').first().evaluate((el) => {
+    el.scrollTop = el.scrollHeight
+    return el.scrollTop
+  })
   const touch = (type: string, x: number) => page.evaluate(({ type, x }) => {
     const node = document.querySelector('[data-mh-content]')!
     const point = new Touch({ identifier: 7, target: node, clientX: x, clientY: 300 })
@@ -243,6 +248,9 @@ for (const forcedColors of ['none', 'active'] as const) {
       bubbles: true, cancelable: true,
       touches: type === 'touchend' || type === 'touchcancel' ? [] : [point], changedTouches: [point],
     }))
+    // Sample synchronously: the outgoing copy only lives for the 220ms settle.
+    return [...document.querySelectorAll('[data-mh-back-preview]')].at(-1)
+      ?.querySelector('[data-scroll-area-viewport]')?.scrollTop
   }, { type, x })
   await touch('touchstart', 5)
   await touch('touchmove', 180)
@@ -262,7 +270,8 @@ for (const forcedColors of ['none', 'active'] as const) {
   check('cancelled swipe Back keeps the page', new URL(page.url()).pathname === '/playlists')
   await touch('touchstart', 5)
   await touch('touchmove', 220)
-  await touch('touchend', 220)
+  const leavingTop = await touch('touchend', 220)
+  check('outgoing swipe copy keeps the bottom scroll offset', leavingTop === outgoingTop, `${leavingTop} vs ${outgoingTop}`)
   await page.waitForURL('**/overview')
   await page.waitForFunction(() => !document.querySelector('[data-mh-back-preview]') &&
     document.querySelector<HTMLElement>('[data-mh-content]')?.style.opacity === '')
