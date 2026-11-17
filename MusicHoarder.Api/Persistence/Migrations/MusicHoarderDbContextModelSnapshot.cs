@@ -1412,6 +1412,54 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.ToTable("LibraryWriteEvents");
                 });
 
+            modelBuilder.Entity("MusicHoarder.Api.Persistence.ListeningEvent", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Album")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<string>("AlbumArtist")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<string>("Artist")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<int?>("DurationSeconds")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Genre")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<DateTime>("PlayedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("SongId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "PlayedAtUtc");
+
+                    b.ToTable("ListeningEvents");
+                });
+
             modelBuilder.Entity("MusicHoarder.Api.Persistence.PlaybackSession", b =>
                 {
                     b.Property<int>("Id")

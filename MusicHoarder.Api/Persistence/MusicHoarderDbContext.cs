@@ -97,6 +97,7 @@ public class MusicHoarderDbContext : DbContext
     public DbSet<ShareVisit> ShareVisits { get; set; } = null!;
     public DbSet<LibraryShareGrant> LibraryShareGrants { get; set; } = null!;
     public DbSet<UserSongState> UserSongStates { get; set; } = null!;
+    public DbSet<ListeningEvent> ListeningEvents { get; set; } = null!;
     public DbSet<PlaybackSession> PlaybackSessions { get; set; } = null!;
     public DbSet<ChatConversation> ChatConversations { get; set; } = null!;
     public DbSet<ChatParticipant> ChatParticipants { get; set; } = null!;
@@ -731,6 +732,20 @@ public class MusicHoarderDbContext : DbContext
             // Private to the friend it belongs to. The song relationship crosses tenants by
             // design (UserId is the grantee, Song.OwnerUserId the grantor), so the filter is on
             // the state's own UserId — writes additionally verify grant scope at the endpoint.
+            entity.HasQueryFilter(e => !hasUser || e.UserId == userId);
+        });
+
+        // Append-only play history, private to the listener like UserSongState. SongId is a plain
+        // number (no FK) so history outlives whatever happens to the song.
+        modelBuilder.Entity<ListeningEvent>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Title).HasMaxLength(ListeningEvent.MaxTextLength);
+            entity.Property(e => e.Artist).HasMaxLength(ListeningEvent.MaxTextLength);
+            entity.Property(e => e.AlbumArtist).HasMaxLength(ListeningEvent.MaxTextLength);
+            entity.Property(e => e.Album).HasMaxLength(ListeningEvent.MaxTextLength);
+            entity.Property(e => e.Genre).HasMaxLength(ListeningEvent.MaxTextLength);
+            entity.HasIndex(e => new { e.UserId, e.PlayedAtUtc });
             entity.HasQueryFilter(e => !hasUser || e.UserId == userId);
         });
 

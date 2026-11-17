@@ -4,6 +4,7 @@
 // nothing. The type import is erased, so it can stay on the barrel.
 import type { ReadonlyURL } from '$app/state';
 import type { LucideIcon } from '@lucide/svelte';
+import AudioLines from '@lucide/svelte/icons/audio-lines';
 import ChartColumnBig from '@lucide/svelte/icons/chart-column-big';
 import Compass from '@lucide/svelte/icons/compass';
 import Copy from '@lucide/svelte/icons/copy';
@@ -204,6 +205,16 @@ export const NAV_GROUPS: NavGroup[] = [
         href: '/playlists',
         icon: ListVideo,
         keywords: 'playlist playlists mix mixtape queue spotify youtube deezer'
+      },
+      {
+        // The account's own play history as stats: totals, tops, a listening clock, streaks and the
+        // recent streams. Not the Manage → Stats page, which is about the library.
+        id: 'listening',
+        label: 'Listening',
+        href: '/listening',
+        icon: AudioLines,
+        keywords:
+          'stats statistics streams listening history top tracks artists wrapped stats.fm clock'
       }
     ]
   },
@@ -640,12 +651,14 @@ const LISTEN = (() => {
 
 /** Listen's own pages as tabs, for an audience whose whole nav is Listen. */
 /**
- * The Listen pages that are a member's tabs: all but Playlists. A phone tab bar holds five (the
- * HIG's limit, and all the width the search circle beside it leaves), and a member's five are
- * Overview · Albums · Artists · Tracks · Chats. Playlists is a row on the Overview instead, as
- * Albums, Artists and Tracks are for an admin; the sidebar lists it at md+.
+ * The Listen pages that are a member's tabs: all but Playlists and Listening. A phone tab bar
+ * holds five (the HIG's limit, and all the width the search circle beside it leaves), and a
+ * member's five are Overview · Albums · Artists · Tracks · Chats. Those two are rows on the
+ * Overview instead, as Albums, Artists and Tracks are for an admin; the sidebar lists them at md+.
  */
-const MEMBER_LISTEN_TABS = LISTEN.items.filter((item) => item.id !== 'playlists');
+const MEMBER_LISTEN_TABS = LISTEN.items.filter(
+  (item) => item.id !== 'playlists' && item.id !== 'listening'
+);
 
 const ITEM_TABS: NavTab[] = MEMBER_LISTEN_TABS.map((item) => ({
   id: item.id,
@@ -737,7 +750,11 @@ export function isTabRoot(url: ReadonlyURL, user: NavAudience): boolean {
  * Null when no tab can own the URL (a member on /settings, a route outside the shell): the tab
  * bar keeps the last active tab lit, and tab-memory records nothing.
  */
-export function tabFor(url: ReadonlyURL, user: NavAudience, activeTabId?: string | null): NavTab | null {
+export function tabFor(
+  url: ReadonlyURL,
+  user: NavAudience,
+  activeTabId?: string | null
+): NavTab | null {
   const root = rootTabOf(url, user);
   if (root) return root;
 
@@ -762,7 +779,7 @@ export function tabFor(url: ReadonlyURL, user: NavAudience, activeTabId?: string
       : under('/track')(url)
         ? 'tracks'
         : match.item?.id;
-  // A Listen page with no tab of its own (Playlists) sits on the Overview, which links to it.
+  // A Listen page with no tab of its own (Playlists, Listening) sits on the Overview, which links to it.
   return tabs.find((t) => t.id === home) ?? tabs.find((t) => t.id === 'overview') ?? null;
 }
 
