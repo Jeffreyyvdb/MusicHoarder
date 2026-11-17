@@ -291,13 +291,13 @@
 <Dialog.Root bind:open={dialogOpen} onOpenChange={handleOpenChange}>
   <Dialog.Content
     showCloseButton={false}
-    overlayClass="z-[75]"
+    overlayClass="z-[75] data-open:animate-none! data-closed:animate-none!"
     class={cn(
-      'z-[75] gap-0 overflow-hidden p-0',
+      'z-[75] gap-0 overflow-hidden p-0 data-open:animate-none! data-closed:animate-none!',
       // Desktop: the panel, high enough that the whole list fits under it.
       'md:top-[10vh] md:max-w-2xl md:translate-y-0',
       // Phone: the whole screen, a plain page rather than a floating card.
-      'max-md:bg-background max-md:inset-0 max-md:h-dvh max-md:max-h-none max-md:w-full max-md:max-w-none max-md:translate-x-0 max-md:translate-y-0 max-md:rounded-none max-md:pt-[env(safe-area-inset-top)] max-md:shadow-none max-md:ring-0 max-md:data-closed:animate-none max-md:data-open:animate-none'
+      'max-md:bg-background max-md:inset-0 max-md:h-dvh max-md:max-h-none max-md:w-full max-md:max-w-none max-md:translate-x-0 max-md:translate-y-0 max-md:rounded-none max-md:pt-[env(safe-area-inset-top)] max-md:shadow-none max-md:ring-0'
     )}
   >
     <Dialog.Title class="sr-only">Search everywhere</Dialog.Title>
