@@ -30,11 +30,11 @@ export function playerSwipe(node: HTMLElement, options: PlayerSwipeOptions) {
     if (!gesture || e.pointerId !== gesture.id) return;
     const dx = e.clientX - gesture.x;
     const dy = e.clientY - gesture.y;
-    if (Math.hypot(dx, dy) <= 10) return;
+    if (!gesture.dragged && Math.hypot(dx, dy) <= 10) return;
     gesture.moved = true;
     // Capture only after a drag: a plain tap still clicks the original button.
     if (!node.hasPointerCapture(e.pointerId)) node.setPointerCapture(e.pointerId);
-    if (Math.abs(dx) > Math.abs(dy)) {
+    if (gesture.dragged || Math.abs(dx) > Math.abs(dy)) {
       gesture.dragged = true;
       options.ondrag?.(dx);
     }
