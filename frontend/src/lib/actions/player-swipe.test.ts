@@ -151,6 +151,18 @@ describe('compact player swipes', () => {
     expect(options.onopen).toHaveBeenCalledOnce();
   });
 
+  it('keeps tracking a slow horizontal reversal through the starting point', () => {
+    const { send, options } = setup();
+    send('pointerdown', 100, 100);
+    for (const offset of [20, 10, 5, 0, -5, -10, -20]) {
+      send('pointermove', 100 + offset, 104);
+    }
+    expect(options.ondrag.mock.calls).toEqual([[20], [10], [5], [0], [-5], [-10], [-20]]);
+    send('pointerup', 80, 104);
+    expect(options.onsettle).toHaveBeenCalledOnce();
+    expect(options.onnext).not.toHaveBeenCalled();
+  });
+
   it('settles when a drag lets go short of the threshold', () => {
     const { send, options } = setup();
     send('pointerdown', 100);
