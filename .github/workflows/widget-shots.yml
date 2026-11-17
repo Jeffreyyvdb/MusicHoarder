@@ -1,0 +1,65 @@
+# Temporary: screenshots of the Home Screen widgets for PR review. Not for main.
+name: Widget screenshots
+
+on:
+  push:
+    branches: [tmp/widget-shots]
+
+permissions:
+  contents: read
+
+jobs:
+  shots:
+    runs-on: macos-latest
+    timeout-minutes: 75
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: bun install --frozen-lockfile
+      - run: bun run sync
+      - name: Build for the simulator
+        run: |
+          xcodebuild build \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/derived" \
+            CODE_SIGNING_ALLOWED=NO | tail -n 20
+      - name: Sign ad hoc with the entitlements
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/derived/Build/Products/Debug-iphonesimulator/App.app"
+          APPEX="$APP/PlugIns/MusicHoarderWidgets.appex"
+          GROUP=group.com.musichoarder.app
+          sed "s|[$](MH_APP_GROUP)|$GROUP|g" ios/App/App/App.entitlements > "$RUNNER_TEMP/app.entitlements"
+          sed "s|[$](MH_APP_GROUP)|$GROUP|g" ios/App/Widgets/Widgets.entitlements > "$RUNNER_TEMP/widgets.entitlements"
+          if [ -d "$APP/Frameworks" ]; then
+            find "$APP/Frameworks" -mindepth 1 -maxdepth 1 \( -name '*.framework' -o -name '*.dylib' \) -print0 \
+              | while IFS= read -r -d '' code; do codesign --force --sign - "$code"; done
+          fi
+          codesign --force --sign - --entitlements "$RUNNER_TEMP/widgets.entitlements" "$APPEX"
+          codesign --force --sign - --entitlements "$RUNNER_TEMP/app.entitlements" "$APP"
+      - name: Install Maestro
+        run: |
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+      - name: Take the screenshots
+        run: bash ../.github/widget-shots/shoot.sh "$RUNNER_TEMP/derived/Build/Products/Debug-iphonesimulator/App.app" "$RUNNER_TEMP/shots"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: widget-shots
+          path: ${{ runner.temp }}/shots

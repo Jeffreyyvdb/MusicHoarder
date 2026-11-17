@@ -1,0 +1,42 @@
+# Adds one MusicHoarder widget to the Home Screen. SWIPES picks the page in the app's gallery:
+# 0 Now Playing small, 1 Now Playing medium, 2 Last played medium, 3 Last played large.
+appId: com.apple.springboard
+---
+- pressKey: Home
+- longPressOn:
+    point: "50%,82%"
+- takeScreenshot: ${OUT}/${STEP}-1-held
+- tapOn:
+    text: "Edit Home Screen"
+    optional: true
+- tapOn:
+    text: "Edit"
+    optional: true
+- takeScreenshot: ${OUT}/${STEP}-2-edit
+- tapOn:
+    text: "Add Widget"
+- takeScreenshot: ${OUT}/${STEP}-3-gallery
+- tapOn:
+    text: "Search Widgets"
+- inputText: "MusicHoarder"
+- takeScreenshot: ${OUT}/${STEP}-4-search
+- tapOn:
+    text: "MusicHoarder"
+    index: 1
+- waitForAnimationToEnd
+- takeScreenshot: ${OUT}/${STEP}-5-app
+- repeat:
+    times: ${SWIPES}
+    commands:
+      - swipe:
+          direction: LEFT
+      - waitForAnimationToEnd
+- takeScreenshot: ${OUT}/${STEP}-6-picked
+- tapOn:
+    text: "Add Widget"
+- waitForAnimationToEnd
+- tapOn:
+    text: "Done"
+    optional: true
+- pressKey: Home
+- takeScreenshot: ${OUT}/${STEP}-7-placed
