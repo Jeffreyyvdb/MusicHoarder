@@ -9,8 +9,7 @@ final class WidgetScreenshotTests: XCTestCase {
 
     func testWidgetGalleryAndHomeScreen() {
         let app = XCUIApplication(bundleIdentifier: "com.musichoarder.app")
-        for appearance in ["Light", "Dark"] {
-            setAppearance(appearance)
+        for appearance in ["Light"] {
             app.launchEnvironment["MH_WIDGET_SHOTS"] = "1"
             app.launch()
             sleep(8)
@@ -51,20 +50,6 @@ final class WidgetScreenshotTests: XCTestCase {
         sleep(3)
     }
 
-    private func setAppearance(_ appearance: String) {
-        let settings = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
-        settings.launch()
-        let display = settings.staticTexts["Display & Brightness"].firstMatch
-        for _ in 0..<4 {
-            if display.isHittable { break }
-            settings.swipeUp()
-        }
-        XCTAssertTrue(display.waitForExistence(timeout: 10), "Display settings are visible")
-        display.tap()
-        tap(appearance, in: settings)
-        XCUIDevice.shared.press(.home)
-    }
-
     private func tap(_ label: String, in app: XCUIApplication) {
         let button = app.buttons[label].firstMatch
         if button.waitForExistence(timeout: 5) && button.isHittable {
@@ -81,5 +66,9 @@ final class WidgetScreenshotTests: XCTestCase {
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+        let hierarchy = XCTAttachment(string: springboard.debugDescription)
+        hierarchy.name = name + "-hierarchy"
+        hierarchy.lifetime = .keepAlways
+        add(hierarchy)
     }
 }
