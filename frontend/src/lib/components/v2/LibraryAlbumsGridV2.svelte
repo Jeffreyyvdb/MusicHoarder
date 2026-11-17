@@ -1,5 +1,7 @@
 <script lang="ts">
   import { untrack, type Snippet } from 'svelte';
+  import { flip, type AnimationConfig } from 'svelte/animate';
+  import type { TransitionConfig } from 'svelte/transition';
   import { MediaQuery } from 'svelte/reactivity';
   import { goto } from '$app/navigation';
   import { Disc3, Mic2, Play, Shuffle } from '@lucide/svelte';
@@ -9,6 +11,7 @@
   import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
   import { Skeleton } from '#lib/components/ui/skeleton/index.ts';
   import { longpress, type LongPressPoint } from '#lib/actions/long-press.ts';
+  import { easeInOut, easeOut, prefersReducedMotion } from '#lib/motion.ts';
   import {
     toPlayerSong,
     type AlbumStatusInfo,
@@ -197,6 +200,51 @@
     });
     return () => watcher.destroy();
   });
+
+  const SHELF_FLIP_MS = 280;
+
+  function shelfFlip(node: Element, positions: { from: DOMRect; to: DOMRect }): AnimationConfig {
+    return flip(node, positions, {
+      duration: prefersReducedMotion() ? 0 : SHELF_FLIP_MS,
+      easing: easeInOut
+    });
+  }
+
+  function shelfIn(_node: Element): TransitionConfig {
+    const reduced = prefersReducedMotion();
+    return {
+      duration: 260,
+      easing: easeOut,
+      css: (t) => (reduced ? `opacity: ${t}` : `opacity: ${t}; transform: scale(${0.94 + 0.06 * t})`)
+    };
+  }
+
+  // Chromium and WebKit re-snap a scroller to the tile it was snapped to after a layout change, so
+  // an album arriving at the front scrolled the row to follow the old first tile and hid the new
+  // one off the left edge.
+  let shelfViewport = $state<HTMLElement | null>(null);
+  let shelfHeld = false;
+  $effect.pre(() => {
+    void albums;
+    const viewport = untrack(() => shelfViewport);
+    shelfHeld = layout === 'shelf' && viewport !== null && viewport.scrollLeft < 2;
+    if (shelfHeld) viewport!.style.scrollSnapType = 'none';
+  });
+  $effect(() => {
+    void albums;
+    const viewport = untrack(() => shelfViewport);
+    if (!shelfHeld || !viewport) return;
+    viewport.scrollLeft = 0;
+    const release = setTimeout(() => (viewport.style.scrollSnapType = ''), SHELF_FLIP_MS + 40);
+    return () => {
+      clearTimeout(release);
+      viewport.style.scrollSnapType = '';
+    };
+  });
+
+  function shelfOut(_node: Element): TransitionConfig {
+    return { duration: 150, easing: easeOut, css: (t) => `opacity: ${t}` };
+  }
 </script>
 
 {#snippet tile(album: AlbumSummary, shelf: boolean, filled: boolean)}
@@ -315,13 +363,16 @@
        the viewport (the element that scrolls); data-scroll-x keeps the installed app's edge swipe
        out of it. -->
   <ScrollArea
+    bind:viewportRef={shelfViewport}
     orientation="horizontal"
     data-scroll-x=""
     class="[&>[data-slot=scroll-area-viewport]]:snap-x [&>[data-slot=scroll-area-viewport]]:scroll-px-4 md:[&>[data-slot=scroll-area-viewport]]:scroll-px-7"
   >
     <div class="flex gap-3 px-4 pt-2 pb-3 md:gap-4 md:px-7">
       {#each albums as album (album.key)}
-        {@render tile(album, true, true)}
+        <div class="shrink-0" animate:shelfFlip in:shelfIn out:shelfOut>
+          {@render tile(album, true, true)}
+        </div>
       {/each}
     </div>
   </ScrollArea>
