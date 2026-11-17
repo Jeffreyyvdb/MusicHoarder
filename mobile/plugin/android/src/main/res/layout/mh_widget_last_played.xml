@@ -28,14 +28,15 @@
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
+            android:gravity="center_vertical"
             android:orientation="vertical"
             android:padding="4dp">
 
             <ImageView
                 android:id="@+id/mh_lp_cover0"
                 android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:adjustViewBounds="true"
                 android:contentDescription="@string/mh_widget_cover"
                 android:scaleType="fitCenter" />
 
@@ -56,14 +57,15 @@
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
+            android:gravity="center_vertical"
             android:orientation="vertical"
             android:padding="4dp">
 
             <ImageView
                 android:id="@+id/mh_lp_cover1"
                 android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:adjustViewBounds="true"
                 android:contentDescription="@string/mh_widget_cover"
                 android:scaleType="fitCenter" />
 
@@ -84,14 +86,15 @@
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
+            android:gravity="center_vertical"
             android:orientation="vertical"
             android:padding="4dp">
 
             <ImageView
                 android:id="@+id/mh_lp_cover2"
                 android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:adjustViewBounds="true"
                 android:contentDescription="@string/mh_widget_cover"
                 android:scaleType="fitCenter" />
 
@@ -112,14 +115,15 @@
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
+            android:gravity="center_vertical"
             android:orientation="vertical"
             android:padding="4dp">
 
             <ImageView
                 android:id="@+id/mh_lp_cover3"
                 android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:adjustViewBounds="true"
                 android:contentDescription="@string/mh_widget_cover"
                 android:scaleType="fitCenter" />
 
