@@ -357,7 +357,7 @@
           {@render sectionTitle('listening-artists', 'Top artists')}
           <ol
             data-scroll-x=""
-            class="no-scrollbar -mx-4 flex snap-x gap-4 overflow-x-auto overflow-y-hidden px-4 pb-1 md:-mx-7 md:px-7"
+            class="no-scrollbar -mx-4 flex snap-x scroll-px-4 gap-4 overflow-x-auto overflow-y-hidden px-4 pb-1 md:-mx-7 md:scroll-px-7 md:px-7"
           >
             {#each stats.topArtists as artist, i (artist.name)}
               <li class="w-[120px] shrink-0 snap-start md:w-[136px]">
@@ -397,7 +397,7 @@
           {@render sectionTitle('listening-albums', 'Top albums')}
           <ol
             data-scroll-x=""
-            class="no-scrollbar -mx-4 flex snap-x gap-4 overflow-x-auto overflow-y-hidden px-4 pb-1 md:-mx-7 md:px-7"
+            class="no-scrollbar -mx-4 flex snap-x scroll-px-4 gap-4 overflow-x-auto overflow-y-hidden px-4 pb-1 md:-mx-7 md:scroll-px-7 md:px-7"
           >
             {#each stats.topAlbums as album, i (`${album.album}\u0000${album.albumArtist ?? ''}`)}
               {@const href = albumHref(album.songId)}
