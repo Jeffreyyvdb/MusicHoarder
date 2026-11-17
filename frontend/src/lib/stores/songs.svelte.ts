@@ -532,6 +532,10 @@ export const songsStore = {
   get songsById() {
     return songsById;
   },
+  /** Changes whenever a counted play is shown; for a reader that only needs to know to look again. */
+  get playsShown() {
+    return playStats;
+  },
   /** The library's album cards: built songs only, folder-split albums folded together. */
   get albums() {
     return albums;

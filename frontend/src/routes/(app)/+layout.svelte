@@ -17,7 +17,7 @@
   import { tabMemory } from '#lib/stores/tab-memory.svelte.ts';
   import { songsStore } from '#lib/stores/songs.svelte.ts';
   import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
-  import { isInboxHub, resolveNav } from '#lib/nav.ts';
+  import { isInboxHub, isPathAllowedFor, resolveNav } from '#lib/nav.ts';
   import { isAdmin, isDemo } from '#lib/auth/capabilities.ts';
   import { createSessionWatch, SESSION_DEPENDENCY } from '#lib/auth/session-watch.ts';
   import { fetchCurrentUser } from '#lib/api-client.ts';
@@ -25,6 +25,13 @@
   import { setLoopingContext } from '#lib/looping.svelte.ts';
   import { isInstalledApp } from '#lib/hooks/viewport-insets.svelte.ts';
   import { nativePlatform } from '#lib/native/shell.ts';
+  import { runLaunchAction } from '#lib/native/widget-actions.ts';
+  import {
+    buildShelf,
+    onLaunchAction,
+    publishShelf,
+    widgetsAvailable
+  } from '#lib/native/widgets.ts';
 
   type Props = { children: Snippet };
   const { children }: Props = $props();
@@ -33,6 +40,8 @@
   // more: the ordinary endpoints already return their own rows plus whatever was shared with
   // them. This flag only hides administration chrome that would render empty or 403.
   const isFriendSession = $derived(!isAdmin(page.data.user));
+
+  const WIDGET_SHELF_DELAY_MS = 5000;
 
   const isMobile = new IsMobile();
 
@@ -197,6 +206,49 @@
       offClient();
       offPlayer();
     };
+  });
+
+  // Home Screen widgets (app shell only). A tap on one reaches the page as a launch action, never
+  // as a URL, and a path is followed only where this account may go.
+  $effect(() => {
+    if (!widgetsAvailable()) return;
+    const user = page.data.user;
+    let cancelWait = () => {};
+    const stop = onLaunchAction(
+      (action) => {
+        cancelWait();
+        cancelWait = runLaunchAction(action, {
+          loadedSongId: () => playerStore.currentSong?.id ?? null,
+          isPlaying: () => playerStore.isPlaying,
+          openNowPlaying: (id) => songDetail.open(id),
+          play: () => playerStore.togglePlay(),
+          open: (path) => void goto(path)
+        });
+      },
+      (pathname) => isPathAllowedFor(pathname, user)
+    );
+    return () => {
+      stop();
+      cancelWait();
+    };
+  });
+
+  // The Last played widget's shelf, once the library is loaded and a while after each counted
+  // play. The sort runs in the timer, never in a play's own task (see CLAUDE.md on plays), and
+  // publishShelf drops an unchanged shelf. Never for the demo account, whose library is shared.
+  $effect(() => {
+    if (!widgetsAvailable() || isDemo(page.data.user)) return;
+    const albums = songsStore.albums;
+    void songsStore.playsShown;
+    if (albums.length === 0) return;
+    const timer = setTimeout(
+      () =>
+        publishShelf(
+          buildShelf(albums, (s) => songsStore.playStatsOf(s).lastPlayedAtUtc, location.origin)
+        ),
+      WIDGET_SHELF_DELAY_MS
+    );
+    return () => clearTimeout(timer);
   });
 
   // Chat: the account's conversations over the chat stream (the Chats badge, the list), and this

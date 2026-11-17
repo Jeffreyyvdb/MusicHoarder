@@ -17,11 +17,14 @@ import { playerStore } from '#lib/stores/player.svelte.ts';
 import { playbackSync } from '#lib/stores/playback-sync.svelte.ts';
 import { chatStore } from '#lib/stores/chat.svelte.ts';
 import { forgetPushOnSignOut } from '#lib/push/web-push.ts';
+import { clearWidgets } from '#lib/native/widgets.ts';
 
 export async function signOutAndReset(allSessions = false): Promise<void> {
   // While the session still stands: this account's chat notifications stop arriving here.
   await forgetPushOnSignOut();
   const { fallback } = await signOut(allSessions);
+  // Before either exit below: a home screen must not keep the last track of an account that left.
+  await clearWidgets();
   if (fallback) {
     // The server promoted a parked account. A hard reload (not `goto`) resets every module
     // singleton for the new identity — same reasoning as `switch-account.ts`.

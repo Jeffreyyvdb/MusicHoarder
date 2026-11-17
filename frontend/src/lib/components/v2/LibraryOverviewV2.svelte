@@ -22,7 +22,6 @@
     rowCoverFallbackForSong,
     rowCoverUrlForSong,
     seededOrder,
-    sortAlbumsByLastPlayed,
     sortAlbumsByRecency,
     sortSongsByRecentlyLiked,
     toPlayerSong,
@@ -31,6 +30,7 @@
     type GroupSummary
   } from '#lib/api-client.ts';
   import { isAdmin } from '#lib/auth/capabilities.ts';
+  import { albumHref, lastPlayedAlbums } from '#lib/library/last-played.ts';
   import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
   import { NAV_GROUPS, navGroupsFor } from '#lib/nav.ts';
   import { playerStore } from '#lib/stores/player.svelte.ts';
@@ -89,11 +89,8 @@
     return a.songs.every((s) => !songsStore.playStatsOf(s).playCount);
   }
   // Through the store's play stats, so a play counted since the last fetch moves its album up.
-  const lastPlayedAlbums = $derived(
-    sortAlbumsByLastPlayed(allAlbums, (s) => songsStore.playStatsOf(s).lastPlayedAtUtc).slice(
-      0,
-      SHELF_SIZE
-    )
+  const lastPlayedShelf = $derived(
+    lastPlayedAlbums(allAlbums, (s) => songsStore.playStatsOf(s).lastPlayedAtUtc, SHELF_SIZE)
   );
 
   // Discover: albums you've never pressed play on — a random rummage through the
@@ -196,9 +193,6 @@
   type RowMenu = { openAt: (point: LongPressPoint) => void };
   const menus: Record<number, RowMenu | undefined> = {};
 
-  function albumHref(a: AlbumSummary): string {
-    return `/library?album=${encodeURIComponent(a.key)}`;
-  }
   function artistHref(g: GroupSummary): string {
     return `/library?artist=${encodeURIComponent(g.key)}`;
   }
@@ -379,11 +373,11 @@
           </section>
         {/if}
 
-        {#if lastPlayedAlbums.length > 0}
+        {#if lastPlayedShelf.length > 0}
           <section aria-labelledby="overview-played">
             {@render sectionHeader('Last played', '/library', 'overview-played')}
             <LibraryAlbumsGridV2
-              albums={lastPlayedAlbums}
+              albums={lastPlayedShelf}
               hrefFor={albumHref}
               layout="shelf"
               menu
