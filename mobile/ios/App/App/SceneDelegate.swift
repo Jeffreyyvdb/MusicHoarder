@@ -2,6 +2,7 @@ import UIKit
 import Capacitor
 import WebKit
 import WidgetBridge
+import WidgetKit
 
 class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
@@ -14,6 +15,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         window = UIWindow(windowScene: windowScene)
         loadBridge()
         window?.makeKeyAndVisible()
+        stageWidgetScreenshotFixtures()
         // The bundled page chose (or forgot) a server: build the web view again for it.
         NotificationCenter.default.addObserver(
             forName: Notification.Name("MusicHoarderServerChanged"), object: nil, queue: .main
@@ -134,5 +136,30 @@ final class ServerBridgeViewController: CAPBridgeViewController {
             descriptor.appStartPath = "/overview"
         }
         return descriptor
+    }
+}
+
+private func stageWidgetScreenshotFixtures() {
+    guard ProcessInfo.processInfo.environment["MH_WIDGET_SHOTS"] == "1" else { return }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+        do {
+            guard let store = WidgetStore.forThisBundle(),
+                  let fixture = Bundle.main.resourceURL?.appendingPathComponent("WidgetFixtures")
+            else { fatalError("Widget screenshot fixture has no App Group container") }
+            try FileManager.default.createDirectory(at: store.root, withIntermediateDirectories: true)
+            let art = store.root.appendingPathComponent("art")
+            try? FileManager.default.removeItem(at: art)
+            try FileManager.default.copyItem(at: fixture.appendingPathComponent("art"), to: art)
+            let now = try Data(contentsOf: fixture.appendingPathComponent("now-playing.json"))
+            let shelf = try Data(contentsOf: fixture.appendingPathComponent("shelf.json"))
+            store.write(NowPlaying(json: now))
+            store.write(Shelf(json: shelf))
+            guard case .track = store.readNowPlaying(), store.readShelf().items.count == 4
+            else { fatalError("Widget screenshot fixture documents did not read back") }
+            WidgetCenter.shared.reloadAllTimelines()
+            print("Widget screenshot fixtures written to App Group")
+        } catch {
+            fatalError("Widget screenshot fixture failed: \(error)")
+        }
     }
 }
