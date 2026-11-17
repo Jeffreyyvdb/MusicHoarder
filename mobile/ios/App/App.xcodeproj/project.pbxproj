@@ -16,7 +16,41 @@
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
+		E7A1D9000000000000000020 /* PlaybackCommandIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A1D9000000000000000003 /* PlaybackCommandIntent.swift */; };
+		E7A1D9000000000000000021 /* PlaybackCommandIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A1D9000000000000000003 /* PlaybackCommandIntent.swift */; };
+		E7A1D9000000000000000022 /* MusicHoarderWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A1D9000000000000000005 /* MusicHoarderWidgetBundle.swift */; };
+		E7A1D9000000000000000023 /* NowPlayingWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A1D9000000000000000006 /* NowPlayingWidget.swift */; };
+		E7A1D9000000000000000024 /* LastPlayedWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A1D9000000000000000007 /* LastPlayedWidget.swift */; };
+		E7A1D9000000000000000025 /* WidgetParts.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A1D9000000000000000008 /* WidgetParts.swift */; };
+		E7A1D9000000000000000026 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = E7A1D9000000000000000011 /* PrivacyInfo.xcprivacy */; };
+		E7A1D9000000000000000030 /* MusichoarderWidgetBridge in Frameworks */ = {isa = PBXBuildFile; productRef = E7A1D9000000000000000028 /* MusichoarderWidgetBridge */; };
+		E7A1D9000000000000000031 /* MusichoarderWidgetBridge in Frameworks */ = {isa = PBXBuildFile; productRef = E7A1D9000000000000000029 /* MusichoarderWidgetBridge */; };
+		E7A1D9000000000000000033 /* MusicHoarderWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E7A1D9000000000000000012 /* MusicHoarderWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		E7A1D9000000000000000034 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 504EC2FC1FED79650016851F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E7A1D9000000000000000013;
+			remoteInfo = MusicHoarderWidgets;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		E7A1D9000000000000000032 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				E7A1D9000000000000000033 /* MusicHoarderWidgets.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
@@ -30,6 +64,16 @@
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
 		9582B6822FE993A50072D4E8 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
+		E7A1D9000000000000000003 /* PlaybackCommandIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackCommandIntent.swift; sourceTree = "<group>"; };
+		E7A1D9000000000000000004 /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
+		E7A1D9000000000000000005 /* MusicHoarderWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicHoarderWidgetBundle.swift; sourceTree = "<group>"; };
+		E7A1D9000000000000000006 /* NowPlayingWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingWidget.swift; sourceTree = "<group>"; };
+		E7A1D9000000000000000007 /* LastPlayedWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastPlayedWidget.swift; sourceTree = "<group>"; };
+		E7A1D9000000000000000008 /* WidgetParts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetParts.swift; sourceTree = "<group>"; };
+		E7A1D9000000000000000009 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		E7A1D9000000000000000010 /* Widgets.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Widgets.entitlements; sourceTree = "<group>"; };
+		E7A1D9000000000000000011 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		E7A1D9000000000000000012 /* MusicHoarderWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MusicHoarderWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -38,6 +82,15 @@
 			buildActionMask = 2147483647;
 			files = (
 				4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */,
+				E7A1D9000000000000000030 /* MusichoarderWidgetBridge in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E7A1D9000000000000000018 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E7A1D9000000000000000031 /* MusichoarderWidgetBridge in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -50,6 +103,8 @@
 				958DCC722DB07C7200EA8C5F /* debug.xcconfig */,
 				504EC3061FED79650016851F /* App */,
 				504EC3051FED79650016851F /* Products */,
+				E7A1D9000000000000000001 /* Shared */,
+				E7A1D9000000000000000002 /* Widgets */,
 			);
 			sourceTree = "<group>";
 		};
@@ -57,6 +112,7 @@
 			isa = PBXGroup;
 			children = (
 				504EC3041FED79650016851F /* App.app */,
+				E7A1D9000000000000000012 /* MusicHoarderWidgets.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -73,8 +129,31 @@
 				504EC3131FED79650016851F /* Info.plist */,
 				2FAD9762203C412B000D30F8 /* config.xml */,
 				50B271D01FEDC1A000F3C39B /* public */,
+				E7A1D9000000000000000004 /* App.entitlements */,
 			);
 			path = App;
+			sourceTree = "<group>";
+		};
+		E7A1D9000000000000000001 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				E7A1D9000000000000000003 /* PlaybackCommandIntent.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		E7A1D9000000000000000002 /* Widgets */ = {
+			isa = PBXGroup;
+			children = (
+				E7A1D9000000000000000005 /* MusicHoarderWidgetBundle.swift */,
+				E7A1D9000000000000000006 /* NowPlayingWidget.swift */,
+				E7A1D9000000000000000007 /* LastPlayedWidget.swift */,
+				E7A1D9000000000000000008 /* WidgetParts.swift */,
+				E7A1D9000000000000000009 /* Info.plist */,
+				E7A1D9000000000000000010 /* Widgets.entitlements */,
+				E7A1D9000000000000000011 /* PrivacyInfo.xcprivacy */,
+			);
+			path = Widgets;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -87,18 +166,41 @@
 				504EC3001FED79650016851F /* Sources */,
 				504EC3011FED79650016851F /* Frameworks */,
 				504EC3021FED79650016851F /* Resources */,
+				E7A1D9000000000000000032 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				E7A1D9000000000000000035 /* PBXTargetDependency */,
+			);
+			name = App;
+			packageProductDependencies = (
+				4D22ABE82AF431CB00220026 /* CapApp-SPM */,
+				E7A1D9000000000000000028 /* MusichoarderWidgetBridge */,
+			);
+			productName = App;
+			productReference = 504EC3041FED79650016851F /* App.app */;
+			productType = "com.apple.product-type.application";
+		};
+		E7A1D9000000000000000013 /* MusicHoarderWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E7A1D9000000000000000014 /* Build configuration list for PBXNativeTarget "MusicHoarderWidgets" */;
+			buildPhases = (
+				E7A1D9000000000000000017 /* Sources */,
+				E7A1D9000000000000000018 /* Frameworks */,
+				E7A1D9000000000000000019 /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 			);
-			name = App;
+			name = MusicHoarderWidgets;
 			packageProductDependencies = (
-				4D22ABE82AF431CB00220026 /* CapApp-SPM */,
+				E7A1D9000000000000000029 /* MusichoarderWidgetBridge */,
 			);
-			productName = App;
-			productReference = 504EC3041FED79650016851F /* App.app */;
-			productType = "com.apple.product-type.application";
+			productName = MusicHoarderWidgets;
+			productReference = E7A1D9000000000000000012 /* MusicHoarderWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -114,6 +216,9 @@
 						LastSwiftMigration = 1100;
 						ProvisioningStyle = Automatic;
 					};
+					E7A1D9000000000000000013 = {
+						ProvisioningStyle = Automatic;
+					};
 				};
 			};
 			buildConfigurationList = 504EC2FF1FED79650016851F /* Build configuration list for PBXProject "App" */;
@@ -127,12 +232,14 @@
 			mainGroup = 504EC2FB1FED79650016851F;
 			packageReferences = (
 				D4C12C0A2AAA248700AAC8A2 /* XCLocalSwiftPackageReference "CapApp-SPM" */,
+				E7A1D9000000000000000027 /* XCLocalSwiftPackageReference "plugin" */,
 			);
 			productRefGroup = 504EC3051FED79650016851F /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
 				504EC3031FED79650016851F /* App */,
+				E7A1D9000000000000000013 /* MusicHoarderWidgets */,
 			);
 		};
 /* End PBXProject section */
@@ -151,6 +258,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E7A1D9000000000000000019 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E7A1D9000000000000000026 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -160,10 +275,31 @@
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
+				E7A1D9000000000000000020 /* PlaybackCommandIntent.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E7A1D9000000000000000017 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E7A1D9000000000000000022 /* MusicHoarderWidgetBundle.swift in Sources */,
+				E7A1D9000000000000000023 /* NowPlayingWidget.swift in Sources */,
+				E7A1D9000000000000000024 /* LastPlayedWidget.swift in Sources */,
+				E7A1D9000000000000000025 /* WidgetParts.swift in Sources */,
+				E7A1D9000000000000000021 /* PlaybackCommandIntent.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		E7A1D9000000000000000035 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E7A1D9000000000000000013 /* MusicHoarderWidgets */;
+			targetProxy = E7A1D9000000000000000034 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXVariantGroup section */
 		504EC30B1FED79650016851F /* Main.storyboard */ = {
@@ -235,6 +371,8 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MH_APP_GROUP = "group.$(MH_BUNDLE_ID)";
+				MH_BUNDLE_ID = com.musichoarder.app;
 				MTL_ENABLE_DEBUG_INFO = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
@@ -286,6 +424,8 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MH_APP_GROUP = "group.$(MH_BUNDLE_ID)";
+				MH_BUNDLE_ID = com.musichoarder.app;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
@@ -299,6 +439,7 @@
 			baseConfigurationReference = 958DCC722DB07C7200EA8C5F /* debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				INFOPLIST_FILE = App/Info.plist;
@@ -308,8 +449,13 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-weak_framework",
+					AppIntents,
+				);
 				OTHER_SWIFT_FLAGS = "$(inherited) \"-D\" \"COCOAPODS\" \"-DDEBUG\"";
-				PRODUCT_BUNDLE_IDENTIFIER = com.musichoarder.app;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(MH_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_VERSION = 5.0;
@@ -321,6 +467,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				INFOPLIST_FILE = App/Info.plist;
@@ -330,8 +477,63 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.musichoarder.app;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-weak_framework",
+					AppIntents,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(MH_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		E7A1D9000000000000000015 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Widgets/Widgets.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Widgets/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(MH_BUNDLE_ID).widgets";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		E7A1D9000000000000000016 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Widgets/Widgets.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Widgets/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(MH_BUNDLE_ID).widgets";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -359,12 +561,25 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		E7A1D9000000000000000014 /* Build configuration list for PBXNativeTarget "MusicHoarderWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E7A1D9000000000000000015 /* Debug */,
+				E7A1D9000000000000000016 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
 		D4C12C0A2AAA248700AAC8A2 /* XCLocalSwiftPackageReference "CapApp-SPM" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = "CapApp-SPM";
+		};
+		E7A1D9000000000000000027 /* XCLocalSwiftPackageReference "plugin" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../../plugin;
 		};
 /* End XCLocalSwiftPackageReference section */
 
@@ -373,6 +588,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = D4C12C0A2AAA248700AAC8A2 /* XCLocalSwiftPackageReference "CapApp-SPM" */;
 			productName = "CapApp-SPM";
+		};
+		E7A1D9000000000000000028 /* MusichoarderWidgetBridge */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E7A1D9000000000000000027 /* XCLocalSwiftPackageReference "plugin" */;
+			productName = MusichoarderWidgetBridge;
+		};
+		E7A1D9000000000000000029 /* MusichoarderWidgetBridge */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E7A1D9000000000000000027 /* XCLocalSwiftPackageReference "plugin" */;
+			productName = MusichoarderWidgetBridge;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

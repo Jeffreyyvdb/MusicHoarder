@@ -2,6 +2,7 @@ import AVFoundation
 import Foundation
 import MediaPlayer
 import UIKit
+import WidgetBridge
 
 /// One song as the web player describes it.
 struct Track {
@@ -42,6 +43,10 @@ final class AudioEngine: NSObject {
     static let maxUpcoming = 20
     /// How long the page has to pick up a lock-screen command before it is carried out here.
     private static let remoteAckTimeout: TimeInterval = 0.5
+    /// How long a widget's Play may take to become audible before it is reported as failed.
+    private static let widgetPlayTimeout: TimeInterval = 5
+    /// How long a widget's other commands are given to show their effect.
+    private static let widgetCommandTimeout: TimeInterval = 2
     private static let cookieLifetime: TimeInterval = 30
 
     weak var delegate: AudioEngineDelegate?
@@ -76,9 +81,11 @@ final class AudioEngine: NSObject {
     private var nextEnabledByPage = false
     private var previousEnabledByPage = false
     private var remoteId = 0
-    private var pendingRemotes = Set<Int>()
+    /// Commands the page has not picked up yet, each with what to do once it is dealt with.
+    private var pendingRemotes: [Int: () -> Void] = [:]
 
-    private var artwork: (url: URL, image: MPMediaItemArtwork)?
+    private var artwork: (url: URL, image: MPMediaItemArtwork, picture: UIImage)?
+    private let widgets = WidgetPublisher.shared
     private var artworkTask: URLSessionDataTask?
     /// The lock-screen handlers added here, so `shutdown()` can take them off again.
     private var remoteTargets: [(MPRemoteCommand, Any)] = []
@@ -285,6 +292,8 @@ final class AudioEngine: NSObject {
         endBackgroundTask()
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         refreshRemoteCommands()
+        // The widget keeps the last track, and its Play opens the app: nothing is loaded here.
+        widgets.demote()
     }
 
     /// Which of Next and Previous the page can carry out (a station can supply a next track that
@@ -298,7 +307,9 @@ final class AudioEngine: NSObject {
     /// The page picked a lock-screen command up, so it is not carried out here as well. False
     /// when it already has been: the page was too slow, and must leave it at that.
     func acknowledgeRemote(_ id: Int) -> Bool {
-        pendingRemotes.remove(id) != nil
+        guard let dealtWith = pendingRemotes.removeValue(forKey: id) else { return false }
+        dealtWith()
+        return true
     }
 
     func state() -> [String: Any] {
@@ -542,7 +553,7 @@ final class AudioEngine: NSObject {
 
     /// The cookies a request to `url` would carry, and no others: a cover on someone else's CDN
     /// must never be sent the session.
-    private static func cookies(_ all: [HTTPCookie], for url: URL) -> [HTTPCookie] {
+    static func cookies(_ all: [HTTPCookie], for url: URL) -> [HTTPCookie] {
         guard let host = url.host?.lowercased() else { return [] }
         return all.filter { cookie in
             if cookie.isSecure, url.scheme?.lowercased() != "https" { return false }
@@ -651,21 +662,27 @@ final class AudioEngine: NSObject {
         commands.changePlaybackPositionCommand.isEnabled = loaded
         commands.nextTrackCommand.isEnabled = loaded && (nextEnabledByPage || !upcoming.isEmpty)
         commands.previousTrackCommand.isEnabled = loaded && previousEnabledByPage
+        // A widget's Next and Previous follow the same two facts.
+        publishToWidgets()
     }
 
     /// Hand a command to the page, which knows what it means for the account's session; carry it
-    /// out here only when the page does not answer (it is asleep).
-    private func remote(_ command: String, time: Double? = nil) -> MPRemoteCommandHandlerStatus {
+    /// out here only when the page does not answer (it is asleep). `dealtWith` runs once either
+    /// has happened.
+    @discardableResult
+    private func remote(_ command: String, time: Double? = nil,
+                        dealtWith: @escaping () -> Void = {}) -> MPRemoteCommandHandlerStatus {
         guard current != nil else { return .noActionableNowPlayingItem }
         remoteId += 1
         let id = remoteId
-        pendingRemotes.insert(id)
+        pendingRemotes[id] = dealtWith
         var data: [String: Any] = ["id": id, "command": command]
         if let time { data["time"] = time }
         emit("remote", data)
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.remoteAckTimeout) { [weak self] in
-            guard let self, self.pendingRemotes.remove(id) != nil else { return }
+            guard let self, let dealtWith = self.pendingRemotes.removeValue(forKey: id) else { return }
             self.carryOut(command, time: time)
+            dealtWith()
         }
         return .success
     }
@@ -715,6 +732,82 @@ final class AudioEngine: NSObject {
             info[MPMediaItemPropertyArtwork] = artwork.image
         }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        publishToWidgets()
+    }
+
+    // MARK: - Home Screen widgets
+
+    /// Tell the widgets what the device is doing. Called on every change the lock screen hears
+    /// of, and never on the position tick: a widget works the position out from when this was
+    /// written. A snapshot that says what is already stored costs a file read.
+    private func publishToWidgets() {
+        guard let current, !loadPending, widgets.hasSharedContainer else { return }
+        let track = current.track
+        var art = track.artworkUrl.flatMap(WidgetPublisher.artFile(for:))
+        if let file = art, !widgets.hasArt(file) {
+            // A document never names a cover that is not there. This one follows when it is.
+            art = nil
+            if let artwork, artwork.url == track.artworkUrl {
+                widgets.keep(artwork.picture, as: file) { [weak self] stored in
+                    if stored { self?.publishToWidgets() }
+                }
+            }
+        }
+        let position = player.currentTime().seconds
+        let duration = current.item.duration.seconds
+        widgets.publish(.track(
+            TrackInfo(title: track.title, artist: track.artist, album: track.album, art: art),
+            .background(Transport(
+                // "Waiting" counts as playing: music was asked for, so the button says Pause.
+                playing: wantsPlay && !interrupted && player.currentItem != nil,
+                position: position.isFinite ? max(0, position) : 0,
+                duration: duration.isFinite && duration > 0 ? duration : 0,
+                rate: Double(rate),
+                asOf: Date(),
+                canNext: nextEnabledByPage || !upcoming.isEmpty,
+                canPrevious: previousEnabledByPage))))
+    }
+
+    /// A press on a Home Screen widget, which takes the lock screen's path: the page first, the
+    /// device itself when the page does not answer. `done` hears whether the command took effect,
+    /// and not before it has: iOS may suspend the app as soon as the widget's intent returns.
+    func widgetCommand(_ command: WidgetCommand, done: @escaping (Bool) -> Void) {
+        guard let entry = current, !loadPending else { return done(false) }
+        let timeout = command == .play ? Self.widgetPlayTimeout : Self.widgetCommandTimeout
+        remote(command.rawValue) { [weak self] in
+            guard let self else { return done(false) }
+            self.settle(command, from: entry, by: Date().addingTimeInterval(timeout), done: done)
+        }
+    }
+
+    /// Wait for a command to show: the page answers a press before it acts on it, and a stream
+    /// takes a moment to start.
+    private func settle(_ command: WidgetCommand, from entry: Entry, by deadline: Date,
+                        done: @escaping (Bool) -> Void) {
+        let settled: Bool
+        switch command {
+        case .play:
+            if let current, current.failed { return done(false) }
+            settled = player.timeControlStatus == .playing
+        case .pause:
+            settled = !wantsPlay
+        case .next:
+            settled = current !== entry
+        case .previous:
+            settled = true
+        }
+        if settled {
+            publishToWidgets()
+            return done(true)
+        }
+        if Date() >= deadline {
+            // Only a Play that stayed silent is a failure the widget must show.
+            return done(command != .play)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self else { return done(false) }
+            self.settle(command, from: entry, by: deadline, done: done)
+        }
     }
 
     private func loadArtwork() {
@@ -737,7 +830,7 @@ final class AudioEngine: NSObject {
                 let art = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
                 DispatchQueue.main.async {
                     guard let self, self.current?.track.artworkUrl == url else { return }
-                    self.artwork = (url, art)
+                    self.artwork = (url, art, image)
                     self.updateNowPlaying()
                 }
             }
