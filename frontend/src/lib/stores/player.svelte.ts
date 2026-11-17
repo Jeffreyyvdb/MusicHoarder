@@ -53,6 +53,9 @@ import {
   type WakeGuard
 } from '#lib/wake-guard.ts';
 
+/** How the loaded song replaced the one before: a step forward or back through the queue, or any other change. */
+export type TrackStep = 'next' | 'previous' | 'swap';
+
 export interface PlayerSong {
   id: number;
   title: string;
@@ -75,6 +78,8 @@ export interface PlayerSong {
 }
 
 let currentSong = $state<PlayerSong | null>(null);
+/** Compared by identity with `currentSong`, which holds the state proxy of the song assigned to it: record it after the assignment. */
+let arrival: { song: PlayerSong; step: 'next' | 'previous' } | null = null;
 let isPlaying = $state(false);
 let currentTime = $state(0);
 let duration = $state(0);
@@ -936,7 +941,7 @@ function playElement(options: { quietBlock?: boolean } = {}): Promise<PlayOutcom
 }
 
 /** Load a fresh song onto the element and start playback (no queue changes). */
-async function loadAndPlay(song: PlayerSong) {
+async function loadAndPlay(song: PlayerSong, step?: 'next' | 'previous') {
   if (!ensureAudioEl() || !audioEl) return;
 
   const gen = ++loadGeneration;
@@ -971,6 +976,7 @@ async function loadAndPlay(song: PlayerSong) {
 
   pendingLoad = null;
   currentSong = song;
+  arrival = step ? { song: currentSong, step } : null;
   currentTime = 0;
   duration = 0;
   updateMediaMetadata(song);
@@ -1220,7 +1226,7 @@ function nextTrack() {
 
 function advance() {
   queueIndex += 1;
-  void loadAndPlay(queue[queueIndex]);
+  void loadAndPlay(queue[queueIndex], 'next');
   maybePrefetchRadio();
 }
 
@@ -1340,7 +1346,7 @@ function skipToInQueue(position: number) {
   if (position < 0 || at >= queue.length) return;
   sync?.playIntent();
   queueIndex = at;
-  void loadAndPlay(queue[queueIndex]);
+  void loadAndPlay(queue[queueIndex], 'next');
   maybePrefetchRadio();
 }
 
@@ -1447,7 +1453,7 @@ function previousTrack(intent: boolean) {
   }
   if (intent) sync?.playIntent();
   queueIndex -= 1;
-  void loadAndPlay(queue[queueIndex]);
+  void loadAndPlay(queue[queueIndex], 'previous');
 }
 
 function pause() {
@@ -2111,6 +2117,10 @@ export const playerStore = {
    */
   get speedAdjustable() {
     return remoteView() === null;
+  },
+  get trackStep(): TrackStep {
+    if (remoteView() || !arrival || arrival.song !== currentSong) return 'swap';
+    return arrival.step;
   },
   get hasNext() {
     const remote = remoteView();

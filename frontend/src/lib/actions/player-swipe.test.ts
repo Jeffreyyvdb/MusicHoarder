@@ -14,7 +14,14 @@ class Bar extends EventTarget {
 }
 function setup() {
   const node = new Bar();
-  const options = { onnext: vi.fn(), onprevious: vi.fn(), onopen: vi.fn(), disabled: false };
+  const options = {
+    onnext: vi.fn(),
+    onprevious: vi.fn(),
+    onopen: vi.fn(),
+    ondrag: vi.fn(),
+    onsettle: vi.fn(),
+    disabled: false
+  };
   const action = playerSwipe(node as unknown as HTMLElement, options);
   const send = (type: string, x: number, y = 0, extra = {}) => {
     const e = Object.assign(new Event(type, { cancelable: true }), {
@@ -122,5 +129,52 @@ describe('compact player swipes', () => {
     node.dispatchEvent(click);
     expect(click.defaultPrevented).toBe(false);
     action.destroy();
+  });
+
+  it('reports the raw distance of horizontal moves, after the slop only', () => {
+    const { send, options } = setup();
+    send('pointerdown', 100, 100);
+    send('pointermove', 105, 100);
+    expect(options.ondrag).not.toHaveBeenCalled();
+    send('pointermove', 70, 104);
+    send('pointermove', 40, 104);
+    expect(options.ondrag.mock.calls).toEqual([[-30], [-60]]);
+  });
+
+  it('does not report a vertical drag', () => {
+    const { send, options } = setup();
+    send('pointerdown', 100, 100);
+    send('pointermove', 104, 60);
+    send('pointerup', 104, 60);
+    expect(options.ondrag).not.toHaveBeenCalled();
+    expect(options.onsettle).not.toHaveBeenCalled();
+    expect(options.onopen).toHaveBeenCalledOnce();
+  });
+
+  it('settles when a drag lets go short of the threshold', () => {
+    const { send, options } = setup();
+    send('pointerdown', 100);
+    send('pointermove', 70);
+    send('pointerup', 70);
+    expect(options.onsettle).toHaveBeenCalledOnce();
+    expect(options.onnext).not.toHaveBeenCalled();
+  });
+
+  it('settles when the browser takes the touch away', () => {
+    const { send, options } = setup();
+    send('pointerdown', 100);
+    send('pointermove', 20);
+    send('pointercancel', 20);
+    expect(options.onsettle).toHaveBeenCalledOnce();
+    expect(options.onnext).not.toHaveBeenCalled();
+  });
+
+  it('does not settle when the drag commits', () => {
+    const { send, options } = setup();
+    send('pointerdown', 100);
+    send('pointermove', 30);
+    send('pointerup', 30);
+    expect(options.onnext).toHaveBeenCalledOnce();
+    expect(options.onsettle).not.toHaveBeenCalled();
   });
 });

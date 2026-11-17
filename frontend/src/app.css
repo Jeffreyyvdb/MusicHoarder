@@ -4,6 +4,10 @@
    stylesheet, requested only when the skin is on (#lib/hardware/skin-stylesheet). */
 
 @custom-variant dark (&:is(.dark *));
+/* bits-ui renders `data-state="open|closed"`, never `data-open`/`data-closed`, which is what shadcn's
+   classes (`data-open:animate-in`) and Tailwind's default `data-*` variants look for. */
+@custom-variant data-open (&[data-state="open"]);
+@custom-variant data-closed (&[data-state="closed"]);
 
 /* Hide the scrollbar while keeping the element scrollable (e.g. horizontal tab
  * strips that swipe-scroll on mobile, the sidebar content, the command list) — on touch-only

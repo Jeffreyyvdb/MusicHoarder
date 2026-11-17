@@ -301,3 +301,35 @@ describe('Media Session play after the computer wakes', () => {
     vi.restoreAllMocks();
   });
 });
+
+describe('trackStep', () => {
+  it('is next once a skip has loaded the following song', async () => {
+    const player = await freshStore();
+    await player.playSong(QUEUE[0], QUEUE, 0);
+    player.playNext();
+    expect(player.currentSong?.id).toBe(1);
+    await settle();
+    expect(player.currentSong?.id).toBe(2);
+    expect(player.trackStep).toBe('next');
+  });
+
+  it('is previous after stepping back near the start of a song', async () => {
+    const player = await freshStore();
+    await player.playSong(QUEUE[2], QUEUE, 2);
+    audio.currentTime = 1;
+    player.playPrevious();
+    await settle();
+    expect(player.currentSong?.id).toBe(2);
+    expect(player.trackStep).toBe('previous');
+  });
+
+  it('is a swap when a song is picked rather than stepped to', async () => {
+    const player = await freshStore();
+    await player.playSong(QUEUE[0], QUEUE, 0);
+    player.playNext();
+    await settle();
+    await player.playSong(QUEUE[0], QUEUE, 0);
+    expect(player.currentSong?.id).toBe(1);
+    expect(player.trackStep).toBe('swap');
+  });
+});

@@ -3,11 +3,15 @@ type PlayerSwipeOptions = {
   onnext: () => void;
   onprevious: () => void;
   onopen: () => void;
+  /** Horizontal-dominant moves past the slop, with the raw distance from where the finger went down. */
+  ondrag?: (dx: number) => void;
+  /** The finger let go (or was taken) after a drag, without committing to next or previous. */
+  onsettle?: () => void;
 };
 
 /** Compact player shortcuts. The host owns touch-action: none; buttons remain tap targets. */
 export function playerSwipe(node: HTMLElement, options: PlayerSwipeOptions) {
-  let gesture: { id: number; x: number; y: number; moved: boolean } | null = null;
+  let gesture: { id: number; x: number; y: number; moved: boolean; dragged: boolean } | null = null;
   let swallowClick = false;
   let expiry: ReturnType<typeof setTimeout> | undefined;
 
@@ -19,15 +23,21 @@ export function playerSwipe(node: HTMLElement, options: PlayerSwipeOptions) {
     }
     clearTimeout(expiry);
     swallowClick = false;
-    gesture = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: false };
+    gesture = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: false, dragged: false };
   }
 
   function move(e: PointerEvent) {
     if (!gesture || e.pointerId !== gesture.id) return;
-    if (Math.hypot(e.clientX - gesture.x, e.clientY - gesture.y) <= 10) return;
+    const dx = e.clientX - gesture.x;
+    const dy = e.clientY - gesture.y;
+    if (Math.hypot(dx, dy) <= 10) return;
     gesture.moved = true;
     // Capture only after a drag: a plain tap still clicks the original button.
     if (!node.hasPointerCapture(e.pointerId)) node.setPointerCapture(e.pointerId);
+    if (Math.abs(dx) > Math.abs(dy)) {
+      gesture.dragged = true;
+      options.ondrag?.(dx);
+    }
   }
 
   function end(e: PointerEvent) {
@@ -45,12 +55,18 @@ export function playerSwipe(node: HTMLElement, options: PlayerSwipeOptions) {
       expiry = setTimeout(() => (swallowClick = false), 800);
     }
     if (node.hasPointerCapture(e.pointerId)) node.releasePointerCapture(e.pointerId);
-    if (e.type !== 'pointerup' || options.disabled) return;
+    const settle = () => {
+      if (g.dragged) options.onsettle?.();
+    };
+    if (e.type !== 'pointerup' || options.disabled) return settle();
     // Commit once, on release, so a long drag cannot skip several songs.
     if (Math.abs(dx) >= 48 && Math.abs(dx) > Math.abs(dy) * 1.3) {
       if (dx < 0) options.onnext();
       else options.onprevious();
-    } else if (dy <= -24 && Math.abs(dy) > Math.abs(dx) * 1.3) {
+      return;
+    }
+    settle();
+    if (dy <= -24 && Math.abs(dy) > Math.abs(dx) * 1.3) {
       options.onopen();
     }
   }

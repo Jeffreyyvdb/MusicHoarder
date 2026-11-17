@@ -29,7 +29,11 @@
   // cover-dim.ts). While it is open the installed app's status bar is painted black to match
   // (themeSurface), the tab bar hides (the shell reads songDetail.isOpen) and the mini player hides
   // (registerPanel).
-  const r = $derived(songDetail.resolved);
+  let departing = $state.raw<typeof songDetail.resolved>(null);
+  $effect.pre(() => {
+    if (songDetail.resolved) departing = songDetail.resolved;
+  });
+  const r = $derived(songDetail.resolved ?? (songDetail.isOpen ? null : departing));
 
   // Under the hardware skin (an easter egg, #lib/hardware) Now Playing has no media appearance: it
   // sits on the skin's desk in the app's own theme, with no cover wash behind it.
@@ -506,21 +510,21 @@
     }
   }
 
-  /* Presentation: Now Playing rises from the bottom like the sheet it is (350ms on the iOS
-     presentation curve) and falls back down; the black behind it fades. The exit keyframes only
-     define `to`, so a drag-to-dismiss closes from wherever the finger left it. bits-ui sets
-     data-open/data-closed after mount, so :global() keeps Svelte from pruning the selectors. The
-     global Reduce Motion clamp in app.css turns both into a cut. */
-  :global(.mh-np[data-open]) {
-    animation: mh-np-rise 350ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  /* The rise and the fade-in fill `backwards` only: a filled animation outranks the inline
+     transform/opacity that drag-to-dismiss writes, so `both` would leave the overlay deaf to the
+     finger once the rise had run. The fall and fade-out keep `both` to hold their end state until
+     bits-ui unmounts, and only define `to`, so a drag-to-dismiss closes from where the finger left
+     it. */
+  :global(.mh-np[data-state='open']) {
+    animation: mh-np-rise 350ms cubic-bezier(0.32, 0.72, 0, 1) backwards;
   }
-  :global(.mh-np[data-closed]) {
+  :global(.mh-np[data-state='closed']) {
     animation: mh-np-fall 350ms cubic-bezier(0.32, 0.72, 0, 1) both;
   }
-  :global(.mh-np-scrim[data-open]) {
-    animation: mh-np-fade-in 350ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  :global(.mh-np-scrim[data-state='open']) {
+    animation: mh-np-fade-in 350ms cubic-bezier(0.32, 0.72, 0, 1) backwards;
   }
-  :global(.mh-np-scrim[data-closed]) {
+  :global(.mh-np-scrim[data-state='closed']) {
     animation: mh-np-fade-out 350ms cubic-bezier(0.32, 0.72, 0, 1) both;
   }
   @keyframes mh-np-rise {
