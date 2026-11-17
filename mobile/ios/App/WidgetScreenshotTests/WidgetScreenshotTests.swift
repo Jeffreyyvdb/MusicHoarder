@@ -26,7 +26,6 @@ final class WidgetScreenshotTests: XCTestCase {
             tap("Add Widget", in: springboard)
             sleep(3)
             if springboard.buttons["Done"].exists { springboard.buttons["Done"].tap() }
-            XCUIDevice.shared.press(.home)
             sleep(3)
             capture("ios-home-\(appearance.lowercased())")
             app.terminate()
@@ -53,12 +52,13 @@ final class WidgetScreenshotTests: XCTestCase {
     }
 
     private func tap(_ label: String, in app: XCUIApplication) {
-        let button = app.buttons[label].firstMatch
+        let match = NSPredicate(format: "label MATCHES %@", "\\s*" + NSRegularExpression.escapedPattern(for: label) + "\\s*")
+        let button = app.buttons.matching(match).firstMatch
         if button.waitForExistence(timeout: 5) && button.isHittable {
             button.tap()
             return
         }
-        let text = app.staticTexts[label].firstMatch
+        let text = app.staticTexts.matching(match).firstMatch
         XCTAssertTrue(text.waitForExistence(timeout: 5), "\(label) is visible")
         text.tap()
     }
