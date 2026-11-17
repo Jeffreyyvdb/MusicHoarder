@@ -134,7 +134,8 @@
         if (!primaryFailed && coverUrl) primaryFailed = true;
         else fallbackFailed = true;
       }}
-      class="mh-cover-img absolute inset-0 z-[3] block size-full object-cover"
+      onanimationend={(e) => e.currentTarget.classList.remove('mh-cover-fade-in')}
+      class="mh-cover-img mh-cover-fade-in absolute inset-0 z-[3] block size-full object-cover"
     />
   {/if}
 </div>
@@ -147,8 +148,11 @@
   }
 
   /* Ease the cover in over the tinted tile so scrolling doesn't snap-flash each image. The hardware
-     skin turns this off (app-skin.css): on iOS the fading image paints over the skin's bezel. */
-  .mh-cover-img {
+     skin turns this off (app-skin.css): on iOS the fading image paints over the skin's bezel.
+     The class is dropped once the fade has played: moving an element in the DOM restarts its CSS
+     animations, and a keyed list that reorders (a shelf taking a just-played album to the front)
+     moves its tiles, so every moved cover blinked back to its tint. */
+  .mh-cover-fade-in {
     animation: mh-cover-fade 240ms ease-out;
   }
 
@@ -162,7 +166,7 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .mh-cover-img {
+    .mh-cover-fade-in {
       animation: none;
     }
   }
