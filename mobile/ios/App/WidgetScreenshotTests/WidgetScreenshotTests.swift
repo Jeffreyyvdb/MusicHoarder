@@ -46,7 +46,9 @@ final class WidgetScreenshotTests: XCTestCase {
         search.typeText("MusicHoarder")
         sleep(3)
         capture("gallery-search")
-        tap("MusicHoarder", in: springboard)
+        let result = springboard.cells["MusicHoarder"].firstMatch
+        XCTAssertTrue(result.waitForExistence(timeout: 10), "MusicHoarder is offered in the widget gallery")
+        result.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         sleep(3)
     }
 
