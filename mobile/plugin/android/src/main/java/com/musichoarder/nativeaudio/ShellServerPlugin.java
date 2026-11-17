@@ -102,6 +102,9 @@ public class ShellServerPlugin extends Plugin {
         activity.getWindow().getDecorView().postDelayed(() -> {
             AudioEngine engine = PlaybackService.engine();
             if (engine != null) engine.stop();
+            // The widgets showed the old server's music and albums; their links would open
+            // nothing on the new one.
+            WidgetPublisher.get(activity).clear();
             activity.recreate();
         }, 100);
     }

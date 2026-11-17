@@ -7,6 +7,7 @@ import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.CapConfig;
 import com.getcapacitor.Logger;
 import com.musichoarder.nativeaudio.ShellServerPlugin;
+import com.musichoarder.nativeaudio.WidgetsPlugin;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -20,6 +21,7 @@ public class MainActivity extends BridgeActivity {
     protected void onCreate(Bundle savedInstanceState) {
         config = configForChosenServer();
         super.onCreate(savedInstanceState);
+        WidgetsPlugin.deliverLaunch(this, getIntent());
     }
 
     /**
@@ -61,6 +63,8 @@ public class MainActivity extends BridgeActivity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         openSignInLink(intent);
+        // A tap on a Home Screen widget: the page is asked, never a URL loaded (see WidgetsPlugin).
+        WidgetsPlugin.deliverLaunch(this, intent);
     }
 
     /**
