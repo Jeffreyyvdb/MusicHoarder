@@ -9,6 +9,7 @@ tests.add_dependency(app)
 tests.build_configurations.each do |config|
   config.build_settings.merge!({
     'PRODUCT_BUNDLE_IDENTIFIER' => 'com.musichoarder.screenshots',
+    'PRODUCT_NAME' => '$(TARGET_NAME)',
     'GENERATE_INFOPLIST_FILE' => 'YES',
     'SWIFT_VERSION' => '5.0',
     'TEST_TARGET_NAME' => 'App',
