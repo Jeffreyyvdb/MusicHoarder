@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="mh_widget_now_playing">Now Playing</string>
+    <string name="mh_widget_now_playing_description">The song you are playing, with play, pause and skip.</string>
+    <string name="mh_widget_last_played">Last played</string>
+    <string name="mh_widget_last_played_description">Your recent albums. Tap one to open it.</string>
+    <string name="mh_widget_nothing_playing">Nothing playing</string>
+    <string name="mh_widget_open_app">Open MusicHoarder</string>
+    <string name="mh_widget_shelf_empty">Play something in MusicHoarder</string>
+    <string name="mh_widget_play">Play</string>
+    <string name="mh_widget_pause">Pause</string>
+    <string name="mh_widget_next">Next</string>
+    <string name="mh_widget_previous">Previous</string>
+    <string name="mh_widget_cover">Cover</string>
+</resources>

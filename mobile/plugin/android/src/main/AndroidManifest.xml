@@ -17,5 +17,36 @@
                 <action android:name="androidx.media3.session.MediaSessionService" />
             </intent-filter>
         </service>
+
+        <!-- Home screen widgets. Providers are exported for the launcher, which sends them only
+             the system's update broadcasts; they draw from files the app wrote. -->
+        <receiver
+            android:name="com.musichoarder.nativeaudio.NowPlayingWidgetProvider"
+            android:exported="true"
+            android:label="@string/mh_widget_now_playing">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/mh_widget_now_playing_info" />
+        </receiver>
+
+        <receiver
+            android:name="com.musichoarder.nativeaudio.LastPlayedWidgetProvider"
+            android:exported="true"
+            android:label="@string/mh_widget_last_played">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/mh_widget_last_played_info" />
+        </receiver>
+
+        <!-- A press on a widget button while the player is up: only this app's own PendingIntents. -->
+        <receiver
+            android:name="com.musichoarder.nativeaudio.WidgetCommandReceiver"
+            android:exported="false" />
     </application>
 </manifest>

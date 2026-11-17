@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="mh_widget_surface">#FFF4F4F6</color>
+    <color name="mh_widget_text">#FF1C1B1F</color>
+    <color name="mh_widget_text_secondary">#FF5F5E66</color>
+    <color name="mh_widget_placeholder">#26000000</color>
+</resources>
