@@ -1,5 +1,7 @@
 import UIKit
 import Capacitor
+import WidgetBridge
+import WidgetKit
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -7,7 +9,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        // A new process holds no player, also when iOS started it only to run a widget button:
+        // whatever the widget could do in the background before, it now needs the app for.
+        demoteWidget()
         return true
     }
 
@@ -30,7 +34,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     func applicationWillTerminate(_ application: UIApplication) {
-        // Called when the application is about to terminate. Save data if appropriate. See also applicationDidEnterBackground:.
+        demoteWidget()
+    }
+
+    private func demoteWidget() {
+        guard WidgetStore.forThisBundle()?.demoteNowPlaying() == true else { return }
+        WidgetCenter.shared.reloadTimelines(ofKind: WidgetKind.nowPlaying)
     }
 
     func application(_ application: UIApplication,

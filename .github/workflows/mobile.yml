@@ -55,6 +55,47 @@ jobs:
             -configuration Debug \
             -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/derived" \
+            CODE_SIGNING_ALLOWED=NO
+
+      # The Home Screen widgets are a second bundle inside the app. A project that still builds
+      # but no longer embeds it, or derives its ids wrongly, would ship an app whose widgets are
+      # missing or blank, and nothing else here would say so.
+      - name: Check the app carries its widget extension
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/derived/Build/Products/Debug-iphonesimulator/App.app"
+          APPEX="$APP/PlugIns/MusicHoarderWidgets.appex"
+          fail() { echo "::error title=Mobile::$1"; exit 1; }
+          value() { /usr/libexec/PlistBuddy -c "Print :$1" "$2/Info.plist" 2>/dev/null || true; }
+          expect() { [ "$3" = "$2" ] || fail "$1 is '$3', expected '$2'."; }
+          [ -d "$APP" ] || fail "The build left no App.app in its products folder."
+          [ -d "$APPEX" ] || fail "App.app has no PlugIns/MusicHoarderWidgets.appex: the extension is not embedded."
+          expect "The app's bundle id" com.musichoarder.app "$(value CFBundleIdentifier "$APP")"
+          expect "The extension's bundle id" com.musichoarder.app.widgets "$(value CFBundleIdentifier "$APPEX")"
+          expect "The extension point" com.apple.widgetkit-extension "$(value NSExtension:NSExtensionPointIdentifier "$APPEX")"
+          expect "The app's App Group" group.com.musichoarder.app "$(value MHAppGroup "$APP")"
+          expect "The extension's App Group" group.com.musichoarder.app "$(value MHAppGroup "$APPEX")"
+          expect "The app's minimum iOS" 15.0 "$(value MinimumOSVersion "$APP")"
+          # A widget button's intent runs in the app, so both bundles must hold its metadata.
+          for bundle in "$APP" "$APPEX"; do
+            [ -d "$bundle/Metadata.appintents" ] \
+              || echo "::warning title=Mobile::$(basename "$bundle") has no Metadata.appintents: the widget's buttons may not run."
+          done
+
+      # What the app and the widgets share (the stored documents, when a widget stops offering a
+      # background button, which links are accepted) needs no device, so it is tested here.
+      - name: Test the widgets' shared module
+        working-directory: mobile/plugin
+        run: |
+          set -euo pipefail
+          SIMULATOR="$(xcrun simctl list devices available --json \
+            | jq -r '[.devices[][] | select(.name | startswith("iPhone"))][0].udid // empty')"
+          [ -n "$SIMULATOR" ] || { echo "::error title=Mobile::This runner has no iPhone simulator."; exit 1; }
+          xcodebuild test \
+            -scheme MusichoarderNativeAudio-Package \
+            -destination "id=$SIMULATOR" \
+            -derivedDataPath "$RUNNER_TEMP/plugin-derived" \
             CODE_SIGNING_ALLOWED=NO
 
   android:

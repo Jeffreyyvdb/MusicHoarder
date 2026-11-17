@@ -22,9 +22,10 @@ to a page reaches the apps with the next deploy of the frontend, with no app rel
 | Path | What |
 | --- | --- |
 | `capacitor.config.ts` | The shell's config. Reads the optional `MH_SERVER_URL`. |
-| `plugin/ios` | The plugins for iOS (Swift): `NativeAudio` (an `AVQueuePlayer`) and `ShellServer`. |
+| `plugin/ios` | The plugins for iOS (Swift): `NativeAudio` (an `AVQueuePlayer`), `ShellServer` and `Widgets`. `Sources/WidgetBridge` is the part the app shares with its Home Screen widgets. |
 | `plugin/android` | The plugins for Android (Java): `NativeAudio` (Media3 in a media session service) and `ShellServer`. |
-| `ios/` | The Xcode project. `ios/App/App.xcodeproj` is what you open. |
+| `ios/` | The Xcode project. `ios/App/App.xcodeproj` is what you open. `ios/App/Widgets` is the widget extension, and `ios/App/Shared` the one file both it and the app compile. |
+| `scripts/add-widget-target.rb` | Wrote the widget extension into the Xcode project, without Xcode. Kept so the change can be read and made again. |
 | `android/` | The Gradle project. |
 | `www/` | The one bundled page: it asks for the server, and says when it cannot be reached. |
 | `store/` | What the app has declared to Google Play and what Apple will need, with the reasons, and the Data safety export. Check it before a change that alters what the app collects or shows. |
@@ -65,8 +66,11 @@ a time; TestFlight needs the paid developer program).
 bun run open:ios
 ```
 
-In Xcode: select the **App** target → **Signing & Capabilities**, pick your team, and change the
-bundle identifier to one of your own. Then run it on your phone.
+In Xcode: select the **App** project (not a target) → **Build Settings**, and change
+`MH_BUNDLE_ID` under User-Defined to an identifier of your own. The app, its widget extension
+(`<id>.widgets`) and the App Group they share (`group.<id>`) are all derived from it, so do not
+edit a target's bundle identifier directly. Then pick your team under **Signing & Capabilities**
+for both targets, **App** and **MusicHoarderWidgets**, and run it on your phone.
 
 ### iOS: TestFlight
 
@@ -74,18 +78,29 @@ bundle identifier to one of your own. Then run it on your phone.
 App Store Connect, where it appears in TestFlight. `release.yml` starts it on every release, and
 you can start it by hand: **Actions → iOS TestFlight → Run workflow**, or
 `gh workflow run ios-testflight.yml` (blank version: the latest `v*` tag). Without its secrets it
-skips itself. It needs the paid Apple Developer Program, and this setup once:
+skips itself. It needs the paid Apple Developer Program, and this setup once (an account set up
+before the app had widgets needs only step 2, before its next run):
 
 1. **Register the bundle ID.** On developer.apple.com: Certificates, Identifiers & Profiles →
    Identifiers → **+** → App IDs → App. Explicit bundle ID `com.musichoarder.app`. If that is
    taken, use your own and set it as the repository variable `IOS_BUNDLE_ID`.
-2. **Create the app.** In App Store Connect: Apps → **+** → New App. Platform iOS, the bundle ID
+2. **Register what the widgets need.** The app and its widget extension share a folder through
+   an App Group, and Apple signs a build with one only when all three of these exist. In the same
+   Identifiers list:
+   - the filter at the top right → **App Groups** → **+** → identifier `group.com.musichoarder.app`;
+   - open the App ID from step 1 → tick **App Groups** → **Configure** → assign that group → Save;
+   - **+** → App IDs → App, explicit bundle ID `com.musichoarder.app.widgets` → tick **App Groups**
+     → **Configure** → assign the same group.
+
+   With your own bundle ID the names are `group.<id>` and `<id>.widgets`. The extension needs no
+   app record of its own in App Store Connect.
+3. **Create the app.** In App Store Connect: Apps → **+** → New App. Platform iOS, the bundle ID
    from step 1, any SKU. The name must be unique on the App Store; it is only a label for TestFlight.
-3. **Make an API key.** In App Store Connect: Users and Access → Integrations → App Store Connect
+4. **Make an API key.** In App Store Connect: Users and Access → Integrations → App Store Connect
    API → Team Keys → **+**, role **Admin** (cloud signing needs it). Download the `.p8` file: it
    can be downloaded only once. Note the key ID, and the issuer ID above the list.
-4. **Find the team ID** on developer.apple.com → Account → Membership details.
-5. **Store them as secrets**, from the repo root:
+5. **Find the team ID** on developer.apple.com → Account → Membership details.
+6. **Store them as secrets**, from the repo root:
 
    ```bash
    gh secret set APP_STORE_CONNECT_API_KEY_P8 < ~/Downloads/AuthKey_XXXXXXXXXX.p8
@@ -94,15 +109,22 @@ skips itself. It needs the paid Apple Developer Program, and this setup once:
    gh secret set APPLE_TEAM_ID                 # paste the team id
    ```
 
-6. **Run the workflow**, then wait for Apple's processing (5–30 minutes, and an email).
-7. **Add yourself as a tester.** In App Store Connect: the app → TestFlight → Internal Testing →
+7. **Run the workflow**, then wait for Apple's processing (5–30 minutes, and an email).
+8. **Add yourself as a tester.** In App Store Connect: the app → TestFlight → Internal Testing →
    **+** a group, add your Apple ID, and enable the build. Install the **TestFlight** app on the
    iPhone and accept the invitation. A build lasts 90 days; each release brings a new one.
 
 Signing needs no certificate file: Xcode's automatic signing makes the distribution certificate and
 profile in Apple's cloud with the API key. The archive is built unsigned and only the export signs
 it: signing the archive made each fresh runner create a new Apple Development certificate, until
-the account hit its certificate limit and every build failed. The version is the release's (`MARKETING_VERSION`), the
+the account hit its certificate limit and every build failed. An unsigned archive also carries no
+entitlements, and the export signs with the ones it finds, so in between the workflow signs the
+bundles ad hoc (no certificate) with their App Group. It then exports once to a folder and reads
+the result: unless both the app and the widget extension are signed with the group, the run fails
+before anything is uploaded, naming the bundle. Widgets without the group would be blank, with no
+error anywhere. The usual cause is step 2 not done, or done for another bundle ID.
+
+The version is the release's (`MARKETING_VERSION`), the
 build number the workflow's run number, which always grows. `ITSAppUsesNonExemptEncryption` is
 false in `Info.plist`, so TestFlight asks no export-compliance question, and the plugin package
 carries the privacy manifest App Store Connect asks for (`UserDefaults`, reason `CA92.1`).
@@ -169,6 +191,113 @@ cookies that belong to a request's host on that request, and no others.
 Lock screen, notification and headset commands go to the page first, since it knows what they mean
 for the account's session ("Connect"). If the page does not answer within half a second, the
 device carries the command out itself.
+
+## Home Screen widgets
+
+| Widget | iOS sizes | Shows | Does |
+| --- | --- | --- | --- |
+| **Now Playing** | small, medium | Cover, title and artist. The medium one adds the album, the song's progress, and Previous and Next. | Play and Pause act without opening the app. A tap anywhere else opens the app on Now Playing. |
+| **Last played** | medium (4 albums), large (8, with their artists) | The Overview's "Last played" shelf. | A tap on an album opens the app on it. |
+
+To add one on iOS: touch and hold the Home Screen → **Edit** → **Add Widget** → MusicHoarder. The
+widgets need iOS 17. The app itself still runs on iOS 15, without them.
+
+### How they work on iOS
+
+A widget is drawn by another process (the extension in `ios/App/Widgets`), which has no session
+cookie and makes no network request. It draws what the app left in the folder the two share, an
+App Group container:
+
+| File | Written by | When |
+| --- | --- | --- |
+| `widgets/now-playing.json` | the audio engine (`AudioEngine.publishToWidgets`) | on every change the lock screen hears of: track, play or pause, a seek, Next and Previous becoming possible, the cover arriving. Never per second: the widget works the position out from when the file was written. |
+| `widgets/shelf.json` | the `Widgets` plugin, from what the page sent (`setShelf`) | when the page's "Last played" changes |
+| `widgets/art/<hash>.jpg` | whichever of the two names it | before the document that names it. The app downloads covers with the web view's cookies; a file's name is the hash of its URL. |
+
+No cookie, token or server address is ever written there, and all of it is deleted on sign-out
+and on Change server. The types, the file formats and the rules below live once, in
+`plugin/ios/Sources/WidgetBridge`, which the plugin, the app and the extension all link; its
+tests run in the `Mobile` workflow.
+
+**Buttons.** A button runs `PlaybackCommandIntent` (`ios/App/Shared`), an `AudioPlaybackIntent`.
+iOS runs those in the app's process, waking the app in the background if it has to, and lets them
+start audio from there. The command then takes the lock screen's path: the page gets half a
+second, after which the device carries it out. A button says what it will do (Play, never
+"toggle"), so a press on a widget that is out of date cannot do the opposite of what it showed.
+
+Whether a button can act that way depends on whether the process that holds the player is still
+there, and a widget cannot ask. So the stored document says which, and the widget's own timeline
+turns the buttons into a link once the answer can no longer be trusted:
+
+| The app is… | The widget shows | Play or Pause, Next, Previous |
+| --- | --- | --- |
+| running or suspended with a song loaded, playing or paused for under 30 minutes | the song, with live controls | act in place; the app stays where it is |
+| paused for 30 minutes or more, swiped away, freshly started, or its player was stopped | the last song, with Play only | Play opens the app, and the page resumes |
+| gone without notice (iOS ended it, or it was swiped away while suspended) | what it showed before | the first press finds no player and turns the button into a link, so the next press opens the app. On iOS 26 and later a press on Play opens the app itself. |
+| signed out, on no server, or it never played anything | "Nothing playing" | none; a tap opens the app |
+
+Playing while the app is not running at all is deliberately not done: the page decides what
+plays, counts the listen and owns the queue, and a player that started without it would do none
+of those.
+
+**Taps.** A widget opens the app with one of three links, `musichoarder://widget/now-playing`,
+`/resume` or `/shelf/<id>`. None carries a path or an address: an id is looked up in the shelf the
+page itself published, and the result waits in memory until the page takes it
+(`Widgets.takeLaunchAction`, within 30 seconds) and moves there itself. So a tap never reloads the
+web view, and anything else on the phone that opens such a link can at most resume the user's own
+music or open one of their own albums.
+
+**What needs the page.** Now Playing needs nothing new from it: it is fed by `loadTrack`,
+`setMetadata` and `setUpcoming`, which every page already sends. Last played, and going to the
+right place after a tap, need a server whose frontend has `frontend/src/lib/native/widgets.ts`.
+On an older one the shelf stays empty and a tap simply opens the app.
+
+**The Xcode project.** The extension target, its files and the App Group settings were written
+into `project.pbxproj` by `scripts/add-widget-target.rb` (`gem install xcodeproj`, then
+`ruby scripts/add-widget-target.rb`; a second run changes nothing). Add a source file to the
+extension there, or in Xcode. One thing to keep: `bun run sync` reads the first
+`IPHONEOS_DEPLOYMENT_TARGET` in that file for the generated `CapApp-SPM/Package.swift`, so the
+app's 15.0 has to stay above the extension's 17.0. The script checks it.
+
+### What only an iPhone proves
+
+CI builds both bundles, checks the extension is embedded with the right ids, and runs the shared
+module's tests. It never starts the app, and the simulator build is unsigned. These need a phone
+with a TestFlight (or self-signed) build, and a server whose frontend has the widgets code:
+
+| Do | Expect | If not |
+| --- | --- | --- |
+| Add both widgets from the gallery | Now Playing in two sizes, Last played in two | The extension is not embedded, or iOS rejected its `Info.plist` |
+| Play a song in the app, go to the Home Screen | The song, its cover and a Pause button within a second or two | "Open MusicHoarder" alone means the build has no App Group: `Widgets.status()` in Web Inspector answers `sharedContainer: false` |
+| Press Pause, then Play, on the widget | The music stops and starts; the app stays in the background | If the app comes to the front (iOS 26 and later), remove `supportedModes` and the block that uses it from `PlaybackCommandIntent.swift` |
+| Pause, wait five minutes, press Play on the widget | Music, with the app still in the background. This is the suspended app being woken for the intent | The console (`devicectl … --console`) shows whether `perform()` ran and whether a `remote` event followed |
+| Press Next and Previous on the medium widget | The track changes and the widget follows | |
+| Let three songs play out with the phone locked | The widget shows the fourth, and its progress bar is where the song is | |
+| Swipe the app away, then press Play on the widget | Play opens the app and the music resumes: on the first press when the app was still running in the background, on the second when it was suspended (iOS 26 and later: always the first) | A page that opens without resuming has no session to resume (the demo account has none) |
+| Pause, leave it 30 minutes, look again | Previous and Next are gone without the app having run | |
+| Tap an album on Last played, with the app running and with it closed | The app opens on that album, with no reload when it was running | |
+| Set the Home Screen to tinted, then to clear | Title and glyphs take the tint, the cover is still a picture, and the Play triangle is visible | |
+| Sign out; then Change server | Both widgets empty each time | |
+| Start the app on iOS 15 or 16 (a simulator will do) | It starts: `AppIntents` is linked weakly there | A crash at launch naming `AppIntents` |
+
+### How they work on Android
+
+The same two widgets, as `AppWidgetProvider`s in the plugin library
+(`plugin/android/.../nativeaudio`, layouts in `plugin/android/src/main/res`). Now Playing is one
+resizable widget: 2×2 is the small layout, and from about 4×2 it adds Previous and Next. Last
+played is 4×1 to 4×2, with up to four albums.
+
+The providers run in the app's own process, so the shared folder is `files/widgets` in the app's
+storage, with the same two documents and the same rules as on iOS (`WidgetSnapshot` holds the JSON
+keys, `WidgetStore` the atomic writes). A button is a broadcast to `WidgetCommandReceiver`, which is
+not exported, and goes to `PlaybackService`'s engine through the notification's path. When there
+is no engine (the app was swiped away, which stops the music on Android), the widget shows the last
+song with a Play that opens the app. A tap opens `MainActivity` with an `mh.widget` extra
+(`now-playing`, `resume` or `shelf/<id>`) instead of a link, so no intent filter is exported for it.
+
+The plugin's JVM tests (the documents, the rules, launch actions) run with
+`./gradlew :musichoarder-native-audio:testDebugUnitTest` from `android/`. To look at what a debug
+build wrote: `adb shell run-as com.musichoarder.app.shell ls files/widgets`.
 
 ## Replacing the native Android client
 
@@ -249,9 +378,17 @@ Xcode project alone:
 cd mobile && MH_SERVER_URL=https://<tunnel> bun run sync
 cd ios/App && xcodebuild -project App.xcodeproj -scheme App -configuration Debug \
   -destination 'id=<device UDID>' -derivedDataPath <a scratch folder> -allowProvisioningUpdates \
-  DEVELOPMENT_TEAM=<team id> PRODUCT_BUNDLE_IDENTIFIER=<your own id> CODE_SIGN_STYLE=Automatic build
+  DEVELOPMENT_TEAM=<team id> MH_BUNDLE_ID=<your own id> CODE_SIGN_STYLE=Automatic build
 xcrun devicectl device install app --device <UDID> <scratch folder>/Build/Products/Debug-iphoneos/App.app
 ```
+
+It is `MH_BUNDLE_ID`, not `PRODUCT_BUNDLE_IDENTIFIER`: a build setting given on the command line
+reaches every target, so the latter would give the widget extension the app's own identifier and
+the build would stop. From `MH_BUNDLE_ID` the project derives the app's identifier, the
+extension's (`<id>.widgets`) and the App Group (`group.<id>`). Automatic signing is expected to
+register the second App ID and the group for your team by itself; that has not been tried yet. If
+the build stops on the App Group, add it once under **Signing & Capabilities** in Xcode, or as in
+step 2 of [iOS: TestFlight](#ios-testflight).
 
 `xcrun devicectl list devices` gives the UDID. On the phone, turn on Developer Mode, and after the
 first install trust the developer under Settings → General → VPN & Device Management.
@@ -280,6 +417,9 @@ first install trust the developer under Settings → General → VPN & Device Ma
   device when it does not; and a reload while playing, which takes the music over without a
   break. Not yet tried on a device: interruptions (Siri, calls), headphones and the AirPlay
   button, a queue running out (with or without radio), and the edge swipe and safe areas.
+- The iOS Home Screen widgets were written without a Mac and have not been run on a device or a
+  simulator yet. [What only an iPhone proves](#what-only-an-iphone-proves) is the list to go
+  through on the first TestFlight build that has them.
 - CI builds the iOS app but never starts it. A start-time failure (such as the missing
   `www/overview` that once made every launch exit) shows up only on a device or a simulator.
 - A reload shows a black (or white) frame for about a second and closes Now Playing, as it does in

@@ -1,6 +1,7 @@
 import UIKit
 import Capacitor
 import WebKit
+import WidgetBridge
 
 class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
@@ -41,13 +42,31 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         SceneDelegateProxy.shared.scene(scene, continue: userActivity)
     }
 
+    /// Every `musichoarder://` link the app is opened with, on a cold start and a warm one.
+    private func open(_ url: URL) {
+        if let link = WidgetLink(url) {
+            openWidgetLink(link)
+        } else {
+            openSignInLink(url)
+        }
+    }
+
+    /// A tap on a Home Screen widget. What it asked for is left for the page to take
+    /// (`Widgets.takeLaunchAction`), so nothing is loaded here: the page moves itself, which
+    /// spares a running app a reload, and no address is ever built from a link.
+    private func openWidgetLink(_ link: WidgetLink) {
+        let shelf = WidgetStore.forThisBundle()?.readShelf() ?? .empty
+        guard let action = link.action(in: shelf) else { return }
+        LaunchMailbox.shared.put(action)
+    }
+
     /// `musichoarder://auth?token=…&url=…`, the link on the page an emailed sign-in link opens in
     /// Safari when it was asked for from this app (the frontend's `/auth/callback`). The web view
     /// has its own cookies, so the token is spent there: `/auth/app`, loaded in the web view,
     /// passes it to the callback, which sets the session cookie where the app can use it. That
     /// page does so only when a link was asked for from this app, since anything on the phone can
     /// open a `musichoarder://` link with a token of its own.
-    private func open(_ url: URL) {
+    private func openSignInLink(_ url: URL) {
         guard url.scheme?.lowercased() == "musichoarder", url.host?.lowercased() == "auth",
               let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
               let token = items.first(where: { $0.name == "token" })?.value, !token.isEmpty,

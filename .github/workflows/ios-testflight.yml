@@ -8,13 +8,22 @@
 # signs it, with Apple's cloud-managed distribution certificate. Signing the archive would make
 # every fresh runner (an empty keychain each time) create a new Apple Development certificate,
 # which fills the account's certificate limit within a few runs and then fails every build. The key
-# must have the Admin role, which cloud signing needs. Setup, once (see mobile/README.md, "iOS: TestFlight"):
+# must have the Admin role, which cloud signing needs.
+#
+# An unsigned archive carries no entitlements, and the export signs with the ones it finds. The
+# app and its widget extension share a folder through an App Group, so between archive and export
+# the bundles are signed ad hoc (no certificate) with theirs, and a first export that is only
+# inspected proves the group survived before anything is uploaded. Without the group the widgets
+# would be blank, and no build log would say why.
+#
+# Setup, once (see mobile/README.md, "iOS: TestFlight"):
 #
 #   secrets  APP_STORE_CONNECT_API_KEY_P8   the downloaded AuthKey_XXXX.p8, the whole file
 #            APP_STORE_CONNECT_KEY_ID       its key id
 #            APP_STORE_CONNECT_ISSUER_ID    the issuer id shown above the keys list
 #            APPLE_TEAM_ID                  the team id of the paid membership
-#   variable IOS_BUNDLE_ID                  optional; com.musichoarder.app by default
+#   variable IOS_BUNDLE_ID                  optional; com.musichoarder.app by default. The widget
+#                                           extension is <id>.widgets, the App Group group.<id>.
 #
 # Without the secrets the run reports why and stops, green: a fork builds nothing here.
 name: iOS TestFlight
@@ -135,11 +144,108 @@ jobs:
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
             DEVELOPMENT_TEAM="$TEAM_ID" \
-            PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
+            MH_BUNDLE_ID="$BUNDLE_ID" \
             CODE_SIGNING_ALLOWED=NO \
             MARKETING_VERSION="$VERSION" \
             CURRENT_PROJECT_VERSION="$BUILD" \
             | tail -n 40
+
+      # Inside out, as codesign seals a bundle over the code nested in it: the embedded
+      # frameworks, the widget extension, then the app. "-" is an ad hoc signature: no identity,
+      # no certificate, nothing registered with Apple.
+      - name: Sign the archive ad hoc, with its entitlements
+        if: steps.preflight.outputs.ok == 'true'
+        env:
+          BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID || 'com.musichoarder.app' }}
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/App.xcarchive/Products/Applications/App.app"
+          APPEX="$APP/PlugIns/MusicHoarderWidgets.appex"
+          fail() { echo "::error title=iOS TestFlight::$1"; exit 1; }
+          value() { /usr/libexec/PlistBuddy -c "Print :$1" "$2/Info.plist" 2>/dev/null || true; }
+          [ -d "$APP" ] || fail "The archive holds no App.app."
+          [ -d "$APPEX" ] || fail "The archived app has no PlugIns/MusicHoarderWidgets.appex."
+          [ "$(value CFBundleIdentifier "$APP")" = "$BUNDLE_ID" ] \
+            || fail "The archived app is '$(value CFBundleIdentifier "$APP")', expected '$BUNDLE_ID'."
+          [ "$(value CFBundleIdentifier "$APPEX")" = "$BUNDLE_ID.widgets" ] \
+            || fail "The widget extension is '$(value CFBundleIdentifier "$APPEX")', expected '$BUNDLE_ID.widgets'."
+          # The group the code asks for at run time, as the build wrote it into both bundles.
+          GROUP="$(value MHAppGroup "$APP")"
+          [ "$GROUP" = "group.$BUNDLE_ID" ] \
+            || fail "The app's MHAppGroup is '$GROUP', expected 'group.$BUNDLE_ID'."
+          [ "$(value MHAppGroup "$APPEX")" = "$GROUP" ] \
+            || fail "The widget extension names another App Group than the app."
+
+          # The tracked entitlements, with the one build setting they use filled in.
+          expand() {
+            sed "s|[$](MH_APP_GROUP)|$GROUP|g" "$1" > "$2"
+            if grep -q '[$](' "$2"; then fail "$1 uses a build setting this step does not fill in."; fi
+            plutil -lint "$2" > /dev/null || fail "$1 is not a property list once filled in."
+          }
+          expand ios/App/App/App.entitlements "$RUNNER_TEMP/app.entitlements"
+          expand ios/App/Widgets/Widgets.entitlements "$RUNNER_TEMP/widgets.entitlements"
+
+          if [ -d "$APP/Frameworks" ]; then
+            find "$APP/Frameworks" -mindepth 1 -maxdepth 1 \( -name '*.framework' -o -name '*.dylib' \) -print0 \
+              | while IFS= read -r -d '' code; do codesign --force --sign - "$code"; done
+          fi
+          codesign --force --sign - --entitlements "$RUNNER_TEMP/widgets.entitlements" "$APPEX"
+          codesign --force --sign - --entitlements "$RUNNER_TEMP/app.entitlements" "$APP"
+
+          for bundle in "$APP" "$APPEX"; do
+            codesign -d --entitlements - --xml "$bundle" > "$RUNNER_TEMP/signed.entitlements" 2> /dev/null \
+              || fail "codesign could not read back the entitlements of $(basename "$bundle")."
+            grep -qF "$GROUP" "$RUNNER_TEMP/signed.entitlements" \
+              || fail "$(basename "$bundle") does not hold the App Group after signing."
+          done
+          echo "APP_GROUP=$GROUP" >> "$GITHUB_ENV"
+
+      # The same export as the upload below, but to a folder, so the signed result can be read
+      # before it goes anywhere: an upload export leaves nothing behind to inspect.
+      - name: Check the export keeps the App Group
+        if: steps.preflight.outputs.ok == 'true'
+        env:
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error title=iOS TestFlight::$1"; exit 1; }
+          cat > "$RUNNER_TEMP/CheckOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>export</string>
+            <key>teamID</key><string>${TEAM_ID}</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+            <key>uploadSymbols</key><true/>
+          </dict>
+          </plist>
+          PLIST
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/CheckOptions.plist" \
+            -exportPath "$RUNNER_TEMP/check" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$KEY_PATH" \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID" \
+            | tail -n 40
+
+          IPA="$(find "$RUNNER_TEMP/check" -maxdepth 1 -name '*.ipa' -print -quit)"
+          [ -n "$IPA" ] || fail "The check export wrote no .ipa."
+          unzip -q "$IPA" -d "$RUNNER_TEMP/check/ipa"
+          for bundle in Payload/App.app Payload/App.app/PlugIns/MusicHoarderWidgets.appex; do
+            [ -d "$RUNNER_TEMP/check/ipa/$bundle" ] || fail "The exported app has no $bundle."
+            codesign -d --entitlements - --xml "$RUNNER_TEMP/check/ipa/$bundle" > "$RUNNER_TEMP/check/entitlements" 2> /dev/null \
+              || fail "codesign could not read the entitlements of the exported $bundle."
+            grep -qF "$APP_GROUP" "$RUNNER_TEMP/check/entitlements" \
+              || fail "The exported $bundle was signed without the App Group $APP_GROUP, so the widgets would be blank. Nothing was uploaded. See mobile/README.md, iOS: TestFlight."
+          done
+          echo "Both bundles are signed with $APP_GROUP."
 
       # Export for App Store Connect with `destination: upload`: xcodebuild signs for distribution
       # and uploads in one step, with the same key. The build then shows in TestFlight after
