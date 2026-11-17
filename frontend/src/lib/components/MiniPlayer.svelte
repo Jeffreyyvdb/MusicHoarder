@@ -17,8 +17,10 @@
     X
   } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
+  import { tick } from 'svelte';
   import { fly } from 'svelte/transition';
-  import { motionFly } from '#lib/motion.ts';
+  import { EASE_OUT, motionFly, prefersReducedMotion } from '#lib/motion.ts';
+  import { trackSlideIn, trackSlideOut } from '#lib/track-slide.ts';
   import { cubicOut } from 'svelte/easing';
   import { goto } from '$app/navigation';
   import { playerStore } from '#lib/stores/player.svelte.ts';
@@ -50,6 +52,7 @@
   function miniExit() {
     return motionFly({ y: 8, duration: 200, easing: cubicOut });
   }
+
 
   // Progress as a 0..1 fraction. Driven into the seek bar via `transform: scaleX`
   // (composite-only) rather than a bits-ui Slider, whose per-value reflow on the
@@ -111,6 +114,38 @@
   let menuOpen = $state(false);
   let menuPoint = $state({ x: 0, y: 0 });
   let barEl: HTMLDivElement | null = $state(null);
+
+  let trackEl: HTMLButtonElement | null = $state(null);
+
+  const RUBBER_BAND = 0.2;
+
+  function dragTrack(dx: number) {
+    if (!trackEl) return;
+    const x = dx < 0 && !playerStore.hasNext ? dx * RUBBER_BAND : dx;
+    trackEl.style.transition = 'none';
+    trackEl.style.transform = `translate3d(${x}px, 0, 0)`;
+  }
+
+  function settleTrack() {
+    const el = trackEl;
+    if (!el || !el.style.transform) return;
+    const resting = Math.abs(new DOMMatrixReadOnly(getComputedStyle(el).transform).m41) < 0.5;
+    const clear = () => {
+      el.style.transition = '';
+      el.style.transform = '';
+    };
+    if (resting || prefersReducedMotion()) return clear();
+    el.style.transition = `transform 200ms ${EASE_OUT}`;
+    el.style.transform = 'translate3d(0, 0, 0)';
+    el.addEventListener('transitionend', clear, { once: true });
+  }
+
+  async function skipThenRecentre(go: () => void) {
+    const id = playerStore.currentSong?.id;
+    go();
+    await tick();
+    if (playerStore.currentSong?.id === id) settleTrack();
+  }
 
   // At the finger's x but on the capsule's top edge, so the menu rises above the whole bar (as an
   // iOS context menu clears the thing it was opened on) instead of covering its titles.
@@ -235,11 +270,14 @@
       oncontextmenu={onContextMenu}
       use:playerSwipe={{
         disabled: menuOpen,
-        onnext: () => {
-          if (playerStore.hasNext) playerStore.playNext();
-        },
-        onprevious: () => playerStore.playPrevious(),
-        onopen: openNowPlaying
+        onnext: () =>
+          skipThenRecentre(() => {
+            if (playerStore.hasNext) playerStore.playNext();
+          }),
+        onprevious: () => skipThenRecentre(() => playerStore.playPrevious()),
+        onopen: openNowPlaying,
+        ondrag: dragTrack,
+        onsettle: settleTrack
       }}
       class="mh-mini-enter mh-glass mh-chrome fixed right-[max(16px,env(safe-area-inset-right))] bottom-(--mh-player-bottom) left-[max(16px,env(safe-area-inset-left))] z-40 flex h-(--mh-player-h) touch-none items-center rounded-full pr-1 select-none"
       out:fly={miniExit()}
@@ -300,28 +338,35 @@
              roughly concentric with the cap's semicircle, with about the same gap there as above and
              below the art. A 40px square with 6px corners at 8px came within ~3px of the capsule at
              its corners and read as a hard square pushed into a round end. -->
-        <button
-          type="button"
-          onclick={openNowPlaying}
-          aria-label="Open now playing"
-          class="focus-visible:ring-ring flex h-full min-w-0 flex-1 items-center gap-3 rounded-full pl-3.5 text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset"
-        >
-          <Cover
-            artist={song.artist}
-            title={song.title}
-            coverUrl={song.coverUrl ?? null}
-            size={36}
-            corner={9}
-            caption={false}
-            class="size-9 shrink-0"
-          />
-          <!-- data-mh-lcd: under the hardware skin (#lib/hardware/app-skin.css) the titles are a
-               line of LCD; it styles nothing otherwise. -->
-          <span data-mh-lcd class="flex min-w-0 flex-col">
-            <span class="text-subheadline truncate font-semibold">{song.title}</span>
-            <span class="text-footnote text-muted-foreground truncate">{song.artist}</span>
-          </span>
-        </button>
+        <div class="grid h-full min-w-0 flex-1 overflow-hidden rounded-full">
+          {#key song.id}
+            <button
+              bind:this={trackEl}
+              in:trackSlideIn={{ step: playerStore.trackStep }}
+              out:trackSlideOut={{ step: playerStore.trackStep }}
+              type="button"
+              onclick={openNowPlaying}
+              aria-label="Open now playing"
+              class="focus-visible:ring-ring col-start-1 row-start-1 flex min-w-0 items-center gap-3 rounded-full pl-3.5 text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset"
+            >
+              <Cover
+                artist={song.artist}
+                title={song.title}
+                coverUrl={song.coverUrl ?? null}
+                size={36}
+                corner={9}
+                caption={false}
+                class="size-9 shrink-0"
+              />
+              <!-- data-mh-lcd: under the hardware skin (#lib/hardware/app-skin.css) the titles are a
+                   line of LCD; it styles nothing otherwise. -->
+              <span data-mh-lcd class="flex min-w-0 flex-col">
+                <span class="text-subheadline truncate font-semibold">{song.title}</span>
+                <span class="text-footnote text-muted-foreground truncate">{song.artist}</span>
+              </span>
+            </button>
+          {/key}
+        </div>
       {/if}
       <Button
         variant="ghost"
@@ -457,40 +502,46 @@
         <!-- CENTER: now-playing, LEFT-aligned — art + title/artist with a slim seek
              line directly under it (Apple-Music compact bar). -->
         <div class="flex min-w-0 flex-1 flex-col items-start justify-center gap-1">
-          <button
-            type="button"
-            onclick={openNowPlaying}
-            aria-label="Open now playing"
-            class="group/np focus-visible:ring-ring flex max-w-full min-w-0 items-center gap-2.5 rounded-md px-1.5 py-0.5 text-left focus-visible:outline-hidden focus-visible:ring-2"
-          >
-            <!-- Album art with an Apple-Music-style enlarge affordance: the cover
-                 eases up a touch and a dim scrim + expand glyph fade in on hover.
-                 Tailwind's hover/group-hover variants are already gated behind
-                 @media (hover: hover); motion-reduce drops the easing to a snap. -->
-            <span class="relative block size-9 shrink-0 overflow-hidden rounded-[4px]">
-              <Cover
-                artist={song.artist}
-                title={song.title}
-                coverUrl={song.coverUrl ?? null}
-                size={36}
-                corner={4}
-                caption={false}
-                class="size-9 transition-transform duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] group-hover/np:scale-[1.08] motion-reduce:transition-none"
-              />
-              <span
-                class="pointer-events-none absolute inset-0 grid place-items-center bg-black/45 opacity-0 transition-opacity duration-150 ease-out group-hover/np:opacity-100 motion-reduce:transition-none"
-                aria-hidden="true"
+          <div class="-m-1 grid max-w-full min-w-0 overflow-hidden p-1">
+            {#key song.id}
+              <button
+                in:trackSlideIn={{ step: playerStore.trackStep }}
+                out:trackSlideOut={{ step: playerStore.trackStep }}
+                type="button"
+                onclick={openNowPlaying}
+                aria-label="Open now playing"
+                class="group/np col-start-1 row-start-1 focus-visible:ring-ring flex max-w-full min-w-0 items-center gap-2.5 rounded-md px-1.5 py-0.5 text-left focus-visible:outline-hidden focus-visible:ring-2"
               >
-                <Maximize2
-                  class="size-4 scale-90 text-white transition-transform duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] group-hover/np:scale-100 motion-reduce:transition-none"
-                />
-              </span>
-            </span>
-            <div data-mh-lcd class="min-w-0">
-              <p class="truncate text-[13px] leading-tight font-medium">{song.title}</p>
-              <p class="text-muted-foreground truncate text-[11px] leading-tight">{subtitle}</p>
-            </div>
-          </button>
+                <!-- Album art with an Apple-Music-style enlarge affordance: the cover
+                     eases up a touch and a dim scrim + expand glyph fade in on hover.
+                     Tailwind's hover/group-hover variants are already gated behind
+                     @media (hover: hover); motion-reduce drops the easing to a snap. -->
+                <span class="relative block size-9 shrink-0 overflow-hidden rounded-[4px]">
+                  <Cover
+                    artist={song.artist}
+                    title={song.title}
+                    coverUrl={song.coverUrl ?? null}
+                    size={36}
+                    corner={4}
+                    caption={false}
+                    class="size-9 transition-transform duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] group-hover/np:scale-[1.08] motion-reduce:transition-none"
+                  />
+                  <span
+                    class="pointer-events-none absolute inset-0 grid place-items-center bg-black/45 opacity-0 transition-opacity duration-150 ease-out group-hover/np:opacity-100 motion-reduce:transition-none"
+                    aria-hidden="true"
+                  >
+                    <Maximize2
+                      class="size-4 scale-90 text-white transition-transform duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] group-hover/np:scale-100 motion-reduce:transition-none"
+                    />
+                  </span>
+                </span>
+                <div data-mh-lcd class="min-w-0">
+                  <p class="truncate text-[13px] leading-tight font-medium">{song.title}</p>
+                  <p class="text-muted-foreground truncate text-[11px] leading-tight">{subtitle}</p>
+                </div>
+              </button>
+            {/key}
+          </div>
 
           <!-- Slim seek line under the now-playing block; thickens on hover/focus/drag so
                it's easy to grab and drag. The visible line stays 12px tall; an invisible
