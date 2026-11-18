@@ -992,6 +992,17 @@
     box-shadow: var(--mh-body-shadow);
   }
 }
+
+/* Now Playing puts a dark halo behind its text while a music video plays behind it. Text on a
+   device's opaque plate is never over the video, and there the halo only smudges it. */
+:root[data-mh-skin='hardware'] [data-mh-console] {
+  text-shadow: none;
+}
+@media (min-width: 1024px) {
+  :root[data-mh-skin='hardware'] [data-mh-np='body'] {
+    text-shadow: none;
+  }
+}
 :root[data-mh-skin='hardware'] [data-mh-np='screen']::before {
   content: 'MH-1  Player';
   display: block;
