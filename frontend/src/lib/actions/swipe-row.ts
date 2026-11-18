@@ -265,10 +265,13 @@ export function swipeRow(
     const dx = touch.clientX - g.x0;
     const dy = touch.clientY - g.y0;
     if (!g.decided) {
-      // Ours only when it moves sideways, the right way, before it moves down. Hold the list still
-      // while it still reads that way, so the scroll cannot start before the gesture decides.
+      // Ours only when it moves sideways, the right way, before it moves down.
       const sideways = Math.sign(dx) === sign() && Math.abs(dx) > Math.abs(dy);
-      if (sideways && e.cancelable) e.preventDefault();
+      // iOS settles whether the whole touch may scroll on its first touchmove, so holding the list
+      // still before the gesture decides is only safe for a move that is unmistakably sideways: a
+      // vertical scroll whose first sample jitters a pixel the right way must still scroll.
+      const clearlySideways = dx * sign() >= 4 && Math.abs(dx) >= 2 * Math.abs(dy);
+      if (clearlySideways && e.cancelable) e.preventDefault();
       if (Math.hypot(dx, dy) < SLOP) return;
       if (!sideways) {
         gesture = null;

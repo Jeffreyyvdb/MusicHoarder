@@ -106,6 +106,18 @@ describe('swipeRow', () => {
     expect(onswipe).not.toHaveBeenCalled();
   });
 
+  it('never holds a vertical drag whose first move jitters the swipe way', () => {
+    attach();
+    const moves = drag(100, 300, [
+      [101, 300],
+      [102, 301],
+      [103, 312],
+      [104, 360]
+    ]);
+    expect(moves.some((e) => e.defaultPrevented)).toBe(false);
+    expect(onswipe).not.toHaveBeenCalled();
+  });
+
   it('springs back without the action when the swipe stops short or is cancelled', () => {
     attach();
     row.dispatchEvent(touch('touchstart', 100, 300));
