@@ -3,9 +3,12 @@
 #
 # A GitHub runner has 4 cores. One after another these took ~2.5 minutes on about one of them:
 # svelte-check is single-threaded, and so is ESLint unless told otherwise (its typed parsing of
-# .svelte files is most of that time). Here ESLint gets worker threads and svelte-check and
-# vitest run beside it. Each log is printed whole once its command ends, so outputs never
-# interleave, and the step fails if any of the three does.
+# .svelte files is most of that time). Here ESLint gets one worker thread per core and svelte-check
+# and vitest run beside it: the job went from 138-191s to ~85s. (ESLint's `--concurrency auto`
+# takes half the cores, and lint then ran its last minute on two of four cores and took 117s; each worker builds
+# its own TypeScript program, ~1.3 GB, which a 16 GB runner holds but a busy laptop may not.)
+# Each log is printed whole once its command ends, so outputs never interleave, and the step fails
+# if any of the three does.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
@@ -32,7 +35,7 @@ run() {
   pids[$name]=$!
 }
 
-run lint bun run lint --concurrency 4
+run lint bun run lint --concurrency "$(nproc)"
 run check bun run check
 run test bun run test
 
