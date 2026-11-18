@@ -61,11 +61,11 @@
 <!--
 	One iOS list cell: min 44pt (56+ with a sublabel), body text on compact and the desktop 14px at
 	md+, value trailing in secondary text, a 16px chevron in the tertiary tier. A grid with fixed
-	columns (leading · main · value · trailing · chevron; absent ones collapse to 0) so the hairline
+	columns (leading · content · trailing · chevron; absent ones collapse to 0) so the hairline
 	separator — the ::after, placed as a grid item from the main column to the far edge — starts at
 	the label whatever the leading content is, like UITableView's; it is dropped after the last row.
-	The label and sublabel wrap a word too long for the column (an email, a path) rather than run
-	under the value and chevron.
+	The content keeps label words intact before truncating the secondary value. When they cannot
+	share a line, the value wraps below; long words (an email, a path) still wrap within the row.
 	The focus ring is the full-strength tint: it is the row's only focus indicator (no border), and a
 	50% ring measured 2.2–2.7:1 against the cell, under the 3:1 non-text minimum.
 -->
@@ -81,9 +81,9 @@
 	aria-current={selected && tag === "a" ? "page" : undefined}
 	onclick={disabled ? undefined : onclick}
 	class={cn(
-		"group/grouped-row relative grid w-full grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] items-center px-4 py-2 text-left focus-visible:outline-hidden",
+		"group/grouped-row relative grid w-full grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center px-4 py-2 text-left focus-visible:outline-hidden",
 		sublabel ? "min-h-14" : "min-h-11",
-		"after:bg-separator after:col-start-2 after:col-end-6 after:row-start-1 after:-mr-4 after:-mb-2 after:h-(--hairline) after:self-end last:after:hidden",
+		"after:bg-separator after:col-start-2 after:col-end-5 after:row-start-1 after:-mr-4 after:-mb-2 after:h-(--hairline) after:self-end last:after:hidden",
 		interactive &&
 			"active:bg-accent focus-visible:ring-ring cursor-pointer transition-colors duration-100 hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset",
 		selected && "bg-sidebar-accent hover:bg-sidebar-accent",
@@ -105,36 +105,38 @@
 			<Icon class="size-[18px]" strokeWidth={2} />
 		</span>
 	{/if}
-	<span class="col-start-2 row-start-1 flex min-w-0 flex-col justify-center">
-		{#if label}
+	<span class="col-start-2 row-start-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+		<span class="flex min-w-0 max-w-full flex-[1_0_min-content] flex-col justify-center">
+			{#if label}
+				<span
+					class={cn(
+						"text-body break-words md:text-sm",
+						destructive ? "text-destructive-text" : disabled ? "text-muted-foreground-dim" : "text-foreground"
+					)}
+				>
+					{label}
+				</span>
+			{/if}
+			{#if sublabel}
+				<span class="text-subheadline text-muted-foreground break-words md:text-xs">{sublabel}</span>
+			{/if}
+			{@render children?.()}
+		</span>
+		{#if value != null && value !== ""}
 			<span
-				class={cn(
-					"text-body break-words md:text-sm",
-					destructive ? "text-destructive-text" : disabled ? "text-muted-foreground-dim" : "text-foreground"
-				)}
+				class="text-body text-muted-foreground ml-auto min-w-0 max-w-[min(50%,16rem)] flex-auto truncate text-right tabular-nums md:text-sm"
 			>
-				{label}
+				{value}
 			</span>
 		{/if}
-		{#if sublabel}
-			<span class="text-subheadline text-muted-foreground break-words md:text-xs">{sublabel}</span>
-		{/if}
-		{@render children?.()}
 	</span>
-	{#if value != null && value !== ""}
-		<span
-			class="text-body text-muted-foreground col-start-3 row-start-1 ml-3 max-w-[min(50vw,16rem)] truncate text-right tabular-nums md:text-sm"
-		>
-			{value}
-		</span>
-	{/if}
 	{#if trailing}
-		<span class="col-start-4 row-start-1 ml-3 flex items-center">{@render trailing()}</span>
+		<span class="col-start-3 row-start-1 ml-3 flex items-center">{@render trailing()}</span>
 	{/if}
 	{#if chevron}
 		<ChevronRightIcon
 			aria-hidden="true"
-			class="text-muted-foreground-dim col-start-5 row-start-1 ml-2 -mr-1 size-4"
+			class="text-muted-foreground-dim col-start-4 row-start-1 ml-2 -mr-1 size-4"
 			strokeWidth={2.5}
 		/>
 	{/if}
