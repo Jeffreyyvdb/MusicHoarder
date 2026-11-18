@@ -10,11 +10,21 @@
     /** The picture is fullscreen (or the full-window overlay), out of the housing. */
     expanded: boolean;
     toggleFullscreen: () => void;
+    lyricsVisible: boolean;
+    toggleLyrics: () => void;
   }
 </script>
 
 <script lang="ts">
-  import { FastForward, Maximize, Minimize, Pause, Play, Rewind } from '@lucide/svelte';
+  import {
+    FastForward,
+    Maximize,
+    Minimize,
+    Pause,
+    Play,
+    Rewind,
+    MessageSquareQuote
+  } from '@lucide/svelte';
   import { Button } from '#lib/components/ui/button/index.ts';
   import Scrubber from './Scrubber.svelte';
   import { getSongVideoStreamUrl } from '#lib/api-client.ts';
@@ -41,6 +51,9 @@
     generation = 0,
     caption,
     housing,
+    lyricsVisible = false,
+    onToggleLyrics,
+    lyricsOverlay,
     onPlayRequest
   }: {
     songId: number;
@@ -61,6 +74,9 @@
      * fit.
      */
     housing?: Snippet<[VideoHousing]>;
+    lyricsVisible?: boolean;
+    onToggleLyrics?: () => void;
+    lyricsOverlay?: Snippet;
     onPlayRequest: () => void;
   } = $props();
 
@@ -334,10 +350,14 @@
     const target = e.target as HTMLElement | null;
     if (
       target &&
-      (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+      (target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable ||
+        target.closest('[data-video-lyrics-scroll]'))
     )
       return;
 
+    if (e.key === ' ' && target?.closest('button')) return;
     if (e.key === ' ' || e.key === 'k') {
       e.preventDefault();
       wakeControls();
@@ -379,7 +399,14 @@
     <p class="text-subheadline text-muted-foreground">The video could not be played.</p>
   {:else if housing}
     <div bind:this={housingEl} class="shrink-0">
-      {@render housing({ screen: picture, playing: isPlaying, expanded, toggleFullscreen })}
+      {@render housing({
+        screen: picture,
+        playing: isPlaying,
+        expanded,
+        toggleFullscreen,
+        lyricsVisible,
+        toggleLyrics: () => onToggleLyrics?.()
+      })}
     </div>
   {:else}
     {@render picture()}
@@ -440,6 +467,17 @@
       aria-label={isCurrentSong ? 'Toggle playback' : 'Play this song'}
     ></button>
 
+    {#if lyricsVisible && lyricsOverlay}
+      <div
+        class={cn(
+          'pointer-events-none absolute inset-x-0 bottom-0 z-[1] flex max-h-[55%] flex-col bg-gradient-to-t from-black/85 via-black/55 to-transparent px-4 pt-5 pb-3 text-white sm:px-6 sm:pt-10 sm:pb-6',
+          expanded && controlsVisible && 'bottom-28'
+        )}
+      >
+        {@render lyricsOverlay()}
+      </div>
+    {/if}
+
     {#if !isPlaying}
       <span
         class="pointer-events-none absolute inset-0 z-0 flex flex-col items-center justify-center gap-2 bg-black/40"
@@ -464,6 +502,22 @@
       >
         Clip ended — song continues
       </span>
+    {/if}
+
+    {#if onToggleLyrics && (!housing || expanded)}
+      <button
+        type="button"
+        class={cn(
+          'absolute z-20 flex size-11 items-center justify-center rounded-full bg-black/55 text-white focus-visible:outline-2 focus-visible:outline-white aria-pressed:bg-white aria-pressed:text-black',
+          expanded ? 'top-[max(0.25rem,env(safe-area-inset-top))] right-1' : 'top-1 right-12'
+        )}
+        aria-label="Lyrics"
+        aria-pressed={lyricsVisible}
+        onclick={() => onToggleLyrics()}
+        title="Lyrics"
+      >
+        <MessageSquareQuote class="size-5" />
+      </button>
     {/if}
 
     {#if !expanded}
@@ -491,7 +545,7 @@
       <!-- Fullscreen title card, so the frame still says what is playing once the app is hidden. -->
       <div
         class={cn(
-          'pointer-events-none absolute inset-x-0 top-0 z-10 bg-gradient-to-b from-black/70 to-transparent px-5 pt-[max(1rem,env(safe-area-inset-top))] pb-10 transition-opacity duration-200',
+          'pointer-events-none absolute inset-x-0 top-0 z-10 bg-gradient-to-b from-black/70 to-transparent pt-[max(1rem,env(safe-area-inset-top))] pr-16 pb-10 pl-5 transition-opacity duration-200',
           controlsVisible ? 'opacity-100' : 'opacity-0'
         )}
       >

@@ -24,6 +24,7 @@
   import NowPlayingArt from '#lib/components/file-browser/now-playing/NowPlayingArt.svelte';
   import { skinHousing } from '#lib/hardware/hardware-mode.svelte.ts';
   import NowPlayingInfo from '#lib/components/file-browser/now-playing/NowPlayingInfo.svelte';
+  import VideoLyricsOverlay from '#lib/components/file-browser/now-playing/VideoLyricsOverlay.svelte';
   import NowPlayingLyrics from '#lib/components/file-browser/now-playing/NowPlayingLyrics.svelte';
   import NowPlayingMoreMenu from '#lib/components/file-browser/now-playing/NowPlayingMoreMenu.svelte';
   import NowPlayingQueue from '#lib/components/file-browser/now-playing/NowPlayingQueue.svelte';
@@ -54,7 +55,7 @@
   import { playbackSync } from '#lib/stores/playback-sync.svelte.ts';
   import { songsStore } from '#lib/stores/songs.svelte.ts';
   import { featuresStore } from '#lib/stores/features.svelte.ts';
-  import type { DetailMode } from '#lib/stores/song-detail.svelte.ts';
+  import type { DetailMode as RequestedDetailMode } from '#lib/stores/song-detail.svelte.ts';
   import { isAdmin } from '#lib/auth/capabilities.ts';
   import { cn } from '#lib/utils.ts';
   import { DYNAMIC_TYPE_CHANGE, dynamicTypeScale } from '#lib/dynamic-type.ts';
@@ -78,7 +79,7 @@
     song: ApiSong;
     trackIndex: number;
     /** The mode an `open()` asked for, if any (a row menu's "Song info" asks for `info`). */
-    requestedMode?: DetailMode;
+    requestedMode?: RequestedDetailMode;
     /** Changes on every open(), so a repeat request for the song on screen still applies. */
     requestSeq?: number;
     video: SongVideo;
@@ -172,6 +173,7 @@
   const viewerDoc = $derived(ai.showAiInViewer ? aiDoc : lrclibDoc);
 
   // ── Mode ────────────────────────────────────────────────────────────────────
+  type DetailMode = RequestedDetailMode | 'lyrics-video' | 'artwork';
   let mode = $state<DetailMode>('player');
   // The panel mounts on each open, so it starts on the artwork. A request that names a mode (a row
   // menu's "Song info") switches to it. One that names none is the host following playback to the
@@ -199,8 +201,13 @@
   // Video mode needs a watchable clip; when it turns out there is none (or it disappears), fall
   // back rather than show an empty frame.
   $effect(() => {
-    if (mode === 'video' && video.settled && video.songId === song.id && !video.playable) {
-      mode = 'player';
+    if (
+      (mode === 'video' || mode === 'lyrics-video') &&
+      video.settled &&
+      video.songId === song.id &&
+      !video.playable
+    ) {
+      mode = mode === 'lyrics-video' ? 'lyrics' : 'player';
     }
   });
 
@@ -215,28 +222,37 @@
   // "player" means the song's lyrics there, else its video. Info is only ever asked for: a song
   // with neither keeps the player alone, centred and larger (`playerOnly`).
   const content = $derived<DetailMode>(
-    wide.current && mode === 'player'
-      ? ai.hasLyrics
-        ? 'lyrics'
-        : videoByDefault
-          ? 'video'
-          : 'player'
-      : mode
+    mode === 'artwork'
+      ? 'player'
+      : wide.current && mode === 'player'
+        ? ai.hasLyrics
+          ? 'lyrics'
+          : videoByDefault
+            ? 'video'
+            : 'player'
+        : mode
   );
   const playerOnly = $derived(wide.current && content === 'player');
 
   // Behind the watch view the backdrop plays the same clip; sharp, it reads as the video twice.
   $effect(() => {
-    watching = content === 'video' && video.playable;
+    watching = (content === 'video' || content === 'lyrics-video') && video.playable;
   });
   $effect(() => () => {
     watching = false;
   });
 
-  // Each mode button toggles, and releasing it goes back to the artwork — at lg, to what the right
-  // column shows by default, so releasing the default itself changes nothing.
+  // An explicit artwork choice bypasses the desktop's automatic lyrics/video default.
   function toggleMode(target: DetailMode) {
-    mode = content === target ? 'player' : target;
+    if (target === 'lyrics' || target === 'video') {
+      if (content === 'lyrics-video') mode = target === 'lyrics' ? 'video' : 'lyrics';
+      else if (
+        (target === 'lyrics' && content === 'video') ||
+        (target === 'video' && content === 'lyrics')
+      )
+        mode = 'lyrics-video';
+      else mode = content === target ? 'artwork' : target;
+    } else mode = content === target ? 'player' : target;
   }
 
   function showLyrics() {
@@ -502,19 +518,18 @@
   {/if}
 {/snippet}
 
-<!-- Compact: a toggle (aria-pressed) — release it to go back to the artwork. lg: it picks what the
-     right column shows, so the one showing is marked current rather than pressed (releasing the
-     default view has nowhere else to go). -->
+<!-- Lyrics and video can stay pressed together. -->
 {#snippet modeButton(target: DetailMode, label: string, Icon: Component<{ class?: string }>)}
-  {@const active = content === target}
+  {@const mediaToggle = target === 'lyrics' || target === 'video'}
+  {@const active = content === target || (content === 'lyrics-video' && mediaToggle)}
   <button
     type="button"
     class={cn(
       'focus-visible:ring-ring flex size-11 items-center justify-center rounded-full transition-colors focus-visible:ring-2 focus-visible:outline-hidden',
       active ? 'text-foreground' : 'text-muted-foreground pointer-fine:hover:text-foreground'
     )}
-    aria-pressed={wide.current ? undefined : active}
-    aria-current={wide.current && active ? 'true' : undefined}
+    aria-pressed={mediaToggle || !wide.current ? active : undefined}
+    aria-current={!mediaToggle && wide.current && active ? 'true' : undefined}
     aria-label={label}
     title={label}
     onclick={() => toggleMode(target)}
@@ -705,6 +720,15 @@
   </p>
 {/snippet}
 
+{#snippet videoLyrics()}
+  <VideoLyricsOverlay
+    doc={viewerDoc}
+    currentTimeMs={isCurrentlyLoaded ? playerStore.currentTime * 1000 : null}
+    secondarySynced={ai.secondarySynced}
+    secondaryPlain={ai.secondaryPlain}
+  />
+{/snippet}
+
 {#snippet videoHousing(housing: VideoHousing)}
   {#await import('#lib/hardware/HardwareVideo.svelte') then { default: HardwareVideo }}
     <HardwareVideo {housing} status={videoLine} />
@@ -729,7 +753,7 @@
       wide={wide.current}
       {lrclibUrl}
     />
-  {:else if content === 'video' && video.playable}
+  {:else if (content === 'video' || content === 'lyrics-video') && video.playable}
     <!-- The whole middle (the whole column at lg) is the clip's stage: the watch view fits the
          picture into it, with the status line right under the picture. -->
     <div class={cn('flex min-h-0 flex-1 flex-col', !wide.current && 'px-4 py-3')}>
@@ -742,6 +766,9 @@
         fallbackDuration={song.durationSeconds ?? 0}
         caption={videoLine ? videoCaption : undefined}
         housing={monitor}
+        lyricsVisible={content === 'lyrics-video'}
+        onToggleLyrics={() => toggleMode('lyrics')}
+        lyricsOverlay={videoLyrics}
         onPlayRequest={handlePlayToggle}
       />
     </div>
@@ -788,7 +815,7 @@
     </button>
     <div class="flex h-14 items-center gap-1 px-2">
       {@render closeButton()}
-      {#if mode !== 'player'}
+      {#if content !== 'player'}
         <button
           type="button"
           class="focus-visible:ring-ring relative z-10 flex min-w-0 flex-1 items-center gap-3 rounded-lg py-1 text-left focus-visible:ring-2 focus-visible:outline-hidden"
