@@ -1,5 +1,6 @@
 <script lang="ts" module>
   import type { Snippet } from 'svelte';
+  import type { MediaAvailability } from './now-playing/media-availability.ts';
 
   /** What a housing around the picture is handed (see the `housing` prop). */
   export interface VideoHousing {
@@ -11,6 +12,8 @@
     expanded: boolean;
     toggleFullscreen: () => void;
     lyricsVisible: boolean;
+    /** `none` while the key must not act: no lyrics to show, or a fullscreen picture over the sheet that would offer them. */
+    lyricsAvailability: MediaAvailability;
     toggleLyrics: () => void;
   }
 </script>
@@ -52,6 +55,7 @@
     caption,
     housing,
     lyricsVisible = false,
+    lyricsAvailability = 'ready',
     onToggleLyrics,
     lyricsOverlay,
     onPlayRequest
@@ -75,6 +79,8 @@
      */
     housing?: Snippet<[VideoHousing]>;
     lyricsVisible?: boolean;
+    /** What the Lyrics toggle does for this song; `offer` asks first (see `media-availability.ts`). */
+    lyricsAvailability?: MediaAvailability;
     onToggleLyrics?: () => void;
     lyricsOverlay?: Snippet;
     onPlayRequest: () => void;
@@ -138,6 +144,14 @@
   // audio master clock). `nativeFullscreen` tracks whether the browser actually took it,
   // so a user-driven exit (Esc, the browser's own control) can collapse the overlay too.
   let expanded = $state(false);
+  // The offer sheet opens at z-70, under the fullscreen layer (z-80), so there it would be hidden.
+  const lyricsKey = $derived<MediaAvailability>(
+    lyricsVisible
+      ? 'ready'
+      : expanded && lyricsAvailability === 'offer'
+        ? 'none'
+        : lyricsAvailability
+  );
   let nativeFullscreen = $state(false);
   let controlsVisible = $state(true);
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -405,6 +419,7 @@
         expanded,
         toggleFullscreen,
         lyricsVisible,
+        lyricsAvailability: lyricsKey,
         toggleLyrics: () => onToggleLyrics?.()
       })}
     </div>
@@ -508,13 +523,14 @@
       <button
         type="button"
         class={cn(
-          'absolute z-20 flex size-11 items-center justify-center rounded-full bg-black/55 text-white focus-visible:outline-2 focus-visible:outline-white aria-pressed:bg-white aria-pressed:text-black',
+          'absolute z-20 flex size-11 items-center justify-center rounded-full bg-black/55 text-white focus-visible:outline-2 focus-visible:outline-white disabled:text-white/60 aria-pressed:bg-white aria-pressed:text-black',
           expanded ? 'top-[max(0.25rem,env(safe-area-inset-top))] right-1' : 'top-1 right-12'
         )}
-        aria-label="Lyrics"
+        aria-label={lyricsKey === 'none' ? 'Lyrics — none available here' : 'Lyrics'}
         aria-pressed={lyricsVisible}
+        disabled={lyricsKey === 'none'}
         onclick={() => onToggleLyrics()}
-        title="Lyrics"
+        title={lyricsKey === 'none' ? 'Lyrics — none available here' : 'Lyrics'}
       >
         <MessageSquareQuote class="size-5" />
       </button>

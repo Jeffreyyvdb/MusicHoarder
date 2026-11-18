@@ -5,10 +5,10 @@
   import { cn } from '#lib/utils.ts';
 
   /**
-   * A confirmation opened from inside Now Playing, laid out as an iOS action sheet: the title and
-   * what will happen, the one action, then Cancel on its own at the bottom (action-sheets.md:
-   * "Place the Cancel button at the bottom"), where the thumb already is. Nested, so it opens over
-   * the overlay's z-60, and in its dark media appearance. An AlertDialog would stack above it too
+   * A choice opened from inside Now Playing, laid out as an iOS action sheet: the title and what
+   * will happen, the actions, then Cancel on its own at the bottom (action-sheets.md: "Place the
+   * Cancel button at the bottom"), where the thumb already is. Nested, so it opens over the
+   * overlay's z-60, and in its dark media appearance. An AlertDialog would stack above it too
    * (z-80), but a centred alert is iOS's form for a warning, not for confirming an action picked
    * from a menu, and it would drop the media appearance.
    */
@@ -16,20 +16,15 @@
     open: boolean;
     title: string;
     description: string;
-    /** The action's label, e.g. "Reset metadata". */
-    actionLabel: string;
-    /** Red: the action cannot be undone. */
-    destructive?: boolean;
-    onAction: () => void;
+    actions: {
+      /** E.g. "Reset metadata". */
+      label: string;
+      onAction: () => void;
+      /** Red: the action cannot be undone. */
+      destructive?: boolean;
+    }[];
   };
-  let {
-    open = $bindable(false),
-    title,
-    description,
-    actionLabel,
-    destructive = false,
-    onAction
-  }: Props = $props();
+  let { open = $bindable(false), title, description, actions }: Props = $props();
 </script>
 
 <!-- showClose off: Cancel is the way out, at the bottom; a desktop X beside it would be a second. -->
@@ -43,21 +38,23 @@
 >
   <div class="flex flex-col gap-3">
     <GroupedList.Section>
-      <GroupedList.Row
-        onclick={() => {
-          open = false;
-          onAction();
-        }}
-      >
-        <span
-          class={cn(
-            'text-body text-center md:text-sm',
-            destructive ? 'text-destructive-text' : 'text-primary'
-          )}
+      {#each actions as action (action.label)}
+        <GroupedList.Row
+          onclick={() => {
+            open = false;
+            action.onAction();
+          }}
         >
-          {actionLabel}
-        </span>
-      </GroupedList.Row>
+          <span
+            class={cn(
+              'text-body text-center md:text-sm',
+              action.destructive ? 'text-destructive-text' : 'text-primary'
+            )}
+          >
+            {action.label}
+          </span>
+        </GroupedList.Row>
+      {/each}
     </GroupedList.Section>
     <GroupedList.Section>
       <GroupedList.Row onclick={() => (open = false)}>
