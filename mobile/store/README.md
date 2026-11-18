@@ -94,8 +94,10 @@ on a change of server.
 Server telemetry changes no answer either: the instance's logs, request traces and metrics are
 stored for seven days in a Loki, Tempo and Prometheus that run on the same host, and the logs also
 stay in the host's system journal until newer logs push them out (a few months at the current
-volume). None of it goes to a third party, and it holds only data already declared (account ids,
-sign-in email addresses).
+volume). None of it goes to a third party. It adds no data the server did not already log: account
+ids, sign-in email addresses, request paths, user agents and client IP addresses, with sign-in,
+invite and share tokens removed from traces. The table below does not list IP addresses or user
+agents; whether server logs make them a declared data type is an open question.
 
 | Data type | Required? | Purposes | Comes from |
 | --- | --- | --- | --- |
