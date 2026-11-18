@@ -84,6 +84,22 @@ class SmallStorage extends MemoryStorage {
 }
 
 describe('playback snapshot round-trip', () => {
+  it('restores the source link along with the queue', () => {
+    const storage = new MemoryStorage();
+    const source = { label: 'Favourite tracks', href: '/tracks?f=mh-liked' };
+    createPlaybackSnapshotStore(storage).write(snapshot({ source }));
+    expect(storage.reloaded().read()?.source).toEqual(source);
+  });
+
+  it('restores playback without an external source link', () => {
+    const storage = new MemoryStorage();
+    createPlaybackSnapshotStore(storage).write(
+      snapshot({ source: { label: 'External', href: '//example.com' } })
+    );
+    expect(storage.reloaded().read()?.source).toBeUndefined();
+    expect(storage.reloaded().read()?.queueIndex).toBe(1);
+  });
+
   it('reads back exactly what was written', () => {
     const storage = new MemoryStorage();
     const written = snapshot();

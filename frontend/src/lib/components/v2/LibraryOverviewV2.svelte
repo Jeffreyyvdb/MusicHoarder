@@ -169,11 +169,14 @@
   function fallbackArtist(s: ApiSong): string {
     return (s.albumArtist ?? s.artist ?? '').trim() || 'Unknown Artist';
   }
+  const favouritesSource = { label: 'Favourite tracks', href: '/tracks?f=mh-liked' };
+
   /** The favourites from `target`; never pauses (the phone's tap rule, a menu's Play). */
   function playFavorite(target: ApiSong) {
     void playerStore.startQueue(
       favoriteTracks.map((s) => toPlayerSong(s, fallbackArtist(s))),
-      favoriteTracks.findIndex((s) => s.id === target.id)
+      favoriteTracks.findIndex((s) => s.id === target.id),
+      { source: favouritesSource }
     );
   }
   /**
@@ -187,7 +190,12 @@
     }
     const queue = favoriteTracks.map((s) => toPlayerSong(s, fallbackArtist(s)));
     const index = favoriteTracks.findIndex((s) => s.id === song.id);
-    void playerStore.playSong(toPlayerSong(song, fallbackArtist(song)), queue, index);
+    void playerStore.playSong(
+      toPlayerSong(song, fallbackArtist(song)),
+      queue,
+      index,
+      favouritesSource
+    );
   }
 
   type RowMenu = { openAt: (point: LongPressPoint) => void };

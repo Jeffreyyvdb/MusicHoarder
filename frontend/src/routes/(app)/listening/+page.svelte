@@ -129,7 +129,8 @@
     const start = () =>
       void playerStore.startQueue(
         playable.map((s) => toPlayerSong(s, fallbackArtist(s))),
-        playable.indexOf(target)
+        playable.indexOf(target),
+        { source: { label: 'Listening', href: '/listening' } }
       );
     if (compact.current) activateTrack(target.id, start);
     else start();
