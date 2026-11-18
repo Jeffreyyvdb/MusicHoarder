@@ -437,6 +437,14 @@
     @apply text-foreground;
     background-color: var(--mh-page-surface, var(--background));
   }
+  /* Installed app only (app.html sets the marker): holding a link or a cover does nothing, as in a
+     native app. Without this iOS opens its link preview, a small Safari over the page, and holding
+     a link's text starts a selection. Browser tabs keep both, where they are expected. */
+  :root[data-mh-installed] :is(a, img) {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
   /* Installed (home-screen) app only: the app shell never scrolls the document, and the login /
      marketing pages have nothing past their edges, so stop iOS rubber-banding the whole app when a
      scroll chains to the body. Browser tabs keep the platform default. */

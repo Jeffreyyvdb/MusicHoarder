@@ -85,6 +85,17 @@
           document.documentElement.setAttribute('data-mh-ios-app', '');
         }
       } catch (_) {}
+      // Marks any installed app (the same test as isInstalledApp: the app shell or a Home Screen
+      // web app) for app.css, which then keeps a held link or image from opening iOS's link preview.
+      try {
+        if (
+          /\bMusicHoarderApp\b/.test(navigator.userAgent) ||
+          navigator.standalone === true ||
+          matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches
+        ) {
+          document.documentElement.setAttribute('data-mh-installed', '');
+        }
+      } catch (_) {}
       // The app shell (mobile/, which appends MusicHoarderApp to its user agent) does not zoom. Its
       // web view (Capacitor's default, zoomEnabled: false) turns off the pinch gesture the moment a
       // zoom begins, so a double-tap that zoomed the page in could never be pinched back out. In a
