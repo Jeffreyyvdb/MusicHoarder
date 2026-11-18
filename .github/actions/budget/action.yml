@@ -1,0 +1,26 @@
+name: Time budget
+# The last step of a CI job. It fails the job when the job took longer than its budget, from
+# its first step after "Set up job" (the runner's own start-up is GitHub's, not the job's).
+# A budget is a promise about how fast CI answers: a job that grows past it fails here, so the
+# slowdown is fixed in the change that caused it rather than noticed months later.
+description: Fail the job when it ran longer than its budget.
+inputs:
+  seconds:
+    description: The job's budget in seconds.
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        BUDGET: ${{ inputs.seconds }}
+      run: |
+        started=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs" --paginate \
+          --jq ".jobs[] | select(.runner_name == \"$RUNNER_NAME\" and .status == \"in_progress\") | .steps[] | select(.name != \"Set up job\") | .started_at" | head -n1)
+        elapsed=$(( $(date +%s) - $(date -d "$started" +%s) ))
+        if (( elapsed > BUDGET )); then
+          echo "::error title=Over budget::This job took ${elapsed}s; its budget is ${BUDGET}s. Find what got slower, or raise the budget in ci.yml with the reason."
+          exit 1
+        fi
+        echo "${elapsed}s of a ${BUDGET}s budget"

@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: read
+  actions: read # the budget step reads its own job's start time
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -29,6 +30,10 @@ jobs:
 
       - name: Check Aspire compose drift
         run: bash scripts/check-aspire-compose-drift.sh
+
+      - uses: ./.github/actions/budget
+        with:
+          seconds: 30
 
   dotnet:
     runs-on: ubuntu-latest
@@ -56,6 +61,10 @@ jobs:
       - name: Test
         run: dotnet test MusicHoarder.Api.Tests/MusicHoarder.Api.Tests.csproj --no-build -c Release --verbosity normal
 
+      - uses: ./.github/actions/budget
+        with:
+          seconds: 180
+
   frontend:
     runs-on: ubuntu-latest
     defaults:
@@ -74,3 +83,7 @@ jobs:
 
       - name: Lint, type check, test and build (side by side)
         run: scripts/ci-checks.sh
+
+      - uses: ./.github/actions/budget
+        with:
+          seconds: 90
