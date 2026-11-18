@@ -11,10 +11,13 @@
   import { coverThumbUrl } from '#lib/api-client.ts';
 
   let {
-    maxRows = 5
+    maxRows = 5,
+    fill = false
   }: {
     /** Queue rows the device lists: the loaded song and what follows. */
     maxRows?: number;
+    /** Zoom the device up to the width it is given, not only down. */
+    fill?: boolean;
   } = $props();
 
   const loaded = $derived(playerStore.currentSong);
@@ -27,7 +30,7 @@
       title: song.title,
       artist: song.artist,
       album: song.album,
-      // A sized thumbnail, never the original: the screen is 196px.
+      // A sized thumbnail, never the original: the screen is 196px, zoomed up to ~1.6× at most.
       coverUrl: coverThumbUrl(song.coverUrl, 600),
       format: song.format,
       length: songsStore.songsById.get(song.id)?.durationSeconds ?? null
@@ -59,6 +62,7 @@
 
 <Hardware bare>
   <HardwarePlayer
+    {fill}
     queue={rows}
     currentKey={rows[0]?.key ?? null}
     isPlaying={playerStore.isPlaying}

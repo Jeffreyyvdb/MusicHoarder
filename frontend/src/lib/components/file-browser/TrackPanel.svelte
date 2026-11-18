@@ -598,9 +598,9 @@
 
 <!-- Loaded on demand: the device's stylesheet is the vendored SPEC-01 skin, which nobody without
      the easter egg should download. -->
-{#snippet hardwareDevice(maxRows: number)}
+{#snippet hardwareDevice(maxRows: number, fill = false)}
   {#await import('#lib/hardware/HardwareNowPlaying.svelte') then { default: HardwareNowPlaying }}
-    <HardwareNowPlaying {maxRows} />
+    <HardwareNowPlaying {maxRows} {fill} />
   {:catch}
     {@render transport()}
   {/await}
@@ -748,8 +748,14 @@
       {@render closeButton()}
       {@render moreMenu()}
     </header>
+    <!-- Under the hardware skin the MH-1 is the player, and it fills a wider column: 38% of the
+         window, as tall as the window allows (it is 1.3× as tall as wide, with the mode row under
+         it), at most 1.6× its own 400px. -->
     <div
       class="grid min-h-0 flex-1 grid-cols-[minmax(300px,380px)_minmax(0,1fr)] gap-12 px-12 pb-8 xl:grid-cols-[400px_minmax(0,1fr)] xl:gap-16"
+      style:grid-template-columns={hardware
+        ? 'max(300px, min(38vw, 640px, (100svh - 190px) * 0.72)) minmax(0, 1fr)'
+        : undefined}
     >
       <!-- The column scrolls only when the window is too short even for the smaller art. Its box
            reaches 48px past the column on either side and down into the grid's bottom padding —
@@ -764,7 +770,7 @@
         >
           <div class="my-auto flex w-full flex-col">
             {#if hardware}
-              {@render hardwareDevice(6)}
+              {@render hardwareDevice(6, true)}
               <div class="mt-4">{@render bottomRow()}</div>
             {:else}
             <!-- The art gives way first on a short window (the transport, title and volume below it

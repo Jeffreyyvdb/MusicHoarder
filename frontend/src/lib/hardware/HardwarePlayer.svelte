@@ -44,7 +44,8 @@
     onVolume,
     onMute,
     onLike,
-    onPick
+    onPick,
+    fill = false
   }: {
     /** The loaded track first, then what plays after it. */
     queue: readonly HardwareTrack[];
@@ -64,6 +65,8 @@
     onMute: () => void;
     onLike: (liked: boolean) => void;
     onPick: (index: number) => void;
+    /** Zoom the device up to the width it is given, not only down. */
+    fill?: boolean;
   } = $props();
 
   const index = $derived(queue.findIndex((t) => t.key === currentKey));
@@ -103,7 +106,7 @@
 {#snippet title(row: HardwareTrack)}{row.title}<span data-mh-artist>{row.artist}</span>{/snippet}
 {#snippet time(row: HardwareTrack)}{row.length ? clock(row.length) : '–:––'}{/snippet}
 
-<Device model="MH-1" name="Player" on={isPlaying}>
+<Device model="MH-1" name="Player" on={isPlaying} {fill}>
   <div data-player>
     <div data-player-screen>
       <Display aspect="1 / 1">
