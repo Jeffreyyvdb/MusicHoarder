@@ -148,7 +148,7 @@
   </svg>
   {#if active != null && values[active] != null}
     <div
-      class="pointer-events-none absolute -top-1 z-10 -translate-x-1/2 -translate-y-full rounded-md border border-border bg-popover px-2 py-1 text-xs whitespace-nowrap text-popover-foreground shadow-md"
+      class="border-border bg-popover text-popover-foreground pointer-events-none absolute -top-1 z-10 -translate-x-1/2 -translate-y-full rounded-md border px-2 py-1 text-xs whitespace-nowrap shadow-md"
       style="left: {x(active)}%"
       aria-hidden="true"
     >

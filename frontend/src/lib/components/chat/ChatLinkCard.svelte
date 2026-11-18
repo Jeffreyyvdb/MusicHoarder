@@ -27,12 +27,14 @@
   let imageFailed = $state(false);
 </script>
 
-<div class={cn('bg-card flex w-full max-w-sm flex-col overflow-hidden rounded-2xl border', className)}>
+<div
+  class={cn('bg-card flex w-full max-w-sm flex-col overflow-hidden rounded-2xl border', className)}
+>
   <a
     href={link.url}
     target="_blank"
     rel="noopener noreferrer"
-    class="focus-visible:ring-ring flex items-center gap-3 p-2.5 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset"
+    class="focus-visible:ring-ring flex items-center gap-3 p-2.5 focus-visible:ring-2 focus-visible:outline-hidden focus-visible:ring-inset"
   >
     {#if link.imageUrl && !imageFailed}
       <img
@@ -44,7 +46,9 @@
         onerror={() => (imageFailed = true)}
       />
     {:else}
-      <span class="bg-muted text-muted-foreground grid size-14 shrink-0 place-items-center rounded-lg">
+      <span
+        class="bg-muted text-muted-foreground grid size-14 shrink-0 place-items-center rounded-lg"
+      >
         <Link2 class="size-6" aria-hidden="true" />
       </span>
     {/if}
@@ -53,7 +57,9 @@
         {link.title ?? link.url}
       </span>
       {#if link.subtitle}
-        <span class="text-footnote text-muted-foreground block truncate md:text-xs">{link.subtitle}</span>
+        <span class="text-footnote text-muted-foreground block truncate md:text-xs"
+          >{link.subtitle}</span
+        >
       {/if}
       <span class="text-footnote text-muted-foreground block truncate md:text-xs">{caption}</span>
     </span>
@@ -65,7 +71,7 @@
         {@const songId = link.librarySongId}
         <button
           type="button"
-          class="bg-secondary text-primary hover:bg-secondary-hover focus-visible:ring-ring inline-flex h-11 items-center gap-1.5 rounded-full px-4 text-[15px] font-medium focus-visible:outline-hidden focus-visible:ring-2 md:h-8 md:px-3 md:text-sm"
+          class="bg-secondary text-primary hover:bg-secondary-hover focus-visible:ring-ring inline-flex h-11 items-center gap-1.5 rounded-full px-4 text-[15px] font-medium focus-visible:ring-2 focus-visible:outline-hidden md:h-8 md:px-3 md:text-sm"
           onclick={() => void playLibrarySong(songId)}
         >
           <Play class="size-4 fill-current" aria-hidden="true" /> Play from your library
@@ -73,7 +79,7 @@
       {:else if canAdd}
         <button
           type="button"
-          class="bg-secondary text-primary hover:bg-secondary-hover focus-visible:ring-ring inline-flex h-11 items-center gap-1.5 rounded-full px-4 text-[15px] font-medium focus-visible:outline-hidden focus-visible:ring-2 md:h-8 md:px-3 md:text-sm"
+          class="bg-secondary text-primary hover:bg-secondary-hover focus-visible:ring-ring inline-flex h-11 items-center gap-1.5 rounded-full px-4 text-[15px] font-medium focus-visible:ring-2 focus-visible:outline-hidden md:h-8 md:px-3 md:text-sm"
           onclick={() => onadd?.(link.url)}
         >
           <Download class="size-4" aria-hidden="true" /> Add to library

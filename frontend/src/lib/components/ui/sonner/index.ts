@@ -1,4 +1,4 @@
-export { default as Toaster } from "./sonner.svelte";
+export { default as Toaster } from './sonner.svelte';
 
 /**
  * `onInteractOutside` for an overlay a toast can sit on (Now Playing and the sheets nested in it).
@@ -8,7 +8,7 @@ export { default as Toaster } from "./sonner.svelte";
  * app.css hands them pointer events back; see `[data-sonner-toast]` there.)
  */
 export function keepOpenForToasts(event: PointerEvent): void {
-	if (event.target instanceof Element && event.target.closest("[data-sonner-toaster]")) {
-		event.preventDefault();
-	}
+  if (event.target instanceof Element && event.target.closest('[data-sonner-toaster]')) {
+    event.preventDefault();
+  }
 }

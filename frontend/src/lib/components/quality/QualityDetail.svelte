@@ -77,7 +77,10 @@
   async function loadDetail(id: number) {
     loadingIds.add(id);
     try {
-      const [d, g] = await Promise.allSettled([fetchEnrichmentDetail(id), fetchSongQualityGrade(id)]);
+      const [d, g] = await Promise.allSettled([
+        fetchEnrichmentDetail(id),
+        fetchSongQualityGrade(id)
+      ]);
       if (d.status === 'fulfilled') details = { ...details, [id]: d.value };
       if (g.status === 'fulfilled') grades = { ...grades, [id]: g.value };
     } finally {
@@ -94,10 +97,14 @@
   const score = $derived(grade?.score ?? row?.score ?? null);
   const summary = $derived(grade?.summary ?? row?.summary ?? null);
   const issues = $derived(grade?.issues ?? row?.issues ?? []);
-  const statusAtGrade = $derived(grade?.enrichmentStatusAtGrade ?? row?.enrichmentStatusAtGrade ?? null);
+  const statusAtGrade = $derived(
+    grade?.enrichmentStatusAtGrade ?? row?.enrichmentStatusAtGrade ?? null
+  );
   const bucket = $derived(classifyBucket(statusAtGrade, verdict));
 
-  const title = $derived(detail?.current.title ?? row?.title ?? detail?.fileName ?? row?.fileName ?? '');
+  const title = $derived(
+    detail?.current.title ?? row?.title ?? detail?.fileName ?? row?.fileName ?? ''
+  );
   const artist = $derived(detail?.current.artist ?? row?.artist ?? '');
   const album = $derived(detail?.current.album ?? row?.album ?? '');
 
@@ -144,7 +151,9 @@
         : 'no flag raised'
   );
   const aiTone = $derived(verdictTone(verdict));
-  const marker = $derived(bucket === 'silent' ? 'disagree' : bucket === 'flagged' ? 'neutral' : 'agree');
+  const marker = $derived(
+    bucket === 'silent' ? 'disagree' : bucket === 'flagged' ? 'neutral' : 'agree'
+  );
 
   function fmtDate(iso: string | null | undefined): string {
     if (!iso) return '';
@@ -181,7 +190,9 @@
     try {
       const r = await gradeSong(row.songId);
       grades = { ...grades, [row.songId]: await fetchSongQualityGrade(row.songId) };
-      toast.success(`Re-graded: ${r.verdict ?? r.outcome}${r.score != null ? ` (${r.score})` : ''}`);
+      toast.success(
+        `Re-graded: ${r.verdict ?? r.outcome}${r.score != null ? ` (${r.score})` : ''}`
+      );
       onRegraded?.();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Grading failed');
@@ -194,7 +205,9 @@
     if (!row) return;
     try {
       await copyQualitySongDossier(row.songId);
-      toast.success('Copied dossier to clipboard — paste into an AI assistant for a second opinion');
+      toast.success(
+        'Copied dossier to clipboard — paste into an AI assistant for a second opinion'
+      );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Copy failed');
     }
@@ -223,7 +236,10 @@
         {cleanDisplayName(title)}
       </div>
       <div class="text-subheadline text-muted-foreground truncate md:text-[12px]">
-        {artist || 'Unknown artist'}{#if album}<span aria-hidden="true" class="mx-1">·</span><span class="sr-only">, </span><em>{album}</em>{/if}
+        {artist || 'Unknown artist'}{#if album}<span aria-hidden="true" class="mx-1">·</span><span
+            class="sr-only"
+            >,
+          </span><em>{album}</em>{/if}
       </div>
     </div>
   </div>
@@ -247,25 +263,37 @@
       </div>
       <div class="grid place-items-center self-stretch sm:pt-3">
         {#if marker === 'disagree'}
-          <span class="text-destructive-text text-footnote font-semibold md:text-[11px]">≠ Disagree</span>
+          <span class="text-destructive-text text-footnote font-semibold md:text-[11px]"
+            >≠ Disagree</span
+          >
         {:else if marker === 'agree'}
-          <span class="text-muted-foreground text-footnote font-semibold md:text-[11px]">= Agree</span>
+          <span class="text-muted-foreground text-footnote font-semibold md:text-[11px]"
+            >= Agree</span
+          >
         {:else}
           <span class="text-muted-foreground text-lg" aria-hidden="true">→</span>
         {/if}
       </div>
       <div>
         <div class="text-footnote text-muted-foreground font-medium md:text-[11px]">AI grader</div>
-        <div class={cn('text-headline mt-1 flex items-baseline gap-2 md:text-[15px]', toneText(aiTone))}>
+        <div
+          class={cn(
+            'text-headline mt-1 flex items-baseline gap-2 md:text-[15px]',
+            toneText(aiTone)
+          )}
+        >
           <span>
             <span class={toneGlyph(aiTone)} aria-hidden="true">{verdictGlyph(verdict)}</span>
             {verdict}
           </span>
-          {#if score != null}<span class="text-muted-foreground text-subheadline font-normal tabular-nums md:text-[12px]"
+          {#if score != null}<span
+              class="text-muted-foreground text-subheadline font-normal tabular-nums md:text-[12px]"
               >{score}/100</span
             >{/if}
         </div>
-        {#if summary}<div class="text-subheadline text-muted-foreground mt-1 md:text-[12px]">{summary}</div>{/if}
+        {#if summary}<div class="text-subheadline text-muted-foreground mt-1 md:text-[12px]">
+            {summary}
+          </div>{/if}
       </div>
     </div>
   {/if}
@@ -276,14 +304,18 @@
     <div class={cn('bg-card rounded-xl border-l-[3px] p-4', toneBorder(aiTone))}>
       <div class="flex flex-wrap items-center gap-2">
         <Sparkles class={cn('size-3.5', toneGlyph(aiTone))} aria-hidden="true" />
-        <span class="text-subheadline font-semibold md:text-[12px]">Why the AI graded it this way</span>
+        <span class="text-subheadline font-semibold md:text-[12px]"
+          >Why the AI graded it this way</span
+        >
         <span class="text-footnote text-muted-foreground ml-auto md:text-[11px]">
           {#if grade?.model}<span class="font-mono">{grade.model}</span>{/if}{#if grade?.durationMs}
             · <span class="tabular-nums">{grade.durationMs} ms</span>{/if}{#if grade?.promptVersion}
             · prompt v{grade.promptVersion}{/if}
         </span>
       </div>
-      {#if summary}<p class="text-callout text-muted-foreground mt-2 md:text-[12.5px]">{summary}</p>{/if}
+      {#if summary}<p class="text-callout text-muted-foreground mt-2 md:text-[12.5px]">
+          {summary}
+        </p>{/if}
       {#if issues.length > 0}
         <ul class="mt-2.5 flex flex-col gap-1.5">
           {#each issues as issue (issue.code)}
@@ -292,7 +324,9 @@
               <span
                 class="bg-muted text-foreground rounded-full px-2 py-0.5 text-[12px] md:text-[11px]"
                 title={issue.code}
-                >{issueLabel(issue.code)}{#if issue.severity}<span class="text-muted-foreground">{` · ${issue.severity}`}</span>{/if}</span
+                >{issueLabel(issue.code)}{#if issue.severity}<span class="text-muted-foreground"
+                    >{` · ${issue.severity}`}</span
+                  >{/if}</span
               >
               {#if issue.detail}<span class="text-muted-foreground ml-1">{issue.detail}</span>{/if}
             </li>
@@ -305,14 +339,23 @@
 
 {#snippet dossier()}
   {#if loading && !detail}
-    <div class="text-muted-foreground text-subheadline flex items-center gap-2 py-8 md:text-[12.5px]">
+    <div
+      class="text-muted-foreground text-subheadline flex items-center gap-2 py-8 md:text-[12.5px]"
+    >
       <Loader2 class="size-4 animate-spin" aria-hidden="true" /> Loading provenance dossier…
     </div>
   {:else if detail}
     <div class="space-y-3">
       <div class="flex flex-wrap items-center justify-between gap-2">
-        <h3 class="text-footnote text-muted-foreground font-semibold md:text-[12px]">Provenance dossier</h3>
-        <SegmentedControl items={views} bind:value={view} label="Dossier view" class="w-full sm:w-auto" />
+        <h3 class="text-footnote text-muted-foreground font-semibold md:text-[12px]">
+          Provenance dossier
+        </h3>
+        <SegmentedControl
+          items={views}
+          bind:value={view}
+          label="Dossier view"
+          class="w-full sm:w-auto"
+        />
       </div>
 
       <!-- The review components are wide tables; they scroll sideways inside the page rather than
@@ -354,7 +397,9 @@
     {#snippet actions()}
       {#if row}
         <Button onclick={onRegrade} disabled={regradeBusy} class="rounded-full">
-          {#if regradeBusy}<Loader2 class="animate-spin" aria-hidden="true" />{:else}<Sparkles aria-hidden="true" />{/if}
+          {#if regradeBusy}<Loader2 class="animate-spin" aria-hidden="true" />{:else}<Sparkles
+              aria-hidden="true"
+            />{/if}
           <span class="max-md:sr-only">Re-grade</span>
         </Button>
       {/if}
@@ -383,7 +428,9 @@
       {@render dossier()}
       <div>
         <div class="text-footnote text-muted-foreground px-4 pb-1.5 md:px-0">{writeLabel}</div>
-        <div class="bg-card text-footnote text-muted-foreground rounded-xl px-4 py-3 font-mono break-all">
+        <div
+          class="bg-card text-footnote text-muted-foreground rounded-xl px-4 py-3 font-mono break-all"
+        >
           {destinationPath || '—'}
         </div>
       </div>
@@ -392,7 +439,9 @@
 {:else}
   <div class="bg-card flex h-full min-h-0 flex-col overflow-hidden rounded-xl">
     {#if !row}
-      <div class="text-muted-foreground grid flex-1 place-items-center p-6 text-[13px]">Pick a track from the list.</div>
+      <div class="text-muted-foreground grid flex-1 place-items-center p-6 text-[13px]">
+        Pick a track from the list.
+      </div>
     {:else}
       <!-- Detail head -->
       <div class="border-separator shrink-0 border-b px-[18px] py-3.5">
@@ -408,19 +457,40 @@
       </ScrollArea>
 
       <!-- Action bar — the app's own Button, 28px to look at with a 44px hit area on touch. -->
-      <div class="border-separator bg-card flex shrink-0 flex-wrap items-center gap-3 border-t px-[18px] py-3">
+      <div
+        class="border-separator bg-card flex shrink-0 flex-wrap items-center gap-3 border-t px-[18px] py-3"
+      >
         <div class="min-w-0 flex-1">
           <div class="text-muted-foreground text-[11px] font-medium">{writeLabel}</div>
-          <div class="text-muted-foreground truncate font-mono text-[11px]" title={destinationPath}>{destinationPath || '—'}</div>
+          <div class="text-muted-foreground truncate font-mono text-[11px]" title={destinationPath}>
+            {destinationPath || '—'}
+          </div>
         </div>
-        <Button variant="gray" size="sm" class="relative shrink-0 pointer-coarse:after:absolute pointer-coarse:after:-inset-x-1.5 pointer-coarse:after:-inset-y-2" onclick={onCopy}>
+        <Button
+          variant="gray"
+          size="sm"
+          class="relative shrink-0 pointer-coarse:after:absolute pointer-coarse:after:-inset-x-1.5 pointer-coarse:after:-inset-y-2"
+          onclick={onCopy}
+        >
           <Copy aria-hidden="true" /> Copy dossier
         </Button>
-        <Button variant="gray" size="sm" class="relative shrink-0 pointer-coarse:after:absolute pointer-coarse:after:-inset-x-1.5 pointer-coarse:after:-inset-y-2" href={reviewHref}>
+        <Button
+          variant="gray"
+          size="sm"
+          class="relative shrink-0 pointer-coarse:after:absolute pointer-coarse:after:-inset-x-1.5 pointer-coarse:after:-inset-y-2"
+          href={reviewHref}
+        >
           <ExternalLink aria-hidden="true" /> Open in review
         </Button>
-        <Button size="sm" class="relative shrink-0 pointer-coarse:after:absolute pointer-coarse:after:-inset-x-1.5 pointer-coarse:after:-inset-y-2" disabled={regradeBusy} onclick={onRegrade}>
-          {#if regradeBusy}<Loader2 class="animate-spin" aria-hidden="true" />{:else}<Sparkles aria-hidden="true" />{/if}
+        <Button
+          size="sm"
+          class="relative shrink-0 pointer-coarse:after:absolute pointer-coarse:after:-inset-x-1.5 pointer-coarse:after:-inset-y-2"
+          disabled={regradeBusy}
+          onclick={onRegrade}
+        >
+          {#if regradeBusy}<Loader2 class="animate-spin" aria-hidden="true" />{:else}<Sparkles
+              aria-hidden="true"
+            />{/if}
           Re-grade
         </Button>
       </div>

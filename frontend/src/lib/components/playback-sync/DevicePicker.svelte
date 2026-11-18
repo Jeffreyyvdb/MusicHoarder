@@ -56,7 +56,12 @@
     'aria-expanded': open
   })}
   <!-- `dark` inside Now Playing: its sheets keep the media appearance whatever the app theme. -->
-  <BottomSheet.Root bind:open title="Play on" {nested} class={nested ? mediaAppearance() : undefined}>
+  <BottomSheet.Root
+    bind:open
+    title="Play on"
+    {nested}
+    class={nested ? mediaAppearance() : undefined}
+  >
     {#snippet trailing()}
       <BottomSheet.Action prominent onclick={() => (open = false)}>Done</BottomSheet.Action>
     {/snippet}
@@ -82,7 +87,9 @@
             <span
               class={cn(
                 'text-subheadline truncate',
-                entry.status === 'playing' && !entry.isThis ? 'text-primary' : 'text-muted-foreground'
+                entry.status === 'playing' && !entry.isThis
+                  ? 'text-primary'
+                  : 'text-muted-foreground'
               )}
             >
               {status}

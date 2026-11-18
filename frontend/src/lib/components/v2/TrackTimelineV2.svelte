@@ -495,10 +495,15 @@
               <span
                 class={cn(
                   'text-body inline-flex items-center gap-1.5 md:text-sm',
-                  syncBadge.label === 'Sync failed' ? 'text-destructive-text' : 'text-muted-foreground'
+                  syncBadge.label === 'Sync failed'
+                    ? 'text-destructive-text'
+                    : 'text-muted-foreground'
                 )}
               >
-                {#if syncBadge.ok}<CircleCheck class="text-primary size-4" aria-hidden="true" />{/if}
+                {#if syncBadge.ok}<CircleCheck
+                    class="text-primary size-4"
+                    aria-hidden="true"
+                  />{/if}
                 {syncBadge.label}
               </span>
             {/snippet}
@@ -520,7 +525,11 @@
         >
           {#if detail?.fingerprint}
             <!-- The chromaprint is long: the row shows its head and copies the whole thing. -->
-            {@render copyRow('Fingerprint', `${detail.fingerprint.slice(0, 22)}…`, detail.fingerprint)}
+            {@render copyRow(
+              'Fingerprint',
+              `${detail.fingerprint.slice(0, 22)}…`,
+              detail.fingerprint
+            )}
           {/if}
           {#if song.musicBrainzId}
             {@render copyRow('MusicBrainz recording', song.musicBrainzId, song.musicBrainzId)}
@@ -571,14 +580,13 @@
       </GroupedList.Section>
 
       <section aria-labelledby="timeline-heading" class="flex flex-col">
-        <h3
-          id="timeline-heading"
-          class="text-footnote text-muted-foreground px-8 pb-1.5 md:px-4"
-        >
+        <h3 id="timeline-heading" class="text-footnote text-muted-foreground px-8 pb-1.5 md:px-4">
           Timeline
         </h3>
         {#if timeline.length === 0}
-          <p class="bg-card text-muted-foreground text-subheadline mx-4 rounded-xl px-4 py-6 text-center md:mx-0">
+          <p
+            class="bg-card text-muted-foreground text-subheadline mx-4 rounded-xl px-4 py-6 text-center md:mx-0"
+          >
             No pipeline events recorded for this track yet.
           </p>
         {:else}
@@ -587,8 +595,8 @@
           </div>
           <p class="text-footnote text-muted-foreground px-8 pt-1.5 md:px-4">
             {timeline.length}
-            {timeline.length === 1 ? 'event' : 'events'} · {wallClock} end to end. Timestamps are
-            real; how long each step took is not recorded yet.
+            {timeline.length === 1 ? 'event' : 'events'} · {wallClock} end to end. Timestamps are real;
+            how long each step took is not recorded yet.
           </p>
         {/if}
       </section>
@@ -598,8 +606,10 @@
 
 {#snippet copyRow(label: string, shown: string, full: string)}
   <!-- Stacked, so a long id or path reads whole; the row is the copy button. -->
-  <GroupedList.Row onclick={() => copy(label, full)} label={label} aria-label={`Copy ${label}`}>
-    <span class="text-subheadline text-muted-foreground font-mono break-all md:text-xs">{shown}</span>
+  <GroupedList.Row onclick={() => copy(label, full)} {label} aria-label={`Copy ${label}`}>
+    <span class="text-subheadline text-muted-foreground font-mono break-all md:text-xs"
+      >{shown}</span
+    >
     {#snippet trailing()}
       <Copy class="text-muted-foreground size-4" aria-hidden="true" />
     {/snippet}

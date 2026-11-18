@@ -130,7 +130,11 @@ function capped(stack: TabEntry[]): TabEntry[] {
     : stack;
 }
 
-export type TabNav = { type: string; from: ReadonlyURL | string | null; to: ReadonlyURL | string | null };
+export type TabNav = {
+  type: string;
+  from: ReadonlyURL | string | null;
+  to: ReadonlyURL | string | null;
+};
 
 export type TabNavContext = {
   user: NavAudience;

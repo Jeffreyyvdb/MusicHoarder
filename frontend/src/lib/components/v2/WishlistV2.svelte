@@ -1079,7 +1079,7 @@
                title is a button stretched over the row; the disclosure and menu sit above it. -->
           <button
             type="button"
-            class="text-body active:after:bg-accent block w-full truncate text-left focus-visible:outline-hidden after:absolute after:inset-0 focus-visible:underline"
+            class="text-body active:after:bg-accent block w-full truncate text-left after:absolute after:inset-0 focus-visible:underline focus-visible:outline-hidden"
             onclick={() => songDetail.open(songId)}
           >
             {item.title}

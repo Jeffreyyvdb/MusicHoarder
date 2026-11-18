@@ -38,9 +38,9 @@
         title="Change theme"
       >
         {#if mode.current === 'dark'}
-          <Moon class="size-[1.125rem] text-foreground" />
+          <Moon class="text-foreground size-[1.125rem]" />
         {:else}
-          <Sun class="size-[1.125rem] text-foreground" />
+          <Sun class="text-foreground size-[1.125rem]" />
         {/if}
       </Button>
     {/snippet}
@@ -53,7 +53,7 @@
           {label}
         </span>
         {#if userPrefersMode.current === value}
-          <Check class="size-4 text-muted-foreground" />
+          <Check class="text-muted-foreground size-4" />
         {/if}
       </DropdownMenu.Item>
     {/each}

@@ -384,12 +384,7 @@
         {#if lastPlayedShelf.length > 0}
           <section aria-labelledby="overview-played">
             {@render sectionHeader('Last played', '/library', 'overview-played')}
-            <LibraryAlbumsGridV2
-              albums={lastPlayedShelf}
-              hrefFor={albumHref}
-              layout="shelf"
-              menu
-            />
+            <LibraryAlbumsGridV2 albums={lastPlayedShelf} hrefFor={albumHref} layout="shelf" menu />
           </section>
         {/if}
 

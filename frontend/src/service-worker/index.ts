@@ -81,9 +81,10 @@ type BadgeNavigator = WorkerNavigator & { setAppBadge?: (n?: number) => Promise<
 
 /** Same-origin paths only: a notification can never send the app somewhere else. */
 function targetUrl(payload: PushPayload): string {
-  const path = typeof payload.url === 'string' && payload.url.startsWith('/') && !payload.url.startsWith('//')
-    ? payload.url
-    : '/chats';
+  const path =
+    typeof payload.url === 'string' && payload.url.startsWith('/') && !payload.url.startsWith('//')
+      ? payload.url
+      : '/chats';
   const url = new URL(path, sw.location.origin);
   // A browser can hold several accounts; the page switches if this one is not the active one.
   if (payload.userId) url.searchParams.set('account', payload.userId);

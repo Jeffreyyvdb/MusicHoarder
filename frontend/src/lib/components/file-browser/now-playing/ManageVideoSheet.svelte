@@ -236,7 +236,13 @@
   ];
 </script>
 
-<BottomSheet.Root bind:open nested class={mediaAppearance()} title="Music video" description={title}>
+<BottomSheet.Root
+  bind:open
+  nested
+  class={mediaAppearance()}
+  title="Music video"
+  description={title}
+>
   {#snippet trailing()}
     <BottomSheet.Action prominent onclick={() => (open = false)}>Done</BottomSheet.Action>
   {/snippet}

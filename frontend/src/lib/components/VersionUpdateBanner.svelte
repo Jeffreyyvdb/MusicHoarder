@@ -17,9 +17,7 @@
   // Hidden unless the backend reports a strictly-newer release the user hasn't dismissed. A failed
   // fetch leaves `info` null → nothing shows (same graceful-degrade as the other banners).
   const show = $derived(
-    info?.updateAvailable === true &&
-      info.latest !== null &&
-      dismissedVersion !== info.latest
+    info?.updateAvailable === true && info.latest !== null && dismissedVersion !== info.latest
   );
 
   async function refresh(): Promise<void> {
@@ -79,7 +77,8 @@
           target="_blank"
           rel="noopener noreferrer"
           class="hover:text-foreground hidden underline underline-offset-3 transition-colors sm:inline"
-        >View release notes</a>
+          >View release notes</a
+        >
       {/if}
       <span class="mx-1" aria-hidden="true">·</span>
       <!-- ?tab=, not #updates: Settings selects its section from the query, and a hash landed an
@@ -87,7 +86,8 @@
       <a
         href="/settings?tab=updates"
         class="hover:text-foreground underline underline-offset-3 transition-colors"
-      >How to update</a>
+        >How to update</a
+      >
     </p>
     <!-- 32px visual in the 36px strip; the after: pseudo grows the hit area to 44×44 without
          growing the strip. -->
@@ -95,7 +95,7 @@
       type="button"
       onclick={dismiss}
       aria-label="Dismiss update notice"
-      class="hover:bg-secondary-hover hover:text-foreground focus-visible:ring-ring/60 relative -mr-2 grid size-8 shrink-0 place-items-center rounded-full focus-visible:outline-hidden transition-colors after:absolute after:-inset-1.5 after:content-[''] focus-visible:ring-2"
+      class="hover:bg-secondary-hover hover:text-foreground focus-visible:ring-ring/60 relative -mr-2 grid size-8 shrink-0 place-items-center rounded-full transition-colors after:absolute after:-inset-1.5 after:content-[''] focus-visible:ring-2 focus-visible:outline-hidden"
     >
       <X class="size-3.5" />
     </button>

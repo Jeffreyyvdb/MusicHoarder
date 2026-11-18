@@ -21,7 +21,9 @@ describe('isStaleChunkError', () => {
 
   it('accepts strings and { message } shapes (e.g. unhandledrejection reasons)', () => {
     expect(isStaleChunkError('Importing a module script failed.')).toBe(true);
-    expect(isStaleChunkError({ message: 'Failed to fetch dynamically imported module' })).toBe(true);
+    expect(isStaleChunkError({ message: 'Failed to fetch dynamically imported module' })).toBe(
+      true
+    );
   });
 
   it('ignores unrelated and empty errors', () => {

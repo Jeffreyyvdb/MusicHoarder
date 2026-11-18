@@ -56,13 +56,20 @@
 {#snippet rowBody(s: QualitySongRow)}
   <span class="text-body truncate md:text-[12.5px] md:font-medium">{rowTitle(s)}</span>
   <span class="text-subheadline text-muted-foreground truncate md:text-[11px]">
-    {s.artist ?? 'Unknown artist'}{#if s.album}<span aria-hidden="true" class="mx-1">·</span><span class="sr-only">, </span><em>{s.album}</em>{/if}
+    {s.artist ?? 'Unknown artist'}{#if s.album}<span aria-hidden="true" class="mx-1">·</span><span
+        class="sr-only"
+        >,
+      </span><em>{s.album}</em>{/if}
   </span>
   <span class="mt-1 flex flex-wrap items-center gap-1.5">
     {#if s.bucket === 'flagged'}
-      <Badge variant="warning" class="md:text-[11px]"><TriangleAlert aria-hidden="true" /> Flagged</Badge>
+      <Badge variant="warning" class="md:text-[11px]"
+        ><TriangleAlert aria-hidden="true" /> Flagged</Badge
+      >
     {:else if s.bucket === 'silent'}
-      <Badge variant="destructive" class="md:text-[11px]"><EarOff aria-hidden="true" /> Silent failure</Badge>
+      <Badge variant="destructive" class="md:text-[11px]"
+        ><EarOff aria-hidden="true" /> Silent failure</Badge
+      >
     {:else if s.bucket === 'verified'}
       <Badge variant="secondary" class="md:text-[11px]">Algorithm and AI agree</Badge>
     {/if}
@@ -88,7 +95,11 @@
     {/if}
 
     {#if s.isOutdated}
-      <Badge variant="warning" class="md:text-[11px]" title="Graded with an older prompt or model — re-grade to refresh.">
+      <Badge
+        variant="warning"
+        class="md:text-[11px]"
+        title="Graded with an older prompt or model — re-grade to refresh."
+      >
         <History aria-hidden="true" /> Outdated
       </Badge>
     {/if}
@@ -97,11 +108,15 @@
 
 {#snippet empty()}
   {#if loading && songs.length === 0}
-    <div class="text-muted-foreground text-body flex h-32 items-center justify-center gap-2 md:text-[12px]">
+    <div
+      class="text-muted-foreground text-body flex h-32 items-center justify-center gap-2 md:text-[12px]"
+    >
       <Loader2 class="size-4 animate-spin" aria-hidden="true" /> Loading…
     </div>
   {:else if songs.length === 0}
-    <div class="text-muted-foreground flex h-40 flex-col items-center justify-center gap-1.5 px-4 text-center">
+    <div
+      class="text-muted-foreground flex h-40 flex-col items-center justify-center gap-1.5 px-4 text-center"
+    >
       <Check class="text-muted-foreground-dim size-6" aria-hidden="true" />
       <div class="text-body text-foreground md:text-[12.5px] md:font-medium">Nothing to show</div>
       <div class="text-subheadline md:text-[11.5px]">No tracks in this bucket.</div>
@@ -136,7 +151,9 @@
   </GroupedList.Section>
 {:else}
   <aside class="bg-card flex h-full min-h-0 flex-col overflow-hidden rounded-xl">
-    <div class="border-separator text-muted-foreground flex shrink-0 items-center border-b px-3.5 py-2.5 text-[11.5px]">
+    <div
+      class="border-separator text-muted-foreground flex shrink-0 items-center border-b px-3.5 py-2.5 text-[11.5px]"
+    >
       {countLine}
     </div>
 
@@ -150,7 +167,7 @@
             onclick={() => onSelect?.(s.songId)}
             aria-current={active ? 'true' : undefined}
             class={cn(
-              'focus-visible:ring-ring/50 grid w-full grid-cols-[36px_1fr] items-start gap-2.5 rounded-lg border-l-[3px] p-2 text-left focus-visible:outline-hidden transition-colors focus-visible:ring-3',
+              'focus-visible:ring-ring/50 grid w-full grid-cols-[36px_1fr] items-start gap-2.5 rounded-lg border-l-[3px] p-2 text-left transition-colors focus-visible:ring-3 focus-visible:outline-hidden',
               active ? 'bg-accent border-l-primary' : 'hover:bg-accent border-l-transparent',
               !active && s.bucket === 'flagged' && 'border-l-warning',
               !active && s.bucket === 'silent' && 'border-l-destructive'

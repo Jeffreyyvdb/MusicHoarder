@@ -1,6 +1,15 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { ChevronRight, Loader2, MessageCircle, Music, Pause, Play, Video, VideoOff } from '@lucide/svelte';
+  import {
+    ChevronRight,
+    Loader2,
+    MessageCircle,
+    Music,
+    Pause,
+    Play,
+    Video,
+    VideoOff
+  } from '@lucide/svelte';
   import Cover from '#lib/components/file-browser/Cover.svelte';
   import SongTransport from '#lib/components/file-browser/SongTransport.svelte';
   import LyricsCard from '#lib/components/file-browser/LyricsCard.svelte';
@@ -186,9 +195,9 @@
   const hasShareTranslation = $derived(
     Boolean(
       lyrics?.romanizedSynced ??
-        lyrics?.romanizedPlain ??
-        lyrics?.translatedSynced ??
-        lyrics?.translatedPlain
+      lyrics?.romanizedPlain ??
+      lyrics?.translatedSynced ??
+      lyrics?.translatedPlain
     )
   );
   const secondarySynced = $derived.by(() => {
@@ -246,10 +255,10 @@
       <button
         type="button"
         onclick={() => playTrack(track)}
-        class="group active:bg-accent flex min-h-11 w-full items-center gap-3 px-4 py-2 text-left transition-colors pointer-fine:hover:bg-accent"
+        class="group active:bg-accent pointer-fine:hover:bg-accent flex min-h-11 w-full items-center gap-3 px-4 py-2 text-left transition-colors"
       >
         <span
-          class="text-footnote text-muted-foreground w-6 shrink-0 text-right tabular-nums pointer-coarse:hidden group-hover:hidden {isRowLoaded
+          class="text-footnote text-muted-foreground w-6 shrink-0 text-right tabular-nums group-hover:hidden pointer-coarse:hidden {isRowLoaded
             ? 'hidden'
             : ''}"
         >
@@ -258,7 +267,7 @@
         <span
           class="w-6 shrink-0 {isRowLoaded
             ? 'inline-flex'
-            : 'hidden pointer-coarse:inline-flex group-hover:inline-flex'} justify-end"
+            : 'hidden group-hover:inline-flex pointer-coarse:inline-flex'} justify-end"
         >
           {#if isRowPlaying}
             <Pause class="text-primary size-3.5" fill="currentColor" />
@@ -267,7 +276,9 @@
           {/if}
         </span>
         <span
-          class="text-body min-w-0 flex-1 truncate md:text-sm {isRowLoaded ? 'text-primary font-medium' : ''}"
+          class="text-body min-w-0 flex-1 truncate md:text-sm {isRowLoaded
+            ? 'text-primary font-medium'
+            : ''}"
         >
           {track.title}
         </span>
@@ -343,7 +354,9 @@
       variant="ghost"
       class="mh-glass mh-chrome fixed top-[max(0.75rem,env(safe-area-inset-top))] right-[max(0.75rem,env(safe-area-inset-right))] z-20 size-11 rounded-full"
       onclick={() => videoBackdropPrefs.toggle()}
-      aria-label={videoBackdropPrefs.enabled ? 'Turn off video background' : 'Turn on video background'}
+      aria-label={videoBackdropPrefs.enabled
+        ? 'Turn off video background'
+        : 'Turn on video background'}
       title={videoBackdropPrefs.enabled ? 'Turn off video background' : 'Turn on video background'}
     >
       {#if videoBackdropPrefs.enabled}
@@ -404,7 +417,7 @@
         {#if chatContext}
           <a
             href={`/chats/${chatContext.conversationId}`}
-            class="bg-secondary hover:bg-secondary-hover focus-visible:ring-ring text-subheadline mx-auto mt-5 flex w-full max-w-[340px] items-center gap-2 rounded-full py-2.5 pr-3 pl-4 focus-visible:outline-hidden focus-visible:ring-2 md:text-sm lg:mx-0"
+            class="bg-secondary hover:bg-secondary-hover focus-visible:ring-ring text-subheadline mx-auto mt-5 flex w-full max-w-[340px] items-center gap-2 rounded-full py-2.5 pr-3 pl-4 focus-visible:ring-2 focus-visible:outline-hidden md:text-sm lg:mx-0"
           >
             <MessageCircle class="text-primary size-4 shrink-0" aria-hidden="true" />
             <span class="min-w-0 flex-1 truncate">In your chat with {chatContext.ownerName}</span>
@@ -452,7 +465,9 @@
                 </div>
               {/key}
             {:else if lyricsLoading}
-              <div class="text-subheadline text-muted-foreground flex h-full items-center gap-2 px-1">
+              <div
+                class="text-subheadline text-muted-foreground flex h-full items-center gap-2 px-1"
+              >
                 <Loader2 class="size-4 animate-spin" /> Loading lyrics…
               </div>
             {/if}

@@ -19,7 +19,11 @@ function clean(value: string | null | undefined): string | null {
 }
 
 export function pendingShareFrom(params: ReadonlyURLSearchParams): PendingShare | null {
-  const share = { title: clean(params.get('title')), text: clean(params.get('text')), url: clean(params.get('url')) };
+  const share = {
+    title: clean(params.get('title')),
+    text: clean(params.get('text')),
+    url: clean(params.get('url'))
+  };
   return share.title || share.text || share.url ? share : null;
 }
 

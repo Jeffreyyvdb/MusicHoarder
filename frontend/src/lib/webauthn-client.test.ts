@@ -6,7 +6,10 @@ afterEach(() => {
 });
 
 function browserWithWebAuthn(capacitor?: object) {
-  vi.stubGlobal('window', { PublicKeyCredential: class {}, ...(capacitor ? { Capacitor: capacitor } : {}) });
+  vi.stubGlobal('window', {
+    PublicKeyCredential: class {},
+    ...(capacitor ? { Capacitor: capacitor } : {})
+  });
   vi.stubGlobal('navigator', { credentials: {} });
 }
 

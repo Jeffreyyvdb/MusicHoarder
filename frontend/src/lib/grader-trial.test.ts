@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { checkWord, ms, num, pct, ratio, recommendationText, shortModel, usd } from './grader-trial.ts';
+import {
+  checkWord,
+  ms,
+  num,
+  pct,
+  ratio,
+  recommendationText,
+  shortModel,
+  usd
+} from './grader-trial.ts';
 
 describe('grader trial formatting', () => {
   it('formats shares as percentages', () => {

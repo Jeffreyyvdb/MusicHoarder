@@ -38,14 +38,19 @@ export function ratio(a: number | null | undefined, b: number | null | undefined
   return `${r >= 10 ? Math.round(r) : r.toFixed(1)}×`;
 }
 
-const RECOMMENDATIONS: Record<GraderTrialComparison['recommendation'], { title: string; detail: string }> = {
+const RECOMMENDATIONS: Record<
+  GraderTrialComparison['recommendation'],
+  { title: string; detail: string }
+> = {
   switch: {
     title: 'Switch to this model',
-    detail: 'Every check passes. Plan the two-tier grader: this model decides, the chat model writes summaries for flagged songs.'
+    detail:
+      'Every check passes. Plan the two-tier grader: this model decides, the chat model writes summaries for flagged songs.'
   },
   'keep-incumbent': {
     title: 'Keep the chat grader',
-    detail: 'This model misses wrong songs the chat grader catches. Use it at most as a cheap pre-filter.'
+    detail:
+      'This model misses wrong songs the chat grader catches. Use it at most as a cheap pre-filter.'
   },
   'need-more-data': {
     title: 'Not enough data yet',
@@ -57,7 +62,10 @@ const RECOMMENDATIONS: Record<GraderTrialComparison['recommendation'], { title: 
   }
 };
 
-export function recommendationText(r: GraderTrialComparison['recommendation']): { title: string; detail: string } {
+export function recommendationText(r: GraderTrialComparison['recommendation']): {
+  title: string;
+  detail: string;
+} {
   return RECOMMENDATIONS[r] ?? RECOMMENDATIONS['need-more-data'];
 }
 

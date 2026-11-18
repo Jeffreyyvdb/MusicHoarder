@@ -11,6 +11,7 @@ dotnet run --project MusicHoarder.AppHost
 ```
 
 Aspire starts:
+
 - `MusicHoarder.Api` (backend API)
 - `frontend` (SvelteKit via Bun — `AddViteApp(...).WithBun()`)
 - PostgreSQL
@@ -20,9 +21,11 @@ AppHost also sets `Frontend__PublicBaseUrl` on the API so that after Spotify OAu
 ## Frontend API routing
 
 The frontend proxies backend requests through:
+
 - `/api/mh/[...path]` → `.NET API`
 
 The proxy (`src/routes/api/mh/[...path]/+server.ts`) resolves the backend base URL in this order:
+
 1. `MUSICHOARDER_API_URL`
 2. Aspire-discovery variables like `services__musichoarder-api__http__0`
 3. Fallback: `http://localhost:5107`
@@ -51,9 +54,9 @@ The tracker tag sets `data-performance="true"`, so Core Web Vitals are collected
 
 Public share pages (`/share/{token}`) also send two named events, so a shared link reads by name in Umami's **Events** view instead of as a page view of an opaque token URL:
 
-| Event | When | Properties |
-| --- | --- | --- |
-| `share-open` | once per load of a share page | `scope` (`song` / `album`), `title`, `artist` |
+| Event        | When                                         | Properties                                             |
+| ------------ | -------------------------------------------- | ------------------------------------------------------ |
+| `share-open` | once per load of a share page                | `scope` (`song` / `album`), `title`, `artist`          |
 | `share-play` | the first time each track plays on that page | `scope`, `title`, `artist`, `album` (album links only) |
 
 Umami counts every visitor, the link's owner included; the in-app **Share links** page (Manage → Share links) keeps its own counts, which leave the owner, bots and quick reloads out. To keep your own browser out of Umami, set `localStorage.setItem('umami.disabled', '1')` in it.

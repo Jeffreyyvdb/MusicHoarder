@@ -1,11 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-  EASE_IN_OUT,
-  EASE_OUT,
-  easingOf,
-  motionFly,
-  prefersReducedMotion
-} from './motion';
+import { EASE_IN_OUT, EASE_OUT, easingOf, motionFly, prefersReducedMotion } from './motion';
 
 afterEach(() => vi.unstubAllGlobals());
 

@@ -6,7 +6,14 @@ import type { AlbumTracklist, ApiSong } from '#lib/api-client.ts';
  * unique across the whole list — a duplicate key crashes Svelte with `each_key_duplicate`.
  */
 export type DisplayRow =
-  | { kind: 'owned'; key: string; disc: number; n: number; song: ApiSong; durationSeconds: number | null }
+  | {
+      kind: 'owned';
+      key: string;
+      disc: number;
+      n: number;
+      song: ApiSong;
+      durationSeconds: number | null;
+    }
   | {
       kind: 'missing';
       key: string;
@@ -31,7 +38,10 @@ export type DisplayRow =
  *   - the owned-only fallback (no tracklist yet) and the bonus-track tail both dedupe on song id.
  * Every `key` this returns is therefore unique.
  */
-export function buildDisplayRows(songs: ApiSong[] | undefined, tracklist: AlbumTracklist | null): DisplayRow[] {
+export function buildDisplayRows(
+  songs: ApiSong[] | undefined,
+  tracklist: AlbumTracklist | null
+): DisplayRow[] {
   const owned = songs ?? [];
   const used = new Set<number>();
 

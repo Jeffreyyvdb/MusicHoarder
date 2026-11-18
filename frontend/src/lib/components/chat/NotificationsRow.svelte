@@ -33,8 +33,10 @@
       status = await enablePush(userId);
       onchange?.(status);
       if (status === 'on') toast.success('Notifications are on');
-      else if (status === 'denied') toast.error('Notifications are blocked for this site in your browser settings.');
-      else if (status === 'unavailable') toast.error('Notifications are switched off on this server.');
+      else if (status === 'denied')
+        toast.error('Notifications are blocked for this site in your browser settings.');
+      else if (status === 'unavailable')
+        toast.error('Notifications are switched off on this server.');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not turn on notifications.');
     } finally {
@@ -57,8 +59,15 @@
     <GroupedList.Row icon={Bell} label="Turn on notifications">
       {#snippet trailing()}
         <div class="flex items-center gap-1">
-          <Button variant="ghost" class="text-muted-foreground h-11 md:h-8" onclick={notNow}>Not now</Button>
-          <Button variant="gray" class="text-primary h-11 rounded-full md:h-8" onclick={turnOn} disabled={working}>
+          <Button variant="ghost" class="text-muted-foreground h-11 md:h-8" onclick={notNow}
+            >Not now</Button
+          >
+          <Button
+            variant="gray"
+            class="text-primary h-11 rounded-full md:h-8"
+            onclick={turnOn}
+            disabled={working}
+          >
             Turn on
           </Button>
         </div>
@@ -73,7 +82,9 @@
       sublabel="Add MusicHoarder to your Home Screen (Share → Add to Home Screen), then turn notifications on there."
     >
       {#snippet trailing()}
-        <Button variant="ghost" class="text-muted-foreground h-11 md:h-8" onclick={notNow}>Not now</Button>
+        <Button variant="ghost" class="text-muted-foreground h-11 md:h-8" onclick={notNow}
+          >Not now</Button
+        >
       {/snippet}
     </GroupedList.Row>
   </GroupedList.Section>
@@ -85,7 +96,9 @@
       sublabel="Allow notifications for this site in your browser’s settings to hear about new messages."
     >
       {#snippet trailing()}
-        <Button variant="ghost" class="text-muted-foreground h-11 md:h-8" onclick={notNow}>OK</Button>
+        <Button variant="ghost" class="text-muted-foreground h-11 md:h-8" onclick={notNow}
+          >OK</Button
+        >
       {/snippet}
     </GroupedList.Row>
   </GroupedList.Section>

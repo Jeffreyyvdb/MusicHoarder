@@ -30,11 +30,13 @@
     });
     const q = query.trim().toLowerCase();
     return people
-      .filter((p) => !q || p.name.toLowerCase().includes(q) || (p.email ?? '').toLowerCase().includes(q))
+      .filter(
+        (p) => !q || p.name.toLowerCase().includes(q) || (p.email ?? '').toLowerCase().includes(q)
+      )
       .sort(
         (a, b) =>
-          (recency.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (recency.get(b.id) ?? Number.MAX_SAFE_INTEGER) ||
-          a.name.localeCompare(b.name)
+          (recency.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
+            (recency.get(b.id) ?? Number.MAX_SAFE_INTEGER) || a.name.localeCompare(b.name)
       );
   });
 </script>
@@ -84,7 +86,9 @@
                 aria-hidden="true"
                 class={cn(
                   'grid size-6 place-items-center rounded-full border-2',
-                  picked ? 'bg-primary border-primary text-primary-foreground' : 'border-muted-foreground-dim'
+                  picked
+                    ? 'bg-primary border-primary text-primary-foreground'
+                    : 'border-muted-foreground-dim'
                 )}
               >
                 {#if picked}<Check class="size-4" strokeWidth={3} />{/if}

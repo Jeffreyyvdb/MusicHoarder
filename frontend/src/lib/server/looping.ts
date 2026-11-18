@@ -41,12 +41,23 @@ export function runWithRequestId<T>(requestId: string, fn: () => T): T {
 type Level = 'debug' | 'info' | 'warn' | 'error';
 
 function serialize(value: unknown): unknown {
-  if (value instanceof Error) return { name: value.name, message: value.message, stack: value.stack, cause: value.cause ? serialize(value.cause) : undefined };
+  if (value instanceof Error)
+    return {
+      name: value.name,
+      message: value.message,
+      stack: value.stack,
+      cause: value.cause ? serialize(value.cause) : undefined
+    };
   return value;
 }
 
 function write(level: Level, msg: string, data?: Record<string, unknown>) {
-  const line: Record<string, unknown> = { time: new Date().toISOString(), level, msg, requestId: currentRequestId() };
+  const line: Record<string, unknown> = {
+    time: new Date().toISOString(),
+    level,
+    msg,
+    requestId: currentRequestId()
+  };
   if (data) for (const [k, v] of Object.entries(data)) line[k] = serialize(v);
   const text = `${JSON.stringify(line)}\n`;
   (level === 'error' || level === 'warn' ? process.stderr : process.stdout).write(text);
@@ -57,7 +68,7 @@ export const log = {
   debug: (msg: string, data?: Record<string, unknown>) => write('debug', msg, data),
   info: (msg: string, data?: Record<string, unknown>) => write('info', msg, data),
   warn: (msg: string, data?: Record<string, unknown>) => write('warn', msg, data),
-  error: (msg: string, data?: Record<string, unknown>) => write('error', msg, data),
+  error: (msg: string, data?: Record<string, unknown>) => write('error', msg, data)
 };
 
 let consolePatched = false;
@@ -92,7 +103,8 @@ function tagResponse(res: Response, requestId: string): Response {
     headers.set(REQUEST_ID_HEADER, requestId);
     const exposed = headers.get('access-control-expose-headers');
     if (!exposed) headers.set('access-control-expose-headers', REQUEST_ID_HEADER);
-    else if (exposed !== '*' && !exposed.toLowerCase().includes(REQUEST_ID_HEADER)) headers.set('access-control-expose-headers', `${exposed}, ${REQUEST_ID_HEADER}`);
+    else if (exposed !== '*' && !exposed.toLowerCase().includes(REQUEST_ID_HEADER))
+      headers.set('access-control-expose-headers', `${exposed}, ${REQUEST_ID_HEADER}`);
   };
   try {
     apply(res.headers);
@@ -110,16 +122,28 @@ async function handleTimed(
   method: string,
   path: string,
   run: () => Response | Promise<Response>,
-  opts: LoopingServerOptions,
+  opts: LoopingServerOptions
 ): Promise<Response> {
   const start = performance.now();
-  const shouldLog = opts.logRequests !== false && !opts.ignorePaths?.some((p) => path.startsWith(p));
+  const shouldLog =
+    opts.logRequests !== false && !opts.ignorePaths?.some((p) => path.startsWith(p));
   try {
     const res = tagResponse(await run(), requestId);
-    if (shouldLog) write(res.status >= 500 ? 'error' : 'info', 'request', { method, path, status: res.status, ms: Math.round(performance.now() - start) });
+    if (shouldLog)
+      write(res.status >= 500 ? 'error' : 'info', 'request', {
+        method,
+        path,
+        status: res.status,
+        ms: Math.round(performance.now() - start)
+      });
     return res;
   } catch (error) {
-    write('error', 'request failed', { method, path, ms: Math.round(performance.now() - start), error });
+    write('error', 'request failed', {
+      method,
+      path,
+      ms: Math.round(performance.now() - start),
+      error
+    });
     throw error;
   }
 }
@@ -127,12 +151,20 @@ async function handleTimed(
 /** Wraps any fetch-style handler (Hono `app.fetch`, Bun.serve, Deno.serve, …). */
 export function withRequestId<A extends unknown[]>(
   handler: (request: Request, ...rest: A) => Response | Promise<Response>,
-  opts: LoopingServerOptions = {},
+  opts: LoopingServerOptions = {}
 ): (request: Request, ...rest: A) => Promise<Response> {
   if (opts.patchConsole !== false) patchConsole();
   return (request, ...rest) => {
     const id = requestIdFrom(request.headers);
-    return runWithRequestId(id, () => handleTimed(id, request.method, new URL(request.url).pathname, () => handler(request, ...rest), opts));
+    return runWithRequestId(id, () =>
+      handleTimed(
+        id,
+        request.method,
+        new URL(request.url).pathname,
+        () => handler(request, ...rest),
+        opts
+      )
+    );
   };
 }
 
@@ -146,19 +178,26 @@ interface KitEvent {
 }
 // Generic over the event, so the handle is assignable to the app's own `Handle` (whose `resolve`
 // takes the full RequestEvent, which a structural KitEvent alone is not).
-type KitHandle<E extends KitEvent = KitEvent> = (input: { event: E; resolve: (event: E) => Response | Promise<Response> }) => Promise<Response>;
+type KitHandle<E extends KitEvent = KitEvent> = (input: {
+  event: E;
+  resolve: (event: E) => Response | Promise<Response>;
+}) => Promise<Response>;
 
 /**
  * SvelteKit `handle` hook. Use in src/hooks.server.ts:
  *   export const handle = sequence(loopingHandle(), yourHandle);
  * Sets `event.locals.requestId` (add `requestId: string` to App.Locals).
  */
-export function loopingHandle<E extends KitEvent = KitEvent>(opts: LoopingServerOptions = {}): KitHandle<E> {
+export function loopingHandle<E extends KitEvent = KitEvent>(
+  opts: LoopingServerOptions = {}
+): KitHandle<E> {
   if (opts.patchConsole !== false) patchConsole();
   return ({ event, resolve }) => {
     const id = requestIdFrom(event.request.headers);
     (event.locals as { requestId?: string }).requestId = id;
-    return runWithRequestId(id, () => handleTimed(id, event.request.method, event.url.pathname, () => resolve(event), opts));
+    return runWithRequestId(id, () =>
+      handleTimed(id, event.request.method, event.url.pathname, () => resolve(event), opts)
+    );
   };
 }
 
@@ -166,7 +205,17 @@ export function loopingHandle<E extends KitEvent = KitEvent>(opts: LoopingServer
  * SvelteKit `handleError` hook that logs the full error with its request id:
  *   export const handleError = loopingHandleError;
  */
-export function loopingHandleError(input: { error: unknown; event: KitEvent; status?: number; message?: string }): void {
+export function loopingHandleError(input: {
+  error: unknown;
+  event: KitEvent;
+  status?: number;
+  message?: string;
+}): void {
   const requestId = (input.event.locals as { requestId?: string }).requestId;
-  write('error', 'unhandled error', { requestId, status: input.status, path: input.event.url.pathname, error: input.error });
+  write('error', 'unhandled error', {
+    requestId,
+    status: input.status,
+    path: input.event.url.pathname,
+    error: input.error
+  });
 }

@@ -55,7 +55,9 @@
       const names = people.filter((p) => selected.includes(p.id)).map((p) => p.name);
       const only = messages.length === 1 ? messages[0] : null;
       toast.success(`Sent to ${names.length === 1 ? names[0] : `${names.length} people`}`, {
-        action: only ? { label: 'Open chat', onClick: () => void goto(`/chats/${only.conversationId}`) } : undefined
+        action: only
+          ? { label: 'Open chat', onClick: () => void goto(`/chats/${only.conversationId}`) }
+          : undefined
       });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not send it.');
@@ -69,7 +71,9 @@
   bind:open={sendTo.open}
   nested={sendTo.item?.nested ?? false}
   title="Send to"
-  description={isAlbum ? 'Anyone you send it to can play the whole album.' : 'Anyone you send it to can play it.'}
+  description={isAlbum
+    ? 'Anyone you send it to can play the whole album.'
+    : 'Anyone you send it to can play it.'}
 >
   {#snippet leading()}
     <BottomSheet.Action onclick={() => (sendTo.open = false)}>Cancel</BottomSheet.Action>
@@ -84,7 +88,10 @@
   <div class="flex flex-col gap-5 pb-6 md:px-4">
     {#if item}
       <GroupedList.Section>
-        <GroupedList.Row label={item.title} sublabel={[isAlbum ? 'Album' : 'Song', item.subtitle].filter(Boolean).join(' · ')}>
+        <GroupedList.Row
+          label={item.title}
+          sublabel={[isAlbum ? 'Album' : 'Song', item.subtitle].filter(Boolean).join(' · ')}
+        >
           {#snippet leading()}
             {#if item.coverUrl}
               <Cover
@@ -97,8 +104,13 @@
                 caption={false}
               />
             {:else}
-              <span class="bg-muted text-muted-foreground grid size-11 place-items-center rounded-md">
-                {#if isAlbum}<Disc3 class="size-5" aria-hidden="true" />{:else}<Music class="size-5" aria-hidden="true" />{/if}
+              <span
+                class="bg-muted text-muted-foreground grid size-11 place-items-center rounded-md"
+              >
+                {#if isAlbum}<Disc3 class="size-5" aria-hidden="true" />{:else}<Music
+                    class="size-5"
+                    aria-hidden="true"
+                  />{/if}
               </span>
             {/if}
           {/snippet}

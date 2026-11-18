@@ -1,7 +1,7 @@
-import Root from "./empty-state.svelte";
+import Root from './empty-state.svelte';
 
 export {
-	Root,
-	//
-	Root as EmptyState,
+  Root,
+  //
+  Root as EmptyState
 };

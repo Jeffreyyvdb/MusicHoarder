@@ -51,8 +51,11 @@
       >
         {#each segments as segment, i (i)}
           {#if segment.kind === 'link'}
-            <a href={segment.href} target="_blank" rel="noopener noreferrer" class="underline underline-offset-2"
-              >{segment.value}</a
+            <a
+              href={segment.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              class="underline underline-offset-2">{segment.value}</a
             >
           {:else}{segment.value}{/if}
         {/each}

@@ -418,7 +418,8 @@
       <!-- Read from the switch itself rather than friend.isAdmin, so the other three settle the
            moment Administrator is flipped, not when the server answers. -->
       {@const administers = has(friend, 'Administer')}
-      <GroupedList.Section headingLevel={2}
+      <GroupedList.Section
+        headingLevel={2}
         header="Permissions"
         footer={administers
           ? 'Administrators have every permission, so the others stay on until you turn Administrator off.'
@@ -443,7 +444,8 @@
       </GroupedList.Section>
 
       <!-- What is shared with them, and how to share more. -->
-      <GroupedList.Section headingLevel={2}
+      <GroupedList.Section
+        headingLevel={2}
         header="Shared with {name}"
         footer="Stopping a share hides it from them on their next refresh."
       >
@@ -471,7 +473,7 @@
         <FieldRow label="Share" for="grant-scope-{friend.id}">
           <select
             id="grant-scope-{friend.id}"
-            class="bg-input focus-visible:ring-ring/50 h-11 w-full rounded-lg border border-transparent px-3 text-base focus-visible:outline-hidden focus-visible:ring-3 md:h-8 md:px-2.5 md:text-sm"
+            class="bg-input focus-visible:ring-ring/50 h-11 w-full rounded-lg border border-transparent px-3 text-base focus-visible:ring-3 focus-visible:outline-hidden md:h-8 md:px-2.5 md:text-sm"
             value={scopeOf(friend.id)}
             onchange={(e) =>
               (grantScope = { ...grantScope, [friend.id]: e.currentTarget.value as GrantScope })}
@@ -556,7 +558,8 @@
       submitInvite();
     }}
   >
-    <GroupedList.Section headingLevel={2}
+    <GroupedList.Section
+      headingLevel={2}
       header="Invite someone"
       footer="They get their own listen-only account and see nothing until you share albums, artists or your whole library with them. Your music stays yours."
     >
@@ -597,10 +600,7 @@
   {#if invites.length > 0}
     <GroupedList.Section headingLevel={2} header="Pending invites">
       {#each invites as invite (invite.id)}
-        <GroupedList.Row
-          label={invite.email}
-          sublabel="Expires {formatDate(invite.expiresAtUtc)}"
-        >
+        <GroupedList.Row label={invite.email} sublabel="Expires {formatDate(invite.expiresAtUtc)}">
           {#snippet trailing()}
             <DropdownMenu.Root>
               <DropdownMenu.Trigger>
@@ -679,14 +679,16 @@
       {@render loadingRow('Loading people…')}
     </GroupedList.Section>
   {:else if friends.length === 0}
-    <GroupedList.Section headingLevel={2}
+    <GroupedList.Section
+      headingLevel={2}
       header="People"
       footer="Invite someone above; once they accept, they show up here."
     >
       <GroupedList.Row label="No one yet" disabled />
     </GroupedList.Section>
   {:else}
-    <GroupedList.Section headingLevel={2}
+    <GroupedList.Section
+      headingLevel={2}
       header="People"
       footer="Open someone to choose what they can do, share music with them, or remove their access."
     >

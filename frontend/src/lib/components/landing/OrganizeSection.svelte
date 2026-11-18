@@ -26,7 +26,9 @@
 
   <FeatureGrid items={organizeFeatures} surface="plain" class="mt-12 md:mt-16" />
 
-  <div class="mt-16 grid grid-cols-1 items-center gap-8 md:mt-24 lg:grid-cols-[1.35fr_1fr] lg:gap-12">
+  <div
+    class="mt-16 grid grid-cols-1 items-center gap-8 md:mt-24 lg:grid-cols-[1.35fr_1fr] lg:gap-12"
+  >
     <Screenshot
       name="album"
       width={2200}
@@ -35,13 +37,15 @@
       alt="An album page on the desktop: Mac Miller's Circles, linked to Spotify and Deezer with 10 of 12 tracks present, the missing opener listed with Get this track and Find this track"
     />
     <div class="text-center lg:text-left">
-      <h3 class="text-[clamp(26px,3vw,34px)] leading-[1.12] font-bold tracking-[-0.025em] text-balance">
+      <h3
+        class="text-[clamp(26px,3vw,34px)] leading-[1.12] font-bold tracking-[-0.025em] text-balance"
+      >
         Every album, complete.
       </h3>
       <p class="text-muted-foreground mt-4 text-[17px] leading-[1.5] text-pretty">
         Each album is cross-checked against MusicBrainz, Spotify, Apple Music and Deezer, so its
-        page lists every real track — and marks the ones you are missing, with one tap to go and
-        get them.
+        page lists every real track — and marks the ones you are missing, with one tap to go and get
+        them.
       </p>
     </div>
   </div>

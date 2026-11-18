@@ -37,7 +37,12 @@ class FakeEventSource {
   }
 }
 
-const device = { deviceId: 'dev-00001', installId: 'inst-0001', name: 'Safari on Mac', kind: 'computer' as const };
+const device = {
+  deviceId: 'dev-00001',
+  installId: 'inst-0001',
+  name: 'Safari on Mac',
+  kind: 'computer' as const
+};
 const session = {
   version: 3,
   songId: 5,
@@ -100,8 +105,12 @@ describe('openPlaybackStream', () => {
       expect.objectContaining({ session: expect.objectContaining({ version: 3 }), devices: [] })
     );
     expect(handlers.onSession).toHaveBeenCalledWith(expect.objectContaining({ version: 4 }));
-    expect(handlers.onDevices).toHaveBeenCalledWith([expect.objectContaining({ deviceId: 'dev-00002' })]);
-    expect(handlers.onCommand).toHaveBeenCalledWith(expect.objectContaining({ commandId: 'c1', command: 'pause' }));
+    expect(handlers.onDevices).toHaveBeenCalledWith([
+      expect.objectContaining({ deviceId: 'dev-00002' })
+    ]);
+    expect(handlers.onCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ commandId: 'c1', command: 'pause' })
+    );
   });
 
   it('drops what does not validate', () => {

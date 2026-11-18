@@ -275,7 +275,9 @@ const phoneDevice = {
 /** Let promise chains and anything due within `ms` run. */
 const flush = (ms = 0) => vi.advanceTimersByTimeAsync(ms);
 
-async function boot(user: Parameters<typeof import('./playback-sync.svelte').playbackSync.start>[0] = USER) {
+async function boot(
+  user: Parameters<typeof import('./playback-sync.svelte').playbackSync.start>[0] = USER
+) {
   const player = await import('./player.svelte');
   const { playbackSync } = await import('./playback-sync.svelte');
   playbackSync.start(user);
@@ -367,7 +369,10 @@ describe('when the session moves to another device', () => {
 
   it('does not step aside for a session of its own in flight', async () => {
     const { playerStore } = await boot();
-    api.handlers!.onSnapshot({ session: remoteSession({ isPlaying: true }), devices: [phoneDevice] });
+    api.handlers!.onSnapshot({
+      session: remoteSession({ isPlaying: true }),
+      devices: [phoneDevice]
+    });
     await playerStore.startQueue(QUEUE, 0); // claims; the answer has not come back yet
     api.handlers!.onSession(remoteSession({ isPlaying: true }));
     expect(audio!.paused).toBe(false);
@@ -378,7 +383,9 @@ describe('when the session moves to another device', () => {
     const { playerStore } = await boot();
     api.handlers!.onSnapshot({ session: null, devices: [phoneDevice] });
     let answer!: (response: unknown) => void;
-    api.reportPlaybackState.mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
+    api.reportPlaybackState.mockImplementationOnce(
+      () => new Promise((resolve) => (answer = resolve))
+    );
     await playerStore.startQueue(QUEUE, 0);
     await flush(100); // the claim is on its way
     const ours = remoteSession({ songId: 1, queueIndex: 0, isPlaying: true, activeDeviceId: ME });
@@ -395,7 +402,12 @@ describe('when the session moves to another device', () => {
   it("never stops a share link's track: it plays on, and stays on screen", async () => {
     // Started on the share page, then a soft navigation into the app: the session starts after.
     const player = await import('./player.svelte');
-    const shared = { id: 5, title: 'Shared', artist: 'Friend', streamUrl: '/api/mh/share/tok/5/stream' };
+    const shared = {
+      id: 5,
+      title: 'Shared',
+      artist: 'Friend',
+      streamUrl: '/api/mh/share/tok/5/stream'
+    };
     await player.playerStore.startQueue([shared], 0);
     const { playbackSync } = await import('./playback-sync.svelte');
     playbackSync.start(USER);
@@ -559,11 +571,19 @@ describe('a pick whose file is missing', () => {
 
   it('claims paused when nothing else is loaded here, never "playing at 0:00"', async () => {
     const { playerStore } = await boot();
-    api.handlers!.onSnapshot({ session: remoteSession({ isPlaying: true }), devices: [phoneDevice] });
+    api.handlers!.onSnapshot({
+      session: remoteSession({ isPlaying: true }),
+      devices: [phoneDevice]
+    });
     vi.mocked(fetch).mockResolvedValueOnce({ ok: false } as Response);
     await playerStore.startQueue(QUEUE, 0);
     await flush(100);
-    expect(reports().at(-1)).toMatchObject({ claim: true, songId: 1, positionMs: 0, isPlaying: false });
+    expect(reports().at(-1)).toMatchObject({
+      claim: true,
+      songId: 1,
+      positionMs: 0,
+      isPlaying: false
+    });
   });
 });
 
@@ -617,7 +637,11 @@ describe('commands addressed to this device', () => {
     });
     expect(audio!.paused).toBe(true);
     await flush(100);
-    expect(reports().at(-1)).toMatchObject({ claim: false, inResponseTo: 'c-pause', isPlaying: false });
+    expect(reports().at(-1)).toMatchObject({
+      claim: false,
+      inResponseTo: 'c-pause',
+      isPlaying: false
+    });
 
     api.handlers!.onCommand({
       commandId: 'c-seek',
@@ -662,7 +686,10 @@ describe('commands addressed to this device', () => {
 
   it("does not step aside for the sender's own report while the transfer is still starting", async () => {
     const { initPlayer } = await boot();
-    api.handlers!.onSnapshot({ session: remoteSession({ isPlaying: true }), devices: [phoneDevice] });
+    api.handlers!.onSnapshot({
+      session: remoteSession({ isPlaying: true }),
+      devices: [phoneDevice]
+    });
     initPlayer(); // the element exists before the command arrives
     audio!.hold = true; // its stream takes a moment to buffer
 
@@ -734,7 +761,10 @@ describe('steering the device that holds the session', () => {
 
   it('a burst acknowledged by its newest command has landed in full', async () => {
     const { playerStore } = await boot();
-    api.handlers!.onSnapshot({ session: remoteSession({ isPlaying: true }), devices: [phoneDevice] });
+    api.handlers!.onSnapshot({
+      session: remoteSession({ isPlaying: true }),
+      devices: [phoneDevice]
+    });
     api.sendPlaybackCommand
       .mockResolvedValueOnce('n1')
       .mockResolvedValueOnce('n2')
@@ -752,7 +782,10 @@ describe('steering the device that holds the session', () => {
 
   it('an older command answered after a newer one landed has landed too', async () => {
     const { playerStore } = await boot();
-    api.handlers!.onSnapshot({ session: remoteSession({ isPlaying: true }), devices: [phoneDevice] });
+    api.handlers!.onSnapshot({
+      session: remoteSession({ isPlaying: true }),
+      devices: [phoneDevice]
+    });
     let answerFirst!: (id: string) => void;
     api.sendPlaybackCommand
       .mockImplementationOnce(() => new Promise((resolve) => (answerFirst = resolve)))
@@ -773,14 +806,19 @@ describe('steering the device that holds the session', () => {
     api.sendPlaybackCommand.mockResolvedValue('cmd-3');
 
     await playerStore.startQueue(QUEUE, 1, { resumeIfLoaded: true });
-    expect(api.sendPlaybackCommand).toHaveBeenCalledWith(expect.objectContaining({ command: 'resume' }));
+    expect(api.sendPlaybackCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'resume' })
+    );
     expect(audio).toBeUndefined();
     expect(api.reportSongPlayed).not.toHaveBeenCalled();
   });
 
   it("Shuffle landing on the session's song plays the shuffled list here and takes the session", async () => {
     const { playerStore, playbackSync } = await boot();
-    api.handlers!.onSnapshot({ session: remoteSession({ isPlaying: true }), devices: [phoneDevice] });
+    api.handlers!.onSnapshot({
+      session: remoteSession({ isPlaying: true }),
+      devices: [phoneDevice]
+    });
 
     await playerStore.startQueue([song(2), song(3), song(1)], 0);
     expect(api.sendPlaybackCommand).not.toHaveBeenCalled();
@@ -838,7 +876,10 @@ describe('a remembered session', () => {
 
   it('Next picks it up one on, from the top — and that is a new listen', async () => {
     const { playerStore } = await boot();
-    api.handlers!.onSnapshot({ session: remoteSession({ live: false, positionMs: 42_000 }), devices: [] });
+    api.handlers!.onSnapshot({
+      session: remoteSession({ live: false, positionMs: 42_000 }),
+      devices: []
+    });
     playerStore.playNext();
     expect(audio!.src).toBe('/api/mh/songs/3/stream');
     expect(audio!.currentTime).toBe(0);
@@ -849,7 +890,10 @@ describe('a remembered session', () => {
 
   it("an album's Play on its song picks it up at the saved second, not a new listen", async () => {
     const { playerStore } = await boot();
-    api.handlers!.onSnapshot({ session: remoteSession({ live: false, positionMs: 42_000 }), devices: [] });
+    api.handlers!.onSnapshot({
+      session: remoteSession({ live: false, positionMs: 42_000 }),
+      devices: []
+    });
     await playerStore.startQueue(QUEUE, 1, { resumeIfLoaded: true });
     expect(audio!.src).toBe('/api/mh/songs/2/stream');
     expect(audio!.currentTime).toBe(42);
@@ -858,13 +902,21 @@ describe('a remembered session', () => {
 
   it("a list's Play starting on its song plays that list here, from the top — a new listen", async () => {
     const { playerStore } = await boot();
-    api.handlers!.onSnapshot({ session: remoteSession({ live: false, positionMs: 42_000 }), devices: [] });
+    api.handlers!.onSnapshot({
+      session: remoteSession({ live: false, positionMs: 42_000 }),
+      devices: []
+    });
     await playerStore.startQueue([song(2), song(1)], 0);
     expect(audio!.src).toBe('/api/mh/songs/2/stream');
     expect(audio!.currentTime).toBe(0);
     expect(api.reportSongPlayed).toHaveBeenCalledWith(2);
     await flush(100);
-    expect(reports().at(-1)).toMatchObject({ claim: true, songId: 2, queue: [2, 1], queueIndex: 0 });
+    expect(reports().at(-1)).toMatchObject({
+      claim: true,
+      songId: 2,
+      queue: [2, 1],
+      queueIndex: 0
+    });
   });
 
   it("a reconnect's snapshot of the same session keeps a scrub waiting on it", async () => {
@@ -900,7 +952,12 @@ describe('a remembered session', () => {
     expect(playerStore.currentSong?.title).toBe('From the phone');
     await flush(100);
     // The claim carries the account's queue, not the one song this tab could name.
-    expect(reports().at(-1)).toMatchObject({ claim: true, songId: 2, queue: [1, 2, 99], queueIndex: 1 });
+    expect(reports().at(-1)).toMatchObject({
+      claim: true,
+      songId: 2,
+      queue: [1, 2, 99],
+      queueIndex: 1
+    });
 
     // The rows arrive (the store's effect hands them over): each stand-in becomes its row, and one
     // the library lacks leaves the queue.
@@ -981,7 +1038,10 @@ describe('the reload restore', () => {
     storeSnapshot();
     const { initPlayer } = await boot();
     initPlayer('u1');
-    api.handlers!.onSnapshot({ session: remoteSession({ isPlaying: true }), devices: [phoneDevice] });
+    api.handlers!.onSnapshot({
+      session: remoteSession({ isPlaying: true }),
+      devices: [phoneDevice]
+    });
     await flush(5_000);
     expect(audio!.play).not.toHaveBeenCalled();
   });

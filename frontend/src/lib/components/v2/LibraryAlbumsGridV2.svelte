@@ -12,11 +12,7 @@
   import { Skeleton } from '#lib/components/ui/skeleton/index.ts';
   import { longpress, type LongPressPoint } from '#lib/actions/long-press.ts';
   import { easeInOut, easeOut, prefersReducedMotion } from '#lib/motion.ts';
-  import {
-    toPlayerSong,
-    type AlbumStatusInfo,
-    type AlbumSummary
-  } from '#lib/api-client.ts';
+  import { toPlayerSong, type AlbumStatusInfo, type AlbumSummary } from '#lib/api-client.ts';
   import { playerStore } from '#lib/stores/player.svelte.ts';
   import { cn } from '#lib/utils.ts';
   import { carryBuiltTiles, watchNearViewport } from '#lib/viewport-fill.ts';
@@ -218,7 +214,8 @@
     return {
       duration: 260,
       easing: easeOut,
-      css: (t) => (reduced ? `opacity: ${t}` : `opacity: ${t}; transform: scale(${0.94 + 0.06 * t})`)
+      css: (t) =>
+        reduced ? `opacity: ${t}` : `opacity: ${t}; transform: scale(${0.94 + 0.06 * t})`
     };
   }
 
@@ -257,7 +254,7 @@
     data-album-key={shelf ? undefined : album.key}
     oncontextmenu={menu ? (e) => onTileContextMenu(e, album) : undefined}
     class={cn(
-      'group focus-visible:ring-ring flex flex-col rounded-lg focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2',
+      'group focus-visible:ring-ring flex flex-col rounded-lg focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-hidden',
       shelf
         ? 'w-[150px] shrink-0 snap-start md:w-[168px]'
         : 'p-1 transition-transform [contain-intrinsic-size:auto_13rem] [content-visibility:auto] hover:-translate-y-0.5'
@@ -272,70 +269,70 @@
         <div class="h-9"></div>
       </div>
     {:else}
-    <!-- The hold (and its 97% press feedback) lives on this inner box, not on the link: on a shelf
+      <!-- The hold (and its 97% press feedback) lives on this inner box, not on the link: on a shelf
          the link is the snap target, and scaling it made Chromium re-snap the row, which read as
          a scroll and cancelled the hold on the first tile. -->
-    <div
-      class="flex flex-col gap-2"
-      use:longpress={{
-        onlongpress: (p) => openMenu(album, p, tileOf(p)),
-        disabled: !menu
-      }}
-    >
-      <div class="relative">
-        <Cover
-          artist={album.artist}
-          title={album.title}
-          coverUrl={album.coverUrl}
-          size={176}
-          corner={8}
-          interactive
-          class="aspect-square !h-auto !w-full shadow-[0_2px_10px_rgba(0,0,0,0.12)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.18)] dark:shadow-[0_4px_14px_rgba(0,0,0,0.5)] dark:hover:shadow-[0_10px_28px_rgba(0,0,0,0.6)]"
-        />
-        {#if badge}
-          <span
-            role="img"
-            aria-label={badge.label}
-            title={badge.label}
-            class={cn(
-              'absolute top-1.5 left-1.5 grid size-2.5 place-items-center rounded-full ring-2 ring-black/35',
-              badge.kind === 'wrong' && 'border-destructive bg-destructive/30 border-2',
-              badge.kind === 'localOnly' && 'border-2 border-white/80 bg-transparent'
-            )}
-          ></span>
-        {/if}
-        <!-- Desktop only: a hover play button. A phone has no hover, so there the tile's single
+      <div
+        class="flex flex-col gap-2"
+        use:longpress={{
+          onlongpress: (p) => openMenu(album, p, tileOf(p)),
+          disabled: !menu
+        }}
+      >
+        <div class="relative">
+          <Cover
+            artist={album.artist}
+            title={album.title}
+            coverUrl={album.coverUrl}
+            size={176}
+            corner={8}
+            interactive
+            class="aspect-square !h-auto !w-full shadow-[0_2px_10px_rgba(0,0,0,0.12)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.18)] dark:shadow-[0_4px_14px_rgba(0,0,0,0.5)] dark:hover:shadow-[0_10px_28px_rgba(0,0,0,0.6)]"
+          />
+          {#if badge}
+            <span
+              role="img"
+              aria-label={badge.label}
+              title={badge.label}
+              class={cn(
+                'absolute top-1.5 left-1.5 grid size-2.5 place-items-center rounded-full ring-2 ring-black/35',
+                badge.kind === 'wrong' && 'border-destructive bg-destructive/30 border-2',
+                badge.kind === 'localOnly' && 'border-2 border-white/80 bg-transparent'
+              )}
+            ></span>
+          {/if}
+          <!-- Desktop only: a hover play button. A phone has no hover, so there the tile's single
            action is opening the album (Play lives on the album page and in the hold menu). -->
-        <button
-          type="button"
-          aria-label={`Play ${album.title}`}
-          onclick={(e) => playFirst(album, e)}
-          class="bg-primary text-primary-foreground absolute right-2 bottom-2 grid size-9 translate-y-1 place-items-center rounded-full opacity-0 shadow-md transition-all duration-150 group-focus-within:opacity-100 group-hover:translate-y-0 group-hover:opacity-100 focus-visible:translate-y-0 focus-visible:opacity-100 pointer-coarse:hidden"
-        >
-          <Play class="size-4" fill="currentColor" />
-        </button>
-      </div>
-      <div class="min-w-0 px-0.5">
-        <p
-          class="text-subheadline truncate font-semibold md:text-[12.5px] md:leading-snug md:font-medium"
-        >
-          {album.title}
-        </p>
-        <p class="text-footnote text-muted-foreground truncate md:text-[11.5px]">
-          {album.artist}{album.year ? ` · ${album.year}` : ''}
-        </p>
-        {#if album.folderKeys.length > 1}
-          <!-- The card folds together several destination folders — say so rather than silently
-             hiding that this album is split on disk. -->
-          <p
-            class="text-footnote text-muted-foreground-dim md:text-[11px]"
-            title={album.folderKeys.join('\n')}
+          <button
+            type="button"
+            aria-label={`Play ${album.title}`}
+            onclick={(e) => playFirst(album, e)}
+            class="bg-primary text-primary-foreground absolute right-2 bottom-2 grid size-9 translate-y-1 place-items-center rounded-full opacity-0 shadow-md transition-all duration-150 group-focus-within:opacity-100 group-hover:translate-y-0 group-hover:opacity-100 focus-visible:translate-y-0 focus-visible:opacity-100 pointer-coarse:hidden"
           >
-            {album.folderKeys.length} editions
+            <Play class="size-4" fill="currentColor" />
+          </button>
+        </div>
+        <div class="min-w-0 px-0.5">
+          <p
+            class="text-subheadline truncate font-semibold md:text-[12.5px] md:leading-snug md:font-medium"
+          >
+            {album.title}
           </p>
-        {/if}
+          <p class="text-footnote text-muted-foreground truncate md:text-[11.5px]">
+            {album.artist}{album.year ? ` · ${album.year}` : ''}
+          </p>
+          {#if album.folderKeys.length > 1}
+            <!-- The card folds together several destination folders — say so rather than silently
+             hiding that this album is split on disk. -->
+            <p
+              class="text-footnote text-muted-foreground-dim md:text-[11px]"
+              title={album.folderKeys.join('\n')}
+            >
+              {album.folderKeys.length} editions
+            </p>
+          {/if}
+        </div>
       </div>
-    </div>
     {/if}
   </a>
 {/snippet}

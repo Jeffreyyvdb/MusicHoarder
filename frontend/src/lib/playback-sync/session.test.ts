@@ -317,7 +317,9 @@ describe('labels', () => {
 
   it('says where the session is', () => {
     expect(sessionLine('remote', session(), false)).toBe('Playing on Safari on iPhone');
-    expect(sessionLine('remote', session({ isPlaying: false }), false)).toBe('Paused on Safari on iPhone');
+    expect(sessionLine('remote', session({ isPlaying: false }), false)).toBe(
+      'Paused on Safari on iPhone'
+    );
     expect(sessionLine('remembered', session({ live: false }), false)).toBe(
       'Last played on Safari on iPhone'
     );
@@ -329,7 +331,9 @@ describe('labels', () => {
     expect(sessionLine('remote', session({ activeDeviceName: null }), false)).toBe(
       'Playing on another device'
     );
-    expect(sessionLine('remembered', session({ activeDeviceName: '  ' }), false)).toBe('Last played');
+    expect(sessionLine('remembered', session({ activeDeviceName: '  ' }), false)).toBe(
+      'Last played'
+    );
     expect(sessionLine('local', session(), false)).toBeNull();
     expect(sessionLine('remote', null, false)).toBeNull();
   });

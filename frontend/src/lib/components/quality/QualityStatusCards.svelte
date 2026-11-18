@@ -68,7 +68,9 @@
         icon={card.icon}
         iconClass={card.tone}
         label={card.label}
-        sublabel={card.id === 'verified' ? `${verifiedPct}% of graded · ${card.explain}` : card.explain}
+        sublabel={card.id === 'verified'
+          ? `${verifiedPct}% of graded · ${card.explain}`
+          : card.explain}
       >
         {#snippet trailing()}
           <span class="flex items-center gap-2">
@@ -95,7 +97,7 @@
         title={card.explain}
         aria-pressed={active === card.id}
         class={cn(
-          'group bg-card focus-visible:ring-ring/50 flex items-center gap-3 rounded-xl p-3 text-left ring-1 ring-transparent focus-visible:outline-hidden transition-[box-shadow,transform] duration-150 active:scale-[0.99] focus-visible:ring-3',
+          'group bg-card focus-visible:ring-ring/50 flex items-center gap-3 rounded-xl p-3 text-left ring-1 ring-transparent transition-[box-shadow,transform] duration-150 focus-visible:ring-3 focus-visible:outline-hidden active:scale-[0.99]',
           active === card.id ? 'ring-primary' : 'hover:ring-border'
         )}
       >

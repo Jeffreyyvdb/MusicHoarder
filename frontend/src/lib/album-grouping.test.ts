@@ -187,9 +187,7 @@ describe('sortAlbums', () => {
     const addedOld = (a: AlbumSummary) => (a.addedAtUtc ? Date.parse(a.addedAtUtc) : 0);
     const byArtistThenTitleOld = (a: AlbumSummary, b: AlbumSummary) =>
       a.artist.localeCompare(b.artist) || a.title.localeCompare(b.title);
-    const old = [...mixed].sort(
-      (a, b) => addedOld(b) - addedOld(a) || byArtistThenTitleOld(a, b)
-    );
+    const old = [...mixed].sort((a, b) => addedOld(b) - addedOld(a) || byArtistThenTitleOld(a, b));
 
     expect(sortAlbums(mixed, 'recent')).toEqual(old);
   });
@@ -214,7 +212,9 @@ describe('hydrateAlbums', () => {
     // The two fetches can straddle a library change; the next refresh reconciles.
     const byId = new Map([[1, song({ id: 1 })]]);
 
-    expect(hydrateAlbums([card({ trackIds: [1, 99] })], byId)[0].songs.map((s) => s.id)).toEqual([1]);
+    expect(hydrateAlbums([card({ trackIds: [1, 99] })], byId)[0].songs.map((s) => s.id)).toEqual([
+      1
+    ]);
   });
 
   it('turns the cover track id into a cover URL, and no artwork into null', () => {

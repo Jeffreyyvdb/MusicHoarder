@@ -82,7 +82,9 @@
 
   const selected = $derived([...categories]);
   const anythingInWindow = $derived(Object.values(counts).some((n) => (n ?? 0) > 0));
-  const problemCount = $derived(summaries.filter((s) => s.tint === 'warn' || s.tint === 'err').length);
+  const problemCount = $derived(
+    summaries.filter((s) => s.tint === 'warn' || s.tint === 'err').length
+  );
 
   const filterState = $derived({ range, customFrom, customTo, problemsOnly, categories });
   const filtersActive = $derived(!isDefaultHistoryFilter(filterState));
@@ -233,7 +235,9 @@
    * reveals a restatement of the headline is worse than no chevron.
    */
   function canExpand(s: HistorySummary): boolean {
-    return s.changes.some((c) => c.songId != null || !!c.trackTitle || !!c.detail || c.newValue != null);
+    return s.changes.some(
+      (c) => c.songId != null || !!c.trackTitle || !!c.detail || c.newValue != null
+    );
   }
 
   /** Turns a backend field key ("albumartist") into a readable word ("Album artist"). */
@@ -277,7 +281,7 @@
       bind:value={customFrom}
       max={customTo || today}
       aria-label="From date"
-      class="bg-input text-nav-sm focus-visible:ring-ring/50 h-8 shrink-0 rounded-full px-3 focus-visible:outline-hidden focus-visible:ring-3"
+      class="bg-input text-nav-sm focus-visible:ring-ring/50 h-8 shrink-0 rounded-full px-3 focus-visible:ring-3 focus-visible:outline-hidden"
     />
     <span class="text-muted-foreground text-nav-xs shrink-0" aria-hidden="true">→</span>
     <input
@@ -286,7 +290,7 @@
       min={customFrom || undefined}
       max={today}
       aria-label="To date"
-      class="bg-input text-nav-sm focus-visible:ring-ring/50 h-8 shrink-0 rounded-full px-3 focus-visible:outline-hidden focus-visible:ring-3"
+      class="bg-input text-nav-sm focus-visible:ring-ring/50 h-8 shrink-0 rounded-full px-3 focus-visible:ring-3 focus-visible:outline-hidden"
     />
   {/if}
   <span class="bg-separator mx-1 h-5 w-px shrink-0" aria-hidden="true"></span>
@@ -374,7 +378,11 @@
             sublabel={error}
           >
             {#snippet trailing()}
-              <Button variant="ghost" class="text-primary hover:text-primary h-11 md:h-8" onclick={() => void load()}>
+              <Button
+                variant="ghost"
+                class="text-primary hover:text-primary h-11 md:h-8"
+                onclick={() => void load()}
+              >
                 Retry
               </Button>
             {/snippet}
@@ -384,7 +392,12 @@
         <div class="flex flex-col items-center">
           {@render message('Pick a start and end date')}
           {#if compact}
-            <Button variant="gray" size="pill" class="text-primary -mt-8" onclick={() => (filtersOpen = true)}>
+            <Button
+              variant="gray"
+              size="pill"
+              class="text-primary -mt-8"
+              onclick={() => (filtersOpen = true)}
+            >
               Choose dates
             </Button>
           {/if}
@@ -503,7 +516,10 @@
                       {#each shown as c, ci (ci)}
                         <li class="flex flex-wrap items-baseline gap-x-1.5">
                           {#if c.songId != null}
-                            <a href={`/track/${c.songId}`} class={cn('text-foreground font-medium', INLINE_LINK)}>
+                            <a
+                              href={`/track/${c.songId}`}
+                              class={cn('text-foreground font-medium', INLINE_LINK)}
+                            >
                               {c.trackTitle ?? `#${c.songId}`}
                             </a>
                             <span class="text-muted-foreground" aria-hidden="true">—</span>
@@ -524,7 +540,9 @@
                     {#if artistHref(s) || albumHref(s)}
                       <div class="text-subheadline mt-3 flex flex-wrap gap-x-5 gap-y-2 md:text-xs">
                         {#if albumHref(s)}
-                          <a href={albumHref(s)} class={cn('text-primary', INLINE_LINK)}>Open {s.album}</a>
+                          <a href={albumHref(s)} class={cn('text-primary', INLINE_LINK)}
+                            >Open {s.album}</a
+                          >
                         {/if}
                         {#if artistHref(s)}
                           <a href={artistHref(s)} class={cn('text-primary', INLINE_LINK)}
@@ -543,8 +561,13 @@
         {#if nextCursor != null}
           <GroupedList.Section>
             <GroupedList.Row onclick={loadMore} disabled={loadingMore}>
-              <span class="text-body flex items-center gap-2 md:text-sm {loadingMore ? 'text-muted-foreground' : 'text-primary'}">
-                {#if loadingMore}<Loader2 class="size-4 animate-spin" aria-hidden="true" /> Loading…{:else}Load older{/if}
+              <span
+                class="text-body flex items-center gap-2 md:text-sm {loadingMore
+                  ? 'text-muted-foreground'
+                  : 'text-primary'}"
+              >
+                {#if loadingMore}<Loader2 class="size-4 animate-spin" aria-hidden="true" /> Loading…{:else}Load
+                  older{/if}
               </span>
             </GroupedList.Row>
           </GroupedList.Section>

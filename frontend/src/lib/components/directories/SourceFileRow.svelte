@@ -61,17 +61,23 @@
   <!-- filename with a muted extension prefix -->
   <span class="text-subheadline flex min-w-0 items-baseline gap-1.5 md:flex-1 md:text-xs">
     <span class="text-muted-foreground shrink-0">.{ext}</span>
-    <span class="text-foreground truncate" title={file.fileName}>{cleanDisplayName(file.fileName)}</span>
+    <span class="text-foreground truncate" title={file.fileName}
+      >{cleanDisplayName(file.fileName)}</span
+    >
   </span>
 
   <!-- state: dot + sentence-case label + optional confidence (+ size on a phone) -->
-  <span class="text-muted-foreground text-footnote inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap md:text-xs">
+  <span
+    class="text-muted-foreground text-footnote inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap md:text-xs"
+  >
     <span class={cn('size-1.5 shrink-0 rounded-full', meta.dot)} aria-hidden="true"></span>
     <span>{meta.label}</span>
     {#if file.matchConfidence != null}
       <span class="text-muted-foreground-dim tabular-nums">{file.matchConfidence.toFixed(2)}</span>
     {/if}
-    <span class="text-muted-foreground-dim tabular-nums md:hidden">· {formatFileSize(file.fileSizeBytes)}</span>
+    <span class="text-muted-foreground-dim tabular-nums md:hidden"
+      >· {formatFileSize(file.fileSizeBytes)}</span
+    >
   </span>
 
   <!-- size -->

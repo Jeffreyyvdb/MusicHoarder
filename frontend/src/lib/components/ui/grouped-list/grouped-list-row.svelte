@@ -1,61 +1,61 @@
 <script lang="ts">
-	import type { Component, Snippet } from "svelte";
-	import type { HTMLAnchorAttributes, HTMLButtonAttributes } from "svelte/elements";
-	import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
-	import { cn, type WithElementRef } from "#lib/utils.js";
+  import type { Component, Snippet } from 'svelte';
+  import type { HTMLAnchorAttributes, HTMLButtonAttributes } from 'svelte/elements';
+  import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
+  import { cn, type WithElementRef } from '#lib/utils.js';
 
-	type Props = WithElementRef<
-		Omit<HTMLButtonAttributes, "children" | "value"> & Omit<HTMLAnchorAttributes, "children">
-	> & {
-		/** The row's title. Omit it only when `children` supplies the whole main column. */
-		label?: string;
-		/** A second line under the label (the row grows to 56px+). */
-		sublabel?: string;
-		/** Trailing secondary value, e.g. "545 GB" or "On". */
-		value?: string | number;
-		/** A 29px neutral icon tile before the label (glyph in --foreground on --muted). */
-		icon?: Component<{ class?: string; strokeWidth?: number }>;
-		/** Overrides the icon tile's look — colour is for status only. */
-		iconClass?: string;
-		/** Custom leading content instead of an icon tile (album art, an avatar). */
-		leading?: Snippet;
-		/** Custom trailing content (a Switch, a spinner, a button) — after the value. */
-		trailing?: Snippet;
-		/** Extra main-column content under the label (a progress bar, a status line). */
-		children?: Snippet;
-		/** Show a disclosure chevron: this row navigates somewhere. */
-		chevron?: boolean;
-		/** Red label — a destructive action (put it last, in its own section). */
-		destructive?: boolean;
-		disabled?: boolean;
-		/** The current item of a list used as navigation (the md+ Settings pane list). */
-		selected?: boolean;
-	};
+  type Props = WithElementRef<
+    Omit<HTMLButtonAttributes, 'children' | 'value'> & Omit<HTMLAnchorAttributes, 'children'>
+  > & {
+    /** The row's title. Omit it only when `children` supplies the whole main column. */
+    label?: string;
+    /** A second line under the label (the row grows to 56px+). */
+    sublabel?: string;
+    /** Trailing secondary value, e.g. "545 GB" or "On". */
+    value?: string | number;
+    /** A 29px neutral icon tile before the label (glyph in --foreground on --muted). */
+    icon?: Component<{ class?: string; strokeWidth?: number }>;
+    /** Overrides the icon tile's look — colour is for status only. */
+    iconClass?: string;
+    /** Custom leading content instead of an icon tile (album art, an avatar). */
+    leading?: Snippet;
+    /** Custom trailing content (a Switch, a spinner, a button) — after the value. */
+    trailing?: Snippet;
+    /** Extra main-column content under the label (a progress bar, a status line). */
+    children?: Snippet;
+    /** Show a disclosure chevron: this row navigates somewhere. */
+    chevron?: boolean;
+    /** Red label — a destructive action (put it last, in its own section). */
+    destructive?: boolean;
+    disabled?: boolean;
+    /** The current item of a list used as navigation (the md+ Settings pane list). */
+    selected?: boolean;
+  };
 
-	let {
-		ref = $bindable(null),
-		href,
-		onclick,
-		label,
-		sublabel,
-		value,
-		icon: Icon,
-		iconClass,
-		leading,
-		trailing,
-		children,
-		chevron = false,
-		destructive = false,
-		disabled = false,
-		selected = false,
-		class: className,
-		...restProps
-	}: Props = $props();
+  let {
+    ref = $bindable(null),
+    href,
+    onclick,
+    label,
+    sublabel,
+    value,
+    icon: Icon,
+    iconClass,
+    leading,
+    trailing,
+    children,
+    chevron = false,
+    destructive = false,
+    disabled = false,
+    selected = false,
+    class: className,
+    ...restProps
+  }: Props = $props();
 
-	// <a> when it navigates, <button> when it acts, a plain <div> when it only shows something (a
-	// switch row: the Switch in `trailing` is the control, not the row).
-	const tag = $derived(href && !disabled ? "a" : onclick ? "button" : "div");
-	const interactive = $derived(tag !== "div" && !disabled);
+  // <a> when it navigates, <button> when it acts, a plain <div> when it only shows something (a
+  // switch row: the Switch in `trailing` is the control, not the row).
+  const tag = $derived(href && !disabled ? 'a' : onclick ? 'button' : 'div');
+  const interactive = $derived(tag !== 'div' && !disabled);
 </script>
 
 <!--
@@ -70,74 +70,79 @@
 	50% ring measured 2.2–2.7:1 against the cell, under the 3:1 non-text minimum.
 -->
 <svelte:element
-	this={tag}
-	bind:this={ref}
-	data-slot="grouped-list-row"
-	data-selected={selected || undefined}
-	href={tag === "a" ? href : undefined}
-	type={tag === "button" ? "button" : undefined}
-	disabled={tag === "button" ? disabled : undefined}
-	aria-disabled={disabled || undefined}
-	aria-current={selected && tag === "a" ? "page" : undefined}
-	onclick={disabled ? undefined : onclick}
-	class={cn(
-		"group/grouped-row relative grid w-full grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center px-4 py-2 text-left focus-visible:outline-hidden",
-		sublabel ? "min-h-14" : "min-h-11",
-		"after:bg-separator after:col-start-2 after:col-end-5 after:row-start-1 after:-mr-4 after:-mb-2 after:h-(--hairline) after:self-end last:after:hidden",
-		interactive &&
-			"active:bg-accent focus-visible:ring-ring cursor-pointer transition-colors duration-100 hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset",
-		selected && "bg-sidebar-accent hover:bg-sidebar-accent",
-		disabled && "cursor-not-allowed",
-		className
-	)}
-	{...restProps}
+  this={tag}
+  bind:this={ref}
+  data-slot="grouped-list-row"
+  data-selected={selected || undefined}
+  href={tag === 'a' ? href : undefined}
+  type={tag === 'button' ? 'button' : undefined}
+  disabled={tag === 'button' ? disabled : undefined}
+  aria-disabled={disabled || undefined}
+  aria-current={selected && tag === 'a' ? 'page' : undefined}
+  onclick={disabled ? undefined : onclick}
+  class={cn(
+    'group/grouped-row relative grid w-full grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center px-4 py-2 text-left focus-visible:outline-hidden',
+    sublabel ? 'min-h-14' : 'min-h-11',
+    'after:bg-separator after:col-start-2 after:col-end-5 after:row-start-1 after:-mr-4 after:-mb-2 after:h-(--hairline) after:self-end last:after:hidden',
+    interactive &&
+      'active:bg-accent focus-visible:ring-ring hover:bg-accent cursor-pointer transition-colors duration-100 focus-visible:ring-2 focus-visible:ring-inset',
+    selected && 'bg-sidebar-accent hover:bg-sidebar-accent',
+    disabled && 'cursor-not-allowed',
+    className
+  )}
+  {...restProps}
 >
-	{#if leading}
-		<span class="col-start-1 row-start-1 mr-3 flex items-center">{@render leading()}</span>
-	{:else if Icon}
-		<span
-			aria-hidden="true"
-			class={cn(
-				"bg-muted text-foreground col-start-1 row-start-1 mr-3 flex size-[29px] items-center justify-center rounded-[7px]",
-				iconClass
-			)}
-		>
-			<Icon class="size-[18px]" strokeWidth={2} />
-		</span>
-	{/if}
-	<span class="col-start-2 row-start-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-		<span class="flex min-w-0 max-w-full flex-[1_0_min-content] flex-col justify-center">
-			{#if label}
-				<span
-					class={cn(
-						"text-body break-words md:text-sm",
-						destructive ? "text-destructive-text" : disabled ? "text-muted-foreground-dim" : "text-foreground"
-					)}
-				>
-					{label}
-				</span>
-			{/if}
-			{#if sublabel}
-				<span class="text-subheadline text-muted-foreground break-words md:text-xs">{sublabel}</span>
-			{/if}
-			{@render children?.()}
-		</span>
-		{#if value != null && value !== ""}
-			<span
-				class="text-body text-muted-foreground ml-auto min-w-0 max-w-[min(50%,16rem)] flex-auto truncate text-right tabular-nums md:text-sm"
-			>
-				{value}
-			</span>
-		{/if}
-	</span>
-	{#if trailing}
-		<span class="col-start-3 row-start-1 ml-3 flex items-center">{@render trailing()}</span>
-	{/if}
-	{#if chevron}
-		<ChevronRightIcon
-			aria-hidden="true"
-			class="text-muted-foreground-dim col-start-4 row-start-1 ml-2 -mr-1 size-4"
-			strokeWidth={2.5}
-		/>
-	{/if}
+  {#if leading}
+    <span class="col-start-1 row-start-1 mr-3 flex items-center">{@render leading()}</span>
+  {:else if Icon}
+    <span
+      aria-hidden="true"
+      class={cn(
+        'bg-muted text-foreground col-start-1 row-start-1 mr-3 flex size-[29px] items-center justify-center rounded-[7px]',
+        iconClass
+      )}
+    >
+      <Icon class="size-[18px]" strokeWidth={2} />
+    </span>
+  {/if}
+  <span class="col-start-2 row-start-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+    <span class="flex max-w-full min-w-0 flex-[1_0_min-content] flex-col justify-center">
+      {#if label}
+        <span
+          class={cn(
+            'text-body break-words md:text-sm',
+            destructive
+              ? 'text-destructive-text'
+              : disabled
+                ? 'text-muted-foreground-dim'
+                : 'text-foreground'
+          )}
+        >
+          {label}
+        </span>
+      {/if}
+      {#if sublabel}
+        <span class="text-subheadline text-muted-foreground break-words md:text-xs">{sublabel}</span
+        >
+      {/if}
+      {@render children?.()}
+    </span>
+    {#if value != null && value !== ''}
+      <span
+        class="text-body text-muted-foreground ml-auto max-w-[min(50%,16rem)] min-w-0 flex-auto truncate text-right tabular-nums md:text-sm"
+      >
+        {value}
+      </span>
+    {/if}
+  </span>
+  {#if trailing}
+    <span class="col-start-3 row-start-1 ml-3 flex items-center">{@render trailing()}</span>
+  {/if}
+  {#if chevron}
+    <ChevronRightIcon
+      aria-hidden="true"
+      class="text-muted-foreground-dim col-start-4 row-start-1 -mr-1 ml-2 size-4"
+      strokeWidth={2.5}
+    />
+  {/if}
 </svelte:element>

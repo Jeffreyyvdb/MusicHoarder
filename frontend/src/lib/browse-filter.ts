@@ -52,7 +52,7 @@ export function applyBrowseFilter(songs: ApiSong[], filter: BrowseFilter | null)
     return songs.filter(
       (s) =>
         songArtist(s).toLowerCase() === target ||
-        discreteArtistsForSong(s).some((name) => name.toLowerCase() === target),
+        discreteArtistsForSong(s).some((name) => name.toLowerCase() === target)
     );
   }
   if (filter.yearUnknown) {

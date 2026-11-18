@@ -4,12 +4,12 @@ import {
   signalAccountPasskeys,
   signalUnknownPasskey,
   type AssertionMode,
-  type PasskeySignalInfo,
-} from "#lib/webauthn-client.ts"
-import { formatOf } from "#lib/audio-formats.ts"
-import { API_PREFIX, LIBRARY_ALBUMS_PATH, LIBRARY_SONGS_PATH } from "#lib/library-requests.ts"
-import type { PlayerSong } from "#lib/stores/player.svelte.ts"
-import type { LyricsProvenance, LyricsSyncStatus } from "#lib/types.ts"
+  type PasskeySignalInfo
+} from '#lib/webauthn-client.ts';
+import { formatOf } from '#lib/audio-formats.ts';
+import { API_PREFIX, LIBRARY_ALBUMS_PATH, LIBRARY_SONGS_PATH } from '#lib/library-requests.ts';
+import type { PlayerSong } from '#lib/stores/player.svelte.ts';
+import type { LyricsProvenance, LyricsSyncStatus } from '#lib/types.ts';
 import {
   parseCommandEvent,
   parseDevicesEvent,
@@ -24,206 +24,206 @@ import {
   type PlaybackOverview,
   type PlaybackSession,
   type PlaybackStateReport,
-  type PlaybackStateResponse,
-} from "#lib/playback-sync/wire.ts"
+  type PlaybackStateResponse
+} from '#lib/playback-sync/wire.ts';
 
 export interface ApiStats {
   tracks?: {
-    total?: number
-    deleted?: number
-  }
+    total?: number;
+    deleted?: number;
+  };
   storage?: {
-    totalBytes?: number
-    totalGiB?: number
-  }
+    totalBytes?: number;
+    totalGiB?: number;
+  };
 }
 
 export type ApiOverviewActivity = {
-  id: string
-  kind: "added" | "matched" | "review" | "failed"
-  at: string
-  time: string
+  id: string;
+  kind: 'added' | 'matched' | 'review' | 'failed';
+  at: string;
+  time: string;
   subject:
-    | { type: "song"; songId: number; title: string; artist?: string | null }
-    | { type: "album"; album: string; artist?: string | null; count: number }
-}
+    | { type: 'song'; songId: number; title: string; artist?: string | null }
+    | { type: 'album'; album: string; artist?: string | null; count: number };
+};
 
 export interface ApiOverviewScan {
-  scanId: string
-  totalFiles: number
-  processed: number
-  newFiles: number
-  changedFiles: number
-  skippedFiles: number
-  failedFiles: number
-  isComplete: boolean
-  startedAt: string
-  completedAt?: string | null
+  scanId: string;
+  totalFiles: number;
+  processed: number;
+  newFiles: number;
+  changedFiles: number;
+  skippedFiles: number;
+  failedFiles: number;
+  isComplete: boolean;
+  startedAt: string;
+  completedAt?: string | null;
 }
 
 export interface ApiOverviewEnrichment {
-  runId: string
-  totalTracks: number
-  processed: number
-  enriched: number
-  failed: number
-  needsReview: number
-  isComplete: boolean
-  startedAt: string
-  completedAt?: string | null
+  runId: string;
+  totalTracks: number;
+  processed: number;
+  enriched: number;
+  failed: number;
+  needsReview: number;
+  isComplete: boolean;
+  startedAt: string;
+  completedAt?: string | null;
 }
 
 export interface ApiOverview {
-  sourcePath: string
-  destinationPath: string
-  scan?: ApiOverviewScan | null
-  enrichment?: ApiOverviewEnrichment | null
+  sourcePath: string;
+  destinationPath: string;
+  scan?: ApiOverviewScan | null;
+  enrichment?: ApiOverviewEnrichment | null;
   job: {
-    status: "running" | "completed"
-    startedAt: string
-    tracksDiscovered: number
-    tracksProcessed: number
-    tracksFingerprinted: number
-    tracksEnriched: number
-    tracksBuildEligible: number
-    tracksCopied: number
-    tracksReview: number
-    tracksFailed: number
-  }
-  recentActivity: ApiOverviewActivity[]
+    status: 'running' | 'completed';
+    startedAt: string;
+    tracksDiscovered: number;
+    tracksProcessed: number;
+    tracksFingerprinted: number;
+    tracksEnriched: number;
+    tracksBuildEligible: number;
+    tracksCopied: number;
+    tracksReview: number;
+    tracksFailed: number;
+  };
+  recentActivity: ApiOverviewActivity[];
 }
 
 export interface ApiSong {
-  id: number
-  sourcePath: string
-  destinationPath?: string | null
+  id: number;
+  sourcePath: string;
+  destinationPath?: string | null;
   /**
    * Set only on rows shared with you; absent means you own this song. Resolve the display name
    * with `songsStore.grantorOf` — an id on its own is not a label.
    */
-  sharedByUserId?: string | null
+  sharedByUserId?: string | null;
   /**
    * Server-computed "playable from the built library" — sent for every row. Shared rows have always
    * carried it, because they publish no `destinationPath` for a client to infer it from; own rows
    * gained it so the definition lives in one place rather than one per client. `isBuiltSong` still
    * falls back to deriving it, for a server older than the field.
    */
-  isBuilt?: boolean
-  fileName: string
-  extension?: string | null
-  fileSizeBytes: number
-  artist?: string | null
+  isBuilt?: boolean;
+  fileName: string;
+  extension?: string | null;
+  fileSizeBytes: number;
+  artist?: string | null;
   /** Discrete credited artist names, ';'-joined (e.g. "21 Savage; Travis Scott; Metro Boomin"). */
-  artists?: string | null
-  albumArtist?: string | null
-  album?: string | null
-  title?: string | null
-  year?: number | null
-  trackNumber?: number | null
-  durationSeconds?: number | null
+  artists?: string | null;
+  albumArtist?: string | null;
+  album?: string | null;
+  title?: string | null;
+  year?: number | null;
+  trackNumber?: number | null;
+  durationSeconds?: number | null;
   /**
    * Whether the file has been fingerprinted. The list does not carry the Chromaprint string itself
    * (kilobytes per song); a track's own is `EnrichmentDetail.fingerprint`.
    */
-  hasFingerprint?: boolean
-  isrc?: string | null
-  musicBrainzId?: string | null
-  musicBrainzReleaseId?: string | null
-  spotifyId?: string | null
-  acoustIdTrackId?: string | null
-  lrclibId?: string | null
+  hasFingerprint?: boolean;
+  isrc?: string | null;
+  musicBrainzId?: string | null;
+  musicBrainzReleaseId?: string | null;
+  spotifyId?: string | null;
+  acoustIdTrackId?: string | null;
+  lrclibId?: string | null;
   /** Genres, ';'-joined multi-value (e.g. "Hip Hop; Rap"). */
-  genre?: string | null
+  genre?: string | null;
   /** Full release date as an ISO string (YYYY-MM-DD or partial); {@link year} is the coarse form. */
-  releaseDate?: string | null
+  releaseDate?: string | null;
   /** Original (first) release date of the release-group, ISO string. */
-  label?: string | null
-  enrichmentStatus?: string | number | null
+  label?: string | null;
+  enrichmentStatus?: string | number | null;
   /** Set on a soft-deleted row, which the list only carries when asked to include them. */
-  deletedAtUtc?: string | null
+  deletedAtUtc?: string | null;
   /**
    * When the track entered the collection — stamped once at first index and never rewritten. This is
    * the field "recently added" sorts on: the index time moves whenever the file changes on disk and
    * the build time is cleared by any rebuild, so both drag long-owned tracks back to the top. For a
    * row from before the column existed the server sends the older of those two instead.
    */
-  acquiredAtUtc?: string | null
+  acquiredAtUtc?: string | null;
   /** Pipeline build state: Pending/Copied/Tagged/Done/Failed (number or string). */
-  libraryBuildStatus?: string | number | null
-  matchedBy?: string | null
-  matchConfidence?: number | null
-  matchWarnings?: string[] | null
+  libraryBuildStatus?: string | number | null;
+  matchedBy?: string | null;
+  matchConfidence?: number | null;
+  matchWarnings?: string[] | null;
   /**
    * Whether this is a commercially released recording or unreleased material (leak, snippet, stem,
    * session). Derived server-side by `ReleaseClassifier` — chiefly from the community-tracker
    * category the enrichment match recorded. "Unknown" when nothing in the row says either way.
    */
-  releaseClassification?: ReleaseClassification | null
-  originalMetadataCaptured?: boolean | null
-  lyricsStatus?: string | null
-  hasSyncedLyrics?: boolean | null
-  hasPlainLyrics?: boolean | null
-  isInstrumental?: boolean | null
-  syncedLyrics?: string | null
-  plainLyrics?: string | null
+  releaseClassification?: ReleaseClassification | null;
+  originalMetadataCaptured?: boolean | null;
+  lyricsStatus?: string | null;
+  hasSyncedLyrics?: boolean | null;
+  hasPlainLyrics?: boolean | null;
+  isInstrumental?: boolean | null;
+  syncedLyrics?: string | null;
+  plainLyrics?: string | null;
   /** True when an AI transcription exists. The (large) text is fetched on demand via fetchTrackLyrics. */
-  hasTranscribedLyrics?: boolean | null
+  hasTranscribedLyrics?: boolean | null;
   /** Which lyrics the synced viewer shows when both exist: "Lrclib" | "Transcribed". */
-  preferredLyricsSource?: string | null
+  preferredLyricsSource?: string | null;
   /** How much of this song's displayed lyrics came from an AI. */
-  lyricsProvenance?: LyricsProvenance | null
+  lyricsProvenance?: LyricsProvenance | null;
   /** What the timing check concluded about the stored LRC. */
-  lyricsSyncStatus?: LyricsSyncStatus | null
-  lyricsSyncOffsetMs?: number | null
+  lyricsSyncStatus?: LyricsSyncStatus | null;
+  lyricsSyncOffsetMs?: number | null;
   /** Sample rate in Hz (e.g. 44100). Shown in track details when present. */
-  sampleRate?: number | null
+  sampleRate?: number | null;
   /** Bitrate in kbps (e.g. 320, 1411). Shown in track details when present. */
-  bitRate?: number | null
+  bitRate?: number | null;
   /** Optional explicit album cover URL (e.g. Spotify CDN links on Spotify pages). For
    * library tracks the backend leaves this unset and signals art via {@link hasCoverArt}. */
-  albumArt?: string | null
+  albumArt?: string | null;
   /** True when the track has resolvable artwork (embedded, or a cover/folder/front.* image in
    * its directory). The image bytes are fetched lazily from {@link getSongCoverUrl}. */
-  hasCoverArt?: boolean | null
+  hasCoverArt?: boolean | null;
   /** When the user liked this song; null/undefined = not liked. Also the "recently liked" sort key. */
-  likedAtUtc?: string | null
+  likedAtUtc?: string | null;
   /** Times playback of this track was started (client-reported). */
-  playCount?: number | null
-  lastPlayedAtUtc?: string | null
+  playCount?: number | null;
+  lastPlayedAtUtc?: string | null;
   /** How the file got here: already in the source library, downloaded by MusicHoarder, or instance-synced. */
-  originKind?: SongOriginKind | null
+  originKind?: SongOriginKind | null;
   /** Which collection asked for it — the wishlist link behind a download. */
-  originSource?: SongOriginSource | null
+  originSource?: SongOriginSource | null;
   /** Names the specific collection ("Liked Songs", a playlist name, a URL host) when there is one. */
-  originDetail?: string | null
+  originDetail?: string | null;
   /**
    * When the track was saved on Spotify — Spotify's own timestamp, NOT {@link likedAtUtc} (the local
    * heart). Covers any Spotify collection: a playlist you collect contributes the date the track
    * entered *that playlist*, so this answers "Spotify knows about this, and when", not "I saved it".
    * For the latter use {@link spotifyLikedAtUtc}.
    */
-  spotifyAddedAtUtc?: string | null
+  spotifyAddedAtUtc?: string | null;
   /**
    * When you saved this track to your Spotify Liked Songs. Narrower than {@link spotifyAddedAtUtc}:
    * a playlist add never sets it, so this is the one the "Spotify Liked" filter can trust.
    */
-  spotifyLikedAtUtc?: string | null
+  spotifyLikedAtUtc?: string | null;
   /** True when a music video for this track is on disk and playable. */
-  hasMusicVideo?: boolean | null
+  hasMusicVideo?: boolean | null;
   /**
    * Whether you asked for this track or album completion added it because you already owned another
    * track from the same album. A stored column, unlike the derived `origin*` fields above.
    *
    * Prefer {@link isAlbumFill}: this one is the enum's name.
    */
-  acquisitionIntent?: SongAcquisitionIntent | null
+  acquisitionIntent?: SongAcquisitionIntent | null;
   /**
    * Server-decided "album completion added this". The same fact as `acquisitionIntent === 'AlbumFill'`
    * with the string comparison done once, on the side that owns the enum. Absent on rows shared with
    * you (that projection carries no intent) and on a server older than the field, both of which read
    * as "yours" — see {@link isMyMusic}.
    */
-  isAlbumFill?: boolean | null
+  isAlbumFill?: boolean | null;
 }
 
 /**
@@ -231,29 +231,25 @@ export interface ApiSong {
  * found anything, which is good circumstantial evidence but also catches badly-tagged files and
  * genuinely obscure releases. "Unknown" = no evidence either way.
  */
-export type ReleaseClassification =
-  | "Unknown"
-  | "Released"
-  | "Unreleased"
-  | "LikelyUnreleased"
+export type ReleaseClassification = 'Unknown' | 'Released' | 'Unreleased' | 'LikelyUnreleased';
 
-export type SongOriginKind = "Scanned" | "Downloaded" | "Synced"
+export type SongOriginKind = 'Scanned' | 'Downloaded' | 'Synced';
 export type SongOriginSource =
-  | "None"
-  | "SpotifyLiked"
-  | "SpotifyPlaylist"
-  | "DeezerPlaylist"
-  | "YouTubePlaylist"
-  | "DirectUrl"
-  | "AlbumCompletion"
-  | "ArtistRequest"
-  | "FollowedArtist"
+  | 'None'
+  | 'SpotifyLiked'
+  | 'SpotifyPlaylist'
+  | 'DeezerPlaylist'
+  | 'YouTubePlaylist'
+  | 'DirectUrl'
+  | 'AlbumCompletion'
+  | 'ArtistRequest'
+  | 'FollowedArtist';
 
-export type SongAcquisitionIntent = "Explicit" | "AlbumFill"
+export type SongAcquisitionIntent = 'Explicit' | 'AlbumFill';
 
 /** True when a wishlist link ties this track to Spotify — drives the per-row Source marker. */
 export function isSpotifySourced(s: ApiSong): boolean {
-  return s.originSource === "SpotifyLiked" || s.originSource === "SpotifyPlaylist"
+  return s.originSource === 'SpotifyLiked' || s.originSource === 'SpotifyPlaylist';
 }
 
 /**
@@ -265,7 +261,7 @@ export function isSpotifySourced(s: ApiSong): boolean {
  * likes reports the playlist. The date comes from the liked-songs match sweep, which sees all of them.
  */
 export function isSpotifyLiked(s: ApiSong): boolean {
-  return Boolean(s.spotifyLikedAtUtc)
+  return Boolean(s.spotifyLikedAtUtc);
 }
 
 /**
@@ -274,12 +270,12 @@ export function isSpotifyLiked(s: ApiSong): boolean {
  * quality upgrade that rewrites the path into the download root moves a track out of this set.
  */
 export function isLocalFile(s: ApiSong): boolean {
-  return s.originKind === "Scanned"
+  return s.originKind === 'Scanned';
 }
 
 /** True when you imported this track yourself from a URL (the Add-from-URL dialog). */
 export function isAddedByLink(s: ApiSong): boolean {
-  return s.originSource === "DirectUrl"
+  return s.originSource === 'DirectUrl';
 }
 
 /**
@@ -303,13 +299,13 @@ export function isAddedByLink(s: ApiSong): boolean {
  * before the request that refreshed it came back.
  */
 export function isMyMusic(s: ApiSong): boolean {
-  const fill = s.isAlbumFill ?? s.acquisitionIntent === "AlbumFill"
-  return !fill || Boolean(s.likedAtUtc)
+  const fill = s.isAlbumFill ?? s.acquisitionIntent === 'AlbumFill';
+  return !fill || Boolean(s.likedAtUtc);
 }
 
 /** True when a music video for this track is downloaded and playable. */
 export function hasMusicVideo(s: ApiSong): boolean {
-  return Boolean(s.hasMusicVideo)
+  return Boolean(s.hasMusicVideo);
 }
 
 /**
@@ -320,9 +316,9 @@ export function hasMusicVideo(s: ApiSong): boolean {
  * add date instead.
  */
 export function spotifyAddedTime(s: ApiSong): number {
-  const iso = s.spotifyLikedAtUtc ?? s.spotifyAddedAtUtc
-  const ms = iso ? Date.parse(iso) : NaN
-  return Number.isNaN(ms) ? 0 : ms
+  const iso = s.spotifyLikedAtUtc ?? s.spotifyAddedAtUtc;
+  const ms = iso ? Date.parse(iso) : NaN;
+  return Number.isNaN(ms) ? 0 : ms;
 }
 
 /**
@@ -335,74 +331,82 @@ export function spotifyAddedTime(s: ApiSong): number {
  * {@link songAddedIso}, and hearts you clicked here (no Spotify save, or a later one) are untouched.
  */
 export function songLikedTime(s: ApiSong): number {
-  if (!s.likedAtUtc) return 0
+  if (!s.likedAtUtc) return 0;
   // The Liked Songs date first: a collected playlist's add date is not a like moment, so it must not
   // be allowed to pull a song's "when did I like this" earlier than it really was.
-  const iso = oldestIso([s.spotifyLikedAtUtc ?? s.spotifyAddedAtUtc, s.likedAtUtc])
-  const ms = iso ? Date.parse(iso) : NaN
-  return Number.isNaN(ms) ? 0 : ms
+  const iso = oldestIso([s.spotifyLikedAtUtc ?? s.spotifyAddedAtUtc, s.likedAtUtc]);
+  const ms = iso ? Date.parse(iso) : NaN;
+  return Number.isNaN(ms) ? 0 : ms;
 }
 
 /** Short label + long tooltip for the Source column. */
 export function songOriginLabel(s: ApiSong): { label: string; title: string } | null {
-  const detail = nonEmpty(s.originDetail)
+  const detail = nonEmpty(s.originDetail);
   switch (s.originSource) {
-    case "SpotifyLiked":
-    case "SpotifyPlaylist":
+    case 'SpotifyLiked':
+    case 'SpotifyPlaylist':
       return {
-        label: "Spotify",
-        title: `From your Spotify ${detail ?? "library"}${
-          s.originKind === "Downloaded" ? " — downloaded by MusicHoarder" : " — already in your library"
-        }`,
-      }
-    case "DeezerPlaylist":
-      return { label: "Deezer", title: `From the Deezer playlist ${detail ?? "(unnamed)"}` }
-    case "YouTubePlaylist":
-      return { label: "YouTube", title: `From the YouTube playlist ${detail ?? "(unnamed)"}` }
-    case "DirectUrl":
-      return { label: "Link", title: `Added from a URL${detail ? ` (${detail})` : ""}` }
-    case "ArtistRequest":
-      return { label: "Artist", title: `You asked for ${detail ?? "this release"} on the artist's page` }
-    case "FollowedArtist":
-      return { label: "Following", title: `A new release${detail ? ` (${detail})` : ""} from an artist you follow` }
-    case "AlbumCompletion":
+        label: 'Spotify',
+        title: `From your Spotify ${detail ?? 'library'}${
+          s.originKind === 'Downloaded'
+            ? ' — downloaded by MusicHoarder'
+            : ' — already in your library'
+        }`
+      };
+    case 'DeezerPlaylist':
+      return { label: 'Deezer', title: `From the Deezer playlist ${detail ?? '(unnamed)'}` };
+    case 'YouTubePlaylist':
+      return { label: 'YouTube', title: `From the YouTube playlist ${detail ?? '(unnamed)'}` };
+    case 'DirectUrl':
+      return { label: 'Link', title: `Added from a URL${detail ? ` (${detail})` : ''}` };
+    case 'ArtistRequest':
       return {
-        label: "Album fill",
-        title: `Added to complete ${detail ?? "an album you already owned part of"} — nobody asked for it directly`,
-      }
+        label: 'Artist',
+        title: `You asked for ${detail ?? 'this release'} on the artist's page`
+      };
+    case 'FollowedArtist':
+      return {
+        label: 'Following',
+        title: `A new release${detail ? ` (${detail})` : ''} from an artist you follow`
+      };
+    case 'AlbumCompletion':
+      return {
+        label: 'Album fill',
+        title: `Added to complete ${detail ?? 'an album you already owned part of'} — nobody asked for it directly`
+      };
     default:
-      break
+      break;
   }
   switch (s.originKind) {
-    case "Downloaded":
-      return { label: "Download", title: "Downloaded by MusicHoarder" }
-    case "Synced":
-      return { label: "Synced", title: "Received from another MusicHoarder instance" }
-    case "Scanned":
-      return { label: "Library", title: "Found in your source library by a scan" }
+    case 'Downloaded':
+      return { label: 'Download', title: 'Downloaded by MusicHoarder' };
+    case 'Synced':
+      return { label: 'Synced', title: 'Received from another MusicHoarder instance' };
+    case 'Scanned':
+      return { label: 'Library', title: 'Found in your source library by a scan' };
     default:
-      return null
+      return null;
   }
 }
 
 interface SongsResponse {
-  count: number
-  includeDeleted: boolean
-  songs: ApiSong[]
+  count: number;
+  includeDeleted: boolean;
+  songs: ApiSong[];
   /** One entry per account whose music appears in `songs`. Empty when nothing was shared with you. */
-  grantors?: Grantor[]
+  grantors?: Grantor[];
   /**
    * Only on a status-filtered request (Tag review's queue): the file's own tags for each row whose
    * enrichment changed them, keyed by song id. The library list does not carry them.
    */
-  originalTags?: Record<string, OriginalTags>
+  originalTags?: Record<string, OriginalTags>;
 }
 
 /** A file's tags from before enrichment changed them. */
 export interface OriginalTags {
-  title?: string | null
-  artist?: string | null
-  album?: string | null
+  title?: string | null;
+  artist?: string | null;
+  album?: string | null;
 }
 
 /**
@@ -410,17 +414,17 @@ export interface OriginalTags {
  * with before its detail has loaded.
  */
 export type ReviewQueueSong = ApiSong & {
-  originalTitle?: string | null
-  originalArtist?: string | null
-  originalAlbum?: string | null
-}
+  originalTitle?: string | null;
+  originalArtist?: string | null;
+  originalAlbum?: string | null;
+};
 
 /** An account whose music appears in your library, for the "Shared by …" attribution. */
 export interface Grantor {
-  userId: string
+  userId: string;
   /** Null when they never set a name — the UI picks neutral wording. Never their email. */
-  displayName: string | null
-  songCount: number
+  displayName: string | null;
+  songCount: number;
 }
 
 /**
@@ -435,18 +439,17 @@ export interface Grantor {
  * a fetch resolves. A `$derived` over this variable would compute once before the first fetch
  * lands and then stay clean forever, so the "shared by X" label would never appear.
  */
-let grantors: Grantor[] = []
+let grantors: Grantor[] = [];
 
 /** Every account currently sharing music with you, in server order. Prefer `songsStore.grantors`. */
 export function currentGrantors(): Grantor[] {
-  return grantors
+  return grantors;
 }
 
 /** Clear the grantor lookup. Called from sign-out alongside the other client-side resets. */
 export function resetGrantors(): void {
-  grantors = []
+  grantors = [];
 }
-
 
 /**
  * Error thrown by {@link requestJson} for any non-2xx response. Carries the machine-readable
@@ -455,24 +458,24 @@ export function resetGrantors(): void {
  * stays the human-readable text for banners. `code` is null when the body had no `error` field.
  */
 export class ApiError extends Error {
-  readonly code: string | null
-  readonly status: number
+  readonly code: string | null;
+  readonly status: number;
   constructor(message: string, code: string | null, status: number) {
-    super(message)
-    this.name = "ApiError"
-    this.code = code
-    this.status = status
+    super(message);
+    this.name = 'ApiError';
+    this.code = code;
+    this.status = status;
   }
 }
 
 const PERMISSION_CODES = new Set([
-  "demo_read_only",
-  "member_write_denied",
-  "friend_read_only",
-  "capability_required",
-  "admin_required",
-  "owner_required",
-])
+  'demo_read_only',
+  'member_write_denied',
+  'friend_read_only',
+  'capability_required',
+  'admin_required',
+  'owner_required'
+]);
 
 /**
  * True when the request failed because this account may not do it at all — a 403 or one of the
@@ -480,73 +483,81 @@ const PERMISSION_CODES = new Set([
  * a Retry. 401 (signed out) is deliberately not included: signing in again does fix that one.
  */
 export function isPermissionError(err: unknown): boolean {
-  if (!(err instanceof ApiError)) return false
-  return err.status === 403 || (err.code != null && PERMISSION_CODES.has(err.code))
+  if (!(err instanceof ApiError)) return false;
+  return err.status === 403 || (err.code != null && PERMISSION_CODES.has(err.code));
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const method = (init?.method ?? "GET").toUpperCase()
-  const isBodyMethod = method !== "GET" && method !== "HEAD"
+  const method = (init?.method ?? 'GET').toUpperCase();
+  const isBodyMethod = method !== 'GET' && method !== 'HEAD';
 
   const response = await fetch(`${API_PREFIX}${path}`, {
     ...init,
     headers: isBodyMethod
       ? {
-          "content-type": "application/json",
-          ...(init?.headers ?? {}),
+          'content-type': 'application/json',
+          ...(init?.headers ?? {})
         }
       : init?.headers,
-    cache: "no-store",
-  })
+    cache: 'no-store'
+  });
 
-  await throwIfFailed(path, response)
-  return (await response.json()) as T
+  await throwIfFailed(path, response);
+  return (await response.json()) as T;
 }
 
 /** Turn a non-2xx response into the {@link ApiError} every caller expects. */
 async function throwIfFailed(path: string, response: Response): Promise<void> {
   if (!response.ok) {
-    let detail = ""
-    let code: string | null = null
+    let detail = '';
+    let code: string | null = null;
     try {
-      const body = await response.json() as Record<string, unknown>
-      if (typeof body.error === "string") code = body.error
+      const body = (await response.json()) as Record<string, unknown>;
+      if (typeof body.error === 'string') code = body.error;
       // The demo account is read-only: every mutation is rejected with this code by the API's
       // DemoReadOnlyMiddleware. Surface a human message instead of the raw error code.
-      if (body.error === "demo_read_only") {
-        throw new ApiError("This action is disabled — the demo account is read-only.", "demo_read_only", response.status)
+      if (body.error === 'demo_read_only') {
+        throw new ApiError(
+          'This action is disabled — the demo account is read-only.',
+          'demo_read_only',
+          response.status
+        );
       }
       // A member tried something their account is not allowed to do at all.
       // "friend_read_only" is the pre-rename code; keep handling it for one release so a browser
       // holding cached JS still shows a sentence instead of a raw error code.
-      if (body.error === "member_write_denied" || body.error === "friend_read_only") {
+      if (body.error === 'member_write_denied' || body.error === 'friend_read_only') {
         throw new ApiError(
-          "This action is only available to an administrator.",
+          'This action is only available to an administrator.',
           body.error,
           response.status
-        )
+        );
       }
       // A capability the admin has not granted (or has since revoked).
-      if (body.error === "capability_required") {
+      if (body.error === 'capability_required') {
         throw new ApiError(
-          "Your account does not have access to that. Ask an administrator to enable it.",
-          "capability_required",
+          'Your account does not have access to that. Ask an administrator to enable it.',
+          'capability_required',
           response.status
-        )
+        );
       }
-      if (body.error === "admin_required" || body.error === "owner_required") {
-        throw new ApiError("Only an administrator can do that.", body.error, response.status)
+      if (body.error === 'admin_required' || body.error === 'owner_required') {
+        throw new ApiError('Only an administrator can do that.', body.error, response.status);
       }
       // Anything else reads as raw JSON in error banners — fall back to the code itself as
       // readable text.
       detail =
         (body.message as string) ??
-        (typeof body.error === "string" ? body.error.replaceAll("_", " ") : JSON.stringify(body))
+        (typeof body.error === 'string' ? body.error.replaceAll('_', ' ') : JSON.stringify(body));
     } catch (err) {
-      if (err instanceof ApiError) throw err
+      if (err instanceof ApiError) throw err;
       // ignore parse errors
     }
-    throw new ApiError(detail || `Request failed for ${path}: ${response.status}`, code, response.status)
+    throw new ApiError(
+      detail || `Request failed for ${path}: ${response.status}`,
+      code,
+      response.status
+    );
   }
 }
 
@@ -557,7 +568,7 @@ async function throwIfFailed(path: string, response: Response): Promise<void> {
 export type Revalidated<T> =
   | { notModified: false; data: T; etag: string | null }
   /** `etag` is the validator that was sent — the copy this answer is about. */
-  | { notModified: true; etag: string }
+  | { notModified: true; etag: string };
 
 /**
  * GET a list, saying which copy of it is already held. The API answers the two library lists with
@@ -571,82 +582,90 @@ export type Revalidated<T> =
  */
 async function requestJsonIfChanged<T>(path: string, etag: string | null): Promise<Revalidated<T>> {
   const response = await fetch(`${API_PREFIX}${path}`, {
-    headers: etag ? { "if-none-match": etag } : undefined,
-    cache: "no-store",
-  })
+    headers: etag ? { 'if-none-match': etag } : undefined,
+    cache: 'no-store'
+  });
 
   if (response.status === 304) {
-    if (etag) return { notModified: true, etag }
-    throw new ApiError(`Request failed for ${path}: 304 to a request that named no copy`, null, 304)
+    if (etag) return { notModified: true, etag };
+    throw new ApiError(
+      `Request failed for ${path}: 304 to a request that named no copy`,
+      null,
+      304
+    );
   }
-  await throwIfFailed(path, response)
-  return { notModified: false, data: (await response.json()) as T, etag: response.headers.get("etag") }
+  await throwIfFailed(path, response);
+  return {
+    notModified: false,
+    data: (await response.json()) as T,
+    etag: response.headers.get('etag')
+  };
 }
 
 // The running build's version (clean semver, matching the GitHub release / Docker tag). Accepts an
 // optional fetch so the root layout load can pass SvelteKit's instance (required during SSR).
 export async function getVersion(fetchFn: typeof fetch = fetch): Promise<string> {
-  const response = await fetchFn(`${API_PREFIX}/api/version`, { cache: "no-store" })
-  if (!response.ok) throw new Error(`Request failed for /api/version: ${response.status}`)
-  const body = (await response.json()) as { version: string }
-  return body.version
+  const response = await fetchFn(`${API_PREFIX}/api/version`, { cache: 'no-store' });
+  if (!response.ok) throw new Error(`Request failed for /api/version: ${response.status}`);
+  const body = (await response.json()) as { version: string };
+  return body.version;
 }
 
 // Running build vs latest published release, from the backend's cached GitHub check. `latest` is null
 // until the first successful poll (or when the check is disabled / GitHub is unreachable), in which
 // case `updateAvailable` is false and no banner shows.
 export interface LatestVersionInfo {
-  current: string
-  latest: string | null
-  updateAvailable: boolean
-  releaseUrl: string | null
-  publishedAt: string | null
+  current: string;
+  latest: string | null;
+  updateAvailable: boolean;
+  releaseUrl: string | null;
+  publishedAt: string | null;
 }
 
 export async function fetchLatestVersion(): Promise<LatestVersionInfo> {
-  const response = await fetch(`${API_PREFIX}/api/version/latest`, { cache: "no-store" })
-  if (!response.ok) throw new Error(`Request failed for /api/version/latest: ${response.status}`)
-  return (await response.json()) as LatestVersionInfo
+  const response = await fetch(`${API_PREFIX}/api/version/latest`, { cache: 'no-store' });
+  if (!response.ok) throw new Error(`Request failed for /api/version/latest: ${response.status}`);
+  return (await response.json()) as LatestVersionInfo;
 }
 
 export type NormalizedEnrichmentStatus =
-  | "pending"
-  | "processing"
-  | "complete"
-  | "failed"
-  | "needsreview"
+  | 'pending'
+  | 'processing'
+  | 'complete'
+  | 'failed'
+  | 'needsreview';
 
 export function mapEnrichmentStatus(status?: string | number | null): NormalizedEnrichmentStatus {
-  if (typeof status === "number") {
+  if (typeof status === 'number') {
     switch (status) {
       case 1:
-        return "complete"
+        return 'complete';
       case 2:
-        return "needsreview"
+        return 'needsreview';
       case 3:
-        return "failed"
+        return 'failed';
       default:
-        return "pending"
+        return 'pending';
     }
   }
 
-  if (typeof status === "string") {
-    const normalized = status.toLowerCase()
-    if (normalized === "failed") return "failed"
-    if (normalized === "matched" || normalized === "complete") return "complete"
-    if (normalized === "needsreview") return "needsreview"
-    if (normalized === "running" || normalized === "processing") {
-      return "processing"
+  if (typeof status === 'string') {
+    const normalized = status.toLowerCase();
+    if (normalized === 'failed') return 'failed';
+    if (normalized === 'matched' || normalized === 'complete') return 'complete';
+    if (normalized === 'needsreview') return 'needsreview';
+    if (normalized === 'running' || normalized === 'processing') {
+      return 'processing';
     }
   }
 
-  return "pending"
+  return 'pending';
 }
 
 // ── Album grouping ────────────────────────────────────────────────────────────
 
-const UNKNOWN_ALBUM = "Unknown Album"
-const UNKNOWN_ARTIST = "Unknown Artist"
+const UNKNOWN_ALBUM = 'Unknown Album';
+const UNKNOWN_ARTIST = 'Unknown Artist';
 
 /**
  * One album card exactly as `GET /api/albums` groups it.
@@ -663,73 +682,73 @@ export interface AlbumSummaryDto {
    * directory — the same unit Navidrome groups on — so one album name split across releases shows as
    * the separate cards the player shows. Unbuilt songs fall back to {@link nameKey}.
    */
-  key: string
+  key: string;
   /**
    * Every destination folder this card covers — `[key]` for a plain card, and all of the merged
    * folders (representative first) for a merged one. Lets callers resolve an `?album=<folder>`
    * deep-link pointing at a folder that lost the representative election, and tells AlbumPage
    * whether it may pass a single-folder hint to the backend.
    */
-  folderKeys: string[]
+  folderKeys: string[];
   /** `artistLower::titleLower` — the name-level identity, and the legacy deep-link shape. */
-  nameKey: string
-  title: string
-  artist: string
+  nameKey: string;
+  title: string;
+  artist: string;
   /** The earliest year the tracks agree on — a deluxe reissue's tracks carry the reissue year. */
-  year: number | null
-  trackCount: number
-  durationSeconds: number
-  byteSize: number
-  genre: string | null
-  label: string | null
-  catalogNumber: string | null
-  upc: string | null
-  releaseDate: string | null
-  musicBrainzReleaseId: string | null
+  year: number | null;
+  trackCount: number;
+  durationSeconds: number;
+  byteSize: number;
+  genre: string | null;
+  label: string | null;
+  catalogNumber: string | null;
+  upc: string | null;
+  releaseDate: string | null;
+  musicBrainzReleaseId: string | null;
   /** The first track with artwork; {@link AlbumSummary.coverUrl} is the resolved URL. */
-  coverSongId: number | null
+  coverSongId: number | null;
   /**
    * Most recent added-date over the tracks that are yours rather than album fill, falling back to
    * all of them for an album that is nothing but fill. What "Recently added" sorts on.
    */
-  addedAtUtc: string | null
-  playCount: number
+  addedAtUtc: string | null;
+  playCount: number;
   /** The album's tracks, ordered by track number then title. Join against the songs list. */
-  trackIds: number[]
+  trackIds: number[];
 }
 
 /** An {@link AlbumSummaryDto} joined against the songs the client holds — see {@link hydrateAlbums}. */
 export interface AlbumSummary extends AlbumSummaryDto {
-  coverUrl: string | null
+  coverUrl: string | null;
   /** The album's songs in {@link AlbumSummaryDto.trackIds} order. */
-  songs: ApiSong[]
+  songs: ApiSong[];
 }
 
 /** Which albums to ask for. Every field narrows the SONGS before they are grouped. */
 export interface AlbumQuery {
   /** Only songs that reached the destination library. Default true — what the grid shows. */
-  builtOnly?: boolean
+  builtOnly?: boolean;
   /** Fold cards that are the same album under different destination folders. Default true. */
-  merge?: boolean
-  artist?: string | null
+  merge?: boolean;
+  artist?: string | null;
   /** A year, or `"unknown"` for the no-year bucket. */
-  year?: string | null
-  unreleased?: boolean
+  year?: string | null;
+  unreleased?: boolean;
 }
 
 function albumsPath(query: AlbumQuery): string {
-  const params = new URLSearchParams()
-  if (query.builtOnly === false) params.set("builtOnly", "false")
-  if (query.merge === false) params.set("merge", "false")
-  if (query.artist) params.set("artist", query.artist)
-  if (query.year) params.set("year", query.year)
-  if (query.unreleased) params.set("unreleased", "true")
-  return `${LIBRARY_ALBUMS_PATH}${params.size > 0 ? `?${params}` : ""}`
+  const params = new URLSearchParams();
+  if (query.builtOnly === false) params.set('builtOnly', 'false');
+  if (query.merge === false) params.set('merge', 'false');
+  if (query.artist) params.set('artist', query.artist);
+  if (query.year) params.set('year', query.year);
+  if (query.unreleased) params.set('unreleased', 'true');
+  return `${LIBRARY_ALBUMS_PATH}${params.size > 0 ? `?${params}` : ''}`;
 }
 
 export async function fetchAlbums(query: AlbumQuery = {}): Promise<AlbumSummaryDto[]> {
-  const result = await requestJson<{ albums: AlbumSummaryDto[] }>(albumsPath(query))
-  return result.albums ?? []
+  const result = await requestJson<{ albums: AlbumSummaryDto[] }>(albumsPath(query));
+  return result.albums ?? [];
 }
 
 /**
@@ -738,10 +757,10 @@ export async function fetchAlbums(query: AlbumQuery = {}): Promise<AlbumSummaryD
  */
 export async function fetchAlbumsIfChanged(
   query: AlbumQuery,
-  etag: string | null,
+  etag: string | null
 ): Promise<Revalidated<AlbumSummaryDto[]>> {
-  const result = await requestJsonIfChanged<{ albums: AlbumSummaryDto[] }>(albumsPath(query), etag)
-  return result.notModified ? result : { ...result, data: result.data.albums ?? [] }
+  const result = await requestJsonIfChanged<{ albums: AlbumSummaryDto[] }>(albumsPath(query), etag);
+  return result.notModified ? result : { ...result, data: result.data.albums ?? [] };
 }
 
 /**
@@ -753,7 +772,7 @@ export async function fetchAlbumsIfChanged(
  */
 export function hydrateAlbums(
   albums: AlbumSummaryDto[],
-  songsById: Map<number, ApiSong>,
+  songsById: Map<number, ApiSong>
 ): AlbumSummary[] {
   return albums.map((album) => ({
     ...album,
@@ -762,13 +781,13 @@ export function hydrateAlbums(
     // honest answer, and the next refresh reconciles.
     songs: album.trackIds
       .map((id) => songsById.get(id))
-      .filter((song): song is ApiSong => song !== undefined),
-  }))
+      .filter((song): song is ApiSong => song !== undefined)
+  }));
 }
 
 function nonEmpty(value: string | null | undefined): string | null {
-  const trimmed = (value ?? "").trim()
-  return trimmed.length > 0 ? trimmed : null
+  const trimmed = (value ?? '').trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 /**
@@ -784,52 +803,52 @@ function nonEmpty(value: string | null | undefined): string | null {
  * ripped years before saving it on Spotify keeps its acquisition date.
  */
 export function songAddedIso(s: ApiSong): string | null {
-  return oldestIso([s.spotifyAddedAtUtc, s.acquiredAtUtc])
+  return oldestIso([s.spotifyAddedAtUtc, s.acquiredAtUtc]);
 }
 
 /** The earliest parseable stamp of the candidates, or null when none parse. */
 function oldestIso(candidates: (string | null | undefined)[]): string | null {
-  let oldest: string | null = null
-  let oldestMs = Number.POSITIVE_INFINITY
+  let oldest: string | null = null;
+  let oldestMs = Number.POSITIVE_INFINITY;
   for (const candidate of candidates) {
-    if (!candidate) continue
-    const ms = Date.parse(candidate)
-    if (Number.isNaN(ms) || ms >= oldestMs) continue
-    oldest = candidate
-    oldestMs = ms
+    if (!candidate) continue;
+    const ms = Date.parse(candidate);
+    if (Number.isNaN(ms) || ms >= oldestMs) continue;
+    oldest = candidate;
+    oldestMs = ms;
   }
-  return oldest
+  return oldest;
 }
 
 /** Effective "added to library" time for a song, as epoch ms (0 when unknown). */
 export function songAddedTime(s: ApiSong): number {
-  const iso = songAddedIso(s)
-  return iso ? new Date(iso).getTime() : 0
+  const iso = songAddedIso(s);
+  return iso ? new Date(iso).getTime() : 0;
 }
 
 /** Sort albums newest-first by their `addedAtUtc`. Returns a new array. */
 export function sortAlbumsByRecency(albums: AlbumSummary[]): AlbumSummary[] {
-  return sortAlbums(albums, "recent")
+  return sortAlbums(albums, 'recent');
 }
 
 function byArtistThenTitle(a: AlbumSummary, b: AlbumSummary): number {
-  const artistCmp = a.artist.localeCompare(b.artist)
-  return artistCmp !== 0 ? artistCmp : a.title.localeCompare(b.title)
+  const artistCmp = a.artist.localeCompare(b.artist);
+  return artistCmp !== 0 ? artistCmp : a.title.localeCompare(b.title);
 }
 
 /** How the album grid is ordered. */
-export type AlbumSortKey = "recent" | "artist" | "title" | "year" | "played"
+export type AlbumSortKey = 'recent' | 'artist' | 'title' | 'year' | 'played';
 
 export const ALBUM_SORT_OPTIONS: { key: AlbumSortKey; label: string }[] = [
-  { key: "recent", label: "Recently added" },
-  { key: "artist", label: "Artist A–Z" },
-  { key: "title", label: "Album title" },
-  { key: "year", label: "Year (newest)" },
-  { key: "played", label: "Most played" },
-]
+  { key: 'recent', label: 'Recently added' },
+  { key: 'artist', label: 'Artist A–Z' },
+  { key: 'title', label: 'Album title' },
+  { key: 'year', label: 'Year (newest)' },
+  { key: 'played', label: 'Most played' }
+];
 
 export function isAlbumSortKey(value: string | null | undefined): value is AlbumSortKey {
-  return ALBUM_SORT_OPTIONS.some((o) => o.key === value)
+  return ALBUM_SORT_OPTIONS.some((o) => o.key === value);
 }
 
 /**
@@ -838,26 +857,29 @@ export function isAlbumSortKey(value: string | null | undefined): value is Album
  * arbitrary one the grouping map happened to produce.
  */
 export function sortAlbums(albums: AlbumSummary[], key: AlbumSortKey): AlbumSummary[] {
-  if (key === "recent") {
+  if (key === 'recent') {
     // The default sort, and the one a ten-thousand-song library pays for most often: parsing
     // `addedAtUtc` from inside the comparator re-parses it on every one of a sort's ~n·log n
     // comparisons. Precompute it once per album instead; the tie-break stays on the items
     // themselves, since artist/title comparisons are cheap already.
     const withAdded = albums.map((album) => ({
       album,
-      added: album.addedAtUtc ? Date.parse(album.addedAtUtc) : 0,
-    }))
-    withAdded.sort((a, b) => b.added - a.added || byArtistThenTitle(a.album, b.album))
-    return withAdded.map((a) => a.album)
+      added: album.addedAtUtc ? Date.parse(album.addedAtUtc) : 0
+    }));
+    withAdded.sort((a, b) => b.added - a.added || byArtistThenTitle(a.album, b.album));
+    return withAdded.map((a) => a.album);
   }
-  const compare: Record<Exclude<AlbumSortKey, "recent">, (a: AlbumSummary, b: AlbumSummary) => number> = {
+  const compare: Record<
+    Exclude<AlbumSortKey, 'recent'>,
+    (a: AlbumSummary, b: AlbumSummary) => number
+  > = {
     artist: () => 0,
     title: (a, b) => a.title.localeCompare(b.title),
     year: (a, b) => (b.year ?? 0) - (a.year ?? 0),
-    played: (a, b) => b.playCount - a.playCount,
-  }
-  const primary = compare[key]
-  return [...albums].sort((a, b) => primary(a, b) || byArtistThenTitle(a, b))
+    played: (a, b) => b.playCount - a.playCount
+  };
+  const primary = compare[key];
+  return [...albums].sort((a, b) => primary(a, b) || byArtistThenTitle(a, b));
 }
 
 // ── Overview shelf ordering ──────────────────────────────────────────────────
@@ -875,73 +897,73 @@ export function sortAlbums(albums: AlbumSummary[], key: AlbumSortKey): AlbumSumm
  */
 export function seededOrder<T>(items: readonly T[], keyOf: (item: T) => string, seed: string): T[] {
   const hash = (s: string): number => {
-    let h = 5381
-    for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0
-    return h
-  }
+    let h = 5381;
+    for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+    return h;
+  };
   return items
     .map((item) => ({ item, k: hash(keyOf(item) + seed) }))
     .sort((a, b) => a.k - b.k)
-    .map((d) => d.item)
+    .map((d) => d.item);
 }
 
 /** Most recent `lastPlayedAtUtc` across an album's songs, epoch ms (0 = never played). */
 function albumLastPlayedTime(
   a: AlbumSummary,
-  lastPlayedOf: (song: ApiSong) => string | null | undefined,
+  lastPlayedOf: (song: ApiSong) => string | null | undefined
 ): number {
-  let max = 0
+  let max = 0;
   for (const s of a.songs) {
-    const at = lastPlayedOf(s)
-    const t = at ? Date.parse(at) : 0
-    if (t > max) max = t
+    const at = lastPlayedOf(s);
+    const t = at ? Date.parse(at) : 0;
+    if (t > max) max = t;
   }
-  return max
+  return max;
 }
 
 /** Albums with at least one play, most recently played first — the Overview's "Last played" shelf. */
 export function sortAlbumsByLastPlayed(
   albums: readonly AlbumSummary[],
   // The row's own stamp goes stale at the first play; a caller that knows of later plays says so.
-  lastPlayedOf: (song: ApiSong) => string | null | undefined = (song) => song.lastPlayedAtUtc,
+  lastPlayedOf: (song: ApiSong) => string | null | undefined = (song) => song.lastPlayedAtUtc
 ): AlbumSummary[] {
   return albums
     .map((album) => ({ album, at: albumLastPlayedTime(album, lastPlayedOf) }))
     .filter((d) => d.at > 0)
     .sort((a, b) => b.at - a.at)
-    .map((d) => d.album)
+    .map((d) => d.album);
 }
 
 /** Songs ordered by most recently liked first — the Overview's "Favourite tracks" shelf. */
 export function sortSongsByRecentlyLiked(songs: readonly ApiSong[]): ApiSong[] {
   return songs
-    .map((song) => ({ song, at: Date.parse(song.likedAtUtc ?? "") }))
+    .map((song) => ({ song, at: Date.parse(song.likedAtUtc ?? '') }))
     .sort((a, b) => b.at - a.at)
-    .map((d) => d.song)
+    .map((d) => d.song);
 }
 
 // ── Organize-by grouping (Artist / Year) ───────────────────────────────────────
 
 /** Sentinel key/label for songs missing the grouping dimension. */
-export const UNKNOWN_GROUP = "Unknown"
+export const UNKNOWN_GROUP = 'Unknown';
 
 /** Aggregated view of all songs sharing a single artist or year. */
 export interface GroupSummary {
   /** URL param value: artist name, or year as a string ("Unknown" for the missing bucket). */
-  key: string
+  key: string;
   /** Display text. */
-  label: string
+  label: string;
   /** Distinct `(artist::album)` pairs in the group. */
-  albumCount: number
-  trackCount: number
+  albumCount: number;
+  trackCount: number;
   /** Sum of fileSizeBytes across the group. */
-  byteSize: number
+  byteSize: number;
   /** Sum of durationSeconds across the group. */
-  durationSeconds: number
+  durationSeconds: number;
   /** Representative cover inputs for <Cover>. */
-  coverArtist: string
-  coverTitle: string
-  coverUrl: string | null
+  coverArtist: string;
+  coverTitle: string;
+  coverUrl: string | null;
 }
 
 /**
@@ -950,14 +972,14 @@ export interface GroupSummary {
  * deep-links from a single song; the library resolves that shape as well as a folder key.
  */
 export function albumKeyForSong(song: ApiSong): string {
-  const title = nonEmpty(song.album) ?? UNKNOWN_ALBUM
-  const artist = nonEmpty(song.albumArtist) ?? nonEmpty(song.artist) ?? UNKNOWN_ARTIST
-  return `${artist.toLowerCase()}::${title.toLowerCase()}`
+  const title = nonEmpty(song.album) ?? UNKNOWN_ALBUM;
+  const artist = nonEmpty(song.albumArtist) ?? nonEmpty(song.artist) ?? UNKNOWN_ARTIST;
+  return `${artist.toLowerCase()}::${title.toLowerCase()}`;
 }
 
 /** Display label used to group a song by artist — matches {@link buildArtistGroups}. */
 export function artistLabelForSong(song: ApiSong): string {
-  return nonEmpty(song.albumArtist) ?? nonEmpty(song.artist) ?? UNKNOWN_ARTIST
+  return nonEmpty(song.albumArtist) ?? nonEmpty(song.artist) ?? UNKNOWN_ARTIST;
 }
 
 /**
@@ -967,26 +989,26 @@ export function artistLabelForSong(song: ApiSong): string {
  * appears under each individual artist instead of one combined pseudo-artist.
  */
 export function discreteArtistsForSong(song: ApiSong): string[] {
-  const discrete = (song.artists ?? "")
-    .split(";")
+  const discrete = (song.artists ?? '')
+    .split(';')
     .map((name) => name.trim())
-    .filter((name) => name.length > 0)
-  return discrete.length > 0 ? discrete : [artistLabelForSong(song)]
+    .filter((name) => name.length > 0);
+  return discrete.length > 0 ? discrete : [artistLabelForSong(song)];
 }
 
 function albumKeyOf(song: ApiSong): string {
-  return albumKeyForSong(song)
+  return albumKeyForSong(song);
 }
 
 interface GroupAccumulator extends GroupSummary {
-  albumKeys: Set<string>
+  albumKeys: Set<string>;
 }
 
 function finalizeGroups(map: Map<string, GroupAccumulator>): GroupSummary[] {
   return Array.from(map.values()).map(({ albumKeys, ...rest }) => ({
     ...rest,
-    albumCount: albumKeys.size,
-  }))
+    albumCount: albumKeys.size
+  }));
 }
 
 /**
@@ -1001,17 +1023,17 @@ function finalizeGroups(map: Map<string, GroupAccumulator>): GroupSummary[] {
  */
 export function buildArtistGroups(
   songs: ApiSong[],
-  opts?: { primaryOnly?: boolean },
+  opts?: { primaryOnly?: boolean }
 ): GroupSummary[] {
   const leadKeys = opts?.primaryOnly
     ? new Set(songs.map((s) => artistLabelForSong(s).toLowerCase()))
-    : null
-  const map = new Map<string, GroupAccumulator>()
+    : null;
+  const map = new Map<string, GroupAccumulator>();
   for (const song of songs) {
     for (const label of discreteArtistsForSong(song)) {
-      const key = label.toLowerCase()
-      if (leadKeys && !leadKeys.has(key)) continue
-      let entry = map.get(key)
+      const key = label.toLowerCase();
+      if (leadKeys && !leadKeys.has(key)) continue;
+      let entry = map.get(key);
       if (!entry) {
         entry = {
           key: label,
@@ -1023,27 +1045,27 @@ export function buildArtistGroups(
           coverArtist: label,
           coverTitle: nonEmpty(song.album) ?? label,
           coverUrl: null,
-          albumKeys: new Set(),
-        }
-        map.set(key, entry)
+          albumKeys: new Set()
+        };
+        map.set(key, entry);
       }
-      entry.trackCount += 1
-      entry.byteSize += song.fileSizeBytes ?? 0
-      entry.durationSeconds += song.durationSeconds ?? 0
-      entry.albumKeys.add(albumKeyOf(song))
-      if (!entry.coverUrl) entry.coverUrl = coverUrlForSong(song)
+      entry.trackCount += 1;
+      entry.byteSize += song.fileSizeBytes ?? 0;
+      entry.durationSeconds += song.durationSeconds ?? 0;
+      entry.albumKeys.add(albumKeyOf(song));
+      if (!entry.coverUrl) entry.coverUrl = coverUrlForSong(song);
     }
   }
-  return finalizeGroups(map).sort((a, b) => a.label.localeCompare(b.label))
+  return finalizeGroups(map).sort((a, b) => a.label.localeCompare(b.label));
 }
 
 /** Group songs by `year`, newest first; songs without a year fall into the "Unknown" bucket (sorted last). */
 export function buildYearGroups(songs: ApiSong[]): GroupSummary[] {
-  const map = new Map<string, GroupAccumulator>()
+  const map = new Map<string, GroupAccumulator>();
   for (const song of songs) {
-    const hasYear = typeof song.year === "number" && Number.isFinite(song.year)
-    const key = hasYear ? String(song.year) : UNKNOWN_GROUP
-    let entry = map.get(key)
+    const hasYear = typeof song.year === 'number' && Number.isFinite(song.year);
+    const key = hasYear ? String(song.year) : UNKNOWN_GROUP;
+    let entry = map.get(key);
     if (!entry) {
       entry = {
         key,
@@ -1055,201 +1077,210 @@ export function buildYearGroups(songs: ApiSong[]): GroupSummary[] {
         coverArtist: nonEmpty(song.albumArtist) ?? nonEmpty(song.artist) ?? UNKNOWN_ARTIST,
         coverTitle: key,
         coverUrl: null,
-        albumKeys: new Set(),
-      }
-      map.set(key, entry)
+        albumKeys: new Set()
+      };
+      map.set(key, entry);
     }
-    entry.trackCount += 1
-    entry.byteSize += song.fileSizeBytes ?? 0
-    entry.durationSeconds += song.durationSeconds ?? 0
-    entry.albumKeys.add(albumKeyOf(song))
-    if (!entry.coverUrl) entry.coverUrl = coverUrlForSong(song)
+    entry.trackCount += 1;
+    entry.byteSize += song.fileSizeBytes ?? 0;
+    entry.durationSeconds += song.durationSeconds ?? 0;
+    entry.albumKeys.add(albumKeyOf(song));
+    if (!entry.coverUrl) entry.coverUrl = coverUrlForSong(song);
   }
   return finalizeGroups(map).sort((a, b) => {
-    if (a.key === UNKNOWN_GROUP) return 1
-    if (b.key === UNKNOWN_GROUP) return -1
-    return Number(b.key) - Number(a.key)
-  })
+    if (a.key === UNKNOWN_GROUP) return 1;
+    if (b.key === UNKNOWN_GROUP) return -1;
+    return Number(b.key) - Number(a.key);
+  });
 }
 
 export async function fetchStats(): Promise<ApiStats> {
-  return requestJson<ApiStats>("/stats")
+  return requestJson<ApiStats>('/stats');
 }
 
 export async function fetchOverview(): Promise<ApiOverview> {
-  return requestJson<ApiOverview>("/overview")
+  return requestJson<ApiOverview>('/overview');
 }
 
 // ── Storage usage (sidebar bar + breakdown dialog) ──────────────────────────
 // Measured on disk by the API's background walk of every managed folder; see
 // MusicHoarder.Api/Storage. Keys are strings so a new server-side bucket never breaks a client.
 export type StorageCategoryKey =
-  | "library"
-  | "source"
-  | "staging"
-  | "synced"
-  | "soulseekStaging"
-  | "videos"
-  | "covers"
-  | "thumbnailCache"
-  | "playlists"
-  | "untracked"
-  | "temp"
-  | "other"
+  | 'library'
+  | 'source'
+  | 'staging'
+  | 'synced'
+  | 'soulseekStaging'
+  | 'videos'
+  | 'covers'
+  | 'thumbnailCache'
+  | 'playlists'
+  | 'untracked'
+  | 'temp'
+  | 'other';
 export type StorageOriginKey =
-  | "spotifyLiked"
-  | "spotifyPlaylist"
-  | "deezerPlaylist"
-  | "youtubePlaylist"
-  | "directUrl"
-  | "albumCompletion"
-  | "artistRelease"
-  | "otherDownload"
-  | "synced"
-  | "local"
+  | 'spotifyLiked'
+  | 'spotifyPlaylist'
+  | 'deezerPlaylist'
+  | 'youtubePlaylist'
+  | 'directUrl'
+  | 'albumCompletion'
+  | 'artistRelease'
+  | 'otherDownload'
+  | 'synced'
+  | 'local';
 export interface StorageBucket<K extends string = string> {
-  key: K
-  bytes: number
-  files: number
+  key: K;
+  bytes: number;
+  files: number;
 }
 export interface StorageVolume {
-  samplePath: string
-  totalBytes: number
-  freeBytes: number
+  samplePath: string;
+  totalBytes: number;
+  freeBytes: number;
 }
 export interface StorageRoot {
-  key: string
-  path: string
-  exists: boolean
-  walked: boolean
-  skipped: string | null
-  bytes: number
-  files: number
-  untrackedAudioBytes: number
-  untrackedAudioFiles: number
-  durationMs: number
+  key: string;
+  path: string;
+  exists: boolean;
+  walked: boolean;
+  skipped: string | null;
+  bytes: number;
+  files: number;
+  untrackedAudioBytes: number;
+  untrackedAudioFiles: number;
+  durationMs: number;
 }
 export interface StorageUsageSnapshot {
-  computedAtUtc: string
-  durationMs: number
-  managedBytes: number
-  capacityBytes: number
-  freeBytes: number
-  volumes: StorageVolume[]
-  roots: StorageRoot[]
-  categories: StorageBucket<StorageCategoryKey>[]
-  origins: StorageBucket<StorageOriginKey>[]
-  duplicates: { bytes: number; tracks: number }
-  lyrics: { approxTextBytes: number; tracksWithLyrics: number }
-  reclaimable: { stagedSourceBytes: number; stagedSourceTracks: number; unavailableReason: string | null }
+  computedAtUtc: string;
+  durationMs: number;
+  managedBytes: number;
+  capacityBytes: number;
+  freeBytes: number;
+  volumes: StorageVolume[];
+  roots: StorageRoot[];
+  categories: StorageBucket<StorageCategoryKey>[];
+  origins: StorageBucket<StorageOriginKey>[];
+  duplicates: { bytes: number; tracks: number };
+  lyrics: { approxTextBytes: number; tracksWithLyrics: number };
+  reclaimable: {
+    stagedSourceBytes: number;
+    stagedSourceTracks: number;
+    unavailableReason: string | null;
+  };
 }
 export interface StorageUsageResponse {
-  computing: boolean
-  snapshot: StorageUsageSnapshot | null
-  lastError: string | null
+  computing: boolean;
+  snapshot: StorageUsageSnapshot | null;
+  lastError: string | null;
 }
 
 export async function fetchStorageUsage(): Promise<StorageUsageResponse> {
-  return requestJson<StorageUsageResponse>("/storage")
+  return requestJson<StorageUsageResponse>('/storage');
 }
 
 /** Asks the API to measure again. 409 (already measuring) surfaces as an ApiError. */
 export async function refreshStorageUsage(): Promise<StorageUsageResponse> {
-  return requestJson<StorageUsageResponse>("/storage/refresh", { method: "POST" })
+  return requestJson<StorageUsageResponse>('/storage/refresh', { method: 'POST' });
 }
 
 // ── Stats overview (the /stats page) ────────────────────────────────────────
 export interface InsightFunnelStage {
-  stage: string
-  count: number
-  pct: number
+  stage: string;
+  count: number;
+  pct: number;
 }
 export interface InsightLabelCount {
-  status: string
-  count: number
+  status: string;
+  count: number;
 }
 export interface InsightCoverage {
-  count: number
-  pct: number
+  count: number;
+  pct: number;
 }
 export interface LibraryInsights {
-  generatedAtUtc: string
-  source: { indexed: number; inLibrary: number; inLibraryPct: number; notYetBuilt: number }
-  funnel: InsightFunnelStage[]
-  covers: { albumCoversAdded: number; builtWithCover: number; builtTracks: number; coveragePct: number }
+  generatedAtUtc: string;
+  source: { indexed: number; inLibrary: number; inLibraryPct: number; notYetBuilt: number };
+  funnel: InsightFunnelStage[];
+  covers: {
+    albumCoversAdded: number;
+    builtWithCover: number;
+    builtTracks: number;
+    coveragePct: number;
+  };
   lyrics: {
-    added: number
-    builtWithLyrics: number
-    builtTracks: number
-    coveragePct: number
-    instrumental: number
-    notFound: number
-    breakdown: InsightLabelCount[]
-  }
+    added: number;
+    builtWithLyrics: number;
+    builtTracks: number;
+    coveragePct: number;
+    instrumental: number;
+    notFound: number;
+    breakdown: InsightLabelCount[];
+  };
   wishlist: {
-    liked: { total: number; downloaded: number; inLibrary: number; skippedOwned: number }
-    all: { total: number; downloaded: number; inLibrary: number }
-    sources: number
-    funnel: InsightFunnelStage[]
-    statusBreakdown: InsightLabelCount[]
-  }
+    liked: { total: number; downloaded: number; inLibrary: number; skippedOwned: number };
+    all: { total: number; downloaded: number; inLibrary: number };
+    sources: number;
+    funnel: InsightFunnelStage[];
+    statusBreakdown: InsightLabelCount[];
+  };
   totals: {
-    builtTracks: number
-    totalHours: number
-    totalGiB: number
-    distinctArtists: number
-    distinctAlbums: number
-    duplicates: number
-    oldestIndexedUtc: string | null
-    newestIndexedUtc: string | null
-    byFormat: { format: string; count: number }[]
-  }
+    builtTracks: number;
+    totalHours: number;
+    totalGiB: number;
+    distinctArtists: number;
+    distinctAlbums: number;
+    duplicates: number;
+    oldestIndexedUtc: string | null;
+    newestIndexedUtc: string | null;
+    byFormat: { format: string; count: number }[];
+  };
   top: {
-    artists: { name: string; tracks: number }[]
-    albums: { album: string; artist: string; tracks: number }[]
-  }
+    artists: { name: string; tracks: number }[];
+    albums: { album: string; artist: string; tracks: number }[];
+  };
   quality: {
-    enrichment: InsightLabelCount[]
-    confidence: { bucket: string; count: number }[]
-    byProvider: { provider: string; total: number; matched: number }[]
-    manualApprovals: number
+    enrichment: InsightLabelCount[];
+    confidence: { bucket: string; count: number }[];
+    byProvider: { provider: string; total: number; matched: number }[];
+    manualApprovals: number;
     coverage: {
-      fingerprint: InsightCoverage
-      musicBrainz: InsightCoverage
-      spotify: InsightCoverage
-      isrc: InsightCoverage
-    }
-  }
+      fingerprint: InsightCoverage;
+      musicBrainz: InsightCoverage;
+      spotify: InsightCoverage;
+      isrc: InsightCoverage;
+    };
+  };
 }
 
 export async function fetchInsights(): Promise<LibraryInsights> {
-  return requestJson<LibraryInsights>("/insights")
+  return requestJson<LibraryInsights>('/insights');
 }
 
 export interface DirectoryMatchNode {
   /** Folder name (the source library root for the top node). */
-  name: string
+  name: string;
   /** Path relative to the source library root ("" for the root). */
-  path: string
-  total: number
-  matched: number
-  needsReview: number
-  pending: number
-  failed: number
-  done: number
-  notMatched: number
-  matchedPct: number
+  path: string;
+  total: number;
+  matched: number;
+  needsReview: number;
+  pending: number;
+  failed: number;
+  done: number;
+  notMatched: number;
+  matchedPct: number;
   /** Files that live directly in this folder (not nested in sub-folders). */
-  directFileCount: number
+  directFileCount: number;
   /** Sum of file sizes rolled up from every song beneath this node. */
-  sizeBytes: number
+  sizeBytes: number;
   /** User-tagged "expected low" folder (leaks/unreleased) — pulled out of the work queue. */
-  expectedLow: boolean
-  children: DirectoryMatchNode[]
+  expectedLow: boolean;
+  children: DirectoryMatchNode[];
 }
 
 export async function fetchDirectoryMatchTree(): Promise<DirectoryMatchNode> {
-  return requestJson<DirectoryMatchNode>("/library/directory-tree")
+  return requestJson<DirectoryMatchNode>('/library/directory-tree');
 }
 
 /** Toggle the current user's "expected low" flag for one source-relative folder path. */
@@ -1257,48 +1288,48 @@ export async function setDirectoryExpectedLow(
   path: string,
   expectedLow: boolean
 ): Promise<{ path: string; expectedLow: boolean }> {
-  return requestJson<{ path: string; expectedLow: boolean }>("/library/directory-preferences", {
-    method: "POST",
+  return requestJson<{ path: string; expectedLow: boolean }>('/library/directory-preferences', {
+    method: 'POST',
     body: JSON.stringify({ path, expectedLow })
-  })
+  });
 }
 
 /** Per-file state surfaced in the folder drill-down (mirrors the backend DeriveFileState). */
-export type SourceFileState = "written" | "matched" | "review" | "failed" | "queued"
+export type SourceFileState = 'written' | 'matched' | 'review' | 'failed' | 'queued';
 
 export interface SourceFile {
-  id: number
-  fileName: string
-  extension?: string | null
-  fileSizeBytes: number
-  enrichmentStatus: string
-  libraryBuildStatus: string
-  matchConfidence?: number | null
-  destinationPath?: string | null
-  state: SourceFileState
+  id: number;
+  fileName: string;
+  extension?: string | null;
+  fileSizeBytes: number;
+  enrichmentStatus: string;
+  libraryBuildStatus: string;
+  matchConfidence?: number | null;
+  destinationPath?: string | null;
+  state: SourceFileState;
 }
 
 interface DirectoryFilesResponse {
-  path: string
-  count: number
-  files: SourceFile[]
+  path: string;
+  count: number;
+  files: SourceFile[];
 }
 
 /** Lists the songs that live directly inside a single source folder (lazy drill-down). */
 export async function fetchFolderFiles(path: string): Promise<SourceFile[]> {
   const result = await requestJson<DirectoryFilesResponse>(
     `/library/directory-tree/files?path=${encodeURIComponent(path)}`
-  )
-  return result.files ?? []
+  );
+  return result.files ?? [];
 }
 
 export async function fetchSongs(includeDeleted = false): Promise<ApiSong[]> {
   // One endpoint for every account type: it returns the caller's own rows plus anything shared
   // with them, scoped server-side from their grants. There is no client-side library mode.
-  const result = await requestJson<SongsResponse>(`/songs?includeDeleted=${includeDeleted}`)
-  grantors = result.grantors ?? []
-  rememberFolderCovers(result.songs ?? [])
-  return result.songs ?? []
+  const result = await requestJson<SongsResponse>(`/songs?includeDeleted=${includeDeleted}`);
+  grantors = result.grantors ?? [];
+  rememberFolderCovers(result.songs ?? []);
+  return result.songs ?? [];
 }
 
 /**
@@ -1307,11 +1338,11 @@ export async function fetchSongs(includeDeleted = false): Promise<ApiSong[]> {
  * so the copy from the load that produced those rows still describes them.
  */
 export async function fetchSongsIfChanged(etag: string | null): Promise<Revalidated<ApiSong[]>> {
-  const result = await requestJsonIfChanged<SongsResponse>(LIBRARY_SONGS_PATH, etag)
-  if (result.notModified) return result
-  grantors = result.data.grantors ?? []
-  rememberFolderCovers(result.data.songs ?? [])
-  return { ...result, data: result.data.songs ?? [] }
+  const result = await requestJsonIfChanged<SongsResponse>(LIBRARY_SONGS_PATH, etag);
+  if (result.notModified) return result;
+  grantors = result.data.grantors ?? [];
+  rememberFolderCovers(result.data.songs ?? []);
+  return { ...result, data: result.data.songs ?? [] };
 }
 
 /**
@@ -1327,10 +1358,10 @@ export async function fetchRadio(
   exclude: number[] = [],
   limit = 20
 ): Promise<number[]> {
-  const params = new URLSearchParams({ seedSongId: String(seedSongId), limit: String(limit) })
-  if (exclude.length > 0) params.set("exclude", exclude.join(","))
-  const result = await requestJson<{ songIds?: number[] }>(`/api/radio?${params}`)
-  return result.songIds ?? []
+  const params = new URLSearchParams({ seedSongId: String(seedSongId), limit: String(limit) });
+  if (exclude.length > 0) params.set('exclude', exclude.join(','));
+  const result = await requestJson<{ songIds?: number[] }>(`/api/radio?${params}`);
+  return result.songIds ?? [];
 }
 
 // ── Playback sync ("Connect": one session per account, one active device) ──────
@@ -1340,17 +1371,19 @@ export async function fetchRadio(
 
 /** The account's session and its reachable devices, as they stand now. */
 export async function fetchPlayback(): Promise<PlaybackOverview> {
-  const raw = await requestJson<unknown>("/api/playback")
-  return parseOverview(raw) ?? { session: null, devices: [] }
+  const raw = await requestJson<unknown>('/api/playback');
+  return parseOverview(raw) ?? { session: null, devices: [] };
 }
 
 /** This device's report: a claim after a local play intent, else an update while it is active. */
-export async function reportPlaybackState(report: PlaybackStateReport): Promise<PlaybackStateResponse> {
-  const raw = await requestJson<unknown>("/api/playback/state", {
-    method: "POST",
-    body: JSON.stringify(report),
-  })
-  return parseStateResponse(raw)
+export async function reportPlaybackState(
+  report: PlaybackStateReport
+): Promise<PlaybackStateResponse> {
+  const raw = await requestJson<unknown>('/api/playback/state', {
+    method: 'POST',
+    body: JSON.stringify(report)
+  });
+  return parseStateResponse(raw);
 }
 
 /**
@@ -1360,42 +1393,42 @@ export async function reportPlaybackState(report: PlaybackStateReport): Promise<
  * surface as an {@link ApiError} with that code.
  */
 export async function sendPlaybackCommand(request: PlaybackCommandRequest): Promise<string> {
-  const raw = await requestJson<{ commandId?: unknown }>("/api/playback/command", {
-    method: "POST",
-    body: JSON.stringify(request),
-  })
-  if (typeof raw?.commandId !== "string" || raw.commandId.length === 0) {
-    throw new ApiError("The server did not return a command id.", null, 502)
+  const raw = await requestJson<{ commandId?: unknown }>('/api/playback/command', {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
+  if (typeof raw?.commandId !== 'string' || raw.commandId.length === 0) {
+    throw new ApiError('The server did not return a command id.', null, 502);
   }
-  return raw.commandId
+  return raw.commandId;
 }
 
 /** Who is listening on a playback stream, as its query string carries it. */
 export interface PlaybackStreamDevice {
-  deviceId: string
-  installId: string | null
-  name: string
-  kind: DeviceKind
+  deviceId: string;
+  installId: string | null;
+  name: string;
+  kind: DeviceKind;
 }
 
 export interface PlaybackStreamHandlers {
   /** The first message of every connection: it replaces everything the client knew. */
-  onSnapshot: (overview: PlaybackOverview) => void
-  onSession: (session: PlaybackSession) => void
-  onDevices: (devices: PlaybackDevice[]) => void
+  onSnapshot: (overview: PlaybackOverview) => void;
+  onSession: (session: PlaybackSession) => void;
+  onDevices: (devices: PlaybackDevice[]) => void;
   /** Only ever this device's own commands. */
-  onCommand: (command: PlaybackCommandEvent) => void
+  onCommand: (command: PlaybackCommandEvent) => void;
   /** The browser gave up on the connection; it is opened again after `retryInMs`. */
-  onDown?: (retryInMs: number) => void
+  onDown?: (retryInMs: number) => void;
 }
 
-export const PLAYBACK_STREAM_MIN_BACKOFF_MS = 1_000
-export const PLAYBACK_STREAM_MAX_BACKOFF_MS = 30_000
+export const PLAYBACK_STREAM_MIN_BACKOFF_MS = 1_000;
+export const PLAYBACK_STREAM_MAX_BACKOFF_MS = 30_000;
 
 /** 1 s, 2 s, 4 s … 30 s: the wait before reopening a stream the browser closed. */
 export function nextStreamBackoff(previousMs: number): number {
-  if (previousMs <= 0) return PLAYBACK_STREAM_MIN_BACKOFF_MS
-  return Math.min(PLAYBACK_STREAM_MAX_BACKOFF_MS, previousMs * 2)
+  if (previousMs <= 0) return PLAYBACK_STREAM_MIN_BACKOFF_MS;
+  return Math.min(PLAYBACK_STREAM_MAX_BACKOFF_MS, previousMs * 2);
 }
 
 export function playbackStreamUrl(device: PlaybackStreamDevice): string {
@@ -1403,14 +1436,14 @@ export function playbackStreamUrl(device: PlaybackStreamDevice): string {
     deviceId: device.deviceId,
     name: device.name,
     kind: device.kind,
-    client: "web",
-  })
-  if (device.installId) params.set("installId", device.installId)
-  return `${API_PREFIX}/api/playback/stream?${params}`
+    client: 'web'
+  });
+  if (device.installId) params.set('installId', device.installId);
+  return `${API_PREFIX}/api/playback/stream?${params}`;
 }
 
 /** `EventSource.CLOSED`, spelled out so this module never needs the global at import time. */
-const EVENT_SOURCE_CLOSED = 2
+const EVENT_SOURCE_CLOSED = 2;
 
 /**
  * Open the account's playback stream through the same-origin proxy (no CORS, the session cookie
@@ -1431,65 +1464,66 @@ export function openPlaybackStream(
   device: PlaybackStreamDevice,
   handlers: PlaybackStreamHandlers,
   options: {
-    createEventSource?: (url: string) => EventSource
-    setTimer?: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>
-    clearTimer?: (timer: ReturnType<typeof setTimeout>) => void
-  } = {},
+    createEventSource?: (url: string) => EventSource;
+    setTimer?: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>;
+    clearTimer?: (timer: ReturnType<typeof setTimeout>) => void;
+  } = {}
 ): () => void {
-  const create = options.createEventSource ?? ((url: string) => new EventSource(url))
-  const setTimer = options.setTimer ?? ((fn: () => void, ms: number) => setTimeout(fn, ms))
-  const clearTimer = options.clearTimer ?? ((timer: ReturnType<typeof setTimeout>) => clearTimeout(timer))
-  const url = playbackStreamUrl(device)
-  let source: EventSource | null = null
-  let retryTimer: ReturnType<typeof setTimeout> | null = null
-  let backoff = 0
-  let closed = false
+  const create = options.createEventSource ?? ((url: string) => new EventSource(url));
+  const setTimer = options.setTimer ?? ((fn: () => void, ms: number) => setTimeout(fn, ms));
+  const clearTimer =
+    options.clearTimer ?? ((timer: ReturnType<typeof setTimeout>) => clearTimeout(timer));
+  const url = playbackStreamUrl(device);
+  let source: EventSource | null = null;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let backoff = 0;
+  let closed = false;
 
-  const data = (event: Event) => parseEventData((event as MessageEvent).data)
+  const data = (event: Event) => parseEventData((event as MessageEvent).data);
 
   const connect = () => {
-    retryTimer = null
-    if (closed) return
-    const es = create(url)
-    source = es
-    es.addEventListener("snapshot", (event) => {
-      const overview = parseOverview(data(event))
-      if (!overview) return
-      backoff = 0
-      handlers.onSnapshot(overview)
-    })
-    es.addEventListener("session", (event) => {
-      const session = parseSessionEvent(data(event))
-      if (session) handlers.onSession(session)
-    })
-    es.addEventListener("devices", (event) => {
-      const devices = parseDevicesEvent(data(event))
-      if (devices) handlers.onDevices(devices)
-    })
-    es.addEventListener("command", (event) => {
-      const command = parseCommandEvent(data(event))
-      if (command) handlers.onCommand(command)
-    })
+    retryTimer = null;
+    if (closed) return;
+    const es = create(url);
+    source = es;
+    es.addEventListener('snapshot', (event) => {
+      const overview = parseOverview(data(event));
+      if (!overview) return;
+      backoff = 0;
+      handlers.onSnapshot(overview);
+    });
+    es.addEventListener('session', (event) => {
+      const session = parseSessionEvent(data(event));
+      if (session) handlers.onSession(session);
+    });
+    es.addEventListener('devices', (event) => {
+      const devices = parseDevicesEvent(data(event));
+      if (devices) handlers.onDevices(devices);
+    });
+    es.addEventListener('command', (event) => {
+      const command = parseCommandEvent(data(event));
+      if (command) handlers.onCommand(command);
+    });
     es.onerror = () => {
       // Still CONNECTING: the browser is already retrying on its own.
-      if (es.readyState !== EVENT_SOURCE_CLOSED) return
-      es.close()
-      if (closed || source !== es) return
-      source = null
-      backoff = nextStreamBackoff(backoff)
-      handlers.onDown?.(backoff)
-      retryTimer = setTimer(connect, backoff)
-    }
-  }
+      if (es.readyState !== EVENT_SOURCE_CLOSED) return;
+      es.close();
+      if (closed || source !== es) return;
+      source = null;
+      backoff = nextStreamBackoff(backoff);
+      handlers.onDown?.(backoff);
+      retryTimer = setTimer(connect, backoff);
+    };
+  };
 
-  connect()
+  connect();
   return () => {
-    closed = true
-    if (retryTimer) clearTimer(retryTimer)
-    retryTimer = null
-    source?.close()
-    source = null
-  }
+    closed = true;
+    if (retryTimer) clearTimer(retryTimer);
+    retryTimer = null;
+    source?.close();
+    source = null;
+  };
 }
 
 // ── Canonical album tracklist (multi-provider, reconciled; full-album view) ─────
@@ -1497,61 +1531,61 @@ export function openPlaybackStream(
 /** One reconciled canonical track. `ownedSongId` is null when the user is missing it. */
 export interface CanonicalTrack {
   /** Canonical track id — the handle for {@link acquireCanonicalTrack}. */
-  id?: number | null
-  discNumber: number
-  trackNumber: number
-  title: string | null
-  durationMs: number | null
-  musicBrainzRecordingId: string | null
+  id?: number | null;
+  discNumber: number;
+  trackNumber: number;
+  title: string | null;
+  durationMs: number | null;
+  musicBrainzRecordingId: string | null;
   /** Provider names that corroborate this track (e.g. ["MusicBrainzWeb","Deezer"]). */
-  corroboratingProviders: string[]
-  corroborationCount: number
+  corroboratingProviders: string[];
+  corroborationCount: number;
   /** True when not every winning-cluster provider backs this track (bonus / disputed). */
-  isContested: boolean
+  isContested: boolean;
   /** The owned ApiSong.id matched to this canonical track, or null if missing. */
-  ownedSongId: number | null
+  ownedSongId: number | null;
 }
 
 /** One provider that contributed a tracklist for this album. */
 export interface AlbumSource {
-  provider: string
-  albumId: string | null
-  trackCount: number
+  provider: string;
+  albumId: string | null;
+  trackCount: number;
   /** Whether this source won the reconciliation cluster (vs. a different edition). */
-  inWinningCluster: boolean
+  inWinningCluster: boolean;
 }
 
 /** Whether an album is matched to a provider album, only in the local library, or not yet checked. */
-export type AlbumLinkStatus = "linked" | "localOnly" | "pending"
+export type AlbumLinkStatus = 'linked' | 'localOnly' | 'pending';
 
 /** The reconciled canonical tracklist for an album plus how much of it the user owns. */
 export interface AlbumTracklist {
-  artist: string | null
-  album: string | null
-  year: number | null
-  coverArtUrl: string | null
+  artist: string | null;
+  album: string | null;
+  year: number | null;
+  coverArtUrl: string | null;
   /** Consensus track count among the agreeing providers. */
-  resolvedTrackCount: number
+  resolvedTrackCount: number;
   /** True when the providers disagree on the album's length. */
-  trackCountContested: boolean
+  trackCountContested: boolean;
   /** Canonical tracks the user owns. */
-  ownedCount: number
+  ownedCount: number;
   /** Canonical track count (= `tracks.length`). */
-  totalCount: number
-  sources: AlbumSource[]
-  tracks: CanonicalTrack[]
+  totalCount: number;
+  sources: AlbumSource[];
+  tracks: CanonicalTrack[];
 }
 
 /** Human-friendly provider labels for the reconciliation source names returned by the API. */
 export const PROVIDER_LABELS: Record<string, string> = {
-  MusicBrainzWeb: "MusicBrainz",
-  SpotifyAPI: "Spotify",
-  Deezer: "Deezer",
-  AppleMusic: "Apple Music",
-}
+  MusicBrainzWeb: 'MusicBrainz',
+  SpotifyAPI: 'Spotify',
+  Deezer: 'Deezer',
+  AppleMusic: 'Apple Music'
+};
 
 export function prettyProvider(provider: string): string {
-  return PROVIDER_LABELS[provider] ?? provider
+  return PROVIDER_LABELS[provider] ?? provider;
 }
 
 /**
@@ -1560,11 +1594,11 @@ export function prettyProvider(provider: string): string {
  * navigation so the grade and missing-track info reveal together instead of popping in separately.
  */
 export interface AlbumDetailResult {
-  status: AlbumLinkStatus
+  status: AlbumLinkStatus;
   /** Present only when `status === "linked"`. */
-  tracklist: AlbumTracklist | null
+  tracklist: AlbumTracklist | null;
   /** Latest reconciliation grade; `{ graded: false }` when unlinked or never graded. */
-  grade: AlbumQualityGradeView
+  grade: AlbumQualityGradeView;
 }
 
 /**
@@ -1575,32 +1609,39 @@ export async function fetchAlbumDetail(
   artist: string,
   album: string,
   year?: number | null,
-  folder?: string | null,
+  folder?: string | null
 ): Promise<AlbumDetailResult> {
-  const params = new URLSearchParams({ artist, album })
+  const params = new URLSearchParams({ artist, album });
   // Scope to one destination folder so an album name split across releases shows only this card's
   // release (e.g. a bootleg sharing the name reads as local-only instead of "missing 14 tracks").
-  if (year != null) params.set("year", String(year))
+  if (year != null) params.set('year', String(year));
   // For built albums the folder is the exact display unit: the backend then matches owned tracks
   // against its direct children only, so unbuilt duplicates can't produce false MISSING rows.
-  if (folder) params.set("folder", folder)
-  const response = await fetch(`${API_PREFIX}/api/albums/detail?${params.toString()}`, { cache: "no-store" })
-  if (response.status === 404) return { status: "pending", tracklist: null, grade: { graded: false } }
-  if (!response.ok) throw new Error(`album detail failed: ${response.status}`)
+  if (folder) params.set('folder', folder);
+  const response = await fetch(`${API_PREFIX}/api/albums/detail?${params.toString()}`, {
+    cache: 'no-store'
+  });
+  if (response.status === 404)
+    return { status: 'pending', tracklist: null, grade: { graded: false } };
+  if (!response.ok) throw new Error(`album detail failed: ${response.status}`);
   const body = (await response.json()) as {
-    status: AlbumLinkStatus
-    tracklist: AlbumTracklist | null
-    grade: AlbumQualityGradeView | null
-  }
-  return { status: body.status, tracklist: body.tracklist ?? null, grade: body.grade ?? { graded: false } }
+    status: AlbumLinkStatus;
+    tracklist: AlbumTracklist | null;
+    grade: AlbumQualityGradeView | null;
+  };
+  return {
+    status: body.status,
+    tracklist: body.tracklist ?? null,
+    grade: body.grade ?? { graded: false }
+  };
 }
 
 /** Per-album link status for the library grid badges. */
 export interface AlbumStatusInfo {
-  status: AlbumLinkStatus
-  providers: string[]
+  status: AlbumLinkStatus;
+  providers: string[];
   /** Latest album-reconciliation AI verdict, when graded (drives the "Wrong" red dot). */
-  verdict?: QualityVerdict | null
+  verdict?: QualityVerdict | null;
 }
 
 /**
@@ -1610,109 +1651,118 @@ export interface AlbumStatusInfo {
 export async function fetchAlbumCanonicalStatuses(
   albums: { artist: string; album: string }[]
 ): Promise<Map<string, AlbumStatusInfo>> {
-  const map = new Map<string, AlbumStatusInfo>()
-  if (albums.length === 0) return map
+  const map = new Map<string, AlbumStatusInfo>();
+  if (albums.length === 0) return map;
   const results = await requestJson<
-    { artist: string; album: string; status: AlbumLinkStatus; providers: string[]; verdict?: QualityVerdict | null }[]
-  >("/api/albums/canonical-status", { method: "POST", body: JSON.stringify({ albums }) })
+    {
+      artist: string;
+      album: string;
+      status: AlbumLinkStatus;
+      providers: string[];
+      verdict?: QualityVerdict | null;
+    }[]
+  >('/api/albums/canonical-status', { method: 'POST', body: JSON.stringify({ albums }) });
   for (const r of results ?? []) {
     map.set(`${r.artist.toLowerCase()}::${r.album.toLowerCase()}`, {
       status: r.status,
       providers: r.providers ?? [],
-      verdict: r.verdict ?? null,
-    })
+      verdict: r.verdict ?? null
+    });
   }
-  return map
+  return map;
 }
 
 // ── Album provenance timeline ────────────────────────────────────────────────────
 
 /** One server-assembled event on the album provenance timeline. */
 export interface AlbumTimelineApiEvent {
-  key: string
-  timeUtc: string
+  key: string;
+  timeUtc: string;
   /** SCAN | METADATA | CANONICAL | AI GRADE | WRITE | CONSOLIDATE | RENAME | YEAR FIX | COVER | APPROVED */
-  stage: string
+  stage: string;
   /** ok | warn | err | info | neutral — matches the track timeline's TimelineTint. */
-  tint: string
+  tint: string;
   /** EnrichmentProvider enum name, or the grading model name for AI GRADE events. */
-  provider?: string | null
+  provider?: string | null;
   /** Confidence / grade score chip (0–100). */
-  pct?: number | null
-  description: string
+  pct?: number | null;
+  description: string;
   /** Rollup counts: e.g. tracks matched / total tracks in the album. */
-  matchedCount?: number | null
-  totalCount?: number | null
+  matchedCount?: number | null;
+  totalCount?: number | null;
   /** Rollup span — first/last underlying per-track timestamp. */
-  firstAtUtc?: string | null
-  lastAtUtc?: string | null
+  firstAtUtc?: string | null;
+  lastAtUtc?: string | null;
 }
 
 export interface AlbumTimelineResponse {
-  trackCount: number
-  events: AlbumTimelineApiEvent[]
+  trackCount: number;
+  events: AlbumTimelineApiEvent[];
 }
 
 /** Chronological provenance timeline for an album (discovery → providers → canonical → writes). */
-export async function fetchAlbumTimeline(artist: string, album: string): Promise<AlbumTimelineResponse> {
-  const qs = new URLSearchParams({ artist, album }).toString()
-  return requestJson<AlbumTimelineResponse>(`/api/albums/timeline?${qs}`)
+export async function fetchAlbumTimeline(
+  artist: string,
+  album: string
+): Promise<AlbumTimelineResponse> {
+  const qs = new URLSearchParams({ artist, album }).toString();
+  return requestJson<AlbumTimelineResponse>(`/api/albums/timeline?${qs}`);
 }
 
 // ── Provenance: why a track is in the library ─────────────────────────────────
 
 export type ProvenanceReason =
-  | "LocalFile"
-  | "SpotifyLiked"
-  | "SpotifyPlaylist"
-  | "DeezerPlaylist"
-  | "YouTubePlaylist"
-  | "Link"
-  | "Synced"
-  | "Downloaded"
-  | "AlbumFill"
-  | "ArtistRequest"
-  | "FollowedArtist"
+  | 'LocalFile'
+  | 'SpotifyLiked'
+  | 'SpotifyPlaylist'
+  | 'DeezerPlaylist'
+  | 'YouTubePlaylist'
+  | 'Link'
+  | 'Synced'
+  | 'Downloaded'
+  | 'AlbumFill'
+  | 'ArtistRequest'
+  | 'FollowedArtist';
 
 export interface ProvenanceTrack {
-  songId: number
-  title: string
+  songId: number;
+  title: string;
   /** When the reason happened — liked on Spotify, found by a scan, arrived here. */
-  atUtc?: string | null
+  atUtc?: string | null;
   /** What `atUtc` is: "Liked", "Added to the playlist", "Found", "Synced", "Arrived". */
-  atLabel: string
+  atLabel: string;
 }
 
 /** An owned track album completion started from — with that track's own reason. */
 export interface ProvenanceSeed {
-  songId: number
-  title: string
-  album?: string | null
-  reason: ProvenanceReason
-  label: string
-  atUtc?: string | null
-  atLabel: string
+  songId: number;
+  title: string;
+  album?: string | null;
+  reason: ProvenanceReason;
+  label: string;
+  atUtc?: string | null;
+  atLabel: string;
   /** Deleted since — still the reason the fill happened. */
-  isDeleted: boolean
+  isDeleted: boolean;
 }
 
 export interface ProvenanceFill {
   /** The album completion was filling in (can differ from the album the tracks ended up under). */
-  album?: string | null
-  artist?: string | null
-  queuedAtUtc?: string | null
-  seeds: ProvenanceSeed[]
+  album?: string | null;
+  artist?: string | null;
+  queuedAtUtc?: string | null;
+  seeds: ProvenanceSeed[];
   /** Every seed found; `seeds` holds the first few. */
-  seedCount: number
+  seedCount: number;
 }
 
 export interface ProvenanceGroup {
-  reason: ProvenanceReason
-  label: string
-  explanation: string
-  tracks: ProvenanceTrack[]
+  reason: ProvenanceReason;
+  label: string;
+  explanation: string;
+  tracks: ProvenanceTrack[];
   /** Album fill only, and only while its wishlist link survives. */
-  fill?: ProvenanceFill | null
+  fill?: ProvenanceFill | null;
 }
 
 /**
@@ -1722,238 +1772,259 @@ export interface ProvenanceGroup {
  */
 export interface SongProvenance {
   /** One line for an album header: "Liked on Spotify · 16 filled in". */
-  summary: string | null
-  primaryReason: ProvenanceReason | null
-  groups: ProvenanceGroup[]
+  summary: string | null;
+  primaryReason: ProvenanceReason | null;
+  groups: ProvenanceGroup[];
 }
 
 export async function fetchSongProvenance(songIds: number[]): Promise<SongProvenance> {
-  const qs = new URLSearchParams({ ids: songIds.join(",") }).toString()
-  return requestJson<SongProvenance>(`/api/songs/provenance?${qs}`)
+  const qs = new URLSearchParams({ ids: songIds.join(',') }).toString();
+  return requestJson<SongProvenance>(`/api/songs/provenance?${qs}`);
 }
 
 // ── Album reconciliation grading (AI: is the linked album the correct one?) ─────
 
 /** Latest reconciliation grade for one album. */
 export interface AlbumQualityGradeView {
-  graded: boolean
-  canonicalAlbumId?: number
-  score?: number
-  verdict?: QualityVerdict
-  summary?: string | null
-  issues?: QualityIssue[]
-  ownedTrackCount?: number
-  canonicalTrackCount?: number
-  gradedAtUtc?: string
-  historyCount?: number
+  graded: boolean;
+  canonicalAlbumId?: number;
+  score?: number;
+  verdict?: QualityVerdict;
+  summary?: string | null;
+  issues?: QualityIssue[];
+  ownedTrackCount?: number;
+  canonicalTrackCount?: number;
+  gradedAtUtc?: string;
+  historyCount?: number;
 }
 
 /** One graded album row for the album-quality workbench. */
 export interface AlbumQualityRow {
-  canonicalAlbumId: number
-  artist?: string | null
-  album?: string | null
-  year?: number | null
-  score: number
-  verdict: QualityVerdict
-  summary?: string | null
-  issues: QualityIssue[]
-  ownedTrackCount: number
-  canonicalTrackCount: number
-  gradedAtUtc: string
-  isOutdated?: boolean
+  canonicalAlbumId: number;
+  artist?: string | null;
+  album?: string | null;
+  year?: number | null;
+  score: number;
+  verdict: QualityVerdict;
+  summary?: string | null;
+  issues: QualityIssue[];
+  ownedTrackCount: number;
+  canonicalTrackCount: number;
+  gradedAtUtc: string;
+  isOutdated?: boolean;
 }
 
 export interface AlbumQualityOverview {
-  gradeableTotal: number
-  coverage: number
-  library: QualityRollupView
-  wrongCount: number
-  outdatedCount: number
-  worstOffenders: AlbumQualityRow[]
+  gradeableTotal: number;
+  coverage: number;
+  library: QualityRollupView;
+  wrongCount: number;
+  outdatedCount: number;
+  worstOffenders: AlbumQualityRow[];
 }
 
 export interface AlbumGradeResult {
-  outcome: string
-  verdict?: QualityVerdict | null
-  score?: number | null
-  summary?: string | null
-  issues?: QualityIssue[]
-  gradedAtUtc?: string | null
+  outcome: string;
+  verdict?: QualityVerdict | null;
+  score?: number | null;
+  summary?: string | null;
+  issues?: QualityIssue[];
+  gradedAtUtc?: string | null;
 }
 
 export async function gradeAlbum(artist: string, album: string): Promise<AlbumGradeResult> {
-  const qs = new URLSearchParams({ artist, album }).toString()
-  return requestJson<AlbumGradeResult>(`/api/albums/quality/grade?${qs}`, { method: "POST" })
+  const qs = new URLSearchParams({ artist, album }).toString();
+  return requestJson<AlbumGradeResult>(`/api/albums/quality/grade?${qs}`, { method: 'POST' });
 }
 
 export async function fetchAlbumQualityOverview(): Promise<AlbumQualityOverview> {
-  return requestJson<AlbumQualityOverview>("/api/albums/quality/overview")
+  return requestJson<AlbumQualityOverview>('/api/albums/quality/overview');
 }
 
 export async function gradeAllAlbums(): Promise<{ enqueued: number }> {
-  return requestJson<{ enqueued: number }>("/api/albums/quality/grade-all", { method: "POST" })
+  return requestJson<{ enqueued: number }>('/api/albums/quality/grade-all', { method: 'POST' });
 }
 
 export async function gradeOutdatedAlbums(): Promise<{ enqueued: number }> {
-  return requestJson<{ enqueued: number }>("/api/albums/quality/grade-outdated", { method: "POST" })
+  return requestJson<{ enqueued: number }>('/api/albums/quality/grade-outdated', {
+    method: 'POST'
+  });
 }
 
 export async function fetchAlbumQualityProgress(): Promise<QualityProgress> {
-  return requestJson<QualityProgress>("/api/albums/quality/progress")
+  return requestJson<QualityProgress>('/api/albums/quality/progress');
 }
 
 // ---------------------------------------------------------------- grader trial (admin)
 // The chat grader against decision models (Jev) on the same dossiers. Nothing here changes a
 // song's or album's grade; see MusicHoarder.Api/Quality/Jev.
 
-export type GraderTrialKind = "song" | "album"
+export type GraderTrialKind = 'song' | 'album';
 
 export interface GraderTrialStatus {
-  enabled: boolean
-  configured: boolean
-  models: string[]
-  primaryModel: string | null
-  incumbentModel: string
-  shadowSampleRate: number
-  gradeAlbums: boolean
-  maxStateBytes: number
-  songQuestionVersion: number
-  albumQuestionVersion: number
+  enabled: boolean;
+  configured: boolean;
+  models: string[];
+  primaryModel: string | null;
+  incumbentModel: string;
+  shadowSampleRate: number;
+  gradeAlbums: boolean;
+  maxStateBytes: number;
+  songQuestionVersion: number;
+  albumQuestionVersion: number;
 }
 
 export interface GraderTrialArmSummary {
-  arm: string
-  model: string
-  isIncumbent: boolean
-  answers: number
-  errors: number
-  noGradeRate: number
-  latencyP50Ms: number | null
-  latencyP95Ms: number | null
-  averageAttempts: number | null
-  costKnown: number
-  costPerSubjectUsd: number | null
-  costPer1000Usd: number | null
-  averageInputTokens: number | null
-  averageOutputTokens: number | null
+  arm: string;
+  model: string;
+  isIncumbent: boolean;
+  answers: number;
+  errors: number;
+  noGradeRate: number;
+  latencyP50Ms: number | null;
+  latencyP95Ms: number | null;
+  averageAttempts: number | null;
+  costKnown: number;
+  costPerSubjectUsd: number | null;
+  costPer1000Usd: number | null;
+  averageInputTokens: number | null;
+  averageOutputTokens: number | null;
   coverage: {
-    requests: number
-    fitWithoutShedding: number
-    fitAfterShedding: number
-    averageStateBytes: number
-    maxStateBytes: number
-  } | null
-  stability: { pairs: number; flips: number; flipRate: number | null }
+    requests: number;
+    fitWithoutShedding: number;
+    fitAfterShedding: number;
+    averageStateBytes: number;
+    maxStateBytes: number;
+  } | null;
+  stability: { pairs: number; flips: number; flipRate: number | null };
 }
 
 export interface GraderTrialQuality {
-  labelled: number
-  labelledWrong: number
-  precision: number | null
-  recall: number | null
-  unsupportedLabelled: number
-  unsupportedRecall: number | null
-  brier: number | null
-  calibration: { from: number; to: number; count: number; meanPredicted: number | null; observed: number | null }[]
+  labelled: number;
+  labelledWrong: number;
+  precision: number | null;
+  recall: number | null;
+  unsupportedLabelled: number;
+  unsupportedRecall: number | null;
+  brier: number | null;
+  calibration: {
+    from: number;
+    to: number;
+    count: number;
+    meanPredicted: number | null;
+    observed: number | null;
+  }[];
 }
 
-export type GraderTrialCheckStatus = "pass" | "fail" | "insufficient"
+export type GraderTrialCheckStatus = 'pass' | 'fail' | 'insufficient';
 
 export interface GraderTrialComparison {
-  arm: string
-  model: string
-  pairs: number
+  arm: string;
+  model: string;
+  pairs: number;
   /** Rows: incumbent verdict; columns: this model's verdict; both in the report's verdictOrder. */
-  confusion: number[][]
-  kappa: number | null
-  scoreMae: number | null
-  flagAgreement: number | null
-  disagreements: number
-  incumbent: GraderTrialQuality
-  challenger: GraderTrialQuality
-  checks: { name: string; status: GraderTrialCheckStatus; detail: string }[]
-  recommendation: "switch" | "keep-incumbent" | "need-more-data" | "rerun-with-fewer-questions"
+  confusion: number[][];
+  kappa: number | null;
+  scoreMae: number | null;
+  flagAgreement: number | null;
+  disagreements: number;
+  incumbent: GraderTrialQuality;
+  challenger: GraderTrialQuality;
+  checks: { name: string; status: GraderTrialCheckStatus; detail: string }[];
+  recommendation: 'switch' | 'keep-incumbent' | 'need-more-data' | 'rerun-with-fewer-questions';
 }
 
 export interface GraderTrialReport {
-  kind: string
-  generatedAtUtc: string
-  primaryModel: string | null
-  verdictOrder: QualityVerdict[]
-  arms: GraderTrialArmSummary[]
-  comparisons: GraderTrialComparison[]
+  kind: string;
+  generatedAtUtc: string;
+  primaryModel: string | null;
+  verdictOrder: QualityVerdict[];
+  arms: GraderTrialArmSummary[];
+  comparisons: GraderTrialComparison[];
   labels: {
-    labelled: number
-    disagreements: number
-    disagreementsLabelled: number
-    agreements: number
-    agreementsLabelled: number
-  }
+    labelled: number;
+    disagreements: number;
+    disagreementsLabelled: number;
+    agreements: number;
+    agreementsLabelled: number;
+  };
 }
 
 export interface GraderTrialAnswer {
-  model: string
-  verdict: QualityVerdict | null
-  score: number | null
-  flagProbability: number | null
-  unsupportedIdentity: number | null
-  summary: string | null
-  issues: string[]
-  latencyMs: number | null
-  costUsd: number | null
+  model: string;
+  verdict: QualityVerdict | null;
+  score: number | null;
+  flagProbability: number | null;
+  unsupportedIdentity: number | null;
+  summary: string | null;
+  issues: string[];
+  latencyMs: number | null;
+  costUsd: number | null;
 }
 
 export interface GraderTrialQueueItem {
-  kind: string
-  subjectId: number
-  fingerprint: string
-  stratum: "Disagreement" | "Agreement"
-  title: string | null
-  artist: string | null
-  album: string | null
-  fileName: string | null
-  incumbent: GraderTrialAnswer
-  challenger: GraderTrialAnswer
+  kind: string;
+  subjectId: number;
+  fingerprint: string;
+  stratum: 'Disagreement' | 'Agreement';
+  title: string | null;
+  artist: string | null;
+  album: string | null;
+  fileName: string | null;
+  incumbent: GraderTrialAnswer;
+  challenger: GraderTrialAnswer;
 }
 
-export type GraderTrialLabelValue = "right" | "wrong" | "unsure"
+export type GraderTrialLabelValue = 'right' | 'wrong' | 'unsure';
 
 export interface GraderTrialPass {
-  graded: number
-  failed: number
-  stale: number
-  backfilled: number
-  touched: number
+  graded: number;
+  failed: number;
+  stale: number;
+  backfilled: number;
+  touched: number;
 }
 
 export async function fetchGraderTrialStatus(): Promise<GraderTrialStatus> {
-  return requestJson<GraderTrialStatus>("/api/quality/trial/status")
+  return requestJson<GraderTrialStatus>('/api/quality/trial/status');
 }
 
 export async function fetchGraderTrialReport(kind: GraderTrialKind): Promise<GraderTrialReport> {
-  return requestJson<GraderTrialReport>(`/api/quality/trial/report?kind=${kind}`)
+  return requestJson<GraderTrialReport>(`/api/quality/trial/report?kind=${kind}`);
 }
 
-export async function fetchGraderTrialQueue(kind: GraderTrialKind, limit = 20): Promise<GraderTrialQueueItem[]> {
-  return requestJson<GraderTrialQueueItem[]>(`/api/quality/trial/labels/queue?kind=${kind}&limit=${limit}`)
+export async function fetchGraderTrialQueue(
+  kind: GraderTrialKind,
+  limit = 20
+): Promise<GraderTrialQueueItem[]> {
+  return requestJson<GraderTrialQueueItem[]>(
+    `/api/quality/trial/labels/queue?kind=${kind}&limit=${limit}`
+  );
 }
 
 export async function saveGraderTrialLabel(
-  item: Pick<GraderTrialQueueItem, "subjectId" | "fingerprint">,
+  item: Pick<GraderTrialQueueItem, 'subjectId' | 'fingerprint'>,
   kind: GraderTrialKind,
   label: GraderTrialLabelValue,
   unsupportedIdentity: boolean
 ): Promise<void> {
-  await requestJson<unknown>("/api/quality/trial/labels", {
-    method: "PUT",
-    body: JSON.stringify({ kind, subjectId: item.subjectId, fingerprint: item.fingerprint, label, unsupportedIdentity }),
-  })
+  await requestJson<unknown>('/api/quality/trial/labels', {
+    method: 'PUT',
+    body: JSON.stringify({
+      kind,
+      subjectId: item.subjectId,
+      fingerprint: item.fingerprint,
+      label,
+      unsupportedIdentity
+    })
+  });
 }
 
 /** Grades up to `limit` subjects with each decision model now, paired with their existing grades. */
 export async function runGraderTrial(kind: GraderTrialKind, limit = 50): Promise<GraderTrialPass> {
-  return requestJson<GraderTrialPass>(`/api/quality/trial/run?kind=${kind}&limit=${limit}`, { method: "POST" })
+  return requestJson<GraderTrialPass>(`/api/quality/trial/run?kind=${kind}&limit=${limit}`, {
+    method: 'POST'
+  });
 }
 
 /** Grades already-answered subjects again on the same input; `includeIncumbent` also re-asks the chat grader. */
@@ -1964,102 +2035,102 @@ export async function runGraderTrialStability(
 ): Promise<GraderTrialPass> {
   return requestJson<GraderTrialPass>(
     `/api/quality/trial/stability?kind=${kind}&limit=${limit}&includeIncumbent=${includeIncumbent}`,
-    { method: "POST" }
-  )
+    { method: 'POST' }
+  );
 }
 
 /** Same-origin URL of the trial's CSV export (a plain link downloads it). */
 export function graderTrialCsvUrl(kind: GraderTrialKind): string {
-  return `${API_PREFIX}/api/quality/trial/export.csv?kind=${kind}`
+  return `${API_PREFIX}/api/quality/trial/export.csv?kind=${kind}`;
 }
 
 /** Fetches one album's dossier + grade and copies the pretty-printed JSON to the clipboard. */
 export async function copyAlbumDossier(artist: string, album: string): Promise<void> {
-  const qs = new URLSearchParams({ artist, album }).toString()
+  const qs = new URLSearchParams({ artist, album }).toString();
   const textPromise = requestJson<unknown>(`/api/albums/quality/export?${qs}`).then((data) =>
     JSON.stringify(data, null, 2)
-  )
-  if (typeof ClipboardItem !== "undefined" && "write" in navigator.clipboard) {
-    const blob = textPromise.then((text) => new Blob([text], { type: "text/plain" }))
-    await navigator.clipboard.write([new ClipboardItem({ "text/plain": blob })])
+  );
+  if (typeof ClipboardItem !== 'undefined' && 'write' in navigator.clipboard) {
+    const blob = textPromise.then((text) => new Blob([text], { type: 'text/plain' }));
+    await navigator.clipboard.write([new ClipboardItem({ 'text/plain': blob })]);
   } else {
-    await navigator.clipboard.writeText(await textPromise)
+    await navigator.clipboard.writeText(await textPromise);
   }
 }
 
 export async function startScan(): Promise<{ scanId: string }> {
-  return requestJson<{ scanId: string }>("/scan", { method: "POST" })
+  return requestJson<{ scanId: string }>('/scan', { method: 'POST' });
 }
 
 // ── Enrichment controller types ───────────────────────────────────────────────
 
 export interface StepSnapshot {
-  status: string
-  isPaused: boolean
+  status: string;
+  isPaused: boolean;
 }
 
 /** Real-time progress snapshot emitted by the SSE stream and the status endpoint. */
 export interface ProgressSnapshot {
-  status: string
-  jobId: string | null
-  startedAt: string | null
-  completedAt: string | null
-  isComplete: boolean
-  discovered: number
-  scanned: number
-  fingerprinted: number
-  enriched: number
-  needsReview: number
-  built: number
-  failed: number
-  scan: StepSnapshot
-  fingerprint: StepSnapshot
-  enrich: StepSnapshot
-  build: StepSnapshot
-  downloaded?: number
-  download?: StepSnapshot | null
+  status: string;
+  jobId: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  isComplete: boolean;
+  discovered: number;
+  scanned: number;
+  fingerprinted: number;
+  enriched: number;
+  needsReview: number;
+  built: number;
+  failed: number;
+  scan: StepSnapshot;
+  fingerprint: StepSnapshot;
+  enrich: StepSnapshot;
+  build: StepSnapshot;
+  downloaded?: number;
+  download?: StepSnapshot | null;
 }
 
 export interface JobStatusResponse {
-  progress: ProgressSnapshot
+  progress: ProgressSnapshot;
 }
 
 export type EnrichmentTriggerResult =
   | { ok: true; jobId: string }
-  | { ok: false; status: number; message: string }
+  | { ok: false; status: number; message: string };
 
 // ── Enrichment controller API calls ──────────────────────────────────────────
 
 async function triggerEnrichmentJob(path: string): Promise<EnrichmentTriggerResult> {
   const response = await fetch(`${API_PREFIX}${path}`, {
-    method: "POST",
-    cache: "no-store",
-  })
-  const body = await response.json().catch(() => ({})) as Record<string, string>
+    method: 'POST',
+    cache: 'no-store'
+  });
+  const body = (await response.json().catch(() => ({}))) as Record<string, string>;
   if (response.ok) {
-    return { ok: true, jobId: body.jobId ?? "" }
+    return { ok: true, jobId: body.jobId ?? '' };
   }
   return {
     ok: false,
     status: response.status,
-    message: body.message ?? `Request failed: ${response.status}`,
-  }
+    message: body.message ?? `Request failed: ${response.status}`
+  };
 }
 
 export async function triggerEnrichmentScan(): Promise<EnrichmentTriggerResult> {
-  return triggerEnrichmentJob("/api/enrichment/scan")
+  return triggerEnrichmentJob('/api/enrichment/scan');
 }
 
 export async function triggerFingerprint(): Promise<EnrichmentTriggerResult> {
-  return triggerEnrichmentJob("/api/enrichment/fingerprint")
+  return triggerEnrichmentJob('/api/enrichment/fingerprint');
 }
 
 export async function triggerEnrich(): Promise<EnrichmentTriggerResult> {
-  return triggerEnrichmentJob("/api/enrichment/enrich")
+  return triggerEnrichmentJob('/api/enrichment/enrich');
 }
 
 export async function triggerBuild(): Promise<EnrichmentTriggerResult> {
-  return triggerEnrichmentJob("/api/enrichment/build")
+  return triggerEnrichmentJob('/api/enrichment/build');
 }
 
 /**
@@ -2069,12 +2140,12 @@ export async function triggerBuild(): Promise<EnrichmentTriggerResult> {
  * destination folder.
  */
 export async function cancelJob(): Promise<{ message: string }> {
-  return requestJson<{ message: string }>("/api/enrichment/cancel", { method: "POST" })
+  return requestJson<{ message: string }>('/api/enrichment/cancel', { method: 'POST' });
 }
 
 export type RebuildAlbumResult =
   | { ok: true; requeued: number; jobId: string }
-  | { ok: false; status: number; message: string }
+  | { ok: false; status: number; message: string };
 
 /**
  * Re-queue an album's already-built tracks so the next build re-copies and re-tags their destination
@@ -2082,71 +2153,71 @@ export type RebuildAlbumResult =
  * album-identity reconciliation) to files that were built before it existed.
  */
 export async function rebuildAlbum(artist: string, album: string): Promise<RebuildAlbumResult> {
-  const qs = new URLSearchParams({ artist, album }).toString()
+  const qs = new URLSearchParams({ artist, album }).toString();
   const response = await fetch(`${API_PREFIX}/api/enrichment/rebuild/album?${qs}`, {
-    method: "POST",
-    cache: "no-store",
-  })
-  const body = (await response.json().catch(() => ({}))) as Record<string, unknown>
+    method: 'POST',
+    cache: 'no-store'
+  });
+  const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
   if (response.ok) {
-    return { ok: true, requeued: Number(body.requeued ?? 0), jobId: String(body.jobId ?? "") }
+    return { ok: true, requeued: Number(body.requeued ?? 0), jobId: String(body.jobId ?? '') };
   }
   return {
     ok: false,
     status: response.status,
-    message: (body.message as string) ?? `Request failed: ${response.status}`,
-  }
+    message: (body.message as string) ?? `Request failed: ${response.status}`
+  };
 }
 
-export type PurgeStatus = "idle" | "running" | "completed" | "failed"
-export type PurgeMode = "post-fingerprint" | "all"
+export type PurgeStatus = 'idle' | 'running' | 'completed' | 'failed';
+export type PurgeMode = 'post-fingerprint' | 'all';
 
 export interface PurgeSnapshot {
-  status: PurgeStatus
-  mode: PurgeMode | null
-  jobId: string | null
-  startedAt: string | null
-  completedAt: string | null
-  songsTotal: number
-  songsProcessed: number
-  filesTotal: number
-  filesDeleted: number
-  filesFailed: number
-  spotifyMatchesCleared: number
-  error: string | null
+  status: PurgeStatus;
+  mode: PurgeMode | null;
+  jobId: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  songsTotal: number;
+  songsProcessed: number;
+  filesTotal: number;
+  filesDeleted: number;
+  filesFailed: number;
+  spotifyMatchesCleared: number;
+  error: string | null;
 }
 
 export type PurgeStartResult =
   | { ok: true; jobId: string; mode: PurgeMode }
-  | { ok: false; status: number; message: string }
+  | { ok: false; status: number; message: string };
 
 async function startPurge(path: string, mode: PurgeMode): Promise<PurgeStartResult> {
   const response = await fetch(`${API_PREFIX}${path}`, {
-    method: "POST",
-    cache: "no-store",
-  })
-  const body = (await response.json().catch(() => ({}))) as Record<string, unknown>
+    method: 'POST',
+    cache: 'no-store'
+  });
+  const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
   if (response.status === 202) {
-    return { ok: true, jobId: String(body.jobId ?? ""), mode }
+    return { ok: true, jobId: String(body.jobId ?? ''), mode };
   }
   return {
     ok: false,
     status: response.status,
-    message: (body.message as string) ?? `Request failed: ${response.status}`,
-  }
+    message: (body.message as string) ?? `Request failed: ${response.status}`
+  };
 }
 
 export async function purgePostFingerprint(): Promise<PurgeStartResult> {
-  return startPurge("/api/enrichment/purge-post-fingerprint", "post-fingerprint")
+  return startPurge('/api/enrichment/purge-post-fingerprint', 'post-fingerprint');
 }
 
 export async function purgeAll(): Promise<PurgeStartResult> {
-  return startPurge("/api/enrichment/purge-all", "all")
+  return startPurge('/api/enrichment/purge-all', 'all');
 }
 
 function toPurgeSnapshot(body: Record<string, unknown>): PurgeSnapshot {
   return {
-    status: (body.status as PurgeStatus) ?? "idle",
+    status: (body.status as PurgeStatus) ?? 'idle',
     mode: (body.mode as PurgeMode | null) ?? null,
     jobId: (body.jobId as string | null) ?? null,
     startedAt: (body.startedAt as string | null) ?? null,
@@ -2157,85 +2228,85 @@ function toPurgeSnapshot(body: Record<string, unknown>): PurgeSnapshot {
     filesDeleted: Number(body.filesDeleted ?? 0),
     filesFailed: Number(body.filesFailed ?? 0),
     spotifyMatchesCleared: Number(body.spotifyMatchesCleared ?? 0),
-    error: (body.error as string | null) ?? null,
-  }
+    error: (body.error as string | null) ?? null
+  };
 }
 
 export async function fetchPurgeStatus(): Promise<PurgeSnapshot> {
-  const body = await requestJson<Record<string, unknown>>("/api/enrichment/purge-status")
-  return toPurgeSnapshot(body)
+  const body = await requestJson<Record<string, unknown>>('/api/enrichment/purge-status');
+  return toPurgeSnapshot(body);
 }
 
 // ── Staged-source release ────────────────────────────────────────────────────
 // Downloads are indexed from the staging dir and copied into the library; the release deletes the
 // staged copy once the library copy is verified. Own status endpoint (not a pipeline job).
 
-export type StagedSourceReleaseStatus = "idle" | "running" | "completed" | "cancelled" | "failed"
+export type StagedSourceReleaseStatus = 'idle' | 'running' | 'completed' | 'cancelled' | 'failed';
 
 export interface StagedSourceReleasePreview {
   /** Built downloads that still hold a staged copy and are past the grace window. */
-  eligible: number
-  eligibleBytes: number
+  eligible: number;
+  eligibleBytes: number;
   /** Downloads whose staged copy is already gone. */
-  released: number
-  releasedBytes: number
-  graceMinutes: number
+  released: number;
+  releasedBytes: number;
+  graceMinutes: number;
   /** Why the feature cannot run at all on this deployment (null when it can). */
-  unavailableReason: string | null
+  unavailableReason: string | null;
 }
 
 export interface StagedSourceReleaseSnapshot {
-  status: StagedSourceReleaseStatus
-  mode: "sweep" | "manual" | null
-  jobId: string | null
-  startedAt: string | null
-  completedAt: string | null
-  candidates: number
-  released: number
-  alreadyMissing: number
-  skippedVerification: number
-  raced: number
-  failed: number
-  bytesReclaimed: number
-  error: string | null
+  status: StagedSourceReleaseStatus;
+  mode: 'sweep' | 'manual' | null;
+  jobId: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  candidates: number;
+  released: number;
+  alreadyMissing: number;
+  skippedVerification: number;
+  raced: number;
+  failed: number;
+  bytesReclaimed: number;
+  error: string | null;
 }
 
 export type StagedSourceReleaseStartResult =
   | { ok: true; jobId: string }
-  | { ok: false; status: number; message: string }
+  | { ok: false; status: number; message: string };
 
 export async function fetchStagedSourcePreview(): Promise<StagedSourceReleasePreview> {
-  const body = await requestJson<Record<string, unknown>>("/api/enrichment/staged-sources/preview")
+  const body = await requestJson<Record<string, unknown>>('/api/enrichment/staged-sources/preview');
   return {
     eligible: Number(body.eligible ?? 0),
     eligibleBytes: Number(body.eligibleBytes ?? 0),
     released: Number(body.released ?? 0),
     releasedBytes: Number(body.releasedBytes ?? 0),
     graceMinutes: Number(body.graceMinutes ?? 0),
-    unavailableReason: (body.unavailableReason as string | null) ?? null,
-  }
+    unavailableReason: (body.unavailableReason as string | null) ?? null
+  };
 }
 
 export async function startStagedSourceRelease(): Promise<StagedSourceReleaseStartResult> {
   const response = await fetch(`${API_PREFIX}/api/enrichment/staged-sources/release`, {
-    method: "POST",
-    cache: "no-store",
-  })
-  const body = (await response.json().catch(() => ({}))) as Record<string, unknown>
+    method: 'POST',
+    cache: 'no-store'
+  });
+  const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
   if (response.status === 202) {
-    return { ok: true, jobId: String(body.jobId ?? "") }
+    return { ok: true, jobId: String(body.jobId ?? '') };
   }
   return {
     ok: false,
     status: response.status,
-    message: (body.message as string) ?? `Request failed: ${response.status}`,
-  }
+    message: (body.message as string) ?? `Request failed: ${response.status}`
+  };
 }
 
 function toStagedSourceReleaseSnapshot(body: Record<string, unknown>): StagedSourceReleaseSnapshot {
   return {
-    status: (body.status as StagedSourceReleaseStatus) ?? "idle",
-    mode: (body.mode as "sweep" | "manual" | null) ?? null,
+    status: (body.status as StagedSourceReleaseStatus) ?? 'idle',
+    mode: (body.mode as 'sweep' | 'manual' | null) ?? null,
     jobId: (body.jobId as string | null) ?? null,
     startedAt: (body.startedAt as string | null) ?? null,
     completedAt: (body.completedAt as string | null) ?? null,
@@ -2246,16 +2317,16 @@ function toStagedSourceReleaseSnapshot(body: Record<string, unknown>): StagedSou
     raced: Number(body.raced ?? 0),
     failed: Number(body.failed ?? 0),
     bytesReclaimed: Number(body.bytesReclaimed ?? 0),
-    error: (body.error as string | null) ?? null,
-  }
+    error: (body.error as string | null) ?? null
+  };
 }
 
 export async function fetchStagedSourceStatus(): Promise<StagedSourceReleaseSnapshot> {
-  const body = await requestJson<Record<string, unknown>>("/api/enrichment/staged-sources/status")
-  return toStagedSourceReleaseSnapshot(body)
+  const body = await requestJson<Record<string, unknown>>('/api/enrichment/staged-sources/status');
+  return toStagedSourceReleaseSnapshot(body);
 }
 
-export type PipelineStep = "scan" | "fingerprint" | "enrich" | "build" | "download"
+export type PipelineStep = 'scan' | 'fingerprint' | 'enrich' | 'build' | 'download';
 
 /**
  * Pause one step: sets its paused flag (auto-triggers skip it) and cancels its in-flight job. Scan,
@@ -2263,28 +2334,30 @@ export type PipelineStep = "scan" | "fingerprint" | "enrich" | "build" | "downlo
  * queue and wait, so a paused Enrich step keeps reporting Running with `isPaused` set.
  */
 export async function pauseStep(step: PipelineStep): Promise<{ message: string }> {
-  return requestJson<{ message: string }>(`/api/enrichment/pause?step=${step}`, { method: "POST" })
+  return requestJson<{ message: string }>(`/api/enrichment/pause?step=${step}`, { method: 'POST' });
 }
 
 /** Clear a step's paused flag. It does not start a job — the next auto-trigger does. */
 export async function resumeStep(step: PipelineStep): Promise<{ message: string }> {
-  return requestJson<{ message: string }>(`/api/enrichment/resume?step=${step}`, { method: "POST" })
+  return requestJson<{ message: string }>(`/api/enrichment/resume?step=${step}`, {
+    method: 'POST'
+  });
 }
 
 export async function fetchJobStatus(): Promise<JobStatusResponse> {
-  return requestJson<JobStatusResponse>("/api/enrichment/status")
+  return requestJson<JobStatusResponse>('/api/enrichment/status');
 }
 
 export interface LibraryAvailability {
-  sourceAvailable: boolean
-  destinationAvailable: boolean
-  sourceDirectory: string
-  destinationDirectory: string
-  checkedAtUtc: string
+  sourceAvailable: boolean;
+  destinationAvailable: boolean;
+  sourceDirectory: string;
+  destinationDirectory: string;
+  checkedAtUtc: string;
 }
 
 export async function fetchLibraryAvailability(): Promise<LibraryAvailability> {
-  return requestJson<LibraryAvailability>("/api/enrichment/library-availability")
+  return requestJson<LibraryAvailability>('/api/enrichment/library-availability');
 }
 
 /**
@@ -2298,38 +2371,38 @@ export function openProgressStream(
   onSnapshot: (snapshot: ProgressSnapshot) => void,
   onClose?: () => void
 ): () => void {
-  const es = new EventSource(`${API_PREFIX}/api/enrichment/progress`)
+  const es = new EventSource(`${API_PREFIX}/api/enrichment/progress`);
 
-  let parseFailures = 0
+  let parseFailures = 0;
   es.onmessage = (event) => {
     try {
-      onSnapshot(JSON.parse(event.data as string) as ProgressSnapshot)
-      parseFailures = 0
+      onSnapshot(JSON.parse(event.data as string) as ProgressSnapshot);
+      parseFailures = 0;
     } catch {
-      parseFailures += 1
-      console.warn(`progress stream: dropped malformed snapshot (${parseFailures})`)
+      parseFailures += 1;
+      console.warn(`progress stream: dropped malformed snapshot (${parseFailures})`);
       if (parseFailures >= 3) {
-        es.close()
-        onClose?.() // callers already treat onClose as "stream ended" and refetch status
+        es.close();
+        onClose?.(); // callers already treat onClose as "stream ended" and refetch status
       }
     }
-  }
+  };
 
   es.onerror = () => {
-    es.close()
-    onClose?.()
-  }
+    es.close();
+    onClose?.();
+  };
 
-  return () => es.close()
+  return () => es.close();
 }
 
 export interface ResetEnrichmentResponse {
-  id: number
-  fileName: string
-  enrichmentStatus: number
-  libraryBuildStatus: number
-  restoredOriginalMetadata: boolean
-  message: string
+  id: number;
+  fileName: string;
+  enrichmentStatus: number;
+  libraryBuildStatus: number;
+  restoredOriginalMetadata: boolean;
+  message: string;
 }
 
 /** Reset a song's enrichment and re-queue it. `force` also lifts a manual-approval lock, which the API otherwise refuses (422) to reset. */
@@ -2340,111 +2413,102 @@ export async function resetSongEnrichment(
 ): Promise<ResetEnrichmentResponse> {
   return requestJson<ResetEnrichmentResponse>(
     `/songs/${songId}/reset-enrichment?restoreOriginalMetadata=${restoreOriginalMetadata}&force=${force}`,
-    { method: "POST" }
-  )
+    { method: 'POST' }
+  );
 }
 
 export interface EnrichSongResponse {
-  songId: number
-  reset: boolean
-  outcome: string
+  songId: number;
+  reset: boolean;
+  outcome: string;
 }
 
 /** Enrich a single song now and return the outcome. Pass reset to clear prior attempts first. */
-export async function enrichSong(
-  songId: number,
-  reset = false
-): Promise<EnrichSongResponse> {
-  return requestJson<EnrichSongResponse>(
-    `/api/enrichment/enrich/song/${songId}?reset=${reset}`,
-    { method: "POST" }
-  )
+export async function enrichSong(songId: number, reset = false): Promise<EnrichSongResponse> {
+  return requestJson<EnrichSongResponse>(`/api/enrichment/enrich/song/${songId}?reset=${reset}`, {
+    method: 'POST'
+  });
 }
 
 export interface EnrichFolderResponse {
-  folder: string
-  enqueued: number
-  reset: boolean
+  folder: string;
+  enqueued: number;
+  reset: boolean;
 }
 
 /** Enqueue every song under a source folder (recursively) for enrichment. */
-export async function enrichFolder(
-  path: string,
-  reset = false
-): Promise<EnrichFolderResponse> {
+export async function enrichFolder(path: string, reset = false): Promise<EnrichFolderResponse> {
   return requestJson<EnrichFolderResponse>(
     `/api/enrichment/enrich/folder?path=${encodeURIComponent(path)}&reset=${reset}`,
-    { method: "POST" }
-  )
+    { method: 'POST' }
+  );
 }
 
 export interface TrackLyricsResponse {
-  id: number
-  lyricsStatus: string
-  isInstrumental?: boolean | null
-  synced?: string | null
-  plain?: string | null
+  id: number;
+  lyricsStatus: string;
+  isInstrumental?: boolean | null;
+  synced?: string | null;
+  plain?: string | null;
   /** Which service the stored lyrics came from: "Lrclib" | "Genius". */
-  lyricsOrigin?: string | null
+  lyricsOrigin?: string | null;
   /** Genius's id for the lyrics' page, when `lyricsOrigin` is "Genius". */
-  geniusSongId?: number | null
-  transcribedSynced?: string | null
-  transcribedPlain?: string | null
-  transcriptionStatus?: string | null
-  transcribedAtUtc?: string | null
-  transcriptionModel?: string | null
-  preferredLyricsSource?: string | null
+  geniusSongId?: number | null;
+  transcribedSynced?: string | null;
+  transcribedPlain?: string | null;
+  transcriptionStatus?: string | null;
+  transcribedAtUtc?: string | null;
+  transcriptionModel?: string | null;
+  preferredLyricsSource?: string | null;
   /** How much of the lyrics being displayed came from an AI — drives the badge in every player. */
-  lyricsProvenance?: LyricsProvenance | null
+  lyricsProvenance?: LyricsProvenance | null;
   /** True when the stored transcription carries the official words re-timed, not the AI's own guess. */
-  transcriptionAlignedToReference?: boolean | null
+  transcriptionAlignedToReference?: boolean | null;
   /** What the timing check concluded about the stored LRC's timestamps. */
-  lyricsSyncStatus?: LyricsSyncStatus | null
+  lyricsSyncStatus?: LyricsSyncStatus | null;
   /** Human-readable reason for a Suspect verdict, e.g. "the lyrics run 48s past the end of the track". */
-  lyricsSyncIssue?: string | null
+  lyricsSyncIssue?: string | null;
   /** The constant shift the AI probe measured and applied, in ms. Non-null means the timing is AI-derived. */
-  lyricsSyncOffsetMs?: number | null
-  lyricsSyncConfidence?: number | null
-  lyricsSyncCheckedAtUtc?: string | null
-  romanizedSynced?: string | null
-  romanizedPlain?: string | null
-  translatedSynced?: string | null
-  translatedPlain?: string | null
-  detectedLanguage?: string | null
-  lyricsTranslationStatus?: string | null
-  lyricsTranslatedAtUtc?: string | null
-  lyricsTranslationModel?: string | null
+  lyricsSyncOffsetMs?: number | null;
+  lyricsSyncConfidence?: number | null;
+  lyricsSyncCheckedAtUtc?: string | null;
+  romanizedSynced?: string | null;
+  romanizedPlain?: string | null;
+  translatedSynced?: string | null;
+  translatedPlain?: string | null;
+  detectedLanguage?: string | null;
+  lyricsTranslationStatus?: string | null;
+  lyricsTranslatedAtUtc?: string | null;
+  lyricsTranslationModel?: string | null;
   /** True when the stored translation was generated from lyrics that have since changed. */
-  lyricsTranslationStale?: boolean | null
+  lyricsTranslationStale?: boolean | null;
 }
 
 // Opening the track panel mounts several LyricsPanel variants (card, fullscreen,
 // desktop, mobile) that each ask for the same track, so the identical in-flight
 // GETs are collapsed into one. Only in-flight requests share a promise — the
 // entry is dropped once it settles, so a re-check or a later open still refetches.
-const inFlightTrackLyrics = new Map<number, Promise<TrackLyricsResponse>>()
+const inFlightTrackLyrics = new Map<number, Promise<TrackLyricsResponse>>();
 
 export async function fetchTrackLyrics(trackId: number): Promise<TrackLyricsResponse> {
-  const pending = inFlightTrackLyrics.get(trackId)
-  if (pending) return pending
-  const request = (
-    requestJson<TrackLyricsResponse>(`/api/tracks/${trackId}/lyrics`)
-  ).finally(() => {
-    inFlightTrackLyrics.delete(trackId)
-  })
-  inFlightTrackLyrics.set(trackId, request)
-  return request
+  const pending = inFlightTrackLyrics.get(trackId);
+  if (pending) return pending;
+  const request = requestJson<TrackLyricsResponse>(`/api/tracks/${trackId}/lyrics`).finally(() => {
+    inFlightTrackLyrics.delete(trackId);
+  });
+  inFlightTrackLyrics.set(trackId, request);
+  return request;
 }
 
 export interface RecheckLyricsResponse {
-  id: number
+  id: number;
   /** True when LRCLIB returned something better than what was stored (first lyrics, or an LRC). */
-  updated: boolean
-  lyricsStatus: string
-  hasSyncedLyrics: boolean
-  hasPlainLyrics: boolean
-  lyricsLastAttemptedAtUtc?: string | null
-  lyricsNextRecheckAfterUtc?: string | null
+  updated: boolean;
+  lyricsStatus: string;
+  hasSyncedLyrics: boolean;
+  hasPlainLyrics: boolean;
+  lyricsLastAttemptedAtUtc?: string | null;
+  lyricsNextRecheckAfterUtc?: string | null;
 }
 
 /**
@@ -2454,23 +2518,23 @@ export interface RecheckLyricsResponse {
  * them, and re-tags the built file when it finds something.
  */
 export async function recheckSongLyrics(songId: number): Promise<RecheckLyricsResponse> {
-  return requestJson<RecheckLyricsResponse>(`/songs/${songId}/lyrics/recheck`, { method: "POST" })
+  return requestJson<RecheckLyricsResponse>(`/songs/${songId}/lyrics/recheck`, { method: 'POST' });
 }
 
 export interface VerifyLyricsTimingResponse {
-  id: number
-  lyricsSyncStatus: LyricsSyncStatus
-  lyricsSyncIssue?: string | null
-  lyricsSyncOffsetMs?: number | null
-  lyricsSyncConfidence?: number | null
-  lyricsSyncCheckedAtUtc?: string | null
-  lyricsProvenance?: LyricsProvenance | null
+  id: number;
+  lyricsSyncStatus: LyricsSyncStatus;
+  lyricsSyncIssue?: string | null;
+  lyricsSyncOffsetMs?: number | null;
+  lyricsSyncConfidence?: number | null;
+  lyricsSyncCheckedAtUtc?: string | null;
+  lyricsProvenance?: LyricsProvenance | null;
   /** True when the check rewrote every timestamp — the caller must reload the lyrics text. */
-  repaired: boolean
+  repaired: boolean;
   /** False when the verdict came from the free arithmetic checks alone and cost no API quota. */
-  usedAi: boolean
+  usedAi: boolean;
   /** True when the AI listen was wanted but could not run — provider rate limit, or budget spent. */
-  deferred?: boolean | null
+  deferred?: boolean | null;
 }
 
 /**
@@ -2483,35 +2547,37 @@ export interface VerifyLyricsTimingResponse {
  * "AI Generated".
  */
 export async function verifyLyricsTiming(songId: number): Promise<VerifyLyricsTimingResponse> {
-  return requestJson<VerifyLyricsTimingResponse>(`/songs/${songId}/lyrics/verify-timing`, { method: "POST" })
+  return requestJson<VerifyLyricsTimingResponse>(`/songs/${songId}/lyrics/verify-timing`, {
+    method: 'POST'
+  });
 }
 
 /** Choose which lyrics the synced viewer shows when both an LRCLIB version and an AI transcription exist. */
 export async function setPreferredLyricsSource(
   songId: number,
-  source: "lrclib" | "transcribed"
+  source: 'lrclib' | 'transcribed'
 ): Promise<{ id: number; preferredLyricsSource: string; lyricsTranslationStale?: boolean | null }> {
-  return requestJson(`/songs/${songId}/lyrics/preferred?source=${source}`, { method: "POST" })
+  return requestJson(`/songs/${songId}/lyrics/preferred?source=${source}`, { method: 'POST' });
 }
 
 export interface TranscribeLyricsResponse {
-  id: number
-  synced?: string | null
-  plain?: string | null
-  transcriptionStatus?: string | null
-  transcribedAtUtc?: string | null
-  model?: string | null
-  hasExistingLyrics?: boolean | null
+  id: number;
+  synced?: string | null;
+  plain?: string | null;
+  transcriptionStatus?: string | null;
+  transcribedAtUtc?: string | null;
+  model?: string | null;
+  hasExistingLyrics?: boolean | null;
   /** True when this run re-timed the song's official lyrics rather than inventing its own words. */
-  resynced?: boolean | null
+  resynced?: boolean | null;
   /** The server's (possibly just-updated) display default — "Lrclib" or "Transcribed". */
-  preferredLyricsSource?: string | null
+  preferredLyricsSource?: string | null;
   /** True when the re-sync was auto-promoted to the display/file default. */
-  promoted?: boolean | null
+  promoted?: boolean | null;
   /** True when the built destination file was queued for a re-tag with the new lyrics. */
-  retagQueued?: boolean | null
+  retagQueued?: boolean | null;
   /** True when the fresh transcription made an existing pronunciation/translation stale. */
-  lyricsTranslationStale?: boolean | null
+  lyricsTranslationStale?: boolean | null;
 }
 
 /**
@@ -2521,19 +2587,21 @@ export interface TranscribeLyricsResponse {
  * a transcription with no reference lyrics is never promoted automatically.
  */
 export async function transcribeSongLyrics(songId: number): Promise<TranscribeLyricsResponse> {
-  return requestJson<TranscribeLyricsResponse>(`/songs/${songId}/lyrics/transcribe`, { method: "POST" })
+  return requestJson<TranscribeLyricsResponse>(`/songs/${songId}/lyrics/transcribe`, {
+    method: 'POST'
+  });
 }
 
 export interface TranslateLyricsResponse {
-  id: number
-  romanizedSynced?: string | null
-  romanizedPlain?: string | null
-  translatedSynced?: string | null
-  translatedPlain?: string | null
-  detectedLanguage?: string | null
-  lyricsTranslationStatus?: string | null
-  lyricsTranslatedAtUtc?: string | null
-  model?: string | null
+  id: number;
+  romanizedSynced?: string | null;
+  romanizedPlain?: string | null;
+  translatedSynced?: string | null;
+  translatedPlain?: string | null;
+  detectedLanguage?: string | null;
+  lyricsTranslationStatus?: string | null;
+  lyricsTranslatedAtUtc?: string | null;
+  model?: string | null;
 }
 
 /**
@@ -2542,33 +2610,35 @@ export interface TranslateLyricsResponse {
  * written into file tags. An already-English song returns detectedLanguage "en" with all-null lyrics.
  */
 export async function translateSongLyrics(songId: number): Promise<TranslateLyricsResponse> {
-  return requestJson<TranslateLyricsResponse>(`/songs/${songId}/lyrics/translate`, { method: "POST" })
+  return requestJson<TranslateLyricsResponse>(`/songs/${songId}/lyrics/translate`, {
+    method: 'POST'
+  });
 }
 
 export function getSongStreamUrl(songId: number): string {
-  return `${API_PREFIX}/songs/${songId}/stream`
+  return `${API_PREFIX}/songs/${songId}/stream`;
 }
 
 // ── Music videos (muted clip behind the full-screen player, slaved to the audio clock) ─────
 
 export interface SongVideoInfo {
-  status: "Fetching" | "Ready" | "Failed"
+  status: 'Fetching' | 'Ready' | 'Failed';
   /** videoTime = audioTime + syncOffsetMs / 1000 (positive = the video has an intro). */
-  syncOffsetMs: number
-  syncSource: "SameSource" | "AutoAligned" | "Manual" | "Unaligned"
-  syncConfidence?: number | null
-  durationSeconds?: number | null
-  youTubeVideoId?: string | null
-  fetchedAtUtc: string
-  lastError?: string | null
+  syncOffsetMs: number;
+  syncSource: 'SameSource' | 'AutoAligned' | 'Manual' | 'Unaligned';
+  syncConfidence?: number | null;
+  durationSeconds?: number | null;
+  youTubeVideoId?: string | null;
+  fetchedAtUtc: string;
+  lastError?: string | null;
   /** Ready row whose mp4 vanished from disk — the stream would 404; offer a refetch instead. */
-  fileMissing?: boolean
+  fileMissing?: boolean;
   /**
    * The black bars baked into the frame, as the share of it each bar of a pair covers (top/bottom,
    * sides); null until the server has measured the file. The backdrop crops them (`cropMatte`).
    */
-  letterbox?: number | null
-  pillarbox?: number | null
+  letterbox?: number | null;
+  pillarbox?: number | null;
 }
 
 /**
@@ -2579,17 +2649,17 @@ export interface SongVideoInfo {
  */
 /** Owner reads `/songs/{id}/video`; a Friend session reads the grant-scoped twin. */
 function songVideoInfoPath(songId: number): string {
-  return `/songs/${songId}/video`
+  return `/songs/${songId}/video`;
 }
 
 export async function getSongVideoInfo(songId: number): Promise<SongVideoInfo | null> {
   for (let attempt = 0; ; attempt++) {
     try {
-      return await requestJson<SongVideoInfo>(songVideoInfoPath(songId))
+      return await requestJson<SongVideoInfo>(songVideoInfoPath(songId));
     } catch (err) {
-      if (err instanceof ApiError && err.status === 404) return null
-      if (attempt >= 2) throw err
-      await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)))
+      if (err instanceof ApiError && err.status === 404) return null;
+      if (attempt >= 2) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
     }
   }
 }
@@ -2606,23 +2676,23 @@ export async function getSongVideoInfoUntilSettled(
   songId: number,
   opts: { signal: AbortSignal; onRetry?: () => void }
 ): Promise<SongVideoInfo | null> {
-  const RETRY_DELAYS_MS = [1000, 2000, 5000, 10000, 15000]
+  const RETRY_DELAYS_MS = [1000, 2000, 5000, 10000, 15000];
   for (let attempt = 0; ; attempt++) {
     try {
-      return await requestJson<SongVideoInfo>(songVideoInfoPath(songId))
+      return await requestJson<SongVideoInfo>(songVideoInfoPath(songId));
     } catch (err) {
-      if (err instanceof ApiError && err.status === 404) return null
-      if (opts.signal.aborted) throw err
-      opts.onRetry?.()
-      const delay = RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)]
-      await new Promise((resolve) => setTimeout(resolve, delay))
-      if (opts.signal.aborted) throw err
+      if (err instanceof ApiError && err.status === 404) return null;
+      if (opts.signal.aborted) throw err;
+      opts.onRetry?.();
+      const delay = RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)];
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      if (opts.signal.aborted) throw err;
     }
   }
 }
 
 export function getSongVideoStreamUrl(songId: number): string {
-  return `${API_PREFIX}/songs/${songId}/video/stream`
+  return `${API_PREFIX}/songs/${songId}/video/stream`;
 }
 
 /**
@@ -2632,9 +2702,9 @@ export function getSongVideoStreamUrl(songId: number): string {
  */
 export async function fetchSongVideo(songId: number, url?: string): Promise<SongVideoInfo> {
   return requestJson<SongVideoInfo>(`/songs/${songId}/video/fetch`, {
-    method: "POST",
-    body: JSON.stringify({ url: url ?? null }),
-  })
+    method: 'POST',
+    body: JSON.stringify({ url: url ?? null })
+  });
 }
 
 /**
@@ -2642,32 +2712,32 @@ export async function fetchSongVideo(songId: number, url?: string): Promise<Song
  * storyboard thumbnails before anything is downloaded. `Static` is the album-cover-for-three-minutes
  * case; `Unknown` means the probe could not measure it, never that it is bad.
  */
-export type VideoMotion = "Unknown" | "Static" | "LowMotion" | "RealVideo"
+export type VideoMotion = 'Unknown' | 'Static' | 'LowMotion' | 'RealVideo';
 
 export interface SongVideoCandidate {
-  videoId: string
-  title: string
-  channel: string
-  durationSeconds: number | null
-  score: number
-  motion: VideoMotion
+  videoId: string;
+  title: string;
+  channel: string;
+  durationSeconds: number | null;
+  score: number;
+  motion: VideoMotion;
   /** Bytes the download would write, or null when yt-dlp reported no size. */
-  estimatedBytes: number | null
+  estimatedBytes: number | null;
   /** The upload's own frame is square — a cover image filling the screen. */
-  squareSource: boolean
-  hasThumbnail: boolean
+  squareSource: boolean;
+  hasThumbnail: boolean;
   /** Already attached to this song. */
-  isCurrent: boolean
+  isCurrent: boolean;
 }
 
 export interface SongVideoCandidates {
   /** How many leading candidates the client should measure via {@link probeSongVideoCandidate}. */
-  probeLimit: number
-  candidates: SongVideoCandidate[]
+  probeLimit: number;
+  candidates: SongVideoCandidate[];
   /** When this list was searched (ISO). */
-  searchedAtUtc: string
+  searchedAtUtc: string;
   /** Served from the list the server remembers for the song, not searched just now. */
-  remembered: boolean
+  remembered: boolean;
 }
 
 /**
@@ -2681,30 +2751,30 @@ export async function getSongVideoCandidates(
   songId: number,
   options: { refresh?: boolean } = {}
 ): Promise<SongVideoCandidates> {
-  const query = options.refresh ? "?refresh=true" : ""
-  return requestJson<SongVideoCandidates>(`/songs/${songId}/video/candidates${query}`)
+  const query = options.refresh ? '?refresh=true' : '';
+  return requestJson<SongVideoCandidates>(`/songs/${songId}/video/candidates${query}`);
 }
 
 export interface StoredVideoAuditRow {
-  songId: number
-  artist: string | null
-  title: string | null
-  motion: VideoMotion
+  songId: number;
+  artist: string | null;
+  title: string | null;
+  motion: VideoMotion;
   /** Mean luma change between sampled frames; null when the file could not be measured. */
-  medianFrameDelta: number | null
-  fileBytes: number
-  durationSeconds: number | null
-  youTubeVideoId: string | null
+  medianFrameDelta: number | null;
+  fileBytes: number;
+  durationSeconds: number | null;
+  youTubeVideoId: string | null;
 }
 
 export interface StoredVideoAudit {
-  measured: number
-  staticCount: number
-  staticBytes: number
-  totalBytes: number
+  measured: number;
+  staticCount: number;
+  staticBytes: number;
+  totalBytes: number;
   /** More videos exist beyond the requested limit. */
-  more: boolean
-  rows: StoredVideoAuditRow[]
+  more: boolean;
+  rows: StoredVideoAuditRow[];
 }
 
 /**
@@ -2712,7 +2782,7 @@ export interface StoredVideoAudit {
  * they occupy. Read-only — removing one still goes through {@link deleteSongVideo}.
  */
 export async function auditStoredVideos(limit = 50): Promise<StoredVideoAudit> {
-  return requestJson<StoredVideoAudit>(`/musicvideos/audit?limit=${Math.round(limit)}`)
+  return requestJson<StoredVideoAudit>(`/musicvideos/audit?limit=${Math.round(limit)}`);
 }
 
 /**
@@ -2725,33 +2795,33 @@ export async function probeSongVideoCandidate(
 ): Promise<SongVideoCandidate> {
   return requestJson<SongVideoCandidate>(
     `/songs/${songId}/video/probe/${encodeURIComponent(videoId)}`
-  )
+  );
 }
 
 /** Proxy URL for a candidate's YouTube still, so the browser never talks to YouTube directly. */
 export function getSongVideoCandidateThumbnailUrl(songId: number, videoId: string): string {
-  return `${API_PREFIX}/songs/${songId}/video/thumbnail/${encodeURIComponent(videoId)}`
+  return `${API_PREFIX}/songs/${songId}/video/thumbnail/${encodeURIComponent(videoId)}`;
 }
 
 /** Manually nudge the audio↔video sync offset (marks it Manual). */
 export async function setSongVideoOffset(songId: number, offsetMs: number): Promise<SongVideoInfo> {
   return requestJson<SongVideoInfo>(`/songs/${songId}/video/offset`, {
-    method: "PATCH",
-    body: JSON.stringify({ offsetMs }),
-  })
+    method: 'PATCH',
+    body: JSON.stringify({ offsetMs })
+  });
 }
 
 /** Discard a manual/auto offset and re-run automatic alignment in the background. */
 export async function resetSongVideoOffset(songId: number): Promise<SongVideoInfo> {
   return requestJson<SongVideoInfo>(`/songs/${songId}/video/offset`, {
-    method: "PATCH",
-    body: JSON.stringify({ resetToAuto: true }),
-  })
+    method: 'PATCH',
+    body: JSON.stringify({ resetToAuto: true })
+  });
 }
 
 /** Remove the song's music video (deletes the downloaded file). */
 export async function deleteSongVideo(songId: number): Promise<void> {
-  await fetch(`${API_PREFIX}/songs/${songId}/video`, { method: "DELETE", cache: "no-store" })
+  await fetch(`${API_PREFIX}/songs/${songId}/video`, { method: 'DELETE', cache: 'no-store' });
 }
 
 /**
@@ -2760,13 +2830,13 @@ export async function deleteSongVideo(songId: number): Promise<void> {
  * clamps to its nearest size bucket. Omit `size` for the original (downloads / full-screen).
  */
 export function getSongCoverUrl(songId: number, size?: number): string {
-  const base = `${API_PREFIX}/songs/${songId}/cover`
-  return size ? `${base}?size=${Math.round(size)}` : base
+  const base = `${API_PREFIX}/songs/${songId}/cover`;
+  return size ? `${base}?size=${Math.round(size)}` : base;
 }
 
 /** Marks our cover-endpoint URLs so {@link coverThumbUrl} only appends a size to those. */
 function isOwnCoverUrl(url: string): boolean {
-  return url.startsWith(`${API_PREFIX}/songs/`) && url.includes("/cover")
+  return url.startsWith(`${API_PREFIX}/songs/`) && url.includes('/cover');
 }
 
 /**
@@ -2774,7 +2844,7 @@ function isOwnCoverUrl(url: string): boolean {
  * normalized name) or 404s — callers fall back to an album cover / initials tile on error.
  */
 export function getArtistImageUrl(name: string): string {
-  return `${API_PREFIX}/api/artists/image?name=${encodeURIComponent(name)}`
+  return `${API_PREFIX}/api/artists/image?name=${encodeURIComponent(name)}`;
 }
 
 /**
@@ -2782,10 +2852,10 @@ export function getArtistImageUrl(name: string): string {
  * endpoint; external URLs (e.g. a Spotify CDN image) are returned unchanged.
  */
 export function coverThumbUrl(url: string | null | undefined, size: number): string | null {
-  if (!url) return null
-  if (!isOwnCoverUrl(url)) return url
-  const sep = url.includes("?") ? "&" : "?"
-  return `${url}${sep}size=${Math.round(size)}`
+  if (!url) return null;
+  if (!isOwnCoverUrl(url)) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}size=${Math.round(size)}`;
 }
 
 /**
@@ -2793,8 +2863,8 @@ export function coverThumbUrl(url: string | null | undefined, size: number): str
  * cover endpoint when the backend flagged {@link ApiSong.hasCoverArt}, else null (initials tile).
  */
 export function coverUrlForSong(song: ApiSong): string | null {
-  if (song.albumArt) return song.albumArt
-  return song.hasCoverArt ? getSongCoverUrl(song.id) : null
+  if (song.albumArt) return song.albumArt;
+  return song.hasCoverArt ? getSongCoverUrl(song.id) : null;
 }
 
 // ── One cover per album folder, for track rows ───────────────────────────────
@@ -2807,14 +2877,14 @@ export function coverUrlForSong(song: ApiSong): string | null {
  * cover into that folder.
  */
 function builtFolderOf(song: ApiSong): string | null {
-  const path = song.destinationPath
-  if (song.isBuilt !== true || !path || song.sharedByUserId || song.deletedAtUtc) return null
-  if (path === song.sourcePath) return null
+  const path = song.destinationPath;
+  if (song.isBuilt !== true || !path || song.sharedByUserId || song.deletedAtUtc) return null;
+  if (path === song.sourcePath) return null;
   // Split where the server would: a POSIX path only on "/", a Windows one on either separator.
-  const cut = path.startsWith("/")
-    ? path.lastIndexOf("/")
-    : Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"))
-  return cut > 0 ? path.slice(0, cut) : null
+  const cut = path.startsWith('/')
+    ? path.lastIndexOf('/')
+    : Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+  return cut > 0 ? path.slice(0, cut) : null;
 }
 
 /**
@@ -2850,28 +2920,33 @@ function builtFolderOf(song: ApiSong): string | null {
  * saying which cover a row resolves to; until it does, do not loosen the rules above.
  */
 export function electFolderCovers(songs: readonly ApiSong[]): Map<number, number> {
-  type Folder = { ids: number[]; standIn: number | null; allHaveArt: boolean; anyReleased: boolean }
-  const folders = new Map<string, Folder>()
+  type Folder = {
+    ids: number[];
+    standIn: number | null;
+    allHaveArt: boolean;
+    anyReleased: boolean;
+  };
+  const folders = new Map<string, Folder>();
   for (const song of songs) {
-    const key = builtFolderOf(song)
-    if (key === null) continue
-    let folder = folders.get(key)
+    const key = builtFolderOf(song);
+    if (key === null) continue;
+    let folder = folders.get(key);
     if (!folder) {
-      folder = { ids: [], standIn: null, allHaveArt: true, anyReleased: false }
-      folders.set(key, folder)
+      folder = { ids: [], standIn: null, allHaveArt: true, anyReleased: false };
+      folders.set(key, folder);
     }
-    folder.ids.push(song.id)
-    if (folder.standIn === null && !song.hasMusicVideo) folder.standIn = song.id
-    if (!song.hasCoverArt) folder.allHaveArt = false
-    if (song.releaseClassification !== "Unreleased") folder.anyReleased = true
+    folder.ids.push(song.id);
+    if (folder.standIn === null && !song.hasMusicVideo) folder.standIn = song.id;
+    if (!song.hasCoverArt) folder.allHaveArt = false;
+    if (song.releaseClassification !== 'Unreleased') folder.anyReleased = true;
   }
 
-  const coverIds = new Map<number, number>()
+  const coverIds = new Map<number, number>();
   for (const { ids, standIn, allHaveArt, anyReleased } of folders.values()) {
-    if (standIn === null || !allHaveArt || !anyReleased) continue
-    for (const id of ids) if (id !== standIn) coverIds.set(id, standIn)
+    if (standIn === null || !allHaveArt || !anyReleased) continue;
+    for (const id of ids) if (id !== standIn) coverIds.set(id, standIn);
   }
-  return coverIds
+  return coverIds;
 }
 
 /**
@@ -2881,15 +2956,15 @@ export function electFolderCovers(songs: readonly ApiSong[]): Map<number, number
  * replaced, which is also when every row on screen becomes a new object and is rendered again. A
  * single row changing (a heart tap, a play) moves no track between folders, so it is left alone.
  */
-let folderCoverIds: ReadonlyMap<number, number> = new Map()
+let folderCoverIds: ReadonlyMap<number, number> = new Map();
 
 function rememberFolderCovers(songs: readonly ApiSong[]): void {
-  folderCoverIds = electFolderCovers(songs)
+  folderCoverIds = electFolderCovers(songs);
 }
 
 /** Forget the shared row covers. Called from sign-out alongside the other client-side resets. */
 export function resetFolderCovers(): void {
-  folderCoverIds = new Map()
+  folderCoverIds = new Map();
 }
 
 /**
@@ -2902,9 +2977,9 @@ export function resetFolderCovers(): void {
  * saved session, where there is no second chance.
  */
 export function rowCoverUrlForSong(song: ApiSong): string | null {
-  if (song.albumArt) return song.albumArt
-  if (!song.hasCoverArt) return null
-  return getSongCoverUrl(folderCoverIds.get(song.id) ?? song.id)
+  if (song.albumArt) return song.albumArt;
+  if (!song.hasCoverArt) return null;
+  return getSongCoverUrl(folderCoverIds.get(song.id) ?? song.id);
 }
 
 /**
@@ -2914,8 +2989,8 @@ export function rowCoverUrlForSong(song: ApiSong): string | null {
  * so a row with its own URL fails exactly as before.
  */
 export function rowCoverFallbackForSong(song: ApiSong): string | null {
-  if (song.albumArt || !song.hasCoverArt || !folderCoverIds.has(song.id)) return null
-  return getSongCoverUrl(song.id)
+  if (song.albumArt || !song.hasCoverArt || !folderCoverIds.has(song.id)) return null;
+  return getSongCoverUrl(song.id);
 }
 
 /**
@@ -2931,256 +3006,273 @@ export function toPlayerSong(song: ApiSong, fallbackArtist: string): PlayerSong 
     streamUrl: getSongStreamUrl(song.id),
     coverUrl: coverUrlForSong(song),
     album: song.album ?? null,
-    format: formatOf(song.extension),
-  }
+    format: formatOf(song.extension)
+  };
 }
 
 export function parseSongId(fileItemId: string): number | null {
-  if (!fileItemId.startsWith("song:")) return null
-  const parsed = Number(fileItemId.slice(5))
-  return Number.isFinite(parsed) ? parsed : null
+  if (!fileItemId.startsWith('song:')) return null;
+  const parsed = Number(fileItemId.slice(5));
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 // ── Share links (owner-only management; the public consumption lives in share-client.ts) ─────
 
 export interface SongShareView {
-  id: number
-  token: string
-  scope: "Song" | "Album"
-  songId: number
-  createdAtUtc: string
-  title: string
-  artist?: string | null
-  album?: string | null
+  id: number;
+  token: string;
+  scope: 'Song' | 'Album';
+  songId: number;
+  createdAtUtc: string;
+  title: string;
+  artist?: string | null;
+  album?: string | null;
 }
 
 /**
  * Create a public share link for a song (or its whole album). Idempotent per (song, scope):
  * re-sharing hands back the existing active link instead of minting a new token.
  */
-export async function createSongShare(songId: number, scope: "song" | "album"): Promise<SongShareView> {
-  return requestJson<SongShareView>("/api/shares", {
-    method: "POST",
-    body: JSON.stringify({ songId, scope }),
-  })
+export async function createSongShare(
+  songId: number,
+  scope: 'song' | 'album'
+): Promise<SongShareView> {
+  return requestJson<SongShareView>('/api/shares', {
+    method: 'POST',
+    body: JSON.stringify({ songId, scope })
+  });
 }
 
 export async function listSongShares(): Promise<SongShareView[]> {
-  return requestJson<SongShareView[]>("/api/shares")
+  return requestJson<SongShareView[]>('/api/shares');
 }
 
 export async function revokeSongShare(id: number): Promise<void> {
-  const response = await fetch(`${API_PREFIX}/api/shares/${id}`, { method: "DELETE", cache: "no-store" })
-  if (!response.ok) throw new Error(`Could not revoke share (${response.status}).`)
+  const response = await fetch(`${API_PREFIX}/api/shares/${id}`, {
+    method: 'DELETE',
+    cache: 'no-store'
+  });
+  if (!response.ok) throw new Error(`Could not revoke share (${response.status}).`);
 }
 
 /** A share link — active or revoked — with how often it was opened and played, all time. */
 export interface ShareStatsRow {
-  id: number
-  token: string
-  scope: "Song" | "Album"
-  songId: number
-  createdAtUtc: string
-  revokedAtUtc?: string | null
-  title: string
-  artist?: string | null
-  album?: string | null
+  id: number;
+  token: string;
+  scope: 'Song' | 'Album';
+  songId: number;
+  createdAtUtc: string;
+  revokedAtUtc?: string | null;
+  title: string;
+  artist?: string | null;
+  album?: string | null;
   /** Opens of the share page (repeats by one visitor within 30 minutes count once). */
-  views: number
+  views: number;
   /** Distinct visitors, each counted once per day. */
-  visitors: number
-  plays: number
-  lastViewedAtUtc?: string | null
+  visitors: number;
+  plays: number;
+  lastViewedAtUtc?: string | null;
 }
 
 export interface ShareDailyPoint {
   /** The caller's local calendar day, `YYYY-MM-DD`. */
-  date: string
-  views: number
-  visitors: number
-  plays: number
+  date: string;
+  views: number;
+  visitors: number;
+  plays: number;
 }
 
 export interface ShareStatsDetail {
-  share: ShareStatsRow
+  share: ShareStatsRow;
   /** One point per day from the link's first day (or `days` ago) through today, zeros included. */
-  daily: ShareDailyPoint[]
+  daily: ShareDailyPoint[];
   /** Opens by where they came from, most first. A null source is "direct or unknown". */
-  sources: { source?: string | null; views: number }[]
+  sources: { source?: string | null; views: number }[];
   /** Plays per track, most first. Only tracks that were played. */
-  tracks: { songId: number; title: string; plays: number }[]
+  tracks: { songId: number; title: string; plays: number }[];
 }
 
 /** Every share link you made, newest first, with its counts. */
 export async function fetchShareStatsList(): Promise<ShareStatsRow[]> {
-  return requestJson<ShareStatsRow[]>("/api/shares/stats")
+  return requestJson<ShareStatsRow[]>('/api/shares/stats');
 }
 
 /** One link's counts, per-day series (in this browser's time zone), sources and track plays. */
 export async function fetchShareStats(id: number, days = 30): Promise<ShareStatsDetail> {
   const params = new URLSearchParams({
     days: String(days),
-    tzOffsetMinutes: String(new Date().getTimezoneOffset()),
-  })
-  return requestJson<ShareStatsDetail>(`/api/shares/${id}/stats?${params}`)
+    tzOffsetMinutes: String(new Date().getTimezoneOffset())
+  });
+  return requestJson<ShareStatsDetail>(`/api/shares/${id}/stats?${params}`);
 }
 
 /** The public URL a friend opens — same origin, so it works for every deployment. */
 export function shareUrl(token: string): string {
-  return `${location.origin}/share/${encodeURIComponent(token)}`
+  return `${location.origin}/share/${encodeURIComponent(token)}`;
 }
 
 // ── Chat (between the accounts of this instance) ─────────────────────────────
 
 /** Someone you can chat with. `email` is only sent to administrators. */
 export interface ChatPerson {
-  id: string
-  name: string
-  email?: string | null
-  isAdmin: boolean
+  id: string;
+  name: string;
+  email?: string | null;
+  isAdmin: boolean;
 }
 
 /** A song or album carried by a share link. `token` is null once the link was revoked. */
 export interface ChatShare {
-  token: string | null
-  scope: "Song" | "Album"
-  songId: number
-  title: string
-  artist?: string | null
-  album?: string | null
-  year?: number | null
-  hasCover: boolean
-  revoked: boolean
+  token: string | null;
+  scope: 'Song' | 'Album';
+  songId: number;
+  title: string;
+  artist?: string | null;
+  album?: string | null;
+  year?: number | null;
+  hasCover: boolean;
+  revoked: boolean;
   /** The viewer owns the song: play it from their own library rather than through the link. */
-  ownedByViewer: boolean
-  ownerName?: string | null
+  ownedByViewer: boolean;
+  ownerName?: string | null;
 }
 
 export interface ChatLink {
-  url: string
-  provider?: "spotify" | "youtube" | null
-  kind?: string | null
-  title?: string | null
-  subtitle?: string | null
-  imageUrl?: string | null
+  url: string;
+  provider?: 'spotify' | 'youtube' | null;
+  kind?: string | null;
+  title?: string | null;
+  subtitle?: string | null;
+  imageUrl?: string | null;
   /** A Spotify track the viewer already has: the song to play instead. */
-  librarySongId?: number | null
+  librarySongId?: number | null;
 }
 
-export type ChatMessageKind = "text" | "share" | "link" | "shareOpened"
+export type ChatMessageKind = 'text' | 'share' | 'link' | 'shareOpened';
 
 export interface ChatMessage {
-  id: number
-  conversationId: string
-  senderId: string
-  mine: boolean
-  kind: ChatMessageKind
-  text?: string | null
-  share?: ChatShare | null
-  link?: ChatLink | null
+  id: number;
+  conversationId: string;
+  senderId: string;
+  mine: boolean;
+  kind: ChatMessageKind;
+  text?: string | null;
+  share?: ChatShare | null;
+  link?: ChatLink | null;
   /** A server-written line shown with the message (why a share-link open is in your chats). */
-  notice?: string | null
-  createdAtUtc: string
+  notice?: string | null;
+  createdAtUtc: string;
 }
 
 export interface ChatConversation {
-  id: string
+  id: string;
   /** The other people in it — never you. */
-  members: ChatPerson[]
-  lastMessage?: ChatMessage | null
-  unreadCount: number
-  lastMessageAtUtc: string
-  lastReadAtUtc?: string | null
+  members: ChatPerson[];
+  lastMessage?: ChatMessage | null;
+  unreadCount: number;
+  lastMessageAtUtc: string;
+  lastReadAtUtc?: string | null;
   /** How far the other person has read, in a direct chat: what "Seen" is decided from. */
-  peerLastReadAtUtc?: string | null
+  peerLastReadAtUtc?: string | null;
 }
 
 export interface ChatMessagePage {
-  messages: ChatMessage[]
-  hasMore: boolean
+  messages: ChatMessage[];
+  hasMore: boolean;
 }
 
 /** What to send: text, and at most one of a song/album of yours or a link. */
 export interface ChatDraft {
-  text?: string | null
-  url?: string | null
-  songId?: number | null
-  scope?: "song" | "album" | null
+  text?: string | null;
+  url?: string | null;
+  songId?: number | null;
+  scope?: 'song' | 'album' | null;
 }
 
 export async function fetchChatPeople(): Promise<ChatPerson[]> {
-  return requestJson<ChatPerson[]>("/api/chat/people")
+  return requestJson<ChatPerson[]>('/api/chat/people');
 }
 
 export async function fetchChatConversations(): Promise<ChatConversation[]> {
-  return requestJson<ChatConversation[]>("/api/chat/conversations")
+  return requestJson<ChatConversation[]>('/api/chat/conversations');
 }
 
 export async function fetchChatConversation(id: string): Promise<ChatConversation> {
-  return requestJson<ChatConversation>(`/api/chat/conversations/${encodeURIComponent(id)}`)
+  return requestJson<ChatConversation>(`/api/chat/conversations/${encodeURIComponent(id)}`);
 }
 
 export async function startChatConversation(userId: string): Promise<ChatConversation> {
-  return requestJson<ChatConversation>("/api/chat/conversations", {
-    method: "POST",
-    body: JSON.stringify({ userId }),
-  })
+  return requestJson<ChatConversation>('/api/chat/conversations', {
+    method: 'POST',
+    body: JSON.stringify({ userId })
+  });
 }
 
 export async function fetchChatMessages(
   conversationId: string,
-  opts: { before?: number; after?: number; limit?: number } = {},
+  opts: { before?: number; after?: number; limit?: number } = {}
 ): Promise<ChatMessagePage> {
-  const q = new URLSearchParams()
-  if (opts.before != null) q.set("before", String(opts.before))
-  if (opts.after != null) q.set("after", String(opts.after))
-  if (opts.limit != null) q.set("limit", String(opts.limit))
-  const query = q.toString()
+  const q = new URLSearchParams();
+  if (opts.before != null) q.set('before', String(opts.before));
+  if (opts.after != null) q.set('after', String(opts.after));
+  if (opts.limit != null) q.set('limit', String(opts.limit));
+  const query = q.toString();
   return requestJson<ChatMessagePage>(
-    `/api/chat/conversations/${encodeURIComponent(conversationId)}/messages${query ? `?${query}` : ""}`,
-  )
+    `/api/chat/conversations/${encodeURIComponent(conversationId)}/messages${query ? `?${query}` : ''}`
+  );
 }
 
-export async function sendChatMessage(conversationId: string, draft: ChatDraft): Promise<ChatMessage> {
-  return requestJson<ChatMessage>(`/api/chat/conversations/${encodeURIComponent(conversationId)}/messages`, {
-    method: "POST",
-    body: JSON.stringify(draft),
-  })
+export async function sendChatMessage(
+  conversationId: string,
+  draft: ChatDraft
+): Promise<ChatMessage> {
+  return requestJson<ChatMessage>(
+    `/api/chat/conversations/${encodeURIComponent(conversationId)}/messages`,
+    {
+      method: 'POST',
+      body: JSON.stringify(draft)
+    }
+  );
 }
 
 /** The same message to several people, each in their own direct chat (Send to…, the share sheet). */
-export async function sendChatToPeople(recipientIds: string[], draft: ChatDraft): Promise<{ messages: ChatMessage[] }> {
-  return requestJson<{ messages: ChatMessage[] }>("/api/chat/send", {
-    method: "POST",
-    body: JSON.stringify({ recipientIds, ...draft }),
-  })
+export async function sendChatToPeople(
+  recipientIds: string[],
+  draft: ChatDraft
+): Promise<{ messages: ChatMessage[] }> {
+  return requestJson<{ messages: ChatMessage[] }>('/api/chat/send', {
+    method: 'POST',
+    body: JSON.stringify({ recipientIds, ...draft })
+  });
 }
 
 export async function markChatRead(conversationId: string): Promise<void> {
-  await requestJson<unknown>(`/api/chat/conversations/${encodeURIComponent(conversationId)}/read`, { method: "POST" })
+  await requestJson<unknown>(`/api/chat/conversations/${encodeURIComponent(conversationId)}/read`, {
+    method: 'POST'
+  });
 }
 
 /** The conversation a share link you opened was put in, and who shared it; null when there is none. */
 export async function fetchChatShareContext(
-  token: string,
+  token: string
 ): Promise<{ conversationId: string; ownerName: string } | null> {
   try {
     return await requestJson<{ conversationId: string; ownerName: string }>(
-      `/api/chat/share-links/${encodeURIComponent(token)}`,
-    )
+      `/api/chat/share-links/${encodeURIComponent(token)}`
+    );
   } catch {
-    return null
+    return null;
   }
 }
 
 /** The chat stream (server-sent events), through the same-origin proxy. */
-export const CHAT_STREAM_URL = `${API_PREFIX}/api/chat/stream`
+export const CHAT_STREAM_URL = `${API_PREFIX}/api/chat/stream`;
 
 export interface ChatStreamHandlers {
   /** The stream (re)opened: anything may have happened while it was down, so re-read. */
-  onReady: () => void
-  onMessage: (event: { conversationId: string; messageId: number }) => void
-  onRead: (event: { conversationId: string; userId: string; lastReadAtUtc: string }) => void
+  onReady: () => void;
+  onMessage: (event: { conversationId: string; messageId: number }) => void;
+  onRead: (event: { conversationId: string; userId: string; lastReadAtUtc: string }) => void;
 }
 
 /**
@@ -3192,198 +3284,210 @@ export interface ChatStreamHandlers {
 export function openChatStream(
   handlers: ChatStreamHandlers,
   options: {
-    createEventSource?: (url: string) => EventSource
-    setTimer?: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>
-    clearTimer?: (timer: ReturnType<typeof setTimeout>) => void
-  } = {},
+    createEventSource?: (url: string) => EventSource;
+    setTimer?: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>;
+    clearTimer?: (timer: ReturnType<typeof setTimeout>) => void;
+  } = {}
 ): () => void {
-  const create = options.createEventSource ?? ((url: string) => new EventSource(url))
-  const setTimer = options.setTimer ?? ((fn: () => void, ms: number) => setTimeout(fn, ms))
-  const clearTimer = options.clearTimer ?? ((timer: ReturnType<typeof setTimeout>) => clearTimeout(timer))
-  let source: EventSource | null = null
-  let retryTimer: ReturnType<typeof setTimeout> | null = null
-  let backoff = 0
-  let closed = false
+  const create = options.createEventSource ?? ((url: string) => new EventSource(url));
+  const setTimer = options.setTimer ?? ((fn: () => void, ms: number) => setTimeout(fn, ms));
+  const clearTimer =
+    options.clearTimer ?? ((timer: ReturnType<typeof setTimeout>) => clearTimeout(timer));
+  let source: EventSource | null = null;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let backoff = 0;
+  let closed = false;
 
   const record = (event: Event): Record<string, unknown> | null => {
-    const value = parseEventData((event as MessageEvent).data)
-    return value && typeof value === "object" ? (value as Record<string, unknown>) : null
-  }
+    const value = parseEventData((event as MessageEvent).data);
+    return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+  };
 
   const connect = () => {
-    retryTimer = null
-    if (closed) return
-    const es = create(CHAT_STREAM_URL)
-    source = es
-    es.addEventListener("ready", () => {
-      backoff = 0
-      handlers.onReady()
-    })
-    es.addEventListener("message", (event) => {
-      const body = record(event)
-      if (typeof body?.conversationId === "string" && typeof body.messageId === "number") {
-        handlers.onMessage({ conversationId: body.conversationId, messageId: body.messageId })
+    retryTimer = null;
+    if (closed) return;
+    const es = create(CHAT_STREAM_URL);
+    source = es;
+    es.addEventListener('ready', () => {
+      backoff = 0;
+      handlers.onReady();
+    });
+    es.addEventListener('message', (event) => {
+      const body = record(event);
+      if (typeof body?.conversationId === 'string' && typeof body.messageId === 'number') {
+        handlers.onMessage({ conversationId: body.conversationId, messageId: body.messageId });
       }
-    })
-    es.addEventListener("read", (event) => {
-      const body = record(event)
+    });
+    es.addEventListener('read', (event) => {
+      const body = record(event);
       if (
-        typeof body?.conversationId === "string" &&
-        typeof body.userId === "string" &&
-        typeof body.lastReadAtUtc === "string"
+        typeof body?.conversationId === 'string' &&
+        typeof body.userId === 'string' &&
+        typeof body.lastReadAtUtc === 'string'
       ) {
         handlers.onRead({
           conversationId: body.conversationId,
           userId: body.userId,
-          lastReadAtUtc: body.lastReadAtUtc,
-        })
+          lastReadAtUtc: body.lastReadAtUtc
+        });
       }
-    })
+    });
     es.onerror = () => {
-      if (es.readyState !== EVENT_SOURCE_CLOSED) return
-      es.close()
-      if (closed || source !== es) return
-      source = null
-      backoff = nextStreamBackoff(backoff)
-      retryTimer = setTimer(connect, backoff)
-    }
-  }
+      if (es.readyState !== EVENT_SOURCE_CLOSED) return;
+      es.close();
+      if (closed || source !== es) return;
+      source = null;
+      backoff = nextStreamBackoff(backoff);
+      retryTimer = setTimer(connect, backoff);
+    };
+  };
 
-  connect()
+  connect();
   return () => {
-    closed = true
-    if (retryTimer) clearTimer(retryTimer)
-    retryTimer = null
-    source?.close()
-    source = null
-  }
+    closed = true;
+    if (retryTimer) clearTimer(retryTimer);
+    retryTimer = null;
+    source?.close();
+    source = null;
+  };
 }
 
 // ── Push notifications ───────────────────────────────────────────────────────
 
 export interface PushConfig {
-  enabled: boolean
-  publicKey?: string | null
+  enabled: boolean;
+  publicKey?: string | null;
 }
 
 export async function fetchPushConfig(): Promise<PushConfig> {
-  return requestJson<PushConfig>("/api/push/config")
+  return requestJson<PushConfig>('/api/push/config');
 }
 
 /** Saves this browser's subscription (the shape of `PushSubscription.toJSON()`) for the signed-in account. */
 export async function savePushSubscription(subscription: PushSubscriptionJSON): Promise<void> {
   const response = await fetch(`${API_PREFIX}/api/push/subscriptions`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify(subscription),
-    cache: "no-store",
-  })
+    cache: 'no-store'
+  });
   if (!response.ok) {
-    let message = `Could not turn on notifications (${response.status}).`
+    let message = `Could not turn on notifications (${response.status}).`;
     try {
-      const body = (await response.json()) as { message?: string }
-      if (body.message) message = body.message
+      const body = (await response.json()) as { message?: string };
+      if (body.message) message = body.message;
     } catch {
       // keep the generic message
     }
-    throw new ApiError(message, null, response.status)
+    throw new ApiError(message, null, response.status);
   }
 }
 
 export async function removePushSubscription(endpoint: string): Promise<void> {
   await fetch(`${API_PREFIX}/api/push/unsubscribe`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ endpoint }),
-    cache: "no-store",
-    keepalive: true,
-  }).catch(() => {})
+    cache: 'no-store',
+    keepalive: true
+  }).catch(() => {});
 }
 
 export async function sendTestPush(): Promise<{ subscriptions: number; delivered: number }> {
-  return requestJson<{ subscriptions: number; delivered: number }>("/api/push/test", { method: "POST" })
+  return requestJson<{ subscriptions: number; delivered: number }>('/api/push/test', {
+    method: 'POST'
+  });
 }
 
 // ── Friends (owner-only management: invites + grants) ────────────────────────
 
 export interface FriendInviteView {
-  id: string
-  email: string
+  id: string;
+  email: string;
   /** Present on creation only — the DB stores a hash, so the URL can't be re-shown later. */
-  inviteUrl?: string
-  createdAtUtc?: string
-  expiresAtUtc: string
-  emailSent?: boolean
-  emailInLogs?: boolean
+  inviteUrl?: string;
+  createdAtUtc?: string;
+  expiresAtUtc: string;
+  emailSent?: boolean;
+  emailInLogs?: boolean;
 }
 
 export interface FriendGrantView {
-  id: number
-  scope: "Album" | "Artist" | "Library"
-  artist?: string | null
-  album?: string | null
-  createdAtUtc: string
+  id: number;
+  scope: 'Album' | 'Artist' | 'Library';
+  artist?: string | null;
+  album?: string | null;
+  createdAtUtc: string;
 }
 
 /**
  * What an admin may grant a person. Names match the server's `Capability` flags and travel as
  * strings, never a bitmask, so the frontend never does bit math.
  */
-export type Capability = "DownloadMusic" | "TrackListening" | "ManageOwnShares" | "Administer"
+export type Capability = 'DownloadMusic' | 'TrackListening' | 'ManageOwnShares' | 'Administer';
 
 export interface FriendView {
-  id: string
-  email: string
-  displayName?: string | null
-  isDisabled: boolean
-  createdAtUtc: string
-  lastLoginAtUtc?: string | null
+  id: string;
+  email: string;
+  displayName?: string | null;
+  isDisabled: boolean;
+  createdAtUtc: string;
+  lastLoginAtUtc?: string | null;
   /** "Admin" | "Demo" | "Member", for display. Prefer `isAdmin`. */
-  role?: string
-  isAdmin?: boolean
+  role?: string;
+  isAdmin?: boolean;
   /** EFFECTIVE capabilities — an admin lists every one regardless of what is stored. */
-  capabilities?: Capability[]
-  grants: FriendGrantView[]
+  capabilities?: Capability[];
+  grants: FriendGrantView[];
 }
 
 /**
  * Create (or rotate) the invite link for an email. Re-inviting the same address replaces the
  * token — the previous link stops working — which is also how "resend" works.
  */
-export async function createFriendInvite(email: string, sendEmail?: boolean): Promise<FriendInviteView> {
-  return requestJson<FriendInviteView>("/api/people/invites", {
-    method: "POST",
-    body: JSON.stringify({ email, sendEmail }),
-  })
+export async function createFriendInvite(
+  email: string,
+  sendEmail?: boolean
+): Promise<FriendInviteView> {
+  return requestJson<FriendInviteView>('/api/people/invites', {
+    method: 'POST',
+    body: JSON.stringify({ email, sendEmail })
+  });
 }
 
 export async function listFriendInvites(): Promise<FriendInviteView[]> {
-  return requestJson<FriendInviteView[]>("/api/people/invites")
+  return requestJson<FriendInviteView[]>('/api/people/invites');
 }
 
 export async function revokeFriendInvite(id: string): Promise<void> {
-  const response = await fetch(`${API_PREFIX}/api/people/invites/${id}`, { method: "DELETE", cache: "no-store" })
-  if (!response.ok) throw new Error(`Could not revoke invite (${response.status}).`)
+  const response = await fetch(`${API_PREFIX}/api/people/invites/${id}`, {
+    method: 'DELETE',
+    cache: 'no-store'
+  });
+  if (!response.ok) throw new Error(`Could not revoke invite (${response.status}).`);
 }
 
 export async function listFriends(): Promise<FriendView[]> {
-  return requestJson<FriendView[]>("/api/people")
+  return requestJson<FriendView[]>('/api/people');
 }
 
 /** Remove a friend: disables their account, kills their sessions, revokes their grants. */
 export async function removeFriend(userId: string): Promise<void> {
-  const response = await fetch(`${API_PREFIX}/api/people/${userId}`, { method: "DELETE", cache: "no-store" })
-  if (!response.ok) throw new Error(`Could not remove friend (${response.status}).`)
+  const response = await fetch(`${API_PREFIX}/api/people/${userId}`, {
+    method: 'DELETE',
+    cache: 'no-store'
+  });
+  if (!response.ok) throw new Error(`Could not remove friend (${response.status}).`);
 }
 
 export async function createFriendGrant(
   userId: string,
-  grant: { scope: "album" | "artist" | "library"; artist?: string; album?: string }
+  grant: { scope: 'album' | 'artist' | 'library'; artist?: string; album?: string }
 ): Promise<FriendGrantView> {
   return requestJson<FriendGrantView>(`/api/people/${userId}/grants`, {
-    method: "POST",
-    body: JSON.stringify(grant),
-  })
+    method: 'POST',
+    body: JSON.stringify(grant)
+  });
 }
 
 /**
@@ -3399,30 +3503,30 @@ export async function updatePersonCapabilities(
   capabilities: Capability[]
 ): Promise<FriendView> {
   return requestJson<FriendView>(`/api/people/${userId}/capabilities`, {
-    method: "PATCH",
-    body: JSON.stringify({ capabilities }),
-  })
+    method: 'PATCH',
+    body: JSON.stringify({ capabilities })
+  });
 }
 
 export async function revokeFriendGrant(userId: string, grantId: number): Promise<void> {
   const response = await fetch(`${API_PREFIX}/api/people/${userId}/grants/${grantId}`, {
-    method: "DELETE",
-    cache: "no-store",
-  })
-  if (!response.ok) throw new Error(`Could not revoke grant (${response.status}).`)
+    method: 'DELETE',
+    cache: 'no-store'
+  });
+  if (!response.ok) throw new Error(`Could not revoke grant (${response.status}).`);
 }
 
 // ── Likes + play reporting ───────────────────────────────────────────────────
 
 /** Mark a song as liked. Idempotent — re-liking keeps the original timestamp. */
 export async function likeSong(songId: number): Promise<{ id: number; likedAtUtc: string }> {
-  const path = `/songs/${songId}/like`
-  return requestJson<{ id: number; likedAtUtc: string }>(path, { method: "POST" })
+  const path = `/songs/${songId}/like`;
+  return requestJson<{ id: number; likedAtUtc: string }>(path, { method: 'POST' });
 }
 
 export async function unlikeSong(songId: number): Promise<{ id: number; likedAtUtc: null }> {
-  const path = `/songs/${songId}/like`
-  return requestJson<{ id: number; likedAtUtc: null }>(path, { method: "DELETE" })
+  const path = `/songs/${songId}/like`;
+  return requestJson<{ id: number; likedAtUtc: null }>(path, { method: 'DELETE' });
 }
 
 /**
@@ -3432,36 +3536,35 @@ export async function unlikeSong(songId: number): Promise<{ id: number; likedAtU
 export async function reportSongPlayed(
   songId: number
 ): Promise<{ id: number; playCount: number; lastPlayedAtUtc: string }> {
-  const path = `/songs/${songId}/played`
-  return requestJson<{ id: number; playCount: number; lastPlayedAtUtc: string }>(
-    path,
-    { method: "POST" }
-  )
+  const path = `/songs/${songId}/played`;
+  return requestJson<{ id: number; playCount: number; lastPlayedAtUtc: string }>(path, {
+    method: 'POST'
+  });
 }
 
 // ── Track review API ──────────────────────────────────────────────────────────
 
 export interface ManualReviewRequest {
-  decision: "approve" | "reject"
-  rejectReason?: string
-  artist?: string
-  albumArtist?: string
-  album?: string
-  title?: string
-  year?: number
-  trackNumber?: number
+  decision: 'approve' | 'reject';
+  rejectReason?: string;
+  artist?: string;
+  albumArtist?: string;
+  album?: string;
+  title?: string;
+  year?: number;
+  trackNumber?: number;
 }
 
 export interface ManualReviewResponse {
-  id: number
-  fileName: string
-  decision: string
-  enrichmentStatus: number
-  libraryBuildStatus: number
-  artist?: string | null
-  album?: string | null
-  title?: string | null
-  year?: number | null
+  id: number;
+  fileName: string;
+  decision: string;
+  enrichmentStatus: number;
+  libraryBuildStatus: number;
+  artist?: string | null;
+  album?: string | null;
+  title?: string | null;
+  year?: number | null;
 }
 
 export async function submitManualReview(
@@ -3469,45 +3572,43 @@ export async function submitManualReview(
   request: ManualReviewRequest
 ): Promise<ManualReviewResponse> {
   return requestJson<ManualReviewResponse>(`/songs/${songId}/manual-review`, {
-    method: "PATCH",
-    body: JSON.stringify(request),
-  })
+    method: 'PATCH',
+    body: JSON.stringify(request)
+  });
 }
 
 export interface BulkApproveResponse {
-  minConfidence: number
-  approvedCount: number
-  approvedIds: number[]
-  skippedCount: number
-  skippedIds: number[]
+  minConfidence: number;
+  approvedCount: number;
+  approvedIds: number[];
+  skippedCount: number;
+  skippedIds: number[];
 }
 
-export async function bulkApprove(
-  minConfidence = 0.75
-): Promise<BulkApproveResponse> {
-  return requestJson<BulkApproveResponse>("/songs/bulk-approve", {
-    method: "POST",
-    body: JSON.stringify({ minConfidence }),
-  })
+export async function bulkApprove(minConfidence = 0.75): Promise<BulkApproveResponse> {
+  return requestJson<BulkApproveResponse>('/songs/bulk-approve', {
+    method: 'POST',
+    body: JSON.stringify({ minConfidence })
+  });
 }
 
 export interface SoftDeleteResponse {
-  id: number
-  fileName: string
-  deletedAtUtc: string
-  message: string
+  id: number;
+  fileName: string;
+  deletedAtUtc: string;
+  message: string;
 }
 
 export async function softDeleteSong(songId: number): Promise<SoftDeleteResponse> {
   return requestJson<SoftDeleteResponse>(`/songs/${songId}`, {
-    method: "DELETE",
-  })
+    method: 'DELETE'
+  });
 }
 
 // ── Reported downloads ────────────────────────────────────────────────────────
 
 /** What was wrong with a download. The server's `SongReportReason` names. */
-export type SongReportReason = "WrongSong" | "WrongVersion" | "BadAudio" | "Other"
+export type SongReportReason = 'WrongSong' | 'WrongVersion' | 'BadAudio' | 'Other';
 
 /**
  * A report of a wrong download: a snapshot of what was asked for (`requested*`, the wishlist item),
@@ -3515,33 +3616,33 @@ export type SongReportReason = "WrongSong" | "WrongVersion" | "BadAudio" | "Othe
  * it was made — the removal resets the wishlist item, so these are the only copy.
  */
 export interface SongReport {
-  id: number
-  songId: number | null
-  reason: SongReportReason
-  note: string | null
-  title: string | null
-  artist: string | null
-  album: string | null
-  durationMs: number | null
-  fileName: string | null
-  matchedBy: string | null
-  matchConfidence: number | null
-  wishlistItemId: number | null
-  origin: WishlistItemOrigin | null
-  requestedTitle: string | null
-  requestedArtist: string | null
-  requestedAlbum: string | null
-  requestedDurationMs: number | null
-  spotifyTrackId: string | null
-  deezerTrackId: string | null
-  isrc: string | null
-  downloadProvider: string | null
+  id: number;
+  songId: number | null;
+  reason: SongReportReason;
+  note: string | null;
+  title: string | null;
+  artist: string | null;
+  album: string | null;
+  durationMs: number | null;
+  fileName: string | null;
+  matchedBy: string | null;
+  matchConfidence: number | null;
+  wishlistItemId: number | null;
+  origin: WishlistItemOrigin | null;
+  requestedTitle: string | null;
+  requestedArtist: string | null;
+  requestedAlbum: string | null;
+  requestedDurationMs: number | null;
+  spotifyTrackId: string | null;
+  deezerTrackId: string | null;
+  isrc: string | null;
+  downloadProvider: string | null;
   /** The provider's id for what the audio came from — for yt-dlp, the YouTube video id. */
-  downloadedSourceId: string | null
-  sourceUrl: string | null
+  downloadedSourceId: string | null;
+  sourceUrl: string | null;
   /** When the report took the song out of the library; null when it only recorded it. */
-  removedAtUtc: string | null
-  createdAtUtc: string
+  removedAtUtc: string | null;
+  createdAtUtc: string;
 }
 
 /**
@@ -3554,210 +3655,226 @@ export async function reportSong(
   body: { reason: SongReportReason; note?: string | null; remove?: boolean }
 ): Promise<SongReport> {
   return requestJson<SongReport>(`/api/songs/${songId}/report`, {
-    method: "POST",
-    body: JSON.stringify(body),
-  })
+    method: 'POST',
+    body: JSON.stringify(body)
+  });
 }
 
 export async function listSongReports(): Promise<SongReport[]> {
-  return requestJson<SongReport[]>("/api/song-reports")
+  return requestJson<SongReport[]>('/api/song-reports');
 }
 
 // ── Spotify API ───────────────────────────────────────────────────────────────
 
 export interface SpotifyStatusResponse {
-  connected: boolean
-  connectedAt?: string | null
-  hasCredentials: boolean
-  tokenExpired: boolean
+  connected: boolean;
+  connectedAt?: string | null;
+  hasCredentials: boolean;
+  tokenExpired: boolean;
 }
 
 export interface SpotifyConnectResponse {
-  authorizationUrl: string
-  state: string
+  authorizationUrl: string;
+  state: string;
 }
 
 export interface SpotifyCredentialsResponse {
-  clientId?: string | null
-  hasClientSecret: boolean
+  clientId?: string | null;
+  hasClientSecret: boolean;
 }
 
-export type SpotifyLibraryMatchStatus = "InLibrary" | "PossibleMatch" | "NotInLibrary"
+export type SpotifyLibraryMatchStatus = 'InLibrary' | 'PossibleMatch' | 'NotInLibrary';
 
 export interface SpotifyLibraryMatchInfo {
-  matchStatus: SpotifyLibraryMatchStatus
-  matchedSongId: number | null
-  matchConfidence: number | null
-  matchedTitle?: string | null
-  matchedArtist?: string | null
-  matchedEnrichmentStatus?: string | null
+  matchStatus: SpotifyLibraryMatchStatus;
+  matchedSongId: number | null;
+  matchConfidence: number | null;
+  matchedTitle?: string | null;
+  matchedArtist?: string | null;
+  matchedEnrichmentStatus?: string | null;
 }
 
 export interface SpotifyApiTrack {
-  spotifyId: string
-  title: string
-  artist: string
-  album: string
-  albumArt?: string | null
-  durationMs: number
-  addedAt: string
-  libraryMatch?: SpotifyLibraryMatchInfo | null
+  spotifyId: string;
+  title: string;
+  artist: string;
+  album: string;
+  albumArt?: string | null;
+  durationMs: number;
+  addedAt: string;
+  libraryMatch?: SpotifyLibraryMatchInfo | null;
   /** True when this Spotify track is already on the owner's wishlist (any status). */
-  isInWishlist?: boolean
+  isInWishlist?: boolean;
 }
 
 export interface SpotifyLikedSongsApiResponse {
-  total: number
-  offset: number
-  limit: number
-  items: SpotifyApiTrack[]
+  total: number;
+  offset: number;
+  limit: number;
+  items: SpotifyApiTrack[];
 }
 
 export interface SpotifyApiPlaylist {
-  spotifyId: string
-  name: string
-  description?: string | null
-  imageUrl?: string | null
-  trackCount: number
-  ownerName?: string | null
+  spotifyId: string;
+  name: string;
+  description?: string | null;
+  imageUrl?: string | null;
+  trackCount: number;
+  ownerName?: string | null;
 }
 
 export interface SpotifyPlaylistsApiResponse {
-  items: SpotifyApiPlaylist[]
+  items: SpotifyApiPlaylist[];
 }
 
 export interface SpotifyPlaylistTracksApiResponse {
-  total: number
-  offset: number
-  limit: number
-  items: SpotifyApiTrack[]
+  total: number;
+  offset: number;
+  limit: number;
+  items: SpotifyApiTrack[];
 }
 
 export async function fetchSpotifyStatus(): Promise<SpotifyStatusResponse> {
-  return requestJson<SpotifyStatusResponse>("/api/spotify/status")
+  return requestJson<SpotifyStatusResponse>('/api/spotify/status');
 }
 
 export async function fetchSpotifyConnectUrl(): Promise<SpotifyConnectResponse> {
-  return requestJson<SpotifyConnectResponse>("/api/spotify/connect")
+  return requestJson<SpotifyConnectResponse>('/api/spotify/connect');
 }
 
 export async function disconnectSpotify(): Promise<{ message: string }> {
-  return requestJson<{ message: string }>("/api/spotify/disconnect", { method: "DELETE" })
+  return requestJson<{ message: string }>('/api/spotify/disconnect', { method: 'DELETE' });
 }
 
 export async function fetchSpotifyCredentials(): Promise<SpotifyCredentialsResponse> {
-  return requestJson<SpotifyCredentialsResponse>("/api/spotify/credentials")
+  return requestJson<SpotifyCredentialsResponse>('/api/spotify/credentials');
 }
 
-export async function saveSpotifyCredentials(clientId: string, clientSecret: string): Promise<{ message: string }> {
-  return requestJson<{ message: string }>("/api/spotify/credentials", {
-    method: "PUT",
-    body: JSON.stringify({ clientId, clientSecret }),
-  })
+export async function saveSpotifyCredentials(
+  clientId: string,
+  clientSecret: string
+): Promise<{ message: string }> {
+  return requestJson<{ message: string }>('/api/spotify/credentials', {
+    method: 'PUT',
+    body: JSON.stringify({ clientId, clientSecret })
+  });
 }
 
-export async function fetchSpotifyLikedSongs(offset = 0, limit = 50): Promise<SpotifyLikedSongsApiResponse> {
-  return requestJson<SpotifyLikedSongsApiResponse>(`/api/spotify/liked-songs?offset=${offset}&limit=${limit}`)
+export async function fetchSpotifyLikedSongs(
+  offset = 0,
+  limit = 50
+): Promise<SpotifyLikedSongsApiResponse> {
+  return requestJson<SpotifyLikedSongsApiResponse>(
+    `/api/spotify/liked-songs?offset=${offset}&limit=${limit}`
+  );
 }
 
 export async function fetchSpotifyPlaylists(): Promise<SpotifyPlaylistsApiResponse> {
-  return requestJson<SpotifyPlaylistsApiResponse>("/api/spotify/playlists")
+  return requestJson<SpotifyPlaylistsApiResponse>('/api/spotify/playlists');
 }
 
-export async function fetchSpotifyPlaylistTracks(playlistId: string, offset = 0, limit = 50): Promise<SpotifyPlaylistTracksApiResponse> {
+export async function fetchSpotifyPlaylistTracks(
+  playlistId: string,
+  offset = 0,
+  limit = 50
+): Promise<SpotifyPlaylistTracksApiResponse> {
   return requestJson<SpotifyPlaylistTracksApiResponse>(
     `/api/spotify/playlists/${playlistId}/tracks?offset=${offset}&limit=${limit}`
-  )
+  );
 }
 
 // ── Wishlist API ──────────────────────────────────────────────────────────────
 
 export type WishlistItemStatus =
-  | "Pending"
-  | "SkippedOwned"
-  | "Downloading"
-  | "Downloaded"
-  | "Failed"
-  | "NotFound"
+  | 'Pending'
+  | 'SkippedOwned'
+  | 'Downloading'
+  | 'Downloaded'
+  | 'Failed'
+  | 'NotFound';
 
 export type WishlistSourceType =
-  | "LikedSongs"
-  | "Playlist"
-  | "SpotifyArchivePlaylist"
-  | "DeezerPlaylist"
-  | "YouTubePlaylist"
+  | 'LikedSongs'
+  | 'Playlist'
+  | 'SpotifyArchivePlaylist'
+  | 'DeezerPlaylist'
+  | 'YouTubePlaylist';
 
 export interface WishlistItem {
-  id: number
+  id: number;
   /** Null for Deezer-sourced items — use {@link deezerTrackId} instead. */
-  spotifyTrackId: string | null
+  spotifyTrackId: string | null;
   /** Set for tracks sourced from a Deezer playlist; null for Spotify-sourced items. */
-  deezerTrackId?: string | null
-  title: string
-  artist: string
-  album?: string | null
-  isrc?: string | null
-  durationMs: number
-  albumArt?: string | null
-  spotifyAddedAtUtc?: string | null
-  status: WishlistItemStatus
-  downloadProvider?: string | null
-  downloadedFilePath?: string | null
-  downloadedSongId?: number | null
-  attemptCount: number
-  lastError?: string | null
+  deezerTrackId?: string | null;
+  title: string;
+  artist: string;
+  album?: string | null;
+  isrc?: string | null;
+  durationMs: number;
+  albumArt?: string | null;
+  spotifyAddedAtUtc?: string | null;
+  status: WishlistItemStatus;
+  downloadProvider?: string | null;
+  downloadedFilePath?: string | null;
+  downloadedSongId?: number | null;
+  attemptCount: number;
+  lastError?: string | null;
   /**
    * For a Failed item: when the downloader will try again on its own. Null means it has given up
    * (attempt cap reached, or an older failure) until you press Retry.
    */
-  nextAttemptAtUtc?: string | null
+  nextAttemptAtUtc?: string | null;
   /**
    * Set when a lower-priority provider delivered the file because this preferred one was unreachable
    * at the time (e.g. "spotiflac"). The quality-upgrade sweep offers the song to it again later.
    */
-  fallbackFromProvider?: string | null
-  libraryEnrichmentStatus?: string | null
-  libraryBuildStatus?: string | null
-  createdAtUtc: string
-  updatedAtUtc: string
+  fallbackFromProvider?: string | null;
+  libraryEnrichmentStatus?: string | null;
+  libraryBuildStatus?: string | null;
+  createdAtUtc: string;
+  updatedAtUtc: string;
   /** Who queued it: you, or album completion filling in a record you already owned part of. */
-  origin?: WishlistItemOrigin | null
+  origin?: WishlistItemOrigin | null;
 }
 
 /** Which slice of the wishlist to page through. Defaults to what you asked for. */
-export type WishlistSourceFilter = "user" | "albumfill" | "all"
+export type WishlistSourceFilter = 'user' | 'albumfill' | 'all';
 
-export type WishlistItemOrigin = "UserRequested" | "AlbumCompletion" | "ArtistRequest" | "ArtistMonitor"
+export type WishlistItemOrigin =
+  | 'UserRequested'
+  | 'AlbumCompletion'
+  | 'ArtistRequest'
+  | 'ArtistMonitor';
 
 export interface WishlistItemsResponse {
-  total: number
-  offset: number
-  limit: number
-  items: WishlistItem[]
+  total: number;
+  offset: number;
+  limit: number;
+  items: WishlistItem[];
 }
 
 export interface WishlistSource {
-  id: number
-  sourceType: WishlistSourceType
-  spotifyPlaylistId?: string | null
+  id: number;
+  sourceType: WishlistSourceType;
+  spotifyPlaylistId?: string | null;
   /** Set for Deezer-playlist sources; null for Spotify sources. */
-  deezerPlaylistId?: string | null
+  deezerPlaylistId?: string | null;
   /** Set for YouTube-playlist sources (the link's `list=` id). */
-  youTubePlaylistId?: string | null
+  youTubePlaylistId?: string | null;
   /** Which upstream this source syncs from. */
-  provider: "spotify" | "deezer" | "youtube"
-  name: string
-  imageUrl?: string | null
-  autoSync: boolean
-  lastSyncedAtUtc?: string | null
-  createdAtUtc: string
-  itemCount: number
+  provider: 'spotify' | 'deezer' | 'youtube';
+  name: string;
+  imageUrl?: string | null;
+  autoSync: boolean;
+  lastSyncedAtUtc?: string | null;
+  createdAtUtc: string;
+  itemCount: number;
 }
 
 export interface AddWishlistSourceResult {
-  sourceId: number
+  sourceId: number;
   /** The snapshot runs in the background; tracks appear on the wishlist progressively. */
-  queued: boolean
+  queued: boolean;
 }
 
 /**
@@ -3769,22 +3886,22 @@ export async function fetchWishlist(
   status?: WishlistItemStatus,
   offset = 0,
   limit = 50,
-  source?: WishlistSourceFilter,
+  source?: WishlistSourceFilter
 ): Promise<WishlistItemsResponse> {
-  const params = new URLSearchParams({ offset: String(offset), limit: String(limit) })
-  if (status) params.set("status", status)
-  if (source) params.set("source", source)
-  return requestJson<WishlistItemsResponse>(`/api/wishlist?${params.toString()}`)
+  const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+  if (status) params.set('status', status);
+  if (source) params.set('source', source);
+  return requestJson<WishlistItemsResponse>(`/api/wishlist?${params.toString()}`);
 }
 
 export interface AlbumCompletionRunResult {
-  albumsExamined: number
-  tracksQueued: number
-  albumsFilled: number
-  albumsSkipped: number
-  albumsAlreadyComplete: number
+  albumsExamined: number;
+  tracksQueued: number;
+  albumsFilled: number;
+  albumsSkipped: number;
+  albumsAlreadyComplete: number;
   /** Set when the pass stopped before examining anything; null when it genuinely ran. */
-  idleReason: string | null
+  idleReason: string | null;
 }
 
 /**
@@ -3793,133 +3910,155 @@ export interface AlbumCompletionRunResult {
  * which is a perfectly normal outcome.
  */
 export async function runAlbumCompletion(): Promise<AlbumCompletionRunResult> {
-  return requestJson<AlbumCompletionRunResult>("/api/wishlist/complete-albums", { method: "POST" })
+  return requestJson<AlbumCompletionRunResult>('/api/wishlist/complete-albums', { method: 'POST' });
 }
 
 /** Plain-English summary of a completion pass, for the Wishlist banner. */
 export function albumCompletionSummary(r: AlbumCompletionRunResult): string {
   switch (r.idleReason) {
-    case "downloads-disabled":
-      return "Album completion needs wishlist downloads enabled first."
-    case "disabled":
-      return "Album completion is off."
-    case "at-pending-ceiling":
-      return "Already enough queued — completion pauses until the downloader catches up."
-    case "library-empty":
-      return "No music in your library yet — nothing to complete."
-    case "no-canonical-albums":
-      return "No album has a reconciled tracklist yet. That's built in the background as tracks finish enriching; try again in a few minutes."
-    case "no-candidates":
-      return "Nothing new to check — every eligible album has been looked at recently."
+    case 'downloads-disabled':
+      return 'Album completion needs wishlist downloads enabled first.';
+    case 'disabled':
+      return 'Album completion is off.';
+    case 'at-pending-ceiling':
+      return 'Already enough queued — completion pauses until the downloader catches up.';
+    case 'library-empty':
+      return 'No music in your library yet — nothing to complete.';
+    case 'no-canonical-albums':
+      return "No album has a reconciled tracklist yet. That's built in the background as tracks finish enriching; try again in a few minutes.";
+    case 'no-candidates':
+      return 'Nothing new to check — every eligible album has been looked at recently.';
     default:
-      break
+      break;
   }
 
   if (r.tracksQueued > 0) {
-    const albums = `${r.albumsFilled} album${r.albumsFilled === 1 ? "" : "s"}`
-    return `Queued ${r.tracksQueued} missing track${r.tracksQueued === 1 ? "" : "s"} across ${albums}.`
+    const albums = `${r.albumsFilled} album${r.albumsFilled === 1 ? '' : 's'}`;
+    return `Queued ${r.tracksQueued} missing track${r.tracksQueued === 1 ? '' : 's'} across ${albums}.`;
   }
 
   // A zero here is a real answer, not a failure — say which kind.
-  const parts: string[] = []
-  if (r.albumsAlreadyComplete > 0) parts.push(`${r.albumsAlreadyComplete} already complete`)
-  if (r.albumsSkipped > 0) parts.push(`${r.albumsSkipped} skipped (compilations or singles)`)
-  const detail = parts.length > 0 ? ` — ${parts.join(", ")}` : ""
-  return `Checked ${r.albumsExamined} album${r.albumsExamined === 1 ? "" : "s"}, nothing to queue${detail}.`
+  const parts: string[] = [];
+  if (r.albumsAlreadyComplete > 0) parts.push(`${r.albumsAlreadyComplete} already complete`);
+  if (r.albumsSkipped > 0) parts.push(`${r.albumsSkipped} skipped (compilations or singles)`);
+  const detail = parts.length > 0 ? ` — ${parts.join(', ')}` : '';
+  return `Checked ${r.albumsExamined} album${r.albumsExamined === 1 ? '' : 's'}, nothing to queue${detail}.`;
 }
 
 /** Queue one canonical album track you're missing (the album page's "Get this track"). */
-export async function acquireCanonicalTrack(
-  canonicalTrackId: number,
-): Promise<{ wishlistItemId: number; alreadyQueued?: boolean; requeued?: boolean; status?: string }> {
-  return requestJson(`/api/albums/tracks/${canonicalTrackId}/acquire`, { method: "POST" })
+export async function acquireCanonicalTrack(canonicalTrackId: number): Promise<{
+  wishlistItemId: number;
+  alreadyQueued?: boolean;
+  requeued?: boolean;
+  status?: string;
+}> {
+  return requestJson(`/api/albums/tracks/${canonicalTrackId}/acquire`, { method: 'POST' });
 }
 
 export async function fetchWishlistSources(): Promise<{ sources: WishlistSource[] }> {
-  return requestJson<{ sources: WishlistSource[] }>("/api/wishlist/sources")
+  return requestJson<{ sources: WishlistSource[] }>('/api/wishlist/sources');
 }
 
 export async function addWishlistSource(
   type: WishlistSourceType,
   options: {
-    playlistId?: string
-    deezerPlaylistId?: string
-    youTubePlaylistId?: string
-    autoSync?: boolean
+    playlistId?: string;
+    deezerPlaylistId?: string;
+    youTubePlaylistId?: string;
+    autoSync?: boolean;
   } = {}
 ): Promise<AddWishlistSourceResult> {
   // Send both `type`/`sourceType` and `playlistId`/`deezerPlaylistId` so the request satisfies the
   // established Spotify shape and the new Deezer contract regardless of which field names the API
   // binds — a Deezer subscribe carries `deezerPlaylistId`, a Spotify one carries `playlistId`, a
   // YouTube one `youTubePlaylistId`.
-  return requestJson<AddWishlistSourceResult>("/api/wishlist/sources", {
-    method: "POST",
+  return requestJson<AddWishlistSourceResult>('/api/wishlist/sources', {
+    method: 'POST',
     body: JSON.stringify({
       type,
       sourceType: type,
       playlistId: options.playlistId,
       deezerPlaylistId: options.deezerPlaylistId,
       youTubePlaylistId: options.youTubePlaylistId,
-      autoSync: options.autoSync ?? false,
-    }),
-  })
+      autoSync: options.autoSync ?? false
+    })
+  });
 }
 
 /**
  * Subscribe to a playlist a link resolved to ({@link resolveDiscoverUrl}), with auto-sync on: new
  * tracks added to it later are wishlisted (and downloaded) on their own.
  */
-export async function subscribeToResolvedPlaylist(r: DiscoverResolveResult): Promise<AddWishlistSourceResult> {
+export async function subscribeToResolvedPlaylist(
+  r: DiscoverResolveResult
+): Promise<AddWishlistSourceResult> {
   switch (r.provider) {
-    case "deezer":
-      return addWishlistSource("DeezerPlaylist", { deezerPlaylistId: r.playlistId, autoSync: true })
-    case "youtube":
-      return addWishlistSource("YouTubePlaylist", { youTubePlaylistId: r.playlistId, autoSync: true })
-    case "spotifyArchive":
-      return addWishlistSource("SpotifyArchivePlaylist", { playlistId: r.playlistId, autoSync: true })
+    case 'deezer':
+      return addWishlistSource('DeezerPlaylist', {
+        deezerPlaylistId: r.playlistId,
+        autoSync: true
+      });
+    case 'youtube':
+      return addWishlistSource('YouTubePlaylist', {
+        youTubePlaylistId: r.playlistId,
+        autoSync: true
+      });
+    case 'spotifyArchive':
+      return addWishlistSource('SpotifyArchivePlaylist', {
+        playlistId: r.playlistId,
+        autoSync: true
+      });
     default:
-      return addWishlistSource("Playlist", { playlistId: r.playlistId, autoSync: true })
+      return addWishlistSource('Playlist', { playlistId: r.playlistId, autoSync: true });
   }
 }
 
 /** The name a playlist provider goes by in the UI. */
 export function playlistProviderLabel(provider: DiscoverResolveProvider): string {
   switch (provider) {
-    case "deezer":
-      return "Deezer"
-    case "youtube":
-      return "YouTube"
-    case "spotify":
-    case "spotifyArchive":
-      return "Spotify"
+    case 'deezer':
+      return 'Deezer';
+    case 'youtube':
+      return 'YouTube';
+    case 'spotify':
+    case 'spotifyArchive':
+      return 'Spotify';
   }
 }
 
-export async function setWishlistSourceAutoSync(id: number, autoSync: boolean): Promise<{ id: number; autoSync: boolean }> {
+export async function setWishlistSourceAutoSync(
+  id: number,
+  autoSync: boolean
+): Promise<{ id: number; autoSync: boolean }> {
   return requestJson<{ id: number; autoSync: boolean }>(`/api/wishlist/sources/${id}`, {
-    method: "PATCH",
-    body: JSON.stringify({ autoSync }),
-  })
+    method: 'PATCH',
+    body: JSON.stringify({ autoSync })
+  });
 }
 
 export async function removeWishlistSource(id: number): Promise<{ message: string }> {
-  return requestJson<{ message: string }>(`/api/wishlist/sources/${id}`, { method: "DELETE" })
+  return requestJson<{ message: string }>(`/api/wishlist/sources/${id}`, { method: 'DELETE' });
 }
 
-export async function retryWishlistItem(id: number): Promise<{ id: number; status: WishlistItemStatus }> {
-  return requestJson<{ id: number; status: WishlistItemStatus }>(`/api/wishlist/items/${id}/retry`, { method: "POST" })
+export async function retryWishlistItem(
+  id: number
+): Promise<{ id: number; status: WishlistItemStatus }> {
+  return requestJson<{ id: number; status: WishlistItemStatus }>(
+    `/api/wishlist/items/${id}/retry`,
+    { method: 'POST' }
+  );
 }
 
 export async function removeWishlistItem(id: number): Promise<{ message: string }> {
-  return requestJson<{ message: string }>(`/api/wishlist/items/${id}`, { method: "DELETE" })
+  return requestJson<{ message: string }>(`/api/wishlist/items/${id}`, { method: 'DELETE' });
 }
 
 export async function retryFailedWishlistItems(): Promise<{ reset: number }> {
-  return requestJson<{ reset: number }>("/api/wishlist/items/retry-failed", { method: "POST" })
+  return requestJson<{ reset: number }>('/api/wishlist/items/retry-failed', { method: 'POST' });
 }
 
 export async function triggerWishlistDownload(): Promise<{ jobId: string }> {
-  return requestJson<{ jobId: string }>("/api/wishlist/download", { method: "POST" })
+  return requestJson<{ jobId: string }>('/api/wishlist/download', { method: 'POST' });
 }
 
 // ── Add from URL (single-track import) ─────────────────────────────────────────
@@ -3927,54 +4066,54 @@ export async function triggerWishlistDownload(): Promise<{ jobId: string }> {
 // The download flows through the normal pipeline and (on a Push instance) auto-syncs to the public
 // receiver once built.
 
-export type ImportSource = "spotify" | "youtube"
+export type ImportSource = 'spotify' | 'youtube';
 
 export interface ImportResolveResult {
-  source: ImportSource
-  title: string
-  artist: string
-  album: string | null
-  durationMs: number
-  coverUrl: string | null
-  spotifyTrackId: string | null
-  isrc: string | null
-  sourceUrl: string | null
+  source: ImportSource;
+  title: string;
+  artist: string;
+  album: string | null;
+  durationMs: number;
+  coverUrl: string | null;
+  spotifyTrackId: string | null;
+  isrc: string | null;
+  sourceUrl: string | null;
 }
 
 export interface ImportTrackPayload {
-  source: ImportSource
-  title: string
-  artist: string
-  album?: string | null
-  durationMs?: number | null
-  coverUrl?: string | null
-  spotifyTrackId?: string | null
-  isrc?: string | null
-  sourceUrl?: string | null
+  source: ImportSource;
+  title: string;
+  artist: string;
+  album?: string | null;
+  durationMs?: number | null;
+  coverUrl?: string | null;
+  spotifyTrackId?: string | null;
+  isrc?: string | null;
+  sourceUrl?: string | null;
   /** "Also download the music video" — omit/null to follow the server default. */
-  downloadMusicVideo?: boolean | null
+  downloadMusicVideo?: boolean | null;
 }
 
 export interface ImportTrackResult {
-  wishlistItemId: number
-  jobStarted: boolean
-  jobId: string | null
+  wishlistItemId: number;
+  jobStarted: boolean;
+  jobId: string | null;
 }
 
 /** Resolve a pasted Spotify/YouTube track URL into editable, download-ready metadata. */
 export async function resolveImportUrl(url: string): Promise<ImportResolveResult> {
-  return requestJson<ImportResolveResult>("/api/import/resolve", {
-    method: "POST",
-    body: JSON.stringify({ url }),
-  })
+  return requestJson<ImportResolveResult>('/api/import/resolve', {
+    method: 'POST',
+    body: JSON.stringify({ url })
+  });
 }
 
 /** Queue a resolved (possibly edited) track for download. */
 export async function importTrack(payload: ImportTrackPayload): Promise<ImportTrackResult> {
-  return requestJson<ImportTrackResult>("/api/import", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  })
+  return requestJson<ImportTrackResult>('/api/import', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
 }
 
 // ── Discover (Spotify's own playlists, from the Spotify Playlist Archive) ─────
@@ -3983,296 +4122,301 @@ export async function importTrack(payload: ImportTrackPayload): Promise<ImportTr
 // source pipeline (see addWishlistSource with type "SpotifyArchivePlaylist").
 
 export interface DiscoverPlaylistSummary {
-  id: string
-  title: string
-  description: string | null
-  coverUrl: string | null
+  id: string;
+  title: string;
+  description: string | null;
+  coverUrl: string | null;
   /** Null in the browse grid (the archive's index carries no count); the detail view has it. */
-  trackCount: number | null
-  followers: number
-  creatorName: string | null
+  trackCount: number | null;
+  followers: number;
+  creatorName: string | null;
   /** True when the user already subscribes to this playlist (a wishlist source exists). */
-  subscribed: boolean
+  subscribed: boolean;
   /** The wishlist source id when subscribed — needed to unsubscribe / toggle auto-sync. */
-  sourceId: number | null
+  sourceId: number | null;
   /** The source's auto-sync flag when subscribed; null when not subscribed. */
-  autoSync: boolean | null
+  autoSync: boolean | null;
 }
 
 export interface DiscoverTrack {
-  spotifyTrackId: string
-  title: string
-  artist: string
-  album: string | null
-  durationMs: number | null
-  inLibrary: boolean
-  inWishlist: boolean
+  spotifyTrackId: string;
+  title: string;
+  artist: string;
+  album: string | null;
+  durationMs: number | null;
+  inLibrary: boolean;
+  inWishlist: boolean;
 }
 
 export interface DiscoverPlaylistDetail {
-  playlist: DiscoverPlaylistSummary
-  tracks: DiscoverTrack[]
+  playlist: DiscoverPlaylistSummary;
+  tracks: DiscoverTrack[];
 }
 
-export type DiscoverResolveProvider = "deezer" | "spotify" | "spotifyArchive" | "youtube"
+export type DiscoverResolveProvider = 'deezer' | 'spotify' | 'spotifyArchive' | 'youtube';
 
 export interface DiscoverResolveResult {
-  provider: DiscoverResolveProvider
-  playlistId: string
-  title: string
-  coverUrl: string | null
+  provider: DiscoverResolveProvider;
+  playlistId: string;
+  title: string;
+  coverUrl: string | null;
   /** For a YouTube playlist, the number of videos. */
-  trackCount: number
-  subscribed: boolean
+  trackCount: number;
+  subscribed: boolean;
 }
 
 export async function fetchDiscoverPlaylists(
   params: { search?: string; limit?: number } = {}
 ): Promise<{ playlists: DiscoverPlaylistSummary[] }> {
-  const query = new URLSearchParams()
-  if (params.search) query.set("search", params.search)
-  if (params.limit != null) query.set("limit", String(params.limit))
-  const qs = query.toString()
+  const query = new URLSearchParams();
+  if (params.search) query.set('search', params.search);
+  if (params.limit != null) query.set('limit', String(params.limit));
+  const qs = query.toString();
   return requestJson<{ playlists: DiscoverPlaylistSummary[] }>(
-    `/api/discover/playlists${qs ? `?${qs}` : ""}`
-  )
+    `/api/discover/playlists${qs ? `?${qs}` : ''}`
+  );
 }
 
 export async function fetchDiscoverPlaylist(id: string): Promise<DiscoverPlaylistDetail> {
-  return requestJson<DiscoverPlaylistDetail>(`/api/discover/playlists/${encodeURIComponent(id)}`)
+  return requestJson<DiscoverPlaylistDetail>(`/api/discover/playlists/${encodeURIComponent(id)}`);
 }
 
 export async function resolveDiscoverUrl(url: string): Promise<DiscoverResolveResult> {
-  return requestJson<DiscoverResolveResult>("/api/discover/resolve", {
-    method: "POST",
-    body: JSON.stringify({ url }),
-  })
+  return requestJson<DiscoverResolveResult>('/api/discover/resolve', {
+    method: 'POST',
+    body: JSON.stringify({ url })
+  });
 }
 
 // ── Soulseek & library sync API ───────────────────────────────────────────────
 
-export type SyncMode = "Off" | "Push" | "Receive"
+export type SyncMode = 'Off' | 'Push' | 'Receive';
 
 /** Outbox rollup for Push mode — how many tracks sit in each sync state. */
 export interface SyncOutboxCounts {
-  pending: number
-  uploading: number
-  synced: number
-  skippedRemoteBetter: number
-  failed: number
+  pending: number;
+  uploading: number;
+  synced: number;
+  skippedRemoteBetter: number;
+  failed: number;
 }
 
 export interface SyncStatus {
-  mode: SyncMode
-  receiveConfigured: boolean
-  pushConfigured: boolean
-  outbox: SyncOutboxCounts
+  mode: SyncMode;
+  receiveConfigured: boolean;
+  pushConfigured: boolean;
+  outbox: SyncOutboxCounts;
 }
 
 export interface SoulseekStatus {
-  configured: boolean
-  connected: boolean
-  version?: string | null
+  configured: boolean;
+  connected: boolean;
+  version?: string | null;
 }
 
 export type SoulseekUpgradeStatus =
-  | "Queued"
-  | "Searching"
-  | "Downloading"
-  | "AwaitingIngest"
-  | "Completed"
-  | "NotFound"
-  | "Failed"
-  | "Cancelled"
+  | 'Queued'
+  | 'Searching'
+  | 'Downloading'
+  | 'AwaitingIngest'
+  | 'Completed'
+  | 'NotFound'
+  | 'Failed'
+  | 'Cancelled'
   /** A provider was unreachable and nothing after it had a better copy; the sweep retries soon. */
-  | "Deferred"
+  | 'Deferred';
 
 export interface SoulseekUpgrade {
-  id: number
-  songId: number
-  songArtist?: string | null
-  songTitle?: string | null
-  songExtension?: string | null
-  songBitrate?: number | null
-  status: string
-  candidateQualityScore?: number | null
-  candidateInfoJson?: string | null
-  error?: string | null
-  createdAtUtc: string
-  updatedAtUtc: string
-  completedAtUtc?: string | null
+  id: number;
+  songId: number;
+  songArtist?: string | null;
+  songTitle?: string | null;
+  songExtension?: string | null;
+  songBitrate?: number | null;
+  status: string;
+  candidateQualityScore?: number | null;
+  candidateInfoJson?: string | null;
+  error?: string | null;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+  completedAtUtc?: string | null;
 }
 
 /** Target one song by id, or a whole album by artist + album. */
 export interface SoulseekUpgradeRequest {
-  songId?: number
-  artist?: string
-  album?: string
+  songId?: number;
+  artist?: string;
+  album?: string;
 }
 
 export interface SoulseekUpgradeResult {
-  queued: number
-  skippedActive: number
+  queued: number;
+  skippedActive: number;
 }
 
 /** Per-track sync state surfaced on the enrichment detail (Push deployments only). */
 export interface TrackSyncView {
-  status: "Pending" | "Uploading" | "Synced" | "SkippedRemoteBetter" | "Failed"
-  attempts: number
-  lastError?: string | null
-  remoteQualityScore?: number | null
-  updatedAtUtc: string
+  status: 'Pending' | 'Uploading' | 'Synced' | 'SkippedRemoteBetter' | 'Failed';
+  attempts: number;
+  lastError?: string | null;
+  remoteQualityScore?: number | null;
+  updatedAtUtc: string;
 }
 
 /** The song's latest Soulseek quality-upgrade attempt, surfaced on the enrichment detail. */
 export interface SongUpgradeView {
-  id: number
-  status: SoulseekUpgradeStatus
-  active: boolean
-  candidateInfoJson?: string | null
-  error?: string | null
-  updatedAtUtc: string
+  id: number;
+  status: SoulseekUpgradeStatus;
+  active: boolean;
+  candidateInfoJson?: string | null;
+  error?: string | null;
+  updatedAtUtc: string;
 }
 
 export const sync = {
   getStatus(): Promise<SyncStatus> {
-    return requestJson<SyncStatus>("/api/sync/status")
-  },
-}
+    return requestJson<SyncStatus>('/api/sync/status');
+  }
+};
 
 export const soulseek = {
   getStatus(): Promise<SoulseekStatus> {
-    return requestJson<SoulseekStatus>("/api/soulseek/status")
+    return requestJson<SoulseekStatus>('/api/soulseek/status');
   },
   requestUpgrade(body: SoulseekUpgradeRequest): Promise<SoulseekUpgradeResult> {
-    return requestJson<SoulseekUpgradeResult>("/api/soulseek/upgrades", {
-      method: "POST",
-      body: JSON.stringify(body),
-    })
+    return requestJson<SoulseekUpgradeResult>('/api/soulseek/upgrades', {
+      method: 'POST',
+      body: JSON.stringify(body)
+    });
   },
   listUpgrades(status?: string, limit?: number): Promise<SoulseekUpgrade[]> {
-    const params = new URLSearchParams()
-    if (status) params.set("status", status)
-    if (limit != null) params.set("limit", String(limit))
-    const qs = params.toString()
-    return requestJson<SoulseekUpgrade[]>(`/api/soulseek/upgrades${qs ? `?${qs}` : ""}`)
+    const params = new URLSearchParams();
+    if (status) params.set('status', status);
+    if (limit != null) params.set('limit', String(limit));
+    const qs = params.toString();
+    return requestJson<SoulseekUpgrade[]>(`/api/soulseek/upgrades${qs ? `?${qs}` : ''}`);
   },
   cancelUpgrade(id: number): Promise<{ cancelled: boolean }> {
-    return requestJson<{ cancelled: boolean }>(`/api/soulseek/upgrades/${id}`, { method: "DELETE" })
-  },
-}
+    return requestJson<{ cancelled: boolean }>(`/api/soulseek/upgrades/${id}`, {
+      method: 'DELETE'
+    });
+  }
+};
 
 // ---------------------------------------------------------------------------
 // Exported playlists API (Spotify Liked Songs + playlists → on-disk .m3u8)
 // ---------------------------------------------------------------------------
 
-export type ExportedPlaylistKind = "LikedSongs" | "Playlist"
+export type ExportedPlaylistKind = 'LikedSongs' | 'Playlist';
 
 // One of the owner's Spotify collections (Liked Songs or a playlist). Export is opt-in: `subscribed`
 // is false until the owner adds it, at which point coverage fields (matched/filePath/lastGenerated)
 // are populated by the export run. `id` is the subscription row id (null when not subscribed).
 export interface PlaylistCollection {
-  id: number | null
-  kind: ExportedPlaylistKind
-  spotifyPlaylistId?: string | null
-  name: string
-  imageUrl?: string | null
-  ownerName?: string | null
-  spotifyTrackTotal: number
-  subscribed: boolean
-  matchedTrackCount: number
-  filePath?: string | null
-  lastGeneratedAtUtc?: string | null
+  id: number | null;
+  kind: ExportedPlaylistKind;
+  spotifyPlaylistId?: string | null;
+  name: string;
+  imageUrl?: string | null;
+  ownerName?: string | null;
+  spotifyTrackTotal: number;
+  subscribed: boolean;
+  matchedTrackCount: number;
+  filePath?: string | null;
+  lastGeneratedAtUtc?: string | null;
 }
 
 export interface PlaylistCollectionsResponse {
-  spotifyConnected: boolean
-  spotifyError?: string | null
-  collections: PlaylistCollection[]
+  spotifyConnected: boolean;
+  spotifyError?: string | null;
+  collections: PlaylistCollection[];
 }
 
 export async function fetchPlaylistCollections(): Promise<PlaylistCollectionsResponse> {
-  return requestJson<PlaylistCollectionsResponse>("/api/playlist-sync")
+  return requestJson<PlaylistCollectionsResponse>('/api/playlist-sync');
 }
 
 export async function subscribePlaylist(input: {
-  kind: ExportedPlaylistKind
-  spotifyPlaylistId?: string | null
-  name: string
+  kind: ExportedPlaylistKind;
+  spotifyPlaylistId?: string | null;
+  name: string;
 }): Promise<{ id: number; subscribed: boolean; queued: boolean }> {
-  return requestJson("/api/playlist-sync/subscribe", {
-    method: "POST",
+  return requestJson('/api/playlist-sync/subscribe', {
+    method: 'POST',
     body: JSON.stringify(input)
-  })
+  });
 }
 
 export async function unsubscribePlaylist(id: number): Promise<{ message: string }> {
-  return requestJson(`/api/playlist-sync/${id}`, { method: "DELETE" })
+  return requestJson(`/api/playlist-sync/${id}`, { method: 'DELETE' });
 }
 
 export async function regenerateExportedPlaylists(): Promise<{ queued: boolean }> {
-  return requestJson<{ queued: boolean }>("/api/playlist-sync/regenerate", { method: "POST" })
+  return requestJson<{ queued: boolean }>('/api/playlist-sync/regenerate', { method: 'POST' });
 }
 
 // ---------------------------------------------------------------------------
 // Playlists API (MusicHoarder's own playlists, and one per collected Spotify/Deezer/YouTube playlist)
 // ---------------------------------------------------------------------------
 
-export type PlaylistSourceType = "spotifyLiked" | "spotifyPlaylist" | "deezer" | "youtube"
+export type PlaylistSourceType = 'spotifyLiked' | 'spotifyPlaylist' | 'deezer' | 'youtube';
 
 // The collected remote playlist a playlist follows. Its tracks play first, in the remote order.
 export interface PlaylistSource {
-  id: number
-  type: PlaylistSourceType
-  name: string
-  imageUrl?: string | null
-  url?: string | null
-  autoSync: boolean
-  lastSyncedAtUtc?: string | null
+  id: number;
+  type: PlaylistSourceType;
+  name: string;
+  imageUrl?: string | null;
+  url?: string | null;
+  autoSync: boolean;
+  lastSyncedAtUtc?: string | null;
 }
 
 // A playlist carries song ids, joined against the /songs list like an album's trackIds.
 export interface LibraryPlaylist {
-  id: number
-  name: string
-  source: PlaylistSource | null
+  id: number;
+  name: string;
+  source: PlaylistSource | null;
   // What plays, in order: the synced tracks, then the ones added in MusicHoarder.
-  songIds: number[]
+  songIds: number[];
   // The songs added in MusicHoarder — the only ones that can be removed or reordered here.
-  addedSongIds: number[]
+  addedSongIds: number[];
   // Synced tracks not in the library yet.
-  missingCount: number
-  exportToLibrary: boolean
-  exportedAtUtc?: string | null
-  createdAtUtc: string
-  updatedAtUtc: string
+  missingCount: number;
+  exportToLibrary: boolean;
+  exportedAtUtc?: string | null;
+  createdAtUtc: string;
+  updatedAtUtc: string;
 }
 
 export interface PlaylistsResponse {
-  playlists: LibraryPlaylist[]
+  playlists: LibraryPlaylist[];
   // Whether this account's playlists can be written into the library (the library owner's only).
-  canExport: boolean
+  canExport: boolean;
 }
 
 export interface PlaylistSongsResult {
-  added: number
-  alreadyPresent: number
-  playlist: LibraryPlaylist
+  added: number;
+  alreadyPresent: number;
+  playlist: LibraryPlaylist;
 }
 
 export async function fetchPlaylists(): Promise<PlaylistsResponse> {
-  return requestJson<PlaylistsResponse>("/api/playlists")
+  return requestJson<PlaylistsResponse>('/api/playlists');
 }
 
 export async function fetchPlaylist(id: number): Promise<LibraryPlaylist> {
-  return requestJson<LibraryPlaylist>(`/api/playlists/${id}`)
+  return requestJson<LibraryPlaylist>(`/api/playlists/${id}`);
 }
 
-export async function createPlaylist(name: string, songIds: number[] = []): Promise<LibraryPlaylist> {
-  return requestJson<LibraryPlaylist>("/api/playlists", {
-    method: "POST",
+export async function createPlaylist(
+  name: string,
+  songIds: number[] = []
+): Promise<LibraryPlaylist> {
+  return requestJson<LibraryPlaylist>('/api/playlists', {
+    method: 'POST',
     body: JSON.stringify({ name, songIds })
-  })
+  });
 }
 
 export async function updatePlaylist(
@@ -4280,118 +4424,128 @@ export async function updatePlaylist(
   patch: { name?: string; exportToLibrary?: boolean }
 ): Promise<LibraryPlaylist> {
   return requestJson<LibraryPlaylist>(`/api/playlists/${id}`, {
-    method: "PATCH",
+    method: 'PATCH',
     body: JSON.stringify(patch)
-  })
+  });
 }
 
 export async function deletePlaylist(id: number): Promise<{ message: string }> {
-  return requestJson(`/api/playlists/${id}`, { method: "DELETE" })
+  return requestJson(`/api/playlists/${id}`, { method: 'DELETE' });
 }
 
-export async function addPlaylistSongs(id: number, songIds: number[]): Promise<PlaylistSongsResult> {
+export async function addPlaylistSongs(
+  id: number,
+  songIds: number[]
+): Promise<PlaylistSongsResult> {
   return requestJson<PlaylistSongsResult>(`/api/playlists/${id}/songs`, {
-    method: "POST",
+    method: 'POST',
     body: JSON.stringify({ songIds })
-  })
+  });
 }
 
-export async function reorderPlaylistSongs(id: number, songIds: number[]): Promise<LibraryPlaylist> {
+export async function reorderPlaylistSongs(
+  id: number,
+  songIds: number[]
+): Promise<LibraryPlaylist> {
   return requestJson<LibraryPlaylist>(`/api/playlists/${id}/songs`, {
-    method: "PUT",
+    method: 'PUT',
     body: JSON.stringify({ songIds })
-  })
+  });
 }
 
 export async function removePlaylistSong(id: number, songId: number): Promise<LibraryPlaylist> {
-  return requestJson<LibraryPlaylist>(`/api/playlists/${id}/songs/${songId}`, { method: "DELETE" })
+  return requestJson<LibraryPlaylist>(`/api/playlists/${id}/songs/${songId}`, { method: 'DELETE' });
 }
 
 // ---------------------------------------------------------------------------
 // Auth API
 // ---------------------------------------------------------------------------
 
-export type AuthRole = "Admin" | "Demo" | "Member"
+export type AuthRole = 'Admin' | 'Demo' | 'Member';
 
 export interface AuthMe {
-  id: string
-  email: string
-  role: AuthRole
-  displayName: string | null
+  id: string;
+  email: string;
+  role: AuthRole;
+  displayName: string | null;
 }
 
 export interface RequestLinkResult {
-  ok: boolean
+  ok: boolean;
   /** Present only in dev / Console-fallback mode so devs can click without email. */
-  magicLinkUrl?: string | null
+  magicLinkUrl?: string | null;
   /** True when the server has no email service — the link was written to the server logs instead. */
-  magicLinkInLogs?: boolean
+  magicLinkInLogs?: boolean;
 }
 
 export async function fetchCurrentUser(): Promise<AuthMe | null> {
-  const response = await fetch(`${API_PREFIX}/api/auth/me`, { cache: "no-store" })
-  if (response.status === 401) return null
-  if (!response.ok) throw new Error(`auth/me failed: ${response.status}`)
-  return (await response.json()) as AuthMe
+  const response = await fetch(`${API_PREFIX}/api/auth/me`, { cache: 'no-store' });
+  if (response.status === 401) return null;
+  if (!response.ok) throw new Error(`auth/me failed: ${response.status}`);
+  return (await response.json()) as AuthMe;
 }
 
 /** Rename the signed-in account. Pass null to clear the name (UI falls back to the email). */
 export async function updateDisplayName(displayName: string | null): Promise<AuthMe> {
   return requestJson<AuthMe>(`/api/auth/me`, {
-    method: "PATCH",
-    body: JSON.stringify({ displayName }),
-  })
+    method: 'PATCH',
+    body: JSON.stringify({ displayName })
+  });
 }
 
 export async function requestMagicLink(
   email: string,
-  options: { fromApp?: boolean } = {},
+  options: { fromApp?: boolean } = {}
 ): Promise<RequestLinkResult> {
   const response = await fetch(`${API_PREFIX}/api/auth/request-link`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     // `client: "app"` makes the emailed link open a page that hands the token to the app
     // (`musichoarder://auth`) instead of signing in the browser the mail app opened.
-    body: JSON.stringify(options.fromApp ? { email, client: "app" } : { email }),
-    cache: "no-store",
-  })
-  if (response.status === 503) return { ok: false }
+    body: JSON.stringify(options.fromApp ? { email, client: 'app' } : { email }),
+    cache: 'no-store'
+  });
+  if (response.status === 503) return { ok: false };
   const body = (await response.json().catch(() => ({}))) as {
-    magicLinkUrl?: string | null
-    magicLinkInLogs?: boolean
-  }
-  return { ok: true, magicLinkUrl: body.magicLinkUrl ?? null, magicLinkInLogs: body.magicLinkInLogs ?? false }
+    magicLinkUrl?: string | null;
+    magicLinkInLogs?: boolean;
+  };
+  return {
+    ok: true,
+    magicLinkUrl: body.magicLinkUrl ?? null,
+    magicLinkInLogs: body.magicLinkInLogs ?? false
+  };
 }
 
 /** One signed-in account in this browser, as reported by the account switcher. */
 export interface AccountView {
-  userId: string
-  email: string
-  role: AuthRole
-  displayName: string | null
-  isActive: boolean
+  userId: string;
+  email: string;
+  role: AuthRole;
+  displayName: string | null;
+  isActive: boolean;
 }
 
 export interface SignOutResult {
   /** The parked account promoted to active by the logout, or null when none was left. */
-  fallback: AccountView | null
+  fallback: AccountView | null;
 }
 
 export async function signOut(allSessions = false): Promise<SignOutResult> {
-  const response = await fetch(`${API_PREFIX}/api/auth/logout${allSessions ? "?all=true" : ""}`, {
-    method: "POST",
-    cache: "no-store",
-  })
-  const body = (await response.json().catch(() => ({}))) as { fallback?: AccountView | null }
-  return { fallback: body.fallback ?? null }
+  const response = await fetch(`${API_PREFIX}/api/auth/logout${allSessions ? '?all=true' : ''}`, {
+    method: 'POST',
+    cache: 'no-store'
+  });
+  const body = (await response.json().catch(() => ({}))) as { fallback?: AccountView | null };
+  return { fallback: body.fallback ?? null };
 }
 
 /** Accounts remembered in this browser: the active one first, then parked ones by recency. */
 export async function listAccounts(): Promise<AccountView[]> {
-  const response = await fetch(`${API_PREFIX}/api/auth/accounts`, { cache: "no-store" })
-  if (!response.ok) throw new Error(`auth/accounts failed: ${response.status}`)
-  const body = (await response.json()) as { accounts: AccountView[] }
-  return body.accounts
+  const response = await fetch(`${API_PREFIX}/api/auth/accounts`, { cache: 'no-store' });
+  if (!response.ok) throw new Error(`auth/accounts failed: ${response.status}`);
+  const body = (await response.json()) as { accounts: AccountView[] };
+  return body.accounts;
 }
 
 /**
@@ -4400,23 +4554,23 @@ export async function listAccounts(): Promise<AccountView[]> {
  */
 export async function switchAccount(userId: string): Promise<AccountView | null> {
   const response = await fetch(`${API_PREFIX}/api/auth/switch`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ userId }),
-    cache: "no-store",
-  })
-  if (response.status === 404) return null
-  if (!response.ok) throw new Error(`auth/switch failed: ${response.status}`)
-  const body = (await response.json()) as { user: AccountView }
-  return body.user
+    cache: 'no-store'
+  });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`auth/switch failed: ${response.status}`);
+  const body = (await response.json()) as { user: AccountView };
+  return body.user;
 }
 
 export async function signInAsDemo(): Promise<void> {
   const response = await fetch(`${API_PREFIX}/api/auth/demo-login`, {
-    method: "POST",
-    cache: "no-store",
-  })
-  if (!response.ok) throw new Error(`demo-login failed: ${response.status}`)
+    method: 'POST',
+    cache: 'no-store'
+  });
+  if (!response.ok) throw new Error(`demo-login failed: ${response.status}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -4424,49 +4578,56 @@ export async function signInAsDemo(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export interface PasskeyView {
-  id: string
-  displayName: string
-  aaGuid: string
-  createdAtUtc: string
-  lastUsedAtUtc: string | null
+  id: string;
+  displayName: string;
+  aaGuid: string;
+  createdAtUtc: string;
+  lastUsedAtUtc: string | null;
 }
 
-const WEBAUTHN_PREFIX = `${API_PREFIX}/api/auth/webauthn`
+const WEBAUTHN_PREFIX = `${API_PREFIX}/api/auth/webauthn`;
 
 /** Enrolls a new passkey for the signed-in owner. Runs the full begin → ceremony → complete flow. */
 export async function registerPasskey(displayName: string): Promise<PasskeyView> {
-  const beginRes = await fetch(`${WEBAUTHN_PREFIX}/register/begin`, { method: "POST", cache: "no-store" })
-  if (!beginRes.ok) throw new Error(`Could not start passkey registration (${beginRes.status}).`)
-  const options = (await beginRes.json()) as Record<string, unknown>
+  const beginRes = await fetch(`${WEBAUTHN_PREFIX}/register/begin`, {
+    method: 'POST',
+    cache: 'no-store'
+  });
+  if (!beginRes.ok) throw new Error(`Could not start passkey registration (${beginRes.status}).`);
+  const options = (await beginRes.json()) as Record<string, unknown>;
 
-  const attestation = await createPasskey(options)
+  const attestation = await createPasskey(options);
 
   const completeRes = await fetch(`${WEBAUTHN_PREFIX}/register/complete`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ attestation, displayName }),
-    cache: "no-store",
-  })
+    cache: 'no-store'
+  });
   if (!completeRes.ok) {
-    const body = (await completeRes.json().catch(() => ({}))) as { error?: string }
-    throw new Error(body.error === "verification_failed" ? "Passkey could not be verified." : "Passkey registration failed.")
+    const body = (await completeRes.json().catch(() => ({}))) as { error?: string };
+    throw new Error(
+      body.error === 'verification_failed'
+        ? 'Passkey could not be verified.'
+        : 'Passkey registration failed.'
+    );
   }
-  return (await completeRes.json()) as PasskeyView
+  return (await completeRes.json()) as PasskeyView;
 }
 
 /** The server refused the passkey that was picked (as opposed to a cancelled or failed request). */
 export class PasskeyRefusedError extends Error {
-  constructor(message = "Passkey sign-in failed.") {
-    super(message)
-    this.name = "PasskeyRefusedError"
+  constructor(message = 'Passkey sign-in failed.') {
+    super(message);
+    this.name = 'PasskeyRefusedError';
   }
 }
 
 /** The passkey this sign-in used is not on any account (it was removed here). */
 export class UnknownPasskeyError extends PasskeyRefusedError {
   constructor() {
-    super("That passkey was removed from its account. Sign in another way, then add a new one.")
-    this.name = "UnknownPasskeyError"
+    super('That passkey was removed from its account. Sign in another way, then add a new one.');
+    this.name = 'UnknownPasskeyError';
   }
 }
 
@@ -4477,29 +4638,32 @@ export class UnknownPasskeyError extends PasskeyRefusedError {
  */
 export async function loginWithPasskey(mode: AssertionMode = {}): Promise<void> {
   const beginRes = await fetch(`${WEBAUTHN_PREFIX}/authenticate/begin`, {
-    method: "POST",
-    cache: "no-store",
-    signal: mode.signal,
-  })
-  if (!beginRes.ok) throw new Error(`Could not start passkey sign-in (${beginRes.status}).`)
-  const options = (await beginRes.json()) as Record<string, unknown>
+    method: 'POST',
+    cache: 'no-store',
+    signal: mode.signal
+  });
+  if (!beginRes.ok) throw new Error(`Could not start passkey sign-in (${beginRes.status}).`);
+  const options = (await beginRes.json()) as Record<string, unknown>;
 
-  const assertion = await getPasskeyAssertion(options, mode)
+  const assertion = await getPasskeyAssertion(options, mode);
 
   const completeRes = await fetch(`${WEBAUTHN_PREFIX}/authenticate/complete`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify(assertion),
-    cache: "no-store",
-  })
+    cache: 'no-store'
+  });
   if (!completeRes.ok) {
-    const body = (await completeRes.json().catch(() => ({}))) as { error?: string }
-    if (body.error === "unknown_credential") {
+    const body = (await completeRes.json().catch(() => ({}))) as { error?: string };
+    if (body.error === 'unknown_credential') {
       // Tell the password manager, so it stops offering a passkey that can never work.
-      await signalUnknownPasskey(typeof options.rpId === "string" ? options.rpId : "", assertion.id)
-      throw new UnknownPasskeyError()
+      await signalUnknownPasskey(
+        typeof options.rpId === 'string' ? options.rpId : '',
+        assertion.id
+      );
+      throw new UnknownPasskeyError();
     }
-    throw new PasskeyRefusedError()
+    throw new PasskeyRefusedError();
   }
 }
 
@@ -4509,26 +4673,26 @@ export async function loginWithPasskey(mode: AssertionMode = {}): Promise<void> 
  */
 export async function syncPasskeysWithPasswordManager(): Promise<void> {
   try {
-    const response = await fetch(`${WEBAUTHN_PREFIX}/credentials/signal`, { cache: "no-store" })
-    if (!response.ok) return
-    await signalAccountPasskeys((await response.json()) as PasskeySignalInfo)
+    const response = await fetch(`${WEBAUTHN_PREFIX}/credentials/signal`, { cache: 'no-store' });
+    if (!response.ok) return;
+    await signalAccountPasskeys((await response.json()) as PasskeySignalInfo);
   } catch {
     // Nothing for the person to act on.
   }
 }
 
 export async function listPasskeys(): Promise<PasskeyView[]> {
-  const response = await fetch(`${WEBAUTHN_PREFIX}/credentials`, { cache: "no-store" })
-  if (!response.ok) throw new Error(`Could not load passkeys (${response.status}).`)
-  return (await response.json()) as PasskeyView[]
+  const response = await fetch(`${WEBAUTHN_PREFIX}/credentials`, { cache: 'no-store' });
+  if (!response.ok) throw new Error(`Could not load passkeys (${response.status}).`);
+  return (await response.json()) as PasskeyView[];
 }
 
 export async function deletePasskey(id: string): Promise<void> {
   const response = await fetch(`${WEBAUTHN_PREFIX}/credentials/${encodeURIComponent(id)}`, {
-    method: "DELETE",
-    cache: "no-store",
-  })
-  if (!response.ok) throw new Error(`Could not remove passkey (${response.status}).`)
+    method: 'DELETE',
+    cache: 'no-store'
+  });
+  if (!response.ok) throw new Error(`Could not remove passkey (${response.status}).`);
 }
 
 // ---------------------------------------------------------------------------
@@ -4536,203 +4700,204 @@ export async function deletePasskey(id: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export interface SettingsPathsView {
-  sourceDirectory: string
-  destinationDirectory: string
-  fpcalcPath: string
+  sourceDirectory: string;
+  destinationDirectory: string;
+  fpcalcPath: string;
 }
 
 export interface SettingsProvidersView {
-  acoustId: boolean
-  musicBrainzWeb: boolean
-  spotifyApi: boolean
-  tracker: boolean
-  deezer: boolean
-  appleMusic: boolean
+  acoustId: boolean;
+  musicBrainzWeb: boolean;
+  spotifyApi: boolean;
+  tracker: boolean;
+  deezer: boolean;
+  appleMusic: boolean;
 }
 
 export interface SettingsSpotifyView {
-  oAuthRedirectBaseUrl: string
-  scopes: string[]
+  oAuthRedirectBaseUrl: string;
+  scopes: string[];
 }
 
 export interface SettingsQualityGradingView {
-  enabled: boolean
-  configured: boolean
+  enabled: boolean;
+  configured: boolean;
 }
 
 export interface SettingsLyricsTranscriptionView {
   /** True when a transcription provider is configured on the server (the experimental feature is live). */
-  enabled: boolean
+  enabled: boolean;
 }
 
 export interface SettingsLyricsTranslationView {
   /** True when the OpenRouter creds (QualityGrading) + a translation model are configured on the server. */
-  enabled: boolean
+  enabled: boolean;
 }
 
 export interface SettingsDownloadsView {
   /** Deploy-time feature switch: wishlist downloads available at all (yt-dlp + a writable download dir). */
-  enabled: boolean
+  enabled: boolean;
   /** Runtime toggle: auto-sweep Pending wishlist items in the background. Flippable from the UI. */
-  autoDownload: boolean
+  autoDownload: boolean;
   /**
    * Runtime toggle: queue the missing tracks of albums you already own part of. Rides the same
    * downloader, so it only means anything when {@link enabled} is true.
    */
-  albumCompletion: boolean
+  albumCompletion: boolean;
   /**
    * Runtime toggle: once a download's library copy is verified, delete the staged copy so downloads
    * stop being stored twice. Only means anything when {@link enabled} is true.
    */
-  releaseStagedSources: boolean
+  releaseStagedSources: boolean;
 }
 
 export interface SettingsResponse {
-  paths: SettingsPathsView
-  providers: SettingsProvidersView
-  spotify: SettingsSpotifyView
-  qualityGrading: SettingsQualityGradingView
-  lyricsTranscription: SettingsLyricsTranscriptionView
-  lyricsTranslation?: SettingsLyricsTranslationView
-  downloads: SettingsDownloadsView
-  updatedAtUtc: string | null
+  paths: SettingsPathsView;
+  providers: SettingsProvidersView;
+  spotify: SettingsSpotifyView;
+  qualityGrading: SettingsQualityGradingView;
+  lyricsTranscription: SettingsLyricsTranscriptionView;
+  lyricsTranslation?: SettingsLyricsTranslationView;
+  downloads: SettingsDownloadsView;
+  updatedAtUtc: string | null;
 }
 
 export interface SettingsUpdateRequest {
-  providers?: Partial<SettingsProvidersView>
-  qualityGrading?: { enabled?: boolean }
-  downloads?: { autoDownload?: boolean; albumCompletion?: boolean; releaseStagedSources?: boolean }
+  providers?: Partial<SettingsProvidersView>;
+  qualityGrading?: { enabled?: boolean };
+  downloads?: { autoDownload?: boolean; albumCompletion?: boolean; releaseStagedSources?: boolean };
 }
 
 export async function fetchSettings(): Promise<SettingsResponse> {
-  return requestJson<SettingsResponse>("/api/settings")
+  return requestJson<SettingsResponse>('/api/settings');
 }
 
 export async function updateSettings(update: SettingsUpdateRequest): Promise<void> {
-  await requestJson<unknown>("/api/settings", {
-    method: "PUT",
-    body: JSON.stringify(update),
-  })
+  await requestJson<unknown>('/api/settings', {
+    method: 'PUT',
+    body: JSON.stringify(update)
+  });
 }
 
 export async function fetchReviewTracks(): Promise<ApiSong[]> {
-  const result = await requestJson<SongsResponse>(
-    "/songs?enrichmentStatus=needsreview"
-  )
-  return result.songs ?? []
+  const result = await requestJson<SongsResponse>('/songs?enrichmentStatus=needsreview');
+  return result.songs ?? [];
 }
 
 /** Enrichment-review queue filter: songs still needing a human, or already matched. */
-export type ReviewQueueFilter = "needsreview" | "matched"
+export type ReviewQueueFilter = 'needsreview' | 'matched';
 
 /** Fetch songs for the Provenance & review queue by enrichment status. */
 export async function fetchReviewQueue(filter: ReviewQueueFilter): Promise<ReviewQueueSong[]> {
-  const result = await requestJson<SongsResponse>(
-    `/songs?enrichmentStatus=${filter}`
-  )
-  const originals = result.originalTags ?? {}
+  const result = await requestJson<SongsResponse>(`/songs?enrichmentStatus=${filter}`);
+  const originals = result.originalTags ?? {};
   return (result.songs ?? []).map((song) => {
-    const tags = originals[song.id]
+    const tags = originals[song.id];
     return tags
-      ? { ...song, originalTitle: tags.title, originalArtist: tags.artist, originalAlbum: tags.album }
-      : song
-  })
+      ? {
+          ...song,
+          originalTitle: tags.title,
+          originalArtist: tags.artist,
+          originalAlbum: tags.album
+        }
+      : song;
+  });
 }
 
 // ── Duplicates (acoustic + metadata clusters) ──────────────────────────────────
 
 /** How confident the server is that a member/group really is the same recording. */
-export type DuplicateConfidence = "confirmed" | "suspected"
+export type DuplicateConfidence = 'confirmed' | 'suspected';
 
 /** One file inside a duplicate cluster, with its match evidence. */
 export interface DuplicateMember {
-  id: number
-  sourcePath: string
-  fileName: string
-  extension?: string | null
-  fileSizeBytes: number
-  artist?: string | null
-  albumArtist?: string | null
-  album?: string | null
-  title?: string | null
-  year?: number | null
-  trackNumber?: number | null
-  durationSeconds?: number | null
-  bitrate?: number | null
-  fingerprint?: string | null
-  isDuplicate: boolean
-  duplicateOfId?: number | null
-  enrichmentStatus?: string | number | null
-  destinationPath?: string | null
+  id: number;
+  sourcePath: string;
+  fileName: string;
+  extension?: string | null;
+  fileSizeBytes: number;
+  artist?: string | null;
+  albumArtist?: string | null;
+  album?: string | null;
+  title?: string | null;
+  year?: number | null;
+  trackNumber?: number | null;
+  durationSeconds?: number | null;
+  bitrate?: number | null;
+  fingerprint?: string | null;
+  isDuplicate: boolean;
+  duplicateOfId?: number | null;
+  enrichmentStatus?: string | number | null;
+  destinationPath?: string | null;
   /** True when this copy was already built to the destination library. */
-  isBuilt: boolean
+  isBuilt: boolean;
   /** True for the server-elected keeper of the cluster. */
-  isKeeper: boolean
+  isKeeper: boolean;
   /** True when the user manually pinned this copy as the keeper. */
-  isPinned: boolean
-  confidence: DuplicateConfidence
+  isPinned: boolean;
+  confidence: DuplicateConfidence;
   /** Match evidence: exact-fingerprint | fingerprint-similarity | acoustid | isrc | metadata. */
-  reasons: string[]
+  reasons: string[];
   /** Chromaprint similarity in [0,1] when the audio was compared; null otherwise. */
-  similarity?: number | null
+  similarity?: number | null;
   /** Server-computed keep-priority (codec tier dominates, bitrate breaks ties). */
-  qualityScore: number
+  qualityScore: number;
 }
 
 export interface DuplicateGroup {
   /** Stable cluster id (the lowest song id in the cluster). */
-  groupId: number
-  confidence: DuplicateConfidence
-  keeper: DuplicateMember
+  groupId: number;
+  confidence: DuplicateConfidence;
+  keeper: DuplicateMember;
   /** All cluster members, keeper first (server-ranked). */
-  members: DuplicateMember[]
+  members: DuplicateMember[];
 }
 
 export interface DuplicatesResponse {
-  totalDuplicates: number
-  groups: number
-  duplicateGroups: DuplicateGroup[]
+  totalDuplicates: number;
+  groups: number;
+  duplicateGroups: DuplicateGroup[];
 }
 
 /** Duplicate clusters (confirmed + suspected) with keeper election and per-member evidence. */
 export async function fetchDuplicates(): Promise<DuplicatesResponse> {
-  return requestJson<DuplicatesResponse>("/api/library/duplicates")
+  return requestJson<DuplicatesResponse>('/api/library/duplicates');
 }
 
 /** Re-run duplicate detection now (it also runs after every fingerprint pass). */
 export async function detectDuplicates(): Promise<void> {
-  await requestJson<unknown>("/api/library/duplicates/detect", { method: "POST" })
+  await requestJson<unknown>('/api/library/duplicates/detect', { method: 'POST' });
 }
 
 /** Choose the keeper of a cluster; the choice is pinned across detection re-runs. */
 export async function resolveDuplicates(keeperId: number, loserIds: number[]): Promise<void> {
-  await requestJson<unknown>("/api/library/duplicates/resolve", {
-    method: "POST",
-    body: JSON.stringify({ keeperId, loserIds }),
-  })
+  await requestJson<unknown>('/api/library/duplicates/resolve', {
+    method: 'POST',
+    body: JSON.stringify({ keeperId, loserIds })
+  });
 }
 
 /** Mark songs as NOT duplicates of each other; persists across detection re-runs. */
 export async function dismissDuplicates(songIds: number[]): Promise<void> {
-  await requestJson<unknown>("/api/library/duplicates/dismiss", {
-    method: "POST",
-    body: JSON.stringify({ songIds }),
-  })
+  await requestJson<unknown>('/api/library/duplicates/dismiss', {
+    method: 'POST',
+    body: JSON.stringify({ songIds })
+  });
 }
 
 // ── Artist dedup (variant spellings + combined credits) ────────────────────────
 
 export interface ArtistNameStat {
-  name: string
-  songCount: number
-  musicBrainzIds: string[]
+  name: string;
+  songCount: number;
+  musicBrainzIds: string[];
 }
 
 export interface ArtistDuplicateCluster {
-  suggestedCanonical: string
-  variants: ArtistNameStat[]
+  suggestedCanonical: string;
+  variants: ArtistNameStat[];
   /** Why these clustered: "same name after normalization" | "same MusicBrainz artist id" | "similar spelling". */
-  evidence: string[]
+  evidence: string[];
 }
 
 /**
@@ -4740,125 +4905,145 @@ export interface ArtistDuplicateCluster {
  * discrete Artists list ("A & B"), or the album artist of songs ("Hef met Jayh").
  */
 export interface CombinedCreditCandidate {
-  credit: string
+  credit: string;
   /** The artists it splits into; `parts[0]` is the lead. */
-  parts: string[]
+  parts: string[];
   /** Distinct tracks a split changes. */
-  songCount: number
+  songCount: number;
   /** Of those, the tracks whose album artist is the credit — a split files them under the lead.
    *  Optional: an older server does not send it. */
-  albumArtistSongCount?: number
+  albumArtistSongCount?: number;
 }
 
 export interface ArtistDuplicateReport {
-  clusters: ArtistDuplicateCluster[]
-  combinedCredits: CombinedCreditCandidate[]
+  clusters: ArtistDuplicateCluster[];
+  combinedCredits: CombinedCreditCandidate[];
 }
 
 export interface ArtistMergeResult {
-  songsUpdated: number
-  songsRequeued: number
-  aliasesStored: number
+  songsUpdated: number;
+  songsRequeued: number;
+  aliasesStored: number;
 }
 
 /** Clusters of artist-name spellings that likely refer to the same artist. */
 export async function fetchArtistDuplicates(): Promise<ArtistDuplicateReport> {
-  return requestJson<ArtistDuplicateReport>("/api/library/artists/duplicates")
+  return requestJson<ArtistDuplicateReport>('/api/library/artists/duplicates');
 }
 
 /** Merge variant spellings onto a canonical artist name (rewrites tags, re-queues built files). */
-export async function mergeArtists(canonicalName: string, variantNames: string[]): Promise<ArtistMergeResult> {
-  return requestJson<ArtistMergeResult>("/api/library/artists/merge", {
-    method: "POST",
-    body: JSON.stringify({ canonicalName, variantNames }),
-  })
+export async function mergeArtists(
+  canonicalName: string,
+  variantNames: string[]
+): Promise<ArtistMergeResult> {
+  return requestJson<ArtistMergeResult>('/api/library/artists/merge', {
+    method: 'POST',
+    body: JSON.stringify({ canonicalName, variantNames })
+  });
 }
 
 /**
  * Split a combined credit ("A & B", "Hef met Jayh"): backfills blank discrete Artists lists with its
  * artists and moves an album artist equal to the credit to the lead; built files are re-tagged.
  */
-export async function splitArtistCredit(creditName: string): Promise<{ songsUpdated: number; songsRequeued: number }> {
-  return requestJson("/api/library/artists/split-credit", {
-    method: "POST",
-    body: JSON.stringify({ creditName }),
-  })
+export async function splitArtistCredit(
+  creditName: string
+): Promise<{ songsUpdated: number; songsRequeued: number }> {
+  return requestJson('/api/library/artists/split-credit', {
+    method: 'POST',
+    body: JSON.stringify({ creditName })
+  });
 }
 
 /** Mark artist-name spellings as NOT the same artist; persists across detections. */
 export async function dismissArtistDuplicates(names: string[]): Promise<void> {
-  await requestJson<unknown>("/api/library/artists/dismiss", {
-    method: "POST",
-    body: JSON.stringify({ names }),
-  })
+  await requestJson<unknown>('/api/library/artists/dismiss', {
+    method: 'POST',
+    body: JSON.stringify({ names })
+  });
 }
 
 // ── Album dedup (split groups + near-duplicate pairs) ──────────────────────────
 
 export interface AlbumSplitGroup {
-  artistKey: string
-  albumKey: string
-  memberCount: number
-  membersNeedingCorrection: number
-  distinctReleaseIds: string[]
-  distinctFolders: string[]
+  artistKey: string;
+  albumKey: string;
+  memberCount: number;
+  membersNeedingCorrection: number;
+  distinctReleaseIds: string[];
+  distinctFolders: string[];
   electedIdentity: {
-    album?: string | null
-    albumArtist?: string | null
-    year?: number | null
-    musicBrainzReleaseId?: string | null
-  }
+    album?: string | null;
+    albumArtist?: string | null;
+    year?: number | null;
+    musicBrainzReleaseId?: string | null;
+  };
 }
 
 export interface AlbumDuplicatePair {
-  artistKey: string
-  artistDisplay: string
-  albumA: string
-  songCountA: number
-  albumB: string
-  songCountB: number
-  fuzzyRatio?: number | null
+  artistKey: string;
+  artistDisplay: string;
+  albumA: string;
+  songCountA: number;
+  albumB: string;
+  songCountB: number;
+  fuzzyRatio?: number | null;
   /** "same title after normalization" | "similar title" */
-  evidence: string
+  evidence: string;
 }
 
 /** Dry-run report of split albums (tracks of one logical album disagreeing on identity). */
 export async function fetchSplitAlbums(): Promise<{ count: number; groups: AlbumSplitGroup[] }> {
-  return requestJson("/api/enrichment/split-albums")
+  return requestJson('/api/enrichment/split-albums');
 }
 
 /** Run the split-album self-heal now (same pass the builder runs when idle). */
-export async function healSplitAlbums(): Promise<{ groupsHealed: number; songsCorrected: number; songsRequeued: number }> {
-  return requestJson("/api/enrichment/split-albums/heal", { method: "POST" })
+export async function healSplitAlbums(): Promise<{
+  groupsHealed: number;
+  songsCorrected: number;
+  songsRequeued: number;
+}> {
+  return requestJson('/api/enrichment/split-albums/heal', { method: 'POST' });
 }
 
 /** Near-duplicate album pairs the exact grouping key misses ("The Blueprint 3" vs "Blueprint 3"). */
-export async function fetchAlbumDuplicates(): Promise<{ count: number; pairs: AlbumDuplicatePair[] }> {
-  return requestJson("/api/library/albums/duplicates")
+export async function fetchAlbumDuplicates(): Promise<{
+  count: number;
+  pairs: AlbumDuplicatePair[];
+}> {
+  return requestJson('/api/library/albums/duplicates');
 }
 
 /** Rewrite mergeAlbum's spelling onto keepAlbum so both halves share one grouping key. */
-export async function mergeAlbums(artist: string, keepAlbum: string, mergeAlbum: string): Promise<void> {
-  await requestJson<unknown>("/api/library/albums/merge", {
-    method: "POST",
-    body: JSON.stringify({ artist, keepAlbum, mergeAlbum }),
-  })
+export async function mergeAlbums(
+  artist: string,
+  keepAlbum: string,
+  mergeAlbum: string
+): Promise<void> {
+  await requestJson<unknown>('/api/library/albums/merge', {
+    method: 'POST',
+    body: JSON.stringify({ artist, keepAlbum, mergeAlbum })
+  });
 }
 
 /** Mark two album titles as NOT the same album; persists across detections. */
-export async function dismissAlbumDuplicates(artist: string, albumA: string, albumB: string): Promise<void> {
-  await requestJson<unknown>("/api/library/albums/dismiss", {
-    method: "POST",
-    body: JSON.stringify({ artist, albumA, albumB }),
-  })
+export async function dismissAlbumDuplicates(
+  artist: string,
+  albumA: string,
+  albumB: string
+): Promise<void> {
+  await requestJson<unknown>('/api/library/albums/dismiss', {
+    method: 'POST',
+    body: JSON.stringify({ artist, albumA, albumB })
+  });
 }
 
 /** How many suggestions the Inbox's two name queues hold. */
 export interface InboxNameCounts {
   /** Artist names: variant-spelling clusters plus combined credits. */
-  artists: number
+  artists: number;
   /** Album names: split albums plus duplicate-name pairs. */
-  albums: number
+  albums: number;
 }
 
 /**
@@ -4867,266 +5052,266 @@ export interface InboxNameCounts {
  * whole library, and this counts all three from one walk.
  */
 export async function fetchInboxNameCounts(): Promise<InboxNameCounts> {
-  return requestJson<InboxNameCounts>("/api/inbox/name-counts")
+  return requestJson<InboxNameCounts>('/api/inbox/name-counts');
 }
 
 // ── Dedup action history (merges / splits / heals, with revert) ────────────────
 
 export interface DedupAction {
   /** artist-merge | album-merge | artist-credit-split | album-identity-heal */
-  source: string
-  createdAtUtc: string
+  source: string;
+  createdAtUtc: string;
   /** Stable batch id for revert calls. */
-  batchTicks: number
-  songCount: number
-  changeCount: number
+  batchTicks: number;
+  songCount: number;
+  changeCount: number;
   /** Human labels like `AlbumArtist → "Kanye West" (348 songs)`. */
-  highlights: string[]
-  reverted: boolean
-  revertible: boolean
+  highlights: string[];
+  reverted: boolean;
+  revertible: boolean;
 }
 
 /** Recent dedup actions, newest first (reconstructed from the metadata-change audit log). */
 export async function fetchDedupActions(): Promise<{ count: number; actions: DedupAction[] }> {
-  return requestJson("/api/library/dedup/actions")
+  return requestJson('/api/library/dedup/actions');
 }
 
 /** Revert one dedup action: restores old values and re-queues built files for re-tag. */
 export async function revertDedupAction(source: string, batchTicks: number): Promise<void> {
-  await requestJson<unknown>("/api/library/dedup/actions/revert", {
-    method: "POST",
-    body: JSON.stringify({ source, batchTicks }),
-  })
+  await requestJson<unknown>('/api/library/dedup/actions/revert', {
+    method: 'POST',
+    body: JSON.stringify({ source, batchTicks })
+  });
 }
 
 // ── Enrichment detail (candidate matches) ──────────────────────────────────────
 
 export interface EnrichmentCandidate {
-  title?: string | null
-  artist?: string | null
-  albumArtist?: string | null
-  album?: string | null
-  year?: number | null
-  trackNumber?: number | null
-  isrc?: string | null
-  musicBrainzId?: string | null
-  musicBrainzReleaseId?: string | null
-  spotifyId?: string | null
-  acoustIdTrackId?: string | null
-  matchedBy?: string | null
-  matchConfidence?: number | null
-  matchWarnings?: string[] | null
-  recommendedStatus?: string | null
+  title?: string | null;
+  artist?: string | null;
+  albumArtist?: string | null;
+  album?: string | null;
+  year?: number | null;
+  trackNumber?: number | null;
+  isrc?: string | null;
+  musicBrainzId?: string | null;
+  musicBrainzReleaseId?: string | null;
+  spotifyId?: string | null;
+  acoustIdTrackId?: string | null;
+  matchedBy?: string | null;
+  matchConfidence?: number | null;
+  matchWarnings?: string[] | null;
+  recommendedStatus?: string | null;
 }
 
 export interface ProviderAttempt {
-  provider: string
-  status: string
-  attemptedAtUtc: string
-  retryAfterUtc?: string | null
-  nextRetryAfterUtc?: string | null
-  error?: string | null
+  provider: string;
+  status: string;
+  attemptedAtUtc: string;
+  retryAfterUtc?: string | null;
+  nextRetryAfterUtc?: string | null;
+  error?: string | null;
   /** The term the provider searched (resolved artist/title, or tracker title-only). Null for AcoustID. */
-  searchQuery?: string | null
-  candidate: EnrichmentCandidate | null
+  searchQuery?: string | null;
+  candidate: EnrichmentCandidate | null;
 }
 
 /** One changed field in the before→after diff. `source`/`current` are scalars. */
 export interface MetadataDiffEntry {
-  field: string
-  source?: string | number | null
-  current?: string | number | null
+  field: string;
+  source?: string | number | null;
+  current?: string | number | null;
 }
 
 /** A field-level entry from the song's metadata change history (powers the timeline). */
 export interface ChangeLogEntry {
-  id: number
-  field: string
-  oldValue?: string | null
-  newValue?: string | null
-  source?: string | null
-  confidence?: number | null
-  createdAtUtc: string
-  appliedAtUtc?: string | null
-  revertedAtUtc?: string | null
-  applied: boolean
-  proposed: boolean
+  id: number;
+  field: string;
+  oldValue?: string | null;
+  newValue?: string | null;
+  source?: string | null;
+  confidence?: number | null;
+  createdAtUtc: string;
+  appliedAtUtc?: string | null;
+  revertedAtUtc?: string | null;
+  applied: boolean;
+  proposed: boolean;
 }
 
 export interface EnrichmentDetail {
-  id: number
+  id: number;
   /** The track's full Chromaprint fingerprint, when it has one. */
-  fingerprint?: string | null
-  fileName: string
-  sourcePath: string
-  destinationPath?: string | null
-  enrichmentStatus: string
-  isManuallyApproved?: boolean
-  manuallyApprovedAtUtc?: string | null
-  matchedBy?: string | null
-  matchConfidence?: number | null
-  matchWarnings?: string[] | null
-  enrichmentError?: string | null
+  fingerprint?: string | null;
+  fileName: string;
+  sourcePath: string;
+  destinationPath?: string | null;
+  enrichmentStatus: string;
+  isManuallyApproved?: boolean;
+  manuallyApprovedAtUtc?: string | null;
+  matchedBy?: string | null;
+  matchConfidence?: number | null;
+  matchWarnings?: string[] | null;
+  enrichmentError?: string | null;
   /** When the scanner (re)indexed the file: the pipeline timeline's first stamp. */
-  indexedAtUtc?: string | null
+  indexedAtUtc?: string | null;
   /** When the track was copied and tagged into the library; null until built. */
-  libraryBuiltAtUtc?: string | null
+  libraryBuiltAtUtc?: string | null;
   /** Now Playing's Details rows. */
-  composer?: string | null
-  copyright?: string | null
-  catalogNumber?: string | null
+  composer?: string | null;
+  copyright?: string | null;
+  catalogNumber?: string | null;
   /** Album barcode / UPC. */
-  upc?: string | null
-  originalMetadataCaptured: boolean
-  source: EnrichmentCandidate | null
-  current: EnrichmentCandidate
-  diff: MetadataDiffEntry[]
-  providerAttempts: ProviderAttempt[]
-  changeLog: ChangeLogEntry[]
+  upc?: string | null;
+  originalMetadataCaptured: boolean;
+  source: EnrichmentCandidate | null;
+  current: EnrichmentCandidate;
+  diff: MetadataDiffEntry[];
+  providerAttempts: ProviderAttempt[];
+  changeLog: ChangeLogEntry[];
   /** Push-mode sync state for this track; null when sync is off or the track has no outbox row. */
-  trackSync?: TrackSyncView | null
+  trackSync?: TrackSyncView | null;
   /** Latest Soulseek quality-upgrade attempt; null when none has been requested. */
-  upgrade?: SongUpgradeView | null
+  upgrade?: SongUpgradeView | null;
 }
 
 export async function fetchEnrichmentDetail(songId: number): Promise<EnrichmentDetail> {
-  return requestJson<EnrichmentDetail>(`/songs/${songId}/enrichment-detail`)
+  return requestJson<EnrichmentDetail>(`/songs/${songId}/enrichment-detail`);
 }
 
 /* ------------------------------------------------------------------ *
  * AI quality grading
  * ------------------------------------------------------------------ */
 
-export type QualityVerdict = "Excellent" | "Good" | "Questionable" | "Wrong" | "Ungradeable"
+export type QualityVerdict = 'Excellent' | 'Good' | 'Questionable' | 'Wrong' | 'Ungradeable';
 
 export interface QualityIssue {
-  code: string
-  severity: string
-  detail?: string | null
+  code: string;
+  severity: string;
+  detail?: string | null;
 }
 
 export interface QualityVerdictCounts {
-  excellent: number
-  good: number
-  questionable: number
-  wrong: number
-  ungradeable: number
+  excellent: number;
+  good: number;
+  questionable: number;
+  wrong: number;
+  ungradeable: number;
 }
 
 export interface QualityRollupView {
-  graded: number
-  averageScore: number | null
-  verdicts: QualityVerdictCounts
-  topIssues: { code: string; count: number }[]
+  graded: number;
+  averageScore: number | null;
+  verdicts: QualityVerdictCounts;
+  topIssues: { code: string; count: number }[];
 }
 
 export interface QualityWorstOffender {
-  songId: number
-  fileName: string
-  sourcePath: string
-  artist?: string | null
-  title?: string | null
-  album?: string | null
-  score: number
-  verdict: QualityVerdict
-  summary?: string | null
-  issues: QualityIssue[]
-  enrichmentStatusAtGrade?: string | null
-  destinationPathPreview?: string | null
-  gradedAtUtc: string
+  songId: number;
+  fileName: string;
+  sourcePath: string;
+  artist?: string | null;
+  title?: string | null;
+  album?: string | null;
+  score: number;
+  verdict: QualityVerdict;
+  summary?: string | null;
+  issues: QualityIssue[];
+  enrichmentStatusAtGrade?: string | null;
+  destinationPathPreview?: string | null;
+  gradedAtUtc: string;
 }
 
 export interface QualityDirectoryRollup {
-  directory: string
-  rollup: QualityRollupView
-  worstVerdict: QualityVerdict
-  wrongCount: number
+  directory: string;
+  rollup: QualityRollupView;
+  worstVerdict: QualityVerdict;
+  wrongCount: number;
 }
 
 export interface QualityOverview {
-  gradeableTotal: number
-  coverage: number
-  library: QualityRollupView
+  gradeableTotal: number;
+  coverage: number;
+  library: QualityRollupView;
   /** Auto-asked-for-review (NeedsReview at grade time). */
-  flaggedCount: number
+  flaggedCount: number;
   /** Auto-accepted (Matched) but graded Wrong/Questionable — the algorithm's blind spots. */
-  silentFailureCount: number
+  silentFailureCount: number;
   /** Auto-accepted (Matched) and graded Excellent. */
-  verifiedCleanCount: number
+  verifiedCleanCount: number;
   /** Graded songs whose prompt version or model changed since — surfaced, not auto-regraded. */
-  outdatedCount: number
+  outdatedCount: number;
   /**
    * Graded Wrong or Questionable, whatever the enrichment status — the Inbox's AI flagged queue,
    * counted with the same predicate as the "wrong-or-questionable" category, so the badge says
    * exactly what the queue lists.
    */
-  aiFlaggedCount: number
+  aiFlaggedCount: number;
   /**
    * The 50 worst grades (Wrong, Questionable, Good, Excellent, then Ungradeable). A sample, not a
    * queue: the AI flagged queue is the "wrong-or-questionable" category, paged in full.
    */
-  worstOffenders: QualityWorstOffender[]
-  directories: QualityDirectoryRollup[]
+  worstOffenders: QualityWorstOffender[];
+  directories: QualityDirectoryRollup[];
 }
 
 /** Which workbench bucket a graded song falls into (mirrors the backend classifier). */
-export type QualityBucketName = "flagged" | "silent" | "verified" | "other"
+export type QualityBucketName = 'flagged' | 'silent' | 'verified' | 'other';
 
 /** A graded song row for the AI-quality workbench master list. */
 export interface QualitySongRow {
-  songId: number
-  fileName: string
-  sourcePath: string
-  artist?: string | null
-  title?: string | null
-  album?: string | null
-  score: number
-  verdict: QualityVerdict
-  summary?: string | null
-  issues: QualityIssue[]
-  enrichmentStatusAtGrade?: string | null
-  destinationPathPreview?: string | null
-  gradedAtUtc: string
-  bucket: QualityBucketName
-  isOutdated?: boolean
+  songId: number;
+  fileName: string;
+  sourcePath: string;
+  artist?: string | null;
+  title?: string | null;
+  album?: string | null;
+  score: number;
+  verdict: QualityVerdict;
+  summary?: string | null;
+  issues: QualityIssue[];
+  enrichmentStatusAtGrade?: string | null;
+  destinationPathPreview?: string | null;
+  gradedAtUtc: string;
+  bucket: QualityBucketName;
+  isOutdated?: boolean;
 }
 
 /** Filter category for the workbench list: a bucket, a verdict, or "all". */
 export type QualityCategory =
-  | "all"
-  | "flagged"
-  | "silent"
-  | "verified"
-  | "wrong"
-  | "questionable"
-  | "good"
-  | "excellent"
-  | "ungradeable"
+  | 'all'
+  | 'flagged'
+  | 'silent'
+  | 'verified'
+  | 'wrong'
+  | 'questionable'
+  | 'good'
+  | 'excellent'
+  | 'ungradeable'
   /**
    * The Inbox's AI flagged queue: Wrong or Questionable, any enrichment status. Not "flagged",
    * which is the NeedsReview-at-grade bucket.
    */
-  | "wrong-or-questionable"
+  | 'wrong-or-questionable';
 
 export interface QualitySongsPage {
-  total: number
-  skip: number
-  take: number
-  items: QualitySongRow[]
+  total: number;
+  skip: number;
+  take: number;
+  items: QualitySongRow[];
 }
 
 export async function fetchQualitySongs(
-  category: QualityCategory = "all",
+  category: QualityCategory = 'all',
   skip = 0,
   take = 200
 ): Promise<QualitySongsPage> {
   return requestJson<QualitySongsPage>(
     `/api/quality/songs?category=${encodeURIComponent(category)}&skip=${skip}&take=${take}`
-  )
+  );
 }
 
 /** The server's cap on `take` for `/api/quality/songs`. */
-const QUALITY_SONGS_MAX_TAKE = 500
+const QUALITY_SONGS_MAX_TAKE = 500;
 
 /**
  * Every item of a skip/take list, fetched page by page until the server's `total` is reached.
@@ -5139,19 +5324,19 @@ export async function collectPages<T>(
   pageSize: number,
   keyOf: (item: T) => unknown
 ): Promise<T[]> {
-  const seen = new Set<unknown>()
-  const items: T[] = []
-  let skip = 0
+  const seen = new Set<unknown>();
+  const items: T[] = [];
+  let skip = 0;
   for (;;) {
-    const page = await fetchPage(skip, pageSize)
+    const page = await fetchPage(skip, pageSize);
     for (const item of page.items) {
-      const key = keyOf(item)
-      if (seen.has(key)) continue
-      seen.add(key)
-      items.push(item)
+      const key = keyOf(item);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      items.push(item);
     }
-    skip += page.items.length
-    if (page.items.length === 0 || skip >= page.total) return items
+    skip += page.items.length;
+    if (page.items.length === 0 || skip >= page.total) return items;
   }
 }
 
@@ -5161,202 +5346,202 @@ export async function fetchAllQualitySongs(category: QualityCategory): Promise<Q
     (skip, take) => fetchQualitySongs(category, skip, take),
     QUALITY_SONGS_MAX_TAKE,
     (row) => row.songId
-  )
+  );
 }
 
 export interface SongQualityGradeView {
-  songId: number
-  graded: boolean
-  score?: number
-  verdict?: QualityVerdict
-  summary?: string | null
-  issues?: QualityIssue[]
-  model?: string | null
-  promptVersion?: number
-  enrichmentStatusAtGrade?: string | null
-  destinationPathPreview?: string | null
-  durationMs?: number | null
-  gradedAtUtc?: string
-  isOutdated?: boolean
-  historyCount?: number
+  songId: number;
+  graded: boolean;
+  score?: number;
+  verdict?: QualityVerdict;
+  summary?: string | null;
+  issues?: QualityIssue[];
+  model?: string | null;
+  promptVersion?: number;
+  enrichmentStatusAtGrade?: string | null;
+  destinationPathPreview?: string | null;
+  durationMs?: number | null;
+  gradedAtUtc?: string;
+  isOutdated?: boolean;
+  historyCount?: number;
 }
 
 export interface QualityGradeResult {
-  songId: number
-  outcome: string
-  score?: number | null
-  verdict?: QualityVerdict | null
-  summary?: string | null
-  issues: QualityIssue[]
-  model?: string | null
-  destinationPathPreview?: string | null
-  durationMs?: number | null
-  gradedAtUtc?: string | null
+  songId: number;
+  outcome: string;
+  score?: number | null;
+  verdict?: QualityVerdict | null;
+  summary?: string | null;
+  issues: QualityIssue[];
+  model?: string | null;
+  destinationPathPreview?: string | null;
+  durationMs?: number | null;
+  gradedAtUtc?: string | null;
 }
 
 export interface QualityProgress {
-  active: boolean
-  aiGradingConfigured?: boolean
-  aiGradingEnabled?: boolean
-  lastError?: { code: string; message: string; atUtc: string } | null
-  runId?: string
-  total?: number
-  processed?: number
-  graded?: number
-  skipped?: number
-  failed?: number
-  isComplete?: boolean
-  startedAt?: string
-  completedAt?: string | null
+  active: boolean;
+  aiGradingConfigured?: boolean;
+  aiGradingEnabled?: boolean;
+  lastError?: { code: string; message: string; atUtc: string } | null;
+  runId?: string;
+  total?: number;
+  processed?: number;
+  graded?: number;
+  skipped?: number;
+  failed?: number;
+  isComplete?: boolean;
+  startedAt?: string;
+  completedAt?: string | null;
 }
 
 export async function fetchQualityOverview(): Promise<QualityOverview> {
-  return requestJson<QualityOverview>("/api/quality/overview")
+  return requestJson<QualityOverview>('/api/quality/overview');
 }
 
 export async function fetchSongQualityGrade(songId: number): Promise<SongQualityGradeView> {
-  return requestJson<SongQualityGradeView>(`/api/quality/songs/${songId}`)
+  return requestJson<SongQualityGradeView>(`/api/quality/songs/${songId}`);
 }
 
 export async function gradeSong(songId: number): Promise<QualityGradeResult> {
-  return requestJson<QualityGradeResult>(`/api/quality/songs/${songId}/grade`, { method: "POST" })
+  return requestJson<QualityGradeResult>(`/api/quality/songs/${songId}/grade`, { method: 'POST' });
 }
 
 export async function gradeOutdatedSongs(): Promise<{ enqueued: number }> {
-  return requestJson<{ enqueued: number }>("/api/quality/grade-outdated", { method: "POST" })
+  return requestJson<{ enqueued: number }>('/api/quality/grade-outdated', { method: 'POST' });
 }
 
 export async function gradeAllSongs(): Promise<{ enqueued: number }> {
-  return requestJson<{ enqueued: number }>("/api/quality/grade-all", { method: "POST" })
+  return requestJson<{ enqueued: number }>('/api/quality/grade-all', { method: 'POST' });
 }
 
 export async function gradeDirectory(path: string): Promise<{ enqueued: number; path: string }> {
-  return requestJson<{ enqueued: number; path: string }>("/api/quality/grade-directory", {
-    method: "POST",
-    body: JSON.stringify({ path }),
-  })
+  return requestJson<{ enqueued: number; path: string }>('/api/quality/grade-directory', {
+    method: 'POST',
+    body: JSON.stringify({ path })
+  });
 }
 
 export async function fetchQualityProgress(): Promise<QualityProgress> {
-  return requestJson<QualityProgress>("/api/quality/progress")
+  return requestJson<QualityProgress>('/api/quality/progress');
 }
 
 /** Fetches a single song's grading dossier and copies the pretty-printed JSON to the clipboard. */
 export async function copyQualitySongDossier(songId: number): Promise<void> {
   const textPromise = requestJson<unknown>(`/api/quality/export/songs/${songId}`).then((data) =>
-    JSON.stringify(data, null, 2),
-  )
+    JSON.stringify(data, null, 2)
+  );
 
   // Hand the clipboard a *promise* of the data so the write is initiated
   // synchronously inside the click's user-activation window. Awaiting the
   // fetch first lets focus/activation lapse, which throws "Document is not
   // focused" and can also stall. Fall back to writeText where ClipboardItem
   // promises aren't supported.
-  if (typeof ClipboardItem !== "undefined" && "write" in navigator.clipboard) {
-    const blob = textPromise.then((text) => new Blob([text], { type: "text/plain" }))
-    await navigator.clipboard.write([new ClipboardItem({ "text/plain": blob })])
+  if (typeof ClipboardItem !== 'undefined' && 'write' in navigator.clipboard) {
+    const blob = textPromise.then((text) => new Blob([text], { type: 'text/plain' }));
+    await navigator.clipboard.write([new ClipboardItem({ 'text/plain': blob })]);
   } else {
-    await navigator.clipboard.writeText(await textPromise)
+    await navigator.clipboard.writeText(await textPromise);
   }
 }
 
 // --- Pipeline performance snapshots (the version timeline) ---
 
 export interface SnapshotAiBreakdown {
-  excellent: number
-  good: number
-  questionable: number
-  wrong: number
-  ungradeable: number
+  excellent: number;
+  good: number;
+  questionable: number;
+  wrong: number;
+  ungradeable: number;
 }
 
 export interface SnapshotSummary {
-  id: number
-  capturedAtUtc: string
-  trigger: string
-  triggerLabel?: string | null
-  version?: string | null
-  configHash: string
-  totalSongs: number
-  matched: number
-  needsReview: number
-  failed: number
-  pending: number
-  duplicates: number
-  buildDone: number
-  matchRate?: number | null
-  avgMatchConfidence?: number | null
-  providerMatched?: Record<string, number> | null
-  graded: number
-  avgAiScore?: number | null
-  ai: SnapshotAiBreakdown
+  id: number;
+  capturedAtUtc: string;
+  trigger: string;
+  triggerLabel?: string | null;
+  version?: string | null;
+  configHash: string;
+  totalSongs: number;
+  matched: number;
+  needsReview: number;
+  failed: number;
+  pending: number;
+  duplicates: number;
+  buildDone: number;
+  matchRate?: number | null;
+  avgMatchConfidence?: number | null;
+  providerMatched?: Record<string, number> | null;
+  graded: number;
+  avgAiScore?: number | null;
+  ai: SnapshotAiBreakdown;
 }
 
 export interface SnapshotConfigDiffEntry {
-  key: string
-  from?: string | null
-  to?: string | null
+  key: string;
+  from?: string | null;
+  to?: string | null;
 }
 
 export interface SnapshotDetail {
-  summary: SnapshotSummary
-  config: unknown
-  previousSnapshotId?: number | null
-  configDiff: SnapshotConfigDiffEntry[]
+  summary: SnapshotSummary;
+  config: unknown;
+  previousSnapshotId?: number | null;
+  configDiff: SnapshotConfigDiffEntry[];
 }
 
 export interface SnapshotSongState {
-  status: string
-  confidence?: number | null
-  matchedBy?: string | null
-  aiScore?: number | null
-  aiVerdict?: string | null
+  status: string;
+  confidence?: number | null;
+  matchedBy?: string | null;
+  aiScore?: number | null;
+  aiVerdict?: string | null;
 }
 
 export interface SnapshotSongDiff {
-  songId: number
-  artist?: string | null
-  title?: string | null
-  sourcePath?: string | null
-  fileName?: string | null
-  reasons: string[]
-  from: SnapshotSongState
-  to: SnapshotSongState
+  songId: number;
+  artist?: string | null;
+  title?: string | null;
+  sourcePath?: string | null;
+  fileName?: string | null;
+  reasons: string[];
+  from: SnapshotSongState;
+  to: SnapshotSongState;
 }
 
 export interface SnapshotCompare {
-  from: SnapshotSummary
-  to: SnapshotSummary
-  comparedSongs: number
-  regressedCount: number
-  improvedCount: number
-  regressed: SnapshotSongDiff[]
-  improved: SnapshotSongDiff[]
+  from: SnapshotSummary;
+  to: SnapshotSummary;
+  comparedSongs: number;
+  regressedCount: number;
+  improvedCount: number;
+  regressed: SnapshotSongDiff[];
+  improved: SnapshotSongDiff[];
 }
 
 export async function fetchSnapshots(): Promise<SnapshotSummary[]> {
-  return requestJson<SnapshotSummary[]>("/api/snapshots")
+  return requestJson<SnapshotSummary[]>('/api/snapshots');
 }
 
 export async function fetchSnapshot(id: number): Promise<SnapshotDetail> {
-  return requestJson<SnapshotDetail>(`/api/snapshots/${id}`)
+  return requestJson<SnapshotDetail>(`/api/snapshots/${id}`);
 }
 
 export async function fetchSnapshotCompare(from?: number, to?: number): Promise<SnapshotCompare> {
-  const params = new URLSearchParams()
-  if (from != null) params.set("from", String(from))
-  if (to != null) params.set("to", String(to))
-  const query = params.toString()
-  return requestJson<SnapshotCompare>(`/api/snapshots/compare${query ? `?${query}` : ""}`)
+  const params = new URLSearchParams();
+  if (from != null) params.set('from', String(from));
+  if (to != null) params.set('to', String(to));
+  const query = params.toString();
+  return requestJson<SnapshotCompare>(`/api/snapshots/compare${query ? `?${query}` : ''}`);
 }
 
 export async function captureSnapshot(
-  label?: string,
+  label?: string
 ): Promise<{ captured: boolean; reason?: string; snapshot?: SnapshotSummary }> {
-  return requestJson("/api/snapshots", {
-    method: "POST",
-    body: JSON.stringify({ label: label ?? null }),
-  })
+  return requestJson('/api/snapshots', {
+    method: 'POST',
+    body: JSON.stringify({ label: label ?? null })
+  });
 }
 
 // --- Library history (the activity feed) ---
@@ -5367,361 +5552,380 @@ export async function captureSnapshot(
  * the point.
  */
 export type HistoryCategory =
-  | "acquired"
-  | "enriched"
-  | "written"
-  | "lyrics"
-  | "video"
-  | "artwork"
-  | "listening"
-  | "sync"
-  | "curation"
-  | "pipeline"
+  | 'acquired'
+  | 'enriched'
+  | 'written'
+  | 'lyrics'
+  | 'video'
+  | 'artwork'
+  | 'listening'
+  | 'sync'
+  | 'curation'
+  | 'pipeline';
 
 /** Severity, sharing the timeline's vocabulary so both can be rendered the same way. */
-export type HistoryTint = "ok" | "info" | "warn" | "err"
+export type HistoryTint = 'ok' | 'info' | 'warn' | 'err';
 
 export interface HistoryRawChange {
-  songId?: number | null
-  trackTitle?: string | null
-  field: string
-  oldValue?: string | null
-  newValue?: string | null
-  isAlbumIdentity: boolean
-  writtenAtUtc: string
+  songId?: number | null;
+  trackTitle?: string | null;
+  field: string;
+  oldValue?: string | null;
+  newValue?: string | null;
+  isAlbumIdentity: boolean;
+  writtenAtUtc: string;
   /** Free text for entries that aren't a field diff — a provider name, an error, a reason. */
-  detail?: string | null
+  detail?: string | null;
 }
 
 export interface HistorySummary {
-  id: string
+  id: string;
   /**
    * Fine-grained event type, e.g. "downloaded" | "lyrics-timing-fixed" | "video-added". Open-ended
    * on purpose: each API source owns its own kinds, and the UI falls back to the category's icon for
    * one it does not recognise.
    */
-  kind: string
-  category: HistoryCategory
-  headline: string
+  kind: string;
+  category: HistoryCategory;
+  headline: string;
   /** Second line: the provider, the reason, the error. */
-  detail?: string | null
-  tint: HistoryTint
-  albumArtist?: string | null
-  album?: string | null
+  detail?: string | null;
+  tint: HistoryTint;
+  albumArtist?: string | null;
+  album?: string | null;
   /** Set when the entry is about exactly one track, so the row links straight to it. */
-  songId?: number | null
-  trackTitle?: string | null
-  trackCount: number
-  latestWrittenAtUtc: string
-  runId?: string | null
-  changes: HistoryRawChange[]
+  songId?: number | null;
+  trackTitle?: string | null;
+  trackCount: number;
+  latestWrittenAtUtc: string;
+  runId?: string | null;
+  changes: HistoryRawChange[];
 }
 
 export interface HistoryFeedResponse {
-  summaries: HistorySummary[]
-  nextCursor?: string | null
+  summaries: HistorySummary[];
+  nextCursor?: string | null;
   /** Entries matching the current filters in the window — not field writes. */
-  totalEventsInWindow: number
+  totalEventsInWindow: number;
   /** Entry count per category before the category filter — the chips' numbers. */
-  categoryCounts: Partial<Record<HistoryCategory, number>>
+  categoryCounts: Partial<Record<HistoryCategory, number>>;
 }
 
 export async function fetchHistory(
   params: {
-    from?: string
-    to?: string
-    artist?: string
-    album?: string
+    from?: string;
+    to?: string;
+    artist?: string;
+    album?: string;
     /** One or more categories; omitted means every category. */
-    category?: HistoryCategory[]
+    category?: HistoryCategory[];
     /** Narrow to warnings and failures — the "what broke" question, without picking categories. */
-    problems?: boolean
-    cursor?: string
-    take?: number
+    problems?: boolean;
+    cursor?: string;
+    take?: number;
   } = {},
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<HistoryFeedResponse> {
-  const q = new URLSearchParams()
-  if (params.from) q.set("from", params.from)
-  if (params.to) q.set("to", params.to)
-  if (params.artist) q.set("artist", params.artist)
-  if (params.album) q.set("album", params.album)
-  if (params.category?.length) q.set("category", params.category.join(","))
-  if (params.problems) q.set("problems", "true")
-  if (params.cursor) q.set("cursor", params.cursor)
-  if (params.take != null) q.set("take", String(params.take))
-  const query = q.toString()
-  return requestJson<HistoryFeedResponse>(`/api/history${query ? `?${query}` : ""}`, { signal })
+  const q = new URLSearchParams();
+  if (params.from) q.set('from', params.from);
+  if (params.to) q.set('to', params.to);
+  if (params.artist) q.set('artist', params.artist);
+  if (params.album) q.set('album', params.album);
+  if (params.category?.length) q.set('category', params.category.join(','));
+  if (params.problems) q.set('problems', 'true');
+  if (params.cursor) q.set('cursor', params.cursor);
+  if (params.take != null) q.set('take', String(params.take));
+  const query = q.toString();
+  return requestJson<HistoryFeedResponse>(`/api/history${query ? `?${query}` : ''}`, { signal });
 }
 
 // ── Artist discographies and following (Artists/, /api/artists/*) ────────────
 
 /** A release kind, as the API names it. */
-export type ArtistReleaseKind = "album" | "ep" | "single" | "compilation"
+export type ArtistReleaseKind = 'album' | 'ep' | 'single' | 'compilation';
 
 /**
  * How the server knows which catalog artist a library artist is. Only `linked` (the catalog lists
  * something you own), `chosen` (you picked it) and `followed` offer a discography; `unconfirmed`
  * comes with candidates to pick from.
  */
-export type ArtistCatalogStatus = "linked" | "chosen" | "followed" | "unconfirmed" | "not-found"
+export type ArtistCatalogStatus = 'linked' | 'chosen' | 'followed' | 'unconfirmed' | 'not-found';
 
 export interface ArtistCatalogInfo {
-  status: ArtistCatalogStatus
-  deezerArtistId: string | null
-  name: string | null
-  pictureUrl: string | null
-  fans: number
+  status: ArtistCatalogStatus;
+  deezerArtistId: string | null;
+  name: string | null;
+  pictureUrl: string | null;
+  fans: number;
 }
 
 export interface CatalogArtist {
-  id: string
-  name: string | null
-  pictureUrl: string | null
-  fans: number
-  albumCount: number
+  id: string;
+  name: string | null;
+  pictureUrl: string | null;
+  fans: number;
+  albumCount: number;
 }
 
 export interface ArtistRelease {
   /** Kind plus normalized title: stable across editions. */
-  key: string
-  kind: ArtistReleaseKind
-  title: string
-  releaseDate: string | null
-  coverUrl: string | null
-  explicit: boolean
+  key: string;
+  kind: ArtistReleaseKind;
+  title: string;
+  releaseDate: string | null;
+  coverUrl: string | null;
+  explicit: boolean;
   /** Every catalog id of the release; "Get" sends them all and the server takes the biggest edition. */
-  editionIds: string[]
-  upcoming: boolean
-  ownedTracks: number
+  editionIds: string[];
+  upcoming: boolean;
+  ownedTracks: number;
   /** Known once the release has a canonical tracklist. */
-  totalTracks: number | null
+  totalTracks: number | null;
   /** The album name as your songs are tagged, when you own some of it. */
-  libraryAlbum: string | null
-  queuedTracks: number
-  downloadedTracks: number
-  failedTracks: number
+  libraryAlbum: string | null;
+  queuedTracks: number;
+  downloadedTracks: number;
+  failedTracks: number;
 }
 
 export interface FollowedArtist {
-  id: number
-  deezerArtistId: string
-  name: string
-  pictureUrl: string | null
-  releaseKinds: ArtistReleaseKind[]
-  autoDownload: boolean
-  followedAtUtc: string
-  lastCheckedAtUtc: string | null
-  nextCheckAtUtc: string | null
-  lastError: string | null
-  newReleaseCount: number
+  id: number;
+  deezerArtistId: string;
+  name: string;
+  pictureUrl: string | null;
+  releaseKinds: ArtistReleaseKind[];
+  autoDownload: boolean;
+  followedAtUtc: string;
+  lastCheckedAtUtc: string | null;
+  nextCheckAtUtc: string | null;
+  lastError: string | null;
+  newReleaseCount: number;
 }
 
 export interface ArtistDiscography {
-  artist: string
-  catalog: ArtistCatalogInfo
-  candidates: CatalogArtist[]
-  follow: FollowedArtist | null
-  releases: ArtistRelease[]
+  artist: string;
+  catalog: ArtistCatalogInfo;
+  candidates: CatalogArtist[];
+  follow: FollowedArtist | null;
+  releases: ArtistRelease[];
   /** The catalog could not be read just now — not the same as an artist with no releases. */
-  releasesUnavailable: boolean
-  downloadsEnabled: boolean
+  releasesUnavailable: boolean;
+  downloadsEnabled: boolean;
 }
 
 export async function fetchArtistDiscography(artist: string): Promise<ArtistDiscography> {
-  return requestJson<ArtistDiscography>(`/api/artists/discography?artist=${encodeURIComponent(artist)}`)
+  return requestJson<ArtistDiscography>(
+    `/api/artists/discography?artist=${encodeURIComponent(artist)}`
+  );
 }
 
 /** Says which catalog artist a library artist is, when the name alone could not prove it. */
 export async function chooseArtistCatalog(artist: string, deezerArtistId: string): Promise<void> {
-  await requestJson("/api/artists/catalog-link", {
-    method: "POST",
-    body: JSON.stringify({ artist, deezerArtistId }),
-  })
+  await requestJson('/api/artists/catalog-link', {
+    method: 'POST',
+    body: JSON.stringify({ artist, deezerArtistId })
+  });
 }
 
 export interface AcquireReleaseResult {
-  key: string | null
-  title: string | null
-  queued: number
-  requeued: number
-  alreadyOwned: number
-  alreadyQueued: number
-  capped: number
-  error: string | null
+  key: string | null;
+  title: string | null;
+  queued: number;
+  requeued: number;
+  alreadyOwned: number;
+  alreadyQueued: number;
+  capped: number;
+  error: string | null;
 }
 
 export interface AcquireReleasesResult {
-  queued: number
-  capped: number
+  queued: number;
+  capped: number;
   /** Releases not looked at because the request's track limit was already spent. */
-  skippedReleases: number
-  jobStarted: boolean
-  results: AcquireReleaseResult[]
+  skippedReleases: number;
+  jobStarted: boolean;
+  results: AcquireReleaseResult[];
 }
 
 /** "Get album" / "Get discography": queues the missing tracks of the given releases. */
 export async function acquireArtistReleases(
   artist: string,
-  releases: Pick<ArtistRelease, "key" | "editionIds" | "kind">[],
+  releases: Pick<ArtistRelease, 'key' | 'editionIds' | 'kind'>[]
 ): Promise<AcquireReleasesResult> {
-  return requestJson<AcquireReleasesResult>("/api/artists/acquire", {
-    method: "POST",
-    body: JSON.stringify({ artist, releases }),
-  })
+  return requestJson<AcquireReleasesResult>('/api/artists/acquire', {
+    method: 'POST',
+    body: JSON.stringify({ artist, releases })
+  });
 }
 
 export async function searchCatalogArtists(q: string): Promise<CatalogArtist[]> {
-  const result = await requestJson<{ artists: CatalogArtist[] }>(`/api/artists/search?q=${encodeURIComponent(q)}`)
-  return result.artists
+  const result = await requestJson<{ artists: CatalogArtist[] }>(
+    `/api/artists/search?q=${encodeURIComponent(q)}`
+  );
+  return result.artists;
 }
 
 /** What the monitor decided about a release of a followed artist. */
-export type FollowedReleaseDecision = "queued" | "owned" | "noticed" | "skipped-old" | "failed" | "baseline"
+export type FollowedReleaseDecision =
+  | 'queued'
+  | 'owned'
+  | 'noticed'
+  | 'skipped-old'
+  | 'failed'
+  | 'baseline';
 
 export interface FollowedRelease {
-  id: number
-  followId: number
-  artist: string
-  title: string
-  kind: ArtistReleaseKind
-  releaseDate: string | null
-  coverUrl: string | null
-  decision: FollowedReleaseDecision
-  tracksQueued: number
-  decidedAtUtc: string
+  id: number;
+  followId: number;
+  artist: string;
+  title: string;
+  kind: ArtistReleaseKind;
+  releaseDate: string | null;
+  coverUrl: string | null;
+  decision: FollowedReleaseDecision;
+  tracksQueued: number;
+  decidedAtUtc: string;
 }
 
 export interface FollowingResponse {
-  follows: FollowedArtist[]
-  recent: FollowedRelease[]
-  monitorEnabled: boolean
-  downloadsEnabled: boolean
+  follows: FollowedArtist[];
+  recent: FollowedRelease[];
+  monitorEnabled: boolean;
+  downloadsEnabled: boolean;
 }
 
 export async function fetchFollowing(): Promise<FollowingResponse> {
-  return requestJson<FollowingResponse>("/api/artists/following")
+  return requestJson<FollowingResponse>('/api/artists/following');
 }
 
 export async function followArtist(input: {
-  deezerArtistId: string
+  deezerArtistId: string;
   /** The library's name for the artist, so its page finds the follow under its own spelling. */
-  artist?: string
-  releaseKinds?: ArtistReleaseKind[]
-  autoDownload?: boolean
+  artist?: string;
+  releaseKinds?: ArtistReleaseKind[];
+  autoDownload?: boolean;
 }): Promise<FollowedArtist> {
-  return requestJson<FollowedArtist>("/api/artists/following", { method: "POST", body: JSON.stringify(input) })
+  return requestJson<FollowedArtist>('/api/artists/following', {
+    method: 'POST',
+    body: JSON.stringify(input)
+  });
 }
 
 export async function updateFollow(
   id: number,
-  input: { releaseKinds?: ArtistReleaseKind[]; autoDownload?: boolean },
+  input: { releaseKinds?: ArtistReleaseKind[]; autoDownload?: boolean }
 ): Promise<FollowedArtist> {
-  return requestJson<FollowedArtist>(`/api/artists/following/${id}`, { method: "PATCH", body: JSON.stringify(input) })
+  return requestJson<FollowedArtist>(`/api/artists/following/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input)
+  });
 }
 
 export async function unfollowArtist(id: number): Promise<void> {
-  const response = await fetch(`${API_PREFIX}/api/artists/following/${id}`, { method: "DELETE", cache: "no-store" })
-  await throwIfFailed(`/api/artists/following/${id}`, response)
+  const response = await fetch(`${API_PREFIX}/api/artists/following/${id}`, {
+    method: 'DELETE',
+    cache: 'no-store'
+  });
+  await throwIfFailed(`/api/artists/following/${id}`, response);
 }
 
 export interface ArtistMonitorResult {
-  artistsChecked: number
-  newReleases: number
-  tracksQueued: number
-  idleReason: string | null
+  artistsChecked: number;
+  newReleases: number;
+  tracksQueued: number;
+  idleReason: string | null;
 }
 
 export async function checkFollowedArtist(id: number): Promise<ArtistMonitorResult> {
-  return requestJson<ArtistMonitorResult>(`/api/artists/following/${id}/check`, { method: "POST" })
+  return requestJson<ArtistMonitorResult>(`/api/artists/following/${id}/check`, { method: 'POST' });
 }
 
-export type ListeningRange = '4w' | '6m' | '1y' | 'all'
+export type ListeningRange = '4w' | '6m' | '1y' | 'all';
 
 export interface ListeningTotals {
-  streams: number
-  minutes: number
-  distinctTracks: number
-  distinctArtists: number
-  distinctAlbums: number
+  streams: number;
+  minutes: number;
+  distinctTracks: number;
+  distinctArtists: number;
+  distinctAlbums: number;
 }
 
 export interface ListeningTopTrack {
-  songId: number
-  title: string
-  artist?: string
-  album?: string
-  streams: number
-  minutes: number
+  songId: number;
+  title: string;
+  artist?: string;
+  album?: string;
+  streams: number;
+  minutes: number;
 }
 
 export interface ListeningTopArtist {
-  name: string
-  streams: number
-  minutes: number
-  songId: number
+  name: string;
+  streams: number;
+  minutes: number;
+  songId: number;
 }
 
 export interface ListeningTopAlbum {
-  album: string
-  albumArtist?: string
-  streams: number
-  minutes: number
-  songId: number
+  album: string;
+  albumArtist?: string;
+  streams: number;
+  minutes: number;
+  songId: number;
 }
 
 export interface ListeningTopGenre {
-  name: string
-  streams: number
+  name: string;
+  streams: number;
 }
 
 export interface ListeningDay {
-  date: string
-  streams: number
-  minutes: number
+  date: string;
+  streams: number;
+  minutes: number;
 }
 
 export interface ListeningFacts {
-  longestStreak?: { days: number; start: string; end: string }
-  currentStreakDays: number
-  busiestDay?: { date: string; streams: number }
-  mostRepeated?: { songId: number; title: string; artist?: string; date: string; streams: number }
-  nightOwlShare?: number
-  peakHour?: number
+  longestStreak?: { days: number; start: string; end: string };
+  currentStreakDays: number;
+  busiestDay?: { date: string; streams: number };
+  mostRepeated?: { songId: number; title: string; artist?: string; date: string; streams: number };
+  nightOwlShare?: number;
+  peakHour?: number;
 }
 
 export interface ListeningRecentStream {
-  songId: number
-  title: string
-  artist?: string
-  album?: string
-  playedAtUtc: string
+  songId: number;
+  title: string;
+  artist?: string;
+  album?: string;
+  playedAtUtc: string;
 }
 
 export interface ListeningStats {
-  range: ListeningRange
-  fromUtc?: string
-  trackingSinceUtc?: string
-  totals: ListeningTotals
-  topTracks: ListeningTopTrack[]
-  topArtists: ListeningTopArtist[]
-  topAlbums: ListeningTopAlbum[]
-  topGenres: ListeningTopGenre[]
+  range: ListeningRange;
+  fromUtc?: string;
+  trackingSinceUtc?: string;
+  totals: ListeningTotals;
+  topTracks: ListeningTopTrack[];
+  topArtists: ListeningTopArtist[];
+  topAlbums: ListeningTopAlbum[];
+  topGenres: ListeningTopGenre[];
   /** Streams per local hour, 24 entries. */
-  clock: number[]
+  clock: number[];
   /** Streams per weekday, Monday first. */
-  weekdays: number[]
-  days: ListeningDay[]
-  facts: ListeningFacts
-  recent: ListeningRecentStream[]
+  weekdays: number[];
+  days: ListeningDay[];
+  facts: ListeningFacts;
+  recent: ListeningRecentStream[];
 }
 
 /** The caller's own listening stats; the offset puts the clock and the day buckets in local time. */
 export async function fetchListeningStats(
   range: ListeningRange,
-  utcOffsetMinutes: number = -new Date().getTimezoneOffset(),
+  utcOffsetMinutes: number = -new Date().getTimezoneOffset()
 ): Promise<ListeningStats> {
   return requestJson<ListeningStats>(
-    `/api/listening/stats?range=${range}&utcOffsetMinutes=${utcOffsetMinutes}`,
-  )
+    `/api/listening/stats?range=${range}&utcOffsetMinutes=${utcOffsetMinutes}`
+  );
 }

@@ -251,7 +251,12 @@
   {@const isLoaded = playerStore.currentSong?.id === song.id}
   <li
     use:longpress={{ onlongpress: (p) => menus[song.id]?.openAt(p) }}
-    use:swipeRow={{ side: 'leading', tone: 'primary', icon: ADD_TO_QUEUE_ICON, onswipe: () => queueSong(song) }}
+    use:swipeRow={{
+      side: 'leading',
+      tone: 'primary',
+      icon: ADD_TO_QUEUE_ICON,
+      onswipe: () => queueSong(song)
+    }}
     oncontextmenu={(e) => {
       e.preventDefault();
       menus[song.id]?.openAt({ x: e.clientX, y: e.clientY });
@@ -268,7 +273,7 @@
       data-row-main=""
       onclick={() => activate(song, index)}
       aria-current={isLoaded ? 'true' : undefined}
-      class="focus-visible:ring-ring flex min-h-16 min-w-0 flex-1 items-center gap-3 pl-4 text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset md:min-h-14 md:pl-2"
+      class="focus-visible:ring-ring flex min-h-16 min-w-0 flex-1 items-center gap-3 pl-4 text-left focus-visible:ring-2 focus-visible:outline-hidden focus-visible:ring-inset md:min-h-14 md:pl-2"
     >
       <span class="relative shrink-0">
         <Cover

@@ -17,7 +17,11 @@ const MIN_BYTES = 1024;
  * `content-length` and byte ranges), and so is anything streamed (`text/event-stream`), which a
  * compressor would hold back until its buffer filled.
  */
-export function pickProxyEncoding(request: Headers, status: number, response: Headers): ProxyEncoding | null {
+export function pickProxyEncoding(
+  request: Headers,
+  status: number,
+  response: Headers
+): ProxyEncoding | null {
   if (status !== 200) return null; // a 206 is a byte range of the original; a 204/304 has no body
   if (response.has('content-encoding')) return null;
   if (!COMPRESSIBLE.test(response.get('content-type') ?? '')) return null;
@@ -77,7 +81,10 @@ function inBlocksOf(size: number): Transform {
  * Measured on a 21 MB list: brotli 1 gives 2.1 MB in a third of the time brotli 4 takes for 1.9 MB
  * — given whole blocks to work on, which is what {@link BROTLI_BLOCK_BYTES} is for.
  */
-export function compressBody(body: ReadableStream<Uint8Array>, encoding: ProxyEncoding): ReadableStream<Uint8Array> {
+export function compressBody(
+  body: ReadableStream<Uint8Array>,
+  encoding: ProxyEncoding
+): ReadableStream<Uint8Array> {
   const compressor =
     encoding === 'br'
       ? createBrotliCompress({ params: { [constants.BROTLI_PARAM_QUALITY]: 1 } })

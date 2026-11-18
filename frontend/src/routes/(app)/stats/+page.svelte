@@ -59,7 +59,12 @@
 
   // Hoisted out of the template because {@const} can't live inside a plain <div>.
   const enrichTotal = $derived(
-    data ? Math.max(1, data.quality.enrichment.reduce((s, x) => s + x.count, 0)) : 1
+    data
+      ? Math.max(
+          1,
+          data.quality.enrichment.reduce((s, x) => s + x.count, 0)
+        )
+      : 1
   );
   const confMax = $derived(data ? maxOf(data.quality.confidence) : 1);
 
@@ -69,7 +74,11 @@
   }
   function fmtDate(iso: string | null): string {
     if (!iso) return '—';
-    return new Date(iso).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
+    return new Date(iso).toLocaleDateString([], {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
   }
   // Largest count in a list, for scaling horizontal bars (never divide by zero).
   function maxOf(items: { count?: number; tracks?: number }[]): number {
@@ -142,7 +151,10 @@
 
 <!-- A thin determinate bar in the one accent. -->
 {#snippet bar(pct: number, cls = 'bg-primary')}
-  <span class="bg-muted mt-1.5 mb-0.5 block h-1 w-full overflow-hidden rounded-full" aria-hidden="true">
+  <span
+    class="bg-muted mt-1.5 mb-0.5 block h-1 w-full overflow-hidden rounded-full"
+    aria-hidden="true"
+  >
     <span
       class="{cls} block h-full w-full origin-left rounded-full transition-transform duration-700 ease-out"
       style="transform: scaleX({Math.min(100, Math.max(0, pct)) / 100})"
@@ -186,7 +198,11 @@
             sublabel={error}
           >
             {#snippet trailing()}
-              <Button variant="ghost" class="text-primary hover:text-primary h-11 md:h-8" onclick={load}>
+              <Button
+                variant="ghost"
+                class="text-primary hover:text-primary h-11 md:h-8"
+                onclick={load}
+              >
                 Retry
               </Button>
             {/snippet}
@@ -209,8 +225,8 @@
         <div class="mx-auto max-w-md px-6 py-14 text-center">
           <p class="text-headline md:text-sm md:font-medium">Nothing indexed yet</p>
           <p class="text-callout text-muted-foreground mt-1 md:text-sm">
-            Run a scan and let the pipeline enrich and build your library — this page fills in as songs
-            flow through.
+            Run a scan and let the pipeline enrich and build your library — this page fills in as
+            songs flow through.
           </p>
         </div>
       {:else if data}
@@ -231,7 +247,9 @@
             {@const Icon = h.icon}
             <div class="bg-card flex flex-col gap-2 rounded-xl p-4">
               <div class="flex items-center gap-2.5">
-                <span class="bg-muted text-foreground grid size-[29px] place-items-center rounded-[7px]">
+                <span
+                  class="bg-muted text-foreground grid size-[29px] place-items-center rounded-[7px]"
+                >
                   <Icon class="size-[18px]" aria-hidden="true" />
                 </span>
                 <span class="text-[13px] font-medium">{h.label}</span>
@@ -245,8 +263,11 @@
 
         <!-- The remaining sections flow in balanced columns on a desktop (CSS columns, so a short
              section never leaves a hole beside a tall one). -->
-        <div class="flex flex-col gap-7 md:block md:columns-2 md:gap-6 md:*:mb-6 md:*:break-inside-avoid xl:columns-3">
-          <GroupedList.Section headingLevel={2}
+        <div
+          class="flex flex-col gap-7 md:block md:columns-2 md:gap-6 md:*:mb-6 md:*:break-inside-avoid xl:columns-3"
+        >
+          <GroupedList.Section
+            headingLevel={2}
             header="Pipeline funnel"
             footer="How far your source files travel: indexed → fingerprinted → matched → written to the destination library."
           >
@@ -255,7 +276,8 @@
             {/each}
           </GroupedList.Section>
 
-          <GroupedList.Section headingLevel={2}
+          <GroupedList.Section
+            headingLevel={2}
             header="Spotify wishlist journey"
             footer={`${fmt(data.wishlist.all.total)} tracks wishlisted across ${data.wishlist.sources} source${data.wishlist.sources === 1 ? '' : 's'}.`}
           >
@@ -308,7 +330,9 @@
 
           <GroupedList.Section headingLevel={2} header="Top artists">
             {#if data.top.artists.length === 0}
-              <p class="text-body text-muted-foreground px-4 py-4 md:text-sm">No built tracks yet.</p>
+              <p class="text-body text-muted-foreground px-4 py-4 md:text-sm">
+                No built tracks yet.
+              </p>
             {:else}
               {@const max = maxOf(data.top.artists)}
               {#each data.top.artists as a (a.name)}
@@ -319,7 +343,9 @@
 
           <GroupedList.Section headingLevel={2} header="Biggest albums">
             {#if data.top.albums.length === 0}
-              <p class="text-body text-muted-foreground px-4 py-4 md:text-sm">No built tracks yet.</p>
+              <p class="text-body text-muted-foreground px-4 py-4 md:text-sm">
+                No built tracks yet.
+              </p>
             {:else}
               {@const max = maxOf(data.top.albums)}
               {#each data.top.albums as al (al.artist + '—' + al.album)}
@@ -328,14 +354,18 @@
             {/if}
           </GroupedList.Section>
 
-          <GroupedList.Section headingLevel={2}
+          <GroupedList.Section
+            headingLevel={2}
             header="Library totals"
             footer={`Indexed between ${fmtDate(data.totals.oldestIndexedUtc)} and ${fmtDate(data.totals.newestIndexedUtc)}.`}
           >
             <GroupedList.Row label="Tracks" value={fmt(data.totals.builtTracks)} />
             <GroupedList.Row label="Artists" value={fmt(data.totals.distinctArtists)} />
             <GroupedList.Row label="Albums" value={fmt(data.totals.distinctAlbums)} />
-            <GroupedList.Row label="Hours of music" value={fmt(Math.round(data.totals.totalHours))} />
+            <GroupedList.Row
+              label="Hours of music"
+              value={fmt(Math.round(data.totals.totalHours))}
+            />
             <GroupedList.Row label="On disk" value={`${data.totals.totalGiB} GiB`} />
             <GroupedList.Row label="Duplicates" value={fmt(data.totals.duplicates)} />
           </GroupedList.Section>
@@ -357,7 +387,10 @@
             <div class="px-4 pt-3 pb-1">
               <div class="bg-muted flex h-2 gap-px overflow-hidden rounded-full" aria-hidden="true">
                 {#each data.quality.enrichment.filter((s) => s.count > 0) as s (s.status)}
-                  <div class={enrichColor(s.status)} style="width: {(s.count / enrichTotal) * 100}%"></div>
+                  <div
+                    class={enrichColor(s.status)}
+                    style="width: {(s.count / enrichTotal) * 100}%"
+                  ></div>
                 {/each}
               </div>
             </div>
@@ -385,7 +418,9 @@
 
           <GroupedList.Section headingLevel={2} header="Matches by provider">
             {#if data.quality.byProvider.length === 0}
-              <p class="text-body text-muted-foreground px-4 py-4 md:text-sm">No provider attempts yet.</p>
+              <p class="text-body text-muted-foreground px-4 py-4 md:text-sm">
+                No provider attempts yet.
+              </p>
             {:else}
               {@const pmax = Math.max(1, ...data.quality.byProvider.map((p) => p.matched))}
               {#each data.quality.byProvider as p (p.provider)}
@@ -395,7 +430,9 @@
           </GroupedList.Section>
         </div>
 
-        <p class="text-footnote text-muted-foreground flex items-center gap-1.5 px-8 md:px-4 md:text-xs">
+        <p
+          class="text-footnote text-muted-foreground flex items-center gap-1.5 px-8 md:px-4 md:text-xs"
+        >
           <Disc3 class="size-3.5 shrink-0" aria-hidden="true" />
           Cover and lyrics counts reflect what MusicHoarder wrote to your destination library.
         </p>

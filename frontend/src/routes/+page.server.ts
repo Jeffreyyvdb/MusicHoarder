@@ -16,8 +16,7 @@ export const load: PageServerLoad = async ({ request }) => {
     timeoutMs: 3000
   });
 
-  const sessionRole: SessionRole | null =
-    probe.status === 'authenticated' ? probe.user.role : null;
+  const sessionRole: SessionRole | null = probe.status === 'authenticated' ? probe.user.role : null;
 
   return { sessionRole };
 };

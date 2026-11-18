@@ -977,7 +977,7 @@
           type="button"
           onclick={() => listView.toggleChip(key)}
           aria-label="Remove filter {CHIP_LABELS[key]}"
-          class="bg-primary/12 text-primary text-subheadline focus-visible:ring-ring relative flex h-8 shrink-0 items-center gap-1 rounded-full pr-2 pl-3 font-medium whitespace-nowrap transition-transform duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] focus-visible:outline-hidden after:absolute after:inset-x-0 after:-inset-y-1.5 focus-visible:ring-2 active:scale-[0.97]"
+          class="bg-primary/12 text-primary text-subheadline focus-visible:ring-ring relative flex h-8 shrink-0 items-center gap-1 rounded-full pr-2 pl-3 font-medium whitespace-nowrap transition-transform duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] after:absolute after:inset-x-0 after:-inset-y-1.5 focus-visible:ring-2 focus-visible:outline-hidden active:scale-[0.97]"
         >
           {CHIP_LABELS[key]}
           <X class="size-4" aria-hidden="true" />
@@ -986,7 +986,7 @@
       <button
         type="button"
         onclick={() => listView.clearFilters()}
-        class="text-primary text-subheadline relative flex h-8 shrink-0 items-center px-2 font-medium focus-visible:outline-hidden after:absolute after:inset-x-0 after:-inset-y-1.5 focus-visible:underline"
+        class="text-primary text-subheadline relative flex h-8 shrink-0 items-center px-2 font-medium after:absolute after:inset-x-0 after:-inset-y-1.5 focus-visible:underline focus-visible:outline-hidden"
       >
         Clear
       </button>
@@ -1062,7 +1062,12 @@
   {@const plays = ranked ? (songsStore.playStatsOf(song).playCount ?? 0) : 0}
   <li
     use:longpress={{ onlongpress: (p) => artistMenus[song.id]?.openAt(p) }}
-    use:swipeRow={{ side: 'leading', tone: 'primary', icon: ADD_TO_QUEUE_ICON, onswipe: () => queueSong(song) }}
+    use:swipeRow={{
+      side: 'leading',
+      tone: 'primary',
+      icon: ADD_TO_QUEUE_ICON,
+      onswipe: () => queueSong(song)
+    }}
     oncontextmenu={(e) => {
       e.preventDefault();
       artistMenus[song.id]?.openAt({ x: e.clientX, y: e.clientY });

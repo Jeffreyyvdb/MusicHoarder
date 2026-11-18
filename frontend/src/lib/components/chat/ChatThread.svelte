@@ -83,7 +83,10 @@
     notFound = false;
     error = null;
     try {
-      const [conv, firstPage] = await Promise.all([fetchChatConversation(id), fetchChatMessages(id)]);
+      const [conv, firstPage] = await Promise.all([
+        fetchChatConversation(id),
+        fetchChatMessages(id)
+      ]);
       if (id !== conversationId) return;
       conversation = conv;
       messages = firstPage.messages;
@@ -134,7 +137,10 @@
   $effect(() =>
     chatStore.onEvent((event) => {
       if (loading || notFound) return;
-      if (event.type === 'ready' || (event.type === 'message' && event.conversationId === conversationId)) {
+      if (
+        event.type === 'ready' ||
+        (event.type === 'message' && event.conversationId === conversationId)
+      ) {
         void catchUp().catch(() => {});
       } else if (
         event.type === 'read' &&
@@ -178,8 +184,7 @@
 
   // The field grows with its text up to 160px through CSS `field-sizing: content`. This sizes it by
   // hand only where that is unsupported (before Safari 26.2, Firefox 152 and Chrome 123).
-  const fieldSizesItself =
-    typeof CSS !== 'undefined' && CSS.supports('field-sizing', 'content');
+  const fieldSizesItself = typeof CSS !== 'undefined' && CSS.supports('field-sizing', 'content');
 
   function resizeField() {
     const el = field;
@@ -275,12 +280,11 @@
       )}
       oninput={resizeField}
       onkeydown={onKeydown}
-      disabled={!conversation}
-    ></textarea>
+      disabled={!conversation}></textarea>
     <button
       type="submit"
       aria-label="Send"
-      class="bg-primary text-primary-foreground focus-visible:ring-ring grid size-11 shrink-0 place-items-center rounded-full focus-visible:outline-hidden focus-visible:ring-2 disabled:opacity-40 md:size-9"
+      class="bg-primary text-primary-foreground focus-visible:ring-ring grid size-11 shrink-0 place-items-center rounded-full focus-visible:ring-2 focus-visible:outline-hidden disabled:opacity-40 md:size-9"
       disabled={!text.trim() || sending || !conversation}
       onpointerdown={(e) => e.preventDefault()}
     >
@@ -294,7 +298,10 @@
 {/snippet}
 
 <div class="flex min-h-0 flex-1 flex-col md:pb-(--mh-content-pad)">
-  <div bind:this={scroller} class="min-h-0 flex-1 overflow-y-auto overscroll-contain max-md:pb-(--mh-content-pad)">
+  <div
+    bind:this={scroller}
+    class="min-h-0 flex-1 overflow-y-auto overscroll-contain max-md:pb-(--mh-content-pad)"
+  >
     <PageToolbarV2 {title} {meta} largeTitle={false} />
 
     {#if loading}
@@ -338,7 +345,9 @@
             {@const previous = messages[i - 1]}
             {@const next = messages[i + 1]}
             {#if startsDay(previous, message)}
-              <li class="text-caption-1 text-muted-foreground mt-4 mb-1 text-center font-medium md:text-xs">
+              <li
+                class="text-caption-1 text-muted-foreground mt-4 mb-1 text-center font-medium md:text-xs"
+              >
                 {dayLabel(message.createdAtUtc)}
               </li>
             {/if}
@@ -350,7 +359,11 @@
                 onadd={admin ? addToLibrary : undefined}
               />
               {#if message.id === seenId}
-                <p class="text-caption-2 text-muted-foreground px-5 pt-0.5 text-right md:px-8 md:text-[11px]">Seen</p>
+                <p
+                  class="text-caption-2 text-muted-foreground px-5 pt-0.5 text-right md:px-8 md:text-[11px]"
+                >
+                  Seen
+                </p>
               {/if}
             </li>
           {/each}

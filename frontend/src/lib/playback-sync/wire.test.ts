@@ -88,7 +88,7 @@ describe('parseSession', () => {
   });
 
   it('does not share the queue array with the message', () => {
-    const raw = { ...wireSession, queue: [1, 2] , queueIndex: 0 };
+    const raw = { ...wireSession, queue: [1, 2], queueIndex: 0 };
     const parsed = parseSession(raw)!;
     raw.queue.push(3);
     expect(parsed.queue).toEqual([1, 2]);
@@ -112,7 +112,9 @@ describe('parseDevice(s)', () => {
 
   it('drops a device nobody could address, and only that one', () => {
     expect(parseDevice({ ...device, deviceId: '' })).toBeNull();
-    expect(parseDevices([device, { name: 'ghost' }, 7, { ...device, deviceId: 'dev-00002' }])).toHaveLength(2);
+    expect(
+      parseDevices([device, { name: 'ghost' }, 7, { ...device, deviceId: 'dev-00002' }])
+    ).toHaveLength(2);
     expect(parseDevices('nope')).toEqual([]);
   });
 
@@ -132,7 +134,10 @@ describe('parseDevice(s)', () => {
 
 describe('events', () => {
   it('snapshot: an invalid session reads as none, the devices still count', () => {
-    const overview = parseOverview({ session: { version: 'x' }, devices: [{ deviceId: 'dev-00001' }] });
+    const overview = parseOverview({
+      session: { version: 'x' },
+      devices: [{ deviceId: 'dev-00001' }]
+    });
     expect(overview?.session).toBeNull();
     expect(overview?.devices).toHaveLength(1);
     expect(parseOverview({ session: null, devices: [] })).toEqual({ session: null, devices: [] });
@@ -157,11 +162,15 @@ describe('events', () => {
       command: 'pause',
       positionMs: null
     });
-    expect(parseCommandEvent({ ...base, command: 'seek', positionMs: 12345 })?.positionMs).toBe(12345);
+    expect(parseCommandEvent({ ...base, command: 'seek', positionMs: 12345 })?.positionMs).toBe(
+      12345
+    );
     expect(parseCommandEvent({ ...base, command: 'seek', positionMs: null })).toBeNull();
     expect(parseCommandEvent({ ...base, command: 'shuffle' })).toBeNull();
     expect(parseCommandEvent({ command: 'pause' })).toBeNull();
-    expect(parseCommandEvent({ ...base, command: 'next', fromDeviceName: 7 })?.fromDeviceName).toBeNull();
+    expect(
+      parseCommandEvent({ ...base, command: 'next', fromDeviceName: 7 })?.fromDeviceName
+    ).toBeNull();
   });
 
   it('state response: anything but an explicit yes is a refusal', () => {

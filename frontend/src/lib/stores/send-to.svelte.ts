@@ -49,7 +49,11 @@ export function sendToSong(song: ApiSong, opts: { nested?: boolean } = {}): Send
 }
 
 /** The Send to… item for an album, carried by one of its tracks (the link covers the whole album). */
-export function sendToAlbum(first: ApiSong, title: string, artist: string | null | undefined): SendToItem {
+export function sendToAlbum(
+  first: ApiSong,
+  title: string,
+  artist: string | null | undefined
+): SendToItem {
   return {
     songId: first.id,
     scope: 'album',

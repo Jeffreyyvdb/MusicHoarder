@@ -36,9 +36,13 @@ describe('sharedLink', () => {
       })
     ).toBe('https://open.spotify.com/track/5W3cjX2J3tjhG8zb6u0qHn?si=abc');
     // YouTube: a bare link in `text`.
-    expect(sharedLink({ text: 'https://youtu.be/dQw4w9WgXcQ?si=x' })).toBe('https://youtu.be/dQw4w9WgXcQ?si=x');
+    expect(sharedLink({ text: 'https://youtu.be/dQw4w9WgXcQ?si=x' })).toBe(
+      'https://youtu.be/dQw4w9WgXcQ?si=x'
+    );
     // A browser: `url`, with the page title alongside.
-    expect(sharedLink({ title: 'A page', url: 'https://example.com/a' })).toBe('https://example.com/a');
+    expect(sharedLink({ title: 'A page', url: 'https://example.com/a' })).toBe(
+      'https://example.com/a'
+    );
     expect(sharedLink({ title: 'no link', text: 'none either' })).toBeNull();
   });
 
@@ -71,13 +75,19 @@ describe('linkSegments', () => {
 
 describe('linkCaption', () => {
   it('names the source and what the link is', () => {
-    expect(linkCaption({ url: 'https://open.spotify.com/track/x', provider: 'spotify', kind: 'track' })).toBe(
-      'Spotify · Song'
+    expect(
+      linkCaption({ url: 'https://open.spotify.com/track/x', provider: 'spotify', kind: 'track' })
+    ).toBe('Spotify · Song');
+    expect(
+      linkCaption({
+        url: 'https://music.youtube.com/watch?v=x',
+        provider: 'youtube',
+        kind: 'video'
+      })
+    ).toBe('YouTube Music · Video');
+    expect(linkCaption({ url: 'https://www.example.com/a', provider: null, kind: null })).toBe(
+      'example.com'
     );
-    expect(linkCaption({ url: 'https://music.youtube.com/watch?v=x', provider: 'youtube', kind: 'video' })).toBe(
-      'YouTube Music · Video'
-    );
-    expect(linkCaption({ url: 'https://www.example.com/a', provider: null, kind: null })).toBe('example.com');
   });
 });
 
@@ -110,7 +120,12 @@ describe('messagePreview', () => {
           id: 1,
           kind: 'link',
           text: null,
-          link: { url: 'https://youtu.be/x', provider: 'youtube', kind: 'video', title: 'Around the World' }
+          link: {
+            url: 'https://youtu.be/x',
+            provider: 'youtube',
+            kind: 'video',
+            title: 'Around the World'
+          }
         })
       )
     ).toBe('You: Sent a link: Around the World');
@@ -138,7 +153,12 @@ describe('runs and days', () => {
 describe('seenMessageId', () => {
   const mine1 = message({ id: 1, createdAtUtc: '2026-09-26T12:00:00Z' });
   const mine2 = message({ id: 2, createdAtUtc: '2026-09-26T12:01:00Z' });
-  const theirs = message({ id: 3, mine: false, senderId: 'them', createdAtUtc: '2026-09-26T12:02:00Z' });
+  const theirs = message({
+    id: 3,
+    mine: false,
+    senderId: 'them',
+    createdAtUtc: '2026-09-26T12:02:00Z'
+  });
 
   it('goes under the newest message of yours they have read', () => {
     expect(seenMessageId([mine1, mine2], '2026-09-26T12:05:00Z')).toBe(2);

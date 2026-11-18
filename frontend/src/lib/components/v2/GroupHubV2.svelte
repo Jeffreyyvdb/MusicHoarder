@@ -229,7 +229,11 @@
                       chevron
                     >
                       {#if pipelineProgress != null}
-                        <LinearProgress label="Pipeline progress" value={pipelineProgress} class="mt-1.5 mb-0.5" />
+                        <LinearProgress
+                          label="Pipeline progress"
+                          value={pipelineProgress}
+                          class="mt-1.5 mb-0.5"
+                        />
                       {/if}
                     </GroupedList.Row>
                   {:else}

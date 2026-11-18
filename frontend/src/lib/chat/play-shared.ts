@@ -44,7 +44,10 @@ export async function playChatShare(share: ChatShare): Promise<void> {
       coverUrl: t.hasCoverArt ? shareCoverUrl(token, t.id) : null,
       album: payload.album.title ?? null
     }));
-    const index = Math.max(0, queue.findIndex((t) => t.id === payload.sharedSongId));
+    const index = Math.max(
+      0,
+      queue.findIndex((t) => t.id === payload.sharedSongId)
+    );
     const start = queue[index];
     if (!start) return;
     await playerStore.playSong(start, queue, index);

@@ -124,7 +124,11 @@ beforeEach(() => {
     'fetch',
     vi.fn(async () => ({ ok: true }))
   );
-  vi.stubGlobal('document', { hidden: false, visibilityState: 'visible', addEventListener: () => {} });
+  vi.stubGlobal('document', {
+    hidden: false,
+    visibilityState: 'visible',
+    addEventListener: () => {}
+  });
   vi.stubGlobal('window', {
     sessionStorage: {
       getItem: (k: string) => session.get(k) ?? null,
@@ -525,7 +529,11 @@ describe('localPlayback.adopt', () => {
 
   it('turns stand-ins into rows once the library has them, dropping one it lacks', async () => {
     const { localPlayback, playerStore } = await load();
-    const standIn = (id: number): PlayerSong => ({ ...song(id), title: 'Unknown title', standIn: true });
+    const standIn = (id: number): PlayerSong => ({
+      ...song(id),
+      title: 'Unknown title',
+      standIn: true
+    });
     localPlayback.adopt({
       queue: [standIn(1), standIn(5), standIn(2), standIn(3)],
       index: 2,
@@ -547,7 +555,12 @@ describe('localPlayback.adopt', () => {
     const { localPlayback, initPlayer } = await load();
     initPlayer();
     element().playResult = 'blocked';
-    const outcome = localPlayback.adopt({ queue: QUEUE, index: 0, positionSec: 0, radioSeedId: null });
+    const outcome = localPlayback.adopt({
+      queue: QUEUE,
+      index: 0,
+      positionSec: 0,
+      radioSeedId: null
+    });
     await expect(outcome).resolves.toBe('blocked');
   });
 

@@ -29,7 +29,8 @@
     {#if connected}
       <CircleCheck class="text-primary size-5 shrink-0" aria-hidden="true" />
     {:else}
-      <span class="border-muted-foreground size-5 shrink-0 rounded-full border-2" aria-hidden="true"></span>
+      <span class="border-muted-foreground size-5 shrink-0 rounded-full border-2" aria-hidden="true"
+      ></span>
     {/if}
     <span class="sr-only">{connected ? 'Matched:' : 'Not matched:'}</span>
   {/snippet}

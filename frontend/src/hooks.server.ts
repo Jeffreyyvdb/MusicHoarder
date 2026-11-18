@@ -72,7 +72,9 @@ async function withSecurityHeaders(input: Parameters<Handle>[0]): Promise<Respon
  * hardware skin's stylesheet, which the first-paint script requests only when the skin is on
  * (`#lib/hardware/skin-stylesheet`).
  */
-function withPageFills(resolve: Parameters<Handle>[0]['resolve']): Parameters<Handle>[0]['resolve'] {
+function withPageFills(
+  resolve: Parameters<Handle>[0]['resolve']
+): Parameters<Handle>[0]['resolve'] {
   return (event, opts) =>
     resolve(event, {
       ...opts,

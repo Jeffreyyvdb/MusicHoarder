@@ -16,7 +16,14 @@
   import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
   import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
   import { cn } from '#lib/utils.ts';
-  import { Loader2, AlertTriangle, ChevronRight, ArrowUpDown, FolderSearch, FolderOpen } from '@lucide/svelte';
+  import {
+    Loader2,
+    AlertTriangle,
+    ChevronRight,
+    ArrowUpDown,
+    FolderSearch,
+    FolderOpen
+  } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
   import { SvelteSet } from 'svelte/reactivity';
 
@@ -38,12 +45,15 @@
     const el = stripSentinel;
     const root = pageScroller;
     if (!el || !root) return;
-    const io = new IntersectionObserver(([entry]) => {
-      stripStuck =
-        !entry.isIntersecting &&
-        entry.rootBounds != null &&
-        entry.boundingClientRect.top < entry.rootBounds.top;
-    }, { root });
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        stripStuck =
+          !entry.isIntersecting &&
+          entry.rootBounds != null &&
+          entry.boundingClientRect.top < entry.rootBounds.top;
+      },
+      { root }
+    );
     io.observe(el);
     return () => {
       io.disconnect();
@@ -210,8 +220,20 @@
   const heroSegs = $derived([
     { key: 'written', n: written, cls: 'bg-primary', label: 'In library', filter: null },
     { key: 'matched', n: matchedNotWritten, cls: 'bg-primary/50', label: 'Matched', filter: null },
-    { key: 'review', n: review, cls: 'bg-warning', label: 'Needs review', filter: 'review' as const },
-    { key: 'failed', n: failed, cls: 'bg-destructive', label: 'No match', filter: 'failed' as const },
+    {
+      key: 'review',
+      n: review,
+      cls: 'bg-warning',
+      label: 'Needs review',
+      filter: 'review' as const
+    },
+    {
+      key: 'failed',
+      n: failed,
+      cls: 'bg-destructive',
+      label: 'No match',
+      filter: 'failed' as const
+    },
     { key: 'queued', n: queued, cls: 'bg-muted-foreground-dim', label: 'Queued', filter: null }
   ]);
 
@@ -246,7 +268,10 @@
   const visibleChildren = $derived.by(() => {
     let rows = children;
     const q = query.trim().toLowerCase();
-    if (q) rows = rows.filter((c) => c.name.toLowerCase().includes(q) || c.path.toLowerCase().includes(q));
+    if (q)
+      rows = rows.filter(
+        (c) => c.name.toLowerCase().includes(q) || c.path.toLowerCase().includes(q)
+      );
 
     if (filter === 'expected') rows = rows.filter((c) => c.expectedLow);
     else if (filter === 'review') rows = rows.filter((c) => !c.expectedLow && hasReview(c));
@@ -293,7 +318,11 @@
 <!-- The chip set, in whichever band holds it: the phone's pinned strip scrolls sideways (shrink-0
      keeps it one row there), the desktop bar's band wraps (md:shrink lets it). -->
 {#snippet filterChips()}
-  <div role="group" aria-label="Show folders" class="flex shrink-0 flex-wrap items-center gap-2 md:shrink">
+  <div
+    role="group"
+    aria-label="Show folders"
+    class="flex shrink-0 flex-wrap items-center gap-2 md:shrink"
+  >
     {#each FILTERS as p (p.id)}
       <FilterChip pressed={filter === p.id} onclick={() => (filter = p.id)} count={p.n}>
         {p.label}
@@ -304,7 +333,11 @@
 
 <!-- One scroller at every width, the nav bar as its first child. -->
 <div class="flex min-h-0 flex-1 flex-col">
-  <ScrollArea bind:viewportRef={pageScroller} class="min-h-0 flex-1" viewportClass="overscroll-contain">
+  <ScrollArea
+    bind:viewportRef={pageScroller}
+    class="min-h-0 flex-1"
+    viewportClass="overscroll-contain"
+  >
     <PageToolbarV2
       title="By folder"
       meta={headerMeta}
@@ -313,7 +346,9 @@
     >
       {#snippet actions()}
         {#if liveActive}
-          <span class="text-muted-foreground text-footnote md:text-nav-xs inline-flex shrink-0 items-center gap-1.5">
+          <span
+            class="text-muted-foreground text-footnote md:text-nav-xs inline-flex shrink-0 items-center gap-1.5"
+          >
             <span class="bg-primary mh-v2-pulse size-1.5 rounded-full" aria-hidden="true"></span>
             Live
           </span>
@@ -351,10 +386,14 @@
     {#if !isLoading && tree}
       <!-- Slim segmented status bar; the headline number lives in the subtitle. -->
       <div class="px-4 pt-2 pb-3 md:px-7 md:pt-4">
-        <div class="bg-muted flex h-1.5 w-full gap-px overflow-hidden rounded-full" aria-hidden="true">
+        <div
+          class="bg-muted flex h-1.5 w-full gap-px overflow-hidden rounded-full"
+          aria-hidden="true"
+        >
           {#each heroSegs as s (s.key)}
             {#if s.n > 0}
-              <span class={cn('h-full', s.cls)} style="width: {(s.n / Math.max(total, 1)) * 100}%"></span>
+              <span class={cn('h-full', s.cls)} style="width: {(s.n / Math.max(total, 1)) * 100}%"
+              ></span>
             {/if}
           {/each}
         </div>
@@ -373,19 +412,23 @@
                   <button
                     type="button"
                     onclick={() => (filter = target)}
-                    class="text-foreground focus-visible:ring-ring/50 relative inline-flex items-center gap-1.5 rounded-sm font-medium focus-visible:outline-hidden hover:underline focus-visible:ring-3 pointer-coarse:after:absolute pointer-coarse:after:-inset-x-1.5 pointer-coarse:after:-inset-y-[13px]"
+                    class="text-foreground focus-visible:ring-ring/50 relative inline-flex items-center gap-1.5 rounded-sm font-medium hover:underline focus-visible:ring-3 focus-visible:outline-hidden pointer-coarse:after:absolute pointer-coarse:after:-inset-x-1.5 pointer-coarse:after:-inset-y-[13px]"
                   >
-                    <span class={cn('size-2 shrink-0 rounded-full', s.cls)} aria-hidden="true"></span>
+                    <span class={cn('size-2 shrink-0 rounded-full', s.cls)} aria-hidden="true"
+                    ></span>
                     {s.label}
                     <span class="tabular-nums">{s.n.toLocaleString()}</span>
                     <span class="sr-only">
-                      {s.key === 'review' ? ' — show folders with reviews' : ' — show folders with failures'}
+                      {s.key === 'review'
+                        ? ' — show folders with reviews'
+                        : ' — show folders with failures'}
                     </span>
                     <ChevronRight class="text-muted-foreground size-3.5" aria-hidden="true" />
                   </button>
                 {:else}
                   <span class="text-muted-foreground inline-flex items-center gap-1.5">
-                    <span class={cn('size-2 shrink-0 rounded-full', s.cls)} aria-hidden="true"></span>
+                    <span class={cn('size-2 shrink-0 rounded-full', s.cls)} aria-hidden="true"
+                    ></span>
                     {s.label}
                     <span class="text-foreground tabular-nums">{s.n.toLocaleString()}</span>
                   </span>
@@ -415,7 +458,10 @@
           data-stuck={stripStuck || undefined}
           class="bg-background border-separator before:bg-background sticky top-(--mh-navbar-h,0px) z-10 border-b before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:hidden before:h-4 data-stuck:before:block"
         >
-          <div data-scroll-x="" class="no-scrollbar flex items-center overflow-x-auto overflow-y-hidden px-4 py-1.5">
+          <div
+            data-scroll-x=""
+            class="no-scrollbar flex items-center overflow-x-auto overflow-y-hidden px-4 py-1.5"
+          >
             {@render filterChips()}
           </div>
         </div>
@@ -443,12 +489,16 @@
       class="px-2 py-2 md:px-4"
     >
       {#if isLoading}
-        <div class="text-muted-foreground text-body flex min-h-[40vh] items-center justify-center gap-2 md:text-sm">
+        <div
+          class="text-muted-foreground text-body flex min-h-[40vh] items-center justify-center gap-2 md:text-sm"
+        >
           <Loader2 class="size-4 animate-spin" aria-hidden="true" />
           Loading directory tree…
         </div>
       {:else if error}
-        <div class="text-muted-foreground text-body flex min-h-[40vh] flex-col items-center justify-center gap-2 px-6 text-center md:text-sm">
+        <div
+          class="text-muted-foreground text-body flex min-h-[40vh] flex-col items-center justify-center gap-2 px-6 text-center md:text-sm"
+        >
           <AlertTriangle class="text-warning-text size-5" aria-hidden="true" />
           {error}
         </div>

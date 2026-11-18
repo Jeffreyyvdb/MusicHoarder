@@ -101,7 +101,9 @@
 
   // --- chart series (oldest → newest, matching the snapshots order) ---
   const labels = $derived(snapshots.map((s) => fmtShort(s.capturedAtUtc)));
-  const matchRateSeries = $derived(snapshots.map((s) => (s.matchRate != null ? s.matchRate * 100 : null)));
+  const matchRateSeries = $derived(
+    snapshots.map((s) => (s.matchRate != null ? s.matchRate * 100 : null))
+  );
   const needsReviewSeries = $derived(snapshots.map((s) => s.needsReview));
   const failedSeries = $derived(snapshots.map((s) => s.failed));
   const avgAiSeries = $derived(snapshots.map((s) => s.avgAiScore ?? null));
@@ -111,7 +113,12 @@
 
   function fmtShort(iso: string): string {
     const d = new Date(iso);
-    return d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleString([], {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
   }
   function pct(v: number): string {
     return `${Math.round(v)}%`;
@@ -126,13 +133,51 @@
   // `higherIsBetter` is each chart's polarity: a rise in Match rate is good news, a rise in Failed
   // is bad news, and the delta line says which in words as well as colour.
   const charts = $derived([
-    { title: 'Match rate', series: matchRateSeries, color: 'var(--color-primary)', format: pct, yMin: 0, yMax: 100, higherIsBetter: true },
-    { title: 'Avg AI score', series: avgAiSeries, color: 'var(--chart-3)', format: score, yMin: 0, yMax: 100, higherIsBetter: true },
+    {
+      title: 'Match rate',
+      series: matchRateSeries,
+      color: 'var(--color-primary)',
+      format: pct,
+      yMin: 0,
+      yMax: 100,
+      higherIsBetter: true
+    },
+    {
+      title: 'Avg AI score',
+      series: avgAiSeries,
+      color: 'var(--chart-3)',
+      format: score,
+      yMin: 0,
+      yMax: 100,
+      higherIsBetter: true
+    },
     // Not --chart-4: that amber is 3.22:1 on the light page, under the 3:1-plus-margin a thin
     // 0.8-unit line needs. --chart-5 is 5.07:1 light and unused by the other four series.
-    { title: 'Needs review', series: needsReviewSeries, color: 'var(--chart-5)', format: count, yMin: 0, higherIsBetter: false },
-    { title: 'Failed', series: failedSeries, color: 'var(--color-destructive)', format: count, yMin: 0, higherIsBetter: false },
-    { title: 'Avg match confidence', series: confidenceSeries, color: 'var(--chart-2)', format: pct, yMin: 0, yMax: 100, higherIsBetter: true }
+    {
+      title: 'Needs review',
+      series: needsReviewSeries,
+      color: 'var(--chart-5)',
+      format: count,
+      yMin: 0,
+      higherIsBetter: false
+    },
+    {
+      title: 'Failed',
+      series: failedSeries,
+      color: 'var(--color-destructive)',
+      format: count,
+      yMin: 0,
+      higherIsBetter: false
+    },
+    {
+      title: 'Avg match confidence',
+      series: confidenceSeries,
+      color: 'var(--chart-2)',
+      format: pct,
+      yMin: 0,
+      yMax: 100,
+      higherIsBetter: true
+    }
   ]);
 
   /** "EnrichmentRun" → "Enrichment run": the capture trigger as a sentence-case word. */
@@ -154,7 +199,12 @@
     'absolute inset-0 h-full w-full cursor-pointer appearance-none opacity-0 text-base';
 </script>
 
-{#snippet versionPicker(label: string, aria: string, value: number | null, onpick: (id: number) => void)}
+{#snippet versionPicker(
+  label: string,
+  aria: string,
+  value: number | null,
+  onpick: (id: number) => void
+)}
   <GroupedList.Row
     {label}
     class="hover:bg-accent has-[select:focus-visible]:ring-ring/50 has-[select:focus-visible]:ring-3 has-[select:focus-visible]:ring-inset"
@@ -180,7 +230,13 @@
   </GroupedList.Row>
 {/snippet}
 
-{#snippet songList(title: string, rows: SnapshotCompare['regressed'], total: number, worse: boolean, footer?: string)}
+{#snippet songList(
+  title: string,
+  rows: SnapshotCompare['regressed'],
+  total: number,
+  worse: boolean,
+  footer?: string
+)}
   <GroupedList.Section headingLevel={2} {footer} class="min-w-0">
     {#snippet header()}
       <span class="inline-flex items-center gap-1.5">
@@ -255,8 +311,8 @@
         <div class="mx-auto flex max-w-md flex-col items-center px-6 py-14 text-center">
           <p class="text-headline md:text-sm md:font-medium">No snapshots yet</p>
           <p class="text-callout text-muted-foreground mt-1 md:text-sm">
-            Run an enrichment or AI grading pass — a performance snapshot is captured automatically when
-            it finishes. You can also capture one now to set a baseline.
+            Run an enrichment or AI grading pass — a performance snapshot is captured automatically
+            when it finishes. You can also capture one now to set a baseline.
           </p>
           <Button onclick={capture} disabled={capturing} size="pill" class="mt-5 md:h-9 md:text-sm">
             <Camera aria-hidden="true" />
@@ -273,9 +329,14 @@
           <div class="mx-4 grid grid-cols-1 gap-3 sm:grid-cols-2 md:mx-0 xl:grid-cols-3">
             {#each charts as c (c.title)}
               {@const latest = c.series[c.series.length - 1]}
-              {@const d = describeSeriesDelta(c.series, { format: c.format, higherIsBetter: c.higherIsBetter })}
+              {@const d = describeSeriesDelta(c.series, {
+                format: c.format,
+                higherIsBetter: c.higherIsBetter
+              })}
               <div class="bg-card rounded-xl p-4">
-                <div class="text-subheadline text-muted-foreground font-medium md:text-sm">{c.title}</div>
+                <div class="text-subheadline text-muted-foreground font-medium md:text-sm">
+                  {c.title}
+                </div>
                 <div class="text-title-2 mt-0.5 tabular-nums md:text-2xl md:font-semibold">
                   {latest != null ? c.format(latest) : '—'}
                 </div>
@@ -286,9 +347,15 @@
                   )}
                 >
                   {#if d.direction === 'up'}
-                    <TrendingUp class={cn('size-3.5', d.tone === 'better' && 'text-primary')} aria-hidden="true" />
+                    <TrendingUp
+                      class={cn('size-3.5', d.tone === 'better' && 'text-primary')}
+                      aria-hidden="true"
+                    />
                   {:else if d.direction === 'down'}
-                    <TrendingDown class={cn('size-3.5', d.tone === 'better' && 'text-primary')} aria-hidden="true" />
+                    <TrendingDown
+                      class={cn('size-3.5', d.tone === 'better' && 'text-primary')}
+                      aria-hidden="true"
+                    />
                   {:else}
                     <Minus class="size-3.5" aria-hidden="true" />
                   {/if}
@@ -353,12 +420,15 @@
                 <span class={s.failed > 0 ? 'text-destructive-text' : 'text-muted-foreground'}
                   >{s.failed} failed</span
                 >
-                {#if s.avgAiScore != null}<span class="text-muted-foreground">AI {Math.round(s.avgAiScore)}</span>{/if}
+                {#if s.avgAiScore != null}<span class="text-muted-foreground"
+                    >AI {Math.round(s.avgAiScore)}</span
+                  >{/if}
               </span>
               {#snippet trailing()}
                 <span class="flex items-center gap-1.5">
-                  <span class="text-footnote text-muted-foreground font-mono md:text-[11px]" title="Config hash"
-                    >{s.configHash.slice(0, 8)}</span
+                  <span
+                    class="text-footnote text-muted-foreground font-mono md:text-[11px]"
+                    title="Config hash">{s.configHash.slice(0, 8)}</span
                   >
                   <ChevronRight
                     aria-hidden="true"
@@ -377,7 +447,9 @@
                 class="after:bg-separator relative px-4 pb-3 after:absolute after:right-0 after:bottom-0 after:left-4 after:h-(--hairline) last:after:hidden"
               >
                 {#if !detail}
-                  <p class="text-footnote text-muted-foreground flex items-center gap-1.5 md:text-xs">
+                  <p
+                    class="text-footnote text-muted-foreground flex items-center gap-1.5 md:text-xs"
+                  >
                     {#if detailError}
                       Couldn't load this version's config.
                     {:else}
@@ -398,7 +470,9 @@
                     {#each detail.configDiff as d (d.key)}
                       <li>
                         <span class="text-muted-foreground">{d.key}:</span>
-                        <span class="text-destructive-text line-through decoration-1">{d.from ?? '∅'}</span>
+                        <span class="text-destructive-text line-through decoration-1"
+                          >{d.from ?? '∅'}</span
+                        >
                         <span class="text-muted-foreground" aria-label="changed to">→</span>
                         <span class="text-foreground font-semibold">{d.to ?? '∅'}</span>
                       </li>

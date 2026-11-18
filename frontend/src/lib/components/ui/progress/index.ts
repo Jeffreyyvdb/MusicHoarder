@@ -1,9 +1,9 @@
-import Root from "./progress.svelte";
-import LinearProgress from "./linear-progress.svelte";
+import Root from './progress.svelte';
+import LinearProgress from './linear-progress.svelte';
 
 export {
-	Root,
-	//
-	Root as Progress,
-	LinearProgress,
+  Root,
+  //
+  Root as Progress,
+  LinearProgress
 };
