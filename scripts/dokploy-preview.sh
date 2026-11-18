@@ -123,6 +123,13 @@ find_compose_id() {
       | select(.name == $name) | .composeId ] | first // empty'
 }
 
+# composeStatus of one compose from a project.all payload on stdin ("gone" when it is not listed).
+compose_status() {
+  jq -r --arg id "$1" '
+    [ (.data? // .)[].environments[].compose[]? | select(.composeId == $id) | .composeStatus // "unknown" ]
+    | first // "gone"'
+}
+
 count_preview_stacks() {
   jq -r --arg env "$DOKPLOY_PREVIEW_ENVIRONMENT_ID" '
     [ (.data? // .)[].environments[] | select(.environmentId == $env) | .compose[]?
@@ -446,15 +453,21 @@ destroy() {
     # still runs `compose up` would let the stack come back after the delete, so let it end first.
     # Deployments still queued are dropped first: one that started between the last status read
     # and the delete would re-attach Traefik to the network afterwards. With the queue empty, only
-    # a deployment already running is left, and it shows in the status (a moment after it starts,
-    # hence the pause). A failed read counts as still running.
+    # a deployment already running is left. Dokploy's worker marks the compose itself as running
+    # as its first write, before the deployment row exists, so both are read (after a pause for
+    # that write). A failed read counts as still running. The queue is only cleared for a PR that
+    # is closed right now, so a reopened PR's deployment is not dropped.
+    check_closed "$PR" || return $?
     api compose.cleanQueues "$(jq -n --arg id "$compose_id" '{composeId:$id}')" >/dev/null || return 1
     sleep 5
     local latest status waited=0
     while (( waited < 600 )); do
-      if latest="$(latest_deployment "$compose_id")"; then
+      if latest="$(latest_deployment "$compose_id")" && projects="$(get project.all)"; then
         [[ -n "$latest" ]] || latest='{"status":"none"}'
         status="$(jq -r '.status // "unknown"' <<<"$latest")" || status=unknown
+        if [[ "$status" != running && "$status" != unknown ]]; then
+          status="$(compose_status "$compose_id" <<<"$projects")" || status=unknown
+        fi
       else
         status=unknown
       fi
