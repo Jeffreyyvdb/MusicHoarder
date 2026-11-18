@@ -202,7 +202,7 @@ public sealed class AlbumSplitHealer(
 
             foreach (var song in members)
             {
-                var changes = song.ApplyIdentityCorrection(identity);
+                var changes = song.HealAlbumIdentity(identity, now);
                 if (changes.Count == 0)
                 {
                     continue;
