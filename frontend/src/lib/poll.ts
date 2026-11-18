@@ -7,7 +7,7 @@
  * moment it is shown again, then resumes the cadence.
  *
  * The returned function stops it for good — hand it straight back from an `$effect` or `onMount`.
- * ESLint flags a bare `setInterval` anywhere in `src` and points here; a timer that is
+ * `local/no-bare-poll` flags a bare `setInterval` anywhere in `src` and points here; a timer that is
  * not a poll of the server (the player's clocks, Connect's heartbeat) says why on its disable line.
  */
 export interface PollOptions {

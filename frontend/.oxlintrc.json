@@ -33,65 +33,65 @@
     "unicorn/empty-brace-spaces": "off", // prettier owns formatting (eslint-config-prettier turns it off)
     "unicorn/no-nested-ternary": "off", // prettier owns formatting (eslint-config-prettier turns it off)
     "unicorn/number-literal-case": "off", // prettier owns formatting (eslint-config-prettier turns it off)
-    "eslint/capitalized-comments": "off", // 1946 findings
+    "eslint/capitalized-comments": "off", // 1947 findings
     "eslint/class-methods-use-this": "off", // 15 findings
     "eslint/complexity": "off", // 8 findings
     "eslint/default-case": "off", // 12 findings
     "eslint/eqeqeq": "off", // 213 findings
-    "eslint/func-style": "off", // 1976 findings
-    "eslint/id-length": "off", // 1837 findings
-    "eslint/init-declarations": "off", // 65 findings
+    "eslint/func-style": "off", // 1995 findings
+    "eslint/id-length": "off", // 1873 findings
+    "eslint/init-declarations": "off", // 70 findings
     "eslint/max-classes-per-file": "off", // 10 findings
-    "eslint/max-lines": "off", // 50 findings
-    "eslint/max-lines-per-function": "off", // 122 findings
-    "eslint/max-params": "off", // 33 findings
-    "eslint/max-statements": "off", // 364 findings
+    "eslint/max-lines": "off", // 49 findings
+    "eslint/max-lines-per-function": "off", // 124 findings
+    "eslint/max-params": "off", // 37 findings
+    "eslint/max-statements": "off", // 367 findings
     "eslint/no-await-in-loop": "off", // 15 findings
     "eslint/no-bitwise": "off", // 34 findings
     "eslint/no-console": "off", // 10 findings
-    "eslint/no-continue": "off", // 45 findings
+    "eslint/no-continue": "off", // 46 findings
     "eslint/no-div-regex": "off", // 2 findings
     "eslint/no-duplicate-imports": "off", // 10 findings
     "eslint/no-empty-function": "off", // 114 findings
     "eslint/no-eq-null": "off", // 213 findings
     "eslint/no-implicit-coercion": "off", // 14 findings
     "eslint/no-inline-comments": "off", // 157 findings
-    "eslint/no-magic-numbers": "off", // 5561 findings
+    "eslint/no-magic-numbers": "off", // 5642 findings
     "eslint/no-negated-condition": "off", // 51 findings
     "eslint/no-nested-ternary": "off", // 72 findings
     "eslint/no-plusplus": "off", // 85 findings
     "eslint/no-promise-executor-return": "off", // 40 findings
     "eslint/no-shadow": "off", // 12 findings
-    "eslint/no-ternary": "off", // 1263 findings
-    "eslint/no-undefined": "off", // 263 findings
+    "eslint/no-ternary": "off", // 1267 findings
+    "eslint/no-undefined": "off", // 265 findings
     "eslint/no-use-before-define": "off", // 289 findings
     "eslint/no-void": "off", // 336 findings
-    "eslint/one-var": "off", // 3902 findings
-    "eslint/prefer-destructuring": "off", // 98 findings
+    "eslint/one-var": "off", // 3923 findings
+    "eslint/prefer-destructuring": "off", // 99 findings
     "eslint/prefer-named-capture-group": "off", // 35 findings
     "eslint/prefer-template": "off", // 14 findings
-    "eslint/require-await": "off", // 226 findings
+    "eslint/require-await": "off", // 228 findings
     "eslint/require-unicode-regexp": "off", // 177 findings
-    "eslint/sort-imports": "off", // 1310 findings
-    "eslint/sort-keys": "off", // 2009 findings
-    "import/consistent-type-specifier-style": "off", // 438 findings
-    "import/exports-last": "off", // 845 findings
-    "import/group-exports": "off", // 1308 findings
+    "eslint/sort-imports": "off", // 1317 findings
+    "eslint/sort-keys": "off", // 2019 findings
+    "import/consistent-type-specifier-style": "off", // 442 findings
+    "import/exports-last": "off", // 848 findings
+    "import/group-exports": "off", // 1314 findings
     "import/max-dependencies": "off", // 68 findings
     "import/newline-after-import": "off", // 6 findings
     "import/no-cycle": "off", // 5 findings
-    "import/no-named-export": "off", // 1473 findings
+    "import/no-named-export": "off", // 1481 findings
     "import/no-namespace": "off", // 131 findings
     "import/no-nodejs-modules": "off", // 19 findings
     "import/prefer-default-export": "off", // 46 findings
-    "jsdoc/require-param": "off", // 707 findings
-    "jsdoc/require-returns": "off", // 722 findings
+    "jsdoc/require-param": "off", // 712 findings
+    "jsdoc/require-returns": "off", // 728 findings
     "node/no-sync": "off", // 99 findings
     "node/no-top-level-await": "off", // 7 findings
-    "oxc/no-async-await": "off", // 1044 findings
+    "oxc/no-async-await": "off", // 1047 findings
     "oxc/no-map-spread": "off", // 12 findings
-    "oxc/no-optional-chaining": "off", // 935 findings
-    "oxc/no-rest-spread-properties": "off", // 471 findings
+    "oxc/no-optional-chaining": "off", // 942 findings
+    "oxc/no-rest-spread-properties": "off", // 472 findings
     "promise/always-return": "off", // 37 findings
     "promise/avoid-new": "off", // 50 findings
     "promise/catch-or-return": "off", // 9 findings
@@ -100,14 +100,14 @@
     "promise/prefer-await-to-then": "off", // 124 findings
     "promise/prefer-catch": "off", // 14 findings
     "typescript/array-type": "off", // 6 findings
-    "typescript/consistent-type-definitions": "off", // 197 findings
+    "typescript/consistent-type-definitions": "off", // 199 findings
     "typescript/consistent-type-imports": "off", // 6 findings
-    "typescript/explicit-function-return-type": "off", // 1298 findings
+    "typescript/explicit-function-return-type": "off", // 1300 findings
     "typescript/explicit-member-accessibility": "off", // 273 findings
-    "typescript/explicit-module-boundary-types": "off", // 189 findings
-    "typescript/method-signature-style": "off", // 67 findings
+    "typescript/explicit-module-boundary-types": "off", // 192 findings
+    "typescript/method-signature-style": "off", // 69 findings
     "typescript/no-base-to-string": "off", // 4 findings
-    "typescript/no-confusing-void-expression": "off", // 117 findings
+    "typescript/no-confusing-void-expression": "off", // 118 findings
     "typescript/no-deprecated": "off", // 5 findings
     "typescript/no-dynamic-delete": "off", // 3 findings
     "typescript/no-misused-spread": "off", // 2 findings
@@ -118,19 +118,19 @@
     "typescript/no-unsafe-call": "off", // 32 findings
     "typescript/no-unsafe-member-access": "off", // 123 findings
     "typescript/no-unsafe-return": "off", // 26 findings
-    "typescript/no-unsafe-type-assertion": "off", // 215 findings
+    "typescript/no-unsafe-type-assertion": "off", // 218 findings
     "typescript/parameter-properties": "off", // 9 findings
     "typescript/prefer-readonly": "off", // 12 findings
-    "typescript/prefer-readonly-parameter-types": "off", // 1276 findings
+    "typescript/prefer-readonly-parameter-types": "off", // 1306 findings
     "typescript/prefer-string-starts-ends-with": "off", // 2 findings
     "typescript/promise-function-async": "off", // 116 findings
-    "typescript/require-await": "off", // 78 findings
-    "typescript/strict-boolean-expressions": "off", // 393 findings
-    "typescript/strict-void-return": "off", // 88 findings
+    "typescript/require-await": "off", // 80 findings
+    "typescript/strict-boolean-expressions": "off", // 395 findings
+    "typescript/strict-void-return": "off", // 93 findings
     "typescript/unbound-method": "off", // 26 findings
     "unicorn/catch-error-name": "off", // 153 findings
     "unicorn/consistent-existence-index-check": "off", // 10 findings
-    "unicorn/consistent-function-scoping": "off", // 96 findings
+    "unicorn/consistent-function-scoping": "off", // 98 findings
     "unicorn/escape-case": "off", // 2 findings
     "unicorn/explicit-length-check": "off", // 8 findings
     "unicorn/import-style": "off", // 3 findings
@@ -141,10 +141,10 @@
     "unicorn/no-array-sort": "off", // 47 findings
     "unicorn/no-await-expression-member": "off", // 14 findings
     "unicorn/no-negated-condition": "off", // 51 findings
-    "unicorn/no-null": "off", // 2261 findings
+    "unicorn/no-null": "off", // 2276 findings
     "unicorn/no-useless-fallback-in-spread": "off", // 2 findings
-    "unicorn/no-useless-undefined": "off", // 46 findings
-    "unicorn/numeric-separators-style": "off", // 74 findings
+    "unicorn/no-useless-undefined": "off", // 47 findings
+    "unicorn/numeric-separators-style": "off", // 75 findings
     "unicorn/prefer-at": "off", // 14 findings
     "unicorn/prefer-code-point": "off", // 11 findings
     "unicorn/prefer-dom-node-dataset": "off", // 13 findings
@@ -189,10 +189,10 @@
         "vitest/no-disabled-tests": "error",
         "vitest/no-duplicate-hooks": "error",
         "vitest/no-focused-tests": "error",
-        "vitest/no-hooks": "off", // 70 findings
+        "vitest/no-hooks": "off", // 72 findings
         "vitest/no-identical-title": "error",
         "vitest/no-import-node-test": "error",
-        "vitest/no-importing-vitest-globals": "off", // 103 findings
+        "vitest/no-importing-vitest-globals": "off", // 105 findings
         "vitest/no-interpolation-in-snapshots": "error",
         "vitest/no-large-snapshots": "error",
         "vitest/no-mocks-import": "error",
@@ -212,12 +212,12 @@
         "vitest/prefer-describe-function-title": "off", // 202 findings
         "vitest/prefer-each": "off", // 2 findings
         "vitest/prefer-equality-matcher": "error",
-        "vitest/prefer-expect-assertions": "off", // 1242 findings
+        "vitest/prefer-expect-assertions": "off", // 1262 findings
         "vitest/prefer-expect-resolves": "off", // 36 findings
         "vitest/prefer-expect-type-of": "off", // 1 finding
         "vitest/prefer-hooks-in-order": "error",
         "vitest/prefer-hooks-on-top": "error",
-        "vitest/prefer-import-in-mock": "off", // 43 findings
+        "vitest/prefer-import-in-mock": "off", // 44 findings
         "vitest/prefer-importing-vitest-globals": "error",
         "vitest/prefer-lowercase-title": "off", // 16 findings
         "vitest/prefer-mock-promise-shorthand": "error",
@@ -225,11 +225,11 @@
         "vitest/prefer-snapshot-hint": "error",
         "vitest/prefer-spy-on": "error",
         "vitest/prefer-strict-boolean-matchers": "off", // 2 findings
-        "vitest/prefer-strict-equal": "off", // 474 findings
+        "vitest/prefer-strict-equal": "off", // 487 findings
         "vitest/prefer-to-be": "error",
-        "vitest/prefer-to-be-falsy": "off", // 256 findings
+        "vitest/prefer-to-be-falsy": "off", // 258 findings
         "vitest/prefer-to-be-object": "error",
-        "vitest/prefer-to-be-truthy": "off", // 198 findings
+        "vitest/prefer-to-be-truthy": "off", // 201 findings
         "vitest/prefer-to-contain": "error",
         "vitest/prefer-to-have-been-called-times": "error",
         "vitest/prefer-to-have-length": "off", // 5 findings
@@ -237,10 +237,10 @@
         "vitest/require-awaited-expect-poll": "error",
         "vitest/require-hook": "off", // 10 findings
         "vitest/require-local-test-context-for-concurrent-snapshots": "error",
-        "vitest/require-mock-type-parameters": "off", // 201 findings
-        "vitest/require-test-timeout": "off", // 1242 findings
+        "vitest/require-mock-type-parameters": "off", // 205 findings
+        "vitest/require-test-timeout": "off", // 1262 findings
         "vitest/require-to-throw-message": "off", // 2 findings
-        "vitest/require-top-level-describe": "off", // 42 findings
+        "vitest/require-top-level-describe": "off", // 44 findings
         "vitest/valid-describe-callback": "error",
         "vitest/valid-expect": [
           "error",
