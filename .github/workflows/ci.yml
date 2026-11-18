@@ -72,5 +72,5 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      - name: Lint, type check and test (side by side)
+      - name: Lint, type check, test and build (side by side)
         run: scripts/ci-checks.sh

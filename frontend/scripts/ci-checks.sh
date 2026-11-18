@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# The frontend's lint, type check and unit tests, side by side, for CI (ci.yml, release.yml).
+# The frontend's lint, type check, unit tests and production build, side by side, for CI
+# (ci.yml, release.yml). The build is here so a PR that breaks it fails before the weekly release.
 #
 # Side by side they take as long as the slowest of them (the tests, then svelte-check, which is
 # single-threaded) instead of their sum. Lint is oxlint, which already uses every core.
 # Each log is printed whole once its command ends, so outputs never interleave, and the step fails
-# if any of the three does.
+# if any of them does.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
@@ -15,7 +16,7 @@ echo "Runner: $(nproc) cores, $(free -g | awk '/^Mem:/ { print $2 }') GB memory"
 bunx svelte-kit sync || exit 1
 
 logs=$(mktemp -d)
-names=(lint check test)
+names=(lint check test build)
 declare -A pids
 
 run() {
@@ -34,6 +35,7 @@ run() {
 run lint bun run lint
 run check bun run check
 run test bun run test
+run build bun run build
 
 failed=()
 for name in "${names[@]}"; do
