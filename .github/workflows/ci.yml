@@ -32,12 +32,6 @@ jobs:
 
   dotnet:
     runs-on: ubuntu-latest
-    env:
-      # The CLI's first run on a fresh runner generated the HTTPS dev certificate and printed the
-      # banner: 5.5s before restore started.
-      DOTNET_GENERATE_ASPNET_CERTIFICATE: false
-      DOTNET_NOLOGO: true
-      DOTNET_CLI_TELEMETRY_OPTOUT: true
     steps:
       - uses: actions/checkout@v7.0.1
 
