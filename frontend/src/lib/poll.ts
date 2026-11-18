@@ -26,7 +26,7 @@ export function poll(
   let stopped = false;
 
   const start = () => {
-    // eslint-disable-next-line no-restricted-syntax -- this is the helper the rule points to
+    // eslint-disable-next-line local/no-bare-poll -- this is the helper the rule points to
     if (timer === null) timer = setInterval(fn, intervalMs);
   };
   const pause = () => {

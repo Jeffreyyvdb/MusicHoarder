@@ -2,7 +2,7 @@
 
 - **Language**: TypeScript
 - **Package Manager**: bun
-- **Add-ons**: prettier, eslint, mcp
+- **Add-ons**: prettier, oxlint, mcp
 
 ---
 

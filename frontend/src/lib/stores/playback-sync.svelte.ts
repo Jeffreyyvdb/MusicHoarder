@@ -1023,7 +1023,7 @@ function start(user: SessionUser | null | undefined): void {
     $effect(() => {
       if (!showing || !view?.isPlaying) return;
       now = monotonic();
-      // eslint-disable-next-line no-restricted-syntax -- a local clock for the remote position, not a poll
+      // eslint-disable-next-line local/no-bare-poll -- a local clock for the remote position, not a poll
       const id = setInterval(() => (now = monotonic()), TICK_MS);
       return () => clearInterval(id);
     });
@@ -1041,7 +1041,7 @@ function start(user: SessionUser | null | undefined): void {
     });
   });
 
-  // eslint-disable-next-line no-restricted-syntax -- Connect's heartbeat keeps its own rules (CLAUDE.md, playback sync)
+  // eslint-disable-next-line local/no-bare-poll -- Connect's heartbeat keeps its own rules (CLAUDE.md, playback sync)
   heartbeat = setInterval(() => {
     expireClaim();
     if (!enabled || !localPlayback.song || !holdsSessionHere()) return;

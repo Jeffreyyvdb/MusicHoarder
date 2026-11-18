@@ -2,7 +2,9 @@
   "extends": "$app/tsconfig",
   "compilerOptions": {
     "sourceMap": true,
-    "strict": true
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
   },
   "include": [
     "src",

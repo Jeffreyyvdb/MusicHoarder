@@ -41,7 +41,7 @@ dotnet test MusicHoarder.Api.Tests/MusicHoarder.Api.Tests.csproj
 # Frontend
 cd frontend
 bun run check   # svelte-check + TypeScript
-bun run lint    # ESLint (flat config)
+bun run lint    # oxlint, type-aware
 bun run build   # SvelteKit + adapter-node build
 ```
 

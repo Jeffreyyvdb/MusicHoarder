@@ -118,7 +118,6 @@
     grouped?: boolean;
   };
 
-  // eslint-disable-next-line svelte/no-unused-props -- `icon` is accepted and deliberately unused
   const {
     title,
     meta,
