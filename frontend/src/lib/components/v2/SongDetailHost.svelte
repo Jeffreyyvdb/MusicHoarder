@@ -95,6 +95,8 @@
   // The status bar follows the media appearance (black) while this is up. The claim is a token,
   // released when the overlay closes or this unmounts.
   $effect(() => (songDetail.isOpen ? themeSurface.claimMedia() : undefined));
+  const tvOn = $derived(desk && videoShowing);
+  $effect(() => (songDetail.isOpen && tvOn ? themeSurface.claimTv() : undefined));
 
   // Follow playback: when a new song starts while the panel is showing the song
   // that was playing, re-target the panel to it (manual play or queue
@@ -346,6 +348,7 @@
     <DialogPrimitive.Content
       bind:ref={contentEl}
       data-mh-desk={desk || undefined}
+      data-mh-tv-on={tvOn || undefined}
       class={[
         'mh-np text-foreground fixed inset-0 z-[60] flex flex-col overflow-hidden pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] focus-visible:outline-hidden',
         desk ? 'bg-background' : 'dark bg-black'
@@ -353,18 +356,17 @@
       style="--mh-content-pad: 0px"
       onInteractOutside={keepOpenForToasts}
     >
-      {#if desk}
-        <!-- The desk: app-skin.css paints it. -->
-      {:else if r}
+      {#if r}
         <VideoBackdrop
           songId={r.song.id}
           {ambientUrl}
           {dimAlpha}
           {video}
+          {desk}
           blurred={videoWatching}
           bind:showing={videoShowing}
         />
-      {:else if ambientUrl}
+      {:else if ambientUrl && !desk}
         <img
           src={ambientUrl}
           alt=""
