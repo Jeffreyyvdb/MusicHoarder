@@ -65,7 +65,8 @@
    * bottom (it used to move between tabs, and scroll away on the lyrics tab). Compact (below lg)
    * is the iPhone layout: grabber, ⌄ and ⋯ at the top, the middle, then the scrubber, times,
    * transport and the Lyrics · AirPlay · Video · Info row. lg is two columns: art, title and the
-   * transport on the left; lyrics (by default), info, video or the compare split on the right. A
+   * transport on the left; lyrics, else the video, info or the compare split on the right — and
+   * with neither lyrics nor a video the right column goes and the player grows into the middle. A
    * phone on its side (short and landscape) splits the same way: the middle on the left, the title
    * and transport on the right, since the portrait stack cannot fit in 393pt of height.
    *
@@ -203,11 +204,26 @@
     }
   });
 
+  // The video's answer arrives after each song change; until it does, the last one stands, so
+  // following playback through songs that all have one does not flash the lone player between them.
+  let videoByDefault = $state(false);
+  $effect(() => {
+    if (video.settled) videoByDefault = video.playable;
+  });
+
   // What the middle (compact) / right column (lg) shows. At lg the art is always on the left, so
-  // "player" means the song's lyrics there — or its info when it has none, as before.
+  // "player" means the song's lyrics there, else its video. Info is only ever asked for: a song
+  // with neither keeps the player alone, centred and larger (`playerOnly`).
   const content = $derived<DetailMode>(
-    wide.current && mode === 'player' ? (ai.hasLyrics ? 'lyrics' : 'info') : mode
+    wide.current && mode === 'player'
+      ? ai.hasLyrics
+        ? 'lyrics'
+        : videoByDefault
+          ? 'video'
+          : 'player'
+      : mode
   );
+  const playerOnly = $derived(wide.current && content === 'player');
 
   // Behind the watch view the backdrop plays the same clip; sharp, it reads as the video twice.
   $effect(() => {
@@ -217,12 +233,10 @@
     watching = false;
   });
 
-  // Compact: each mode button toggles, and releasing it goes back to the artwork. At lg the art
-  // never leaves the left column, so the row just picks what the right column shows; pressing the
-  // current one does nothing (it is marked current, not pressed — see modeButton).
+  // Each mode button toggles, and releasing it goes back to the artwork — at lg, to what the right
+  // column shows by default, so releasing the default itself changes nothing.
   function toggleMode(target: DetailMode) {
-    if (wide.current) mode = target;
-    else mode = content === target ? 'player' : target;
+    mode = content === target ? 'player' : target;
   }
 
   function showLyrics() {
@@ -491,8 +505,8 @@
 {/snippet}
 
 <!-- Compact: a toggle (aria-pressed) — release it to go back to the artwork. lg: it picks what the
-     right column shows, so the one showing is marked current rather than pressed (there is no
-     "released" state to go to). -->
+     right column shows, so the one showing is marked current rather than pressed (releasing the
+     default view has nowhere else to go). -->
 {#snippet modeButton(target: DetailMode, label: string, Icon: Component<{ class?: string }>)}
   {@const active = content === target}
   <button
@@ -748,12 +762,19 @@
       {@render moreMenu()}
     </header>
     <!-- Under the hardware skin the MH-1 is the player, and it fills a wider column: 38% of the
-         window, as tall as the window allows (it is 1.3× as tall as wide, with the mode row under
-         it), at most 1.6× its own 400px. -->
+         window (the whole width when it is alone), as tall as the window allows (it is 1.3× as
+         tall as wide, with the mode row under it), at most 1.6× its own 400px. -->
     <div
-      class="grid min-h-0 flex-1 grid-cols-[minmax(300px,380px)_minmax(0,1fr)] gap-12 px-12 pb-8 xl:grid-cols-[400px_minmax(0,1fr)] xl:gap-16"
+      class={cn(
+        'grid min-h-0 flex-1 gap-12 px-12 pb-8 xl:gap-16',
+        playerOnly
+          ? 'grid-cols-[minmax(0,560px)] justify-center'
+          : 'grid-cols-[minmax(300px,380px)_minmax(0,1fr)] xl:grid-cols-[400px_minmax(0,1fr)]'
+      )}
       style:grid-template-columns={hardware
-        ? 'max(300px, min(38vw, 640px, (100svh - 190px) * 0.72)) minmax(0, 1fr)'
+        ? playerOnly
+          ? 'max(300px, min(100%, 640px, (100svh - 190px) * 0.72))'
+          : 'max(300px, min(38vw, 640px, (100svh - 190px) * 0.72)) minmax(0, 1fr)'
         : undefined}
     >
       <!-- The column scrolls only when the window is too short even for the smaller art. Its box
@@ -781,7 +802,12 @@
               size={400}
               corner={12}
               playing={artPlaying}
-              class="mx-auto w-full max-w-[min(100%,46vh,max(200px,calc(100svh-460px)))]"
+              class={cn(
+                'mx-auto w-full',
+                playerOnly
+                  ? 'max-w-[min(100%,56vh,max(200px,calc(100svh-460px)))]'
+                  : 'max-w-[min(100%,46vh,max(200px,calc(100svh-460px)))]'
+              )}
             />
             <div class="mt-6">{@render titleBlock()}</div>
             {#if metaLine}
@@ -798,7 +824,7 @@
           </div>
         </ScrollArea>
       </aside>
-      <div class="flex min-h-0 flex-col pt-2">
+      <div class={cn('flex min-h-0 flex-col pt-2', playerOnly && 'hidden')}>
         {@render modeContent()}
       </div>
     </div>
