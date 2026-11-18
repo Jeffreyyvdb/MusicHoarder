@@ -244,14 +244,31 @@ public class MusicEnricherOptions
     [Range(1, 1440)]
     public int DeezerApiSearchCacheMinutes { get; set; } = 30;
 
-    /// <summary>How long to cache Deezer discover browse responses (genres, chart / search playlists,
-    /// playlist metadata + tracklists) in memory.</summary>
+    /// <summary>How long to cache Deezer playlist metadata and artist release listings in memory.</summary>
     [Range(1, 1440)]
     public int DeezerBrowseCacheMinutes { get; set; } = 10;
 
-    /// <summary>Default number of discover playlists to return from chart / search browse.</summary>
+    // --- Discover (Spotify Playlist Archive) ---
+
+    /// <summary>
+    /// Base URLs of the Spotify Playlist Archive repos the Discover page reads, oldest first: a later
+    /// entry overrides an earlier one for the same playlist, and a playlist only an older repo lists
+    /// still shows. A future repo is one more entry
+    /// (<c>MusicEnricher__SpotifyPlaylistArchiveSources__2=https://raw.githubusercontent.com/…/main</c>).
+    /// </summary>
+    public string[] SpotifyPlaylistArchiveSources { get; set; } =
+    [
+        "https://raw.githubusercontent.com/mackorone/spotify-playlist-archive/main",
+        "https://raw.githubusercontent.com/mackorone/spotify-playlist-archive-2/main",
+    ];
+
+    /// <summary>How long the merged archive catalog and archived tracklists stay in memory. The archive updates daily.</summary>
+    [Range(1, 1440)]
+    public int SpotifyPlaylistArchiveCacheMinutes { get; set; } = 360;
+
+    /// <summary>Default number of playlists the Discover grid returns.</summary>
     [Range(1, 100)]
-    public int DeezerBrowsePlaylistLimit { get; set; } = 30;
+    public int DiscoverPlaylistLimit { get; set; } = 48;
 
     /// <summary>Max tracks fetched and returned for a single discover playlist detail view. The playlist's
     /// real total is still reported in <c>trackCount</c>; this only bounds the tracklist paged in the

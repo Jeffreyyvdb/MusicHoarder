@@ -7,46 +7,8 @@ using MusicHoarder.Api.Options;
 
 namespace MusicHoarder.Api.Tests.Deezer;
 
-public class DeezerDiscoverBrowseTests
+public class DeezerPlaylistTracksTests
 {
-    [Fact]
-    public async Task GetGenresAsync_ParsesIdNameAndPicture()
-    {
-        var handler = new StubHandler("""
-            { "data": [
-                { "id": 0, "name": "All", "picture_medium": "https://p/all.jpg" },
-                { "id": 132, "name": "Pop", "picture_big": "https://p/pop.jpg" }
-            ] }
-            """);
-
-        var genres = await CreateService(handler).GetGenresAsync();
-
-        Assert.Equal(2, genres.Count);
-        Assert.Equal((0L, "All", "https://p/all.jpg"), (genres[0].Id, genres[0].Name, genres[0].PictureUrl));
-        Assert.Equal((132L, "Pop"), (genres[1].Id, genres[1].Name));
-    }
-
-    [Fact]
-    public async Task GetChartPlaylistsAsync_ParsesSummaries()
-    {
-        var handler = new StubHandler("""
-            { "data": [
-                { "id": 111, "title": "Top Pop", "nb_tracks": 50, "picture_xl": "https://c/xl.jpg",
-                  "user": { "name": "Deezer" }, "checksum": "abc" }
-            ] }
-            """);
-
-        var playlists = await CreateService(handler).GetChartPlaylistsAsync(132, 30);
-
-        var p = Assert.Single(playlists);
-        Assert.Equal("111", p.Id);
-        Assert.Equal("Top Pop", p.Title);
-        Assert.Equal(50, p.TrackCount);
-        Assert.Equal("https://c/xl.jpg", p.CoverUrl);
-        Assert.Equal("Deezer", p.CreatorName);
-        Assert.Equal("abc", p.Checksum);
-    }
-
     [Fact]
     public async Task GetPlaylistTracksAsync_ParsesTracksAndConvertsSecondsToMs()
     {

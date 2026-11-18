@@ -196,15 +196,6 @@ public class ArtistImageServiceTests
         public Task<DeezerAlbumDetail?> GetAlbumAsync(string albumId, CancellationToken ct = default)
             => Task.FromResult<DeezerAlbumDetail?>(null);
 
-        public Task<IReadOnlyList<DeezerGenre>> GetGenresAsync(CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<DeezerGenre>>([]);
-
-        public Task<IReadOnlyList<DeezerPlaylistSummary>> GetChartPlaylistsAsync(long? genreId, int limit, CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<DeezerPlaylistSummary>>([]);
-
-        public Task<IReadOnlyList<DeezerPlaylistSummary>> SearchPlaylistsAsync(string query, int limit, CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<DeezerPlaylistSummary>>([]);
-
         public Task<DeezerPlaylistSummary?> GetPlaylistAsync(string id, CancellationToken ct = default)
             => Task.FromResult<DeezerPlaylistSummary?>(null);
 

@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using MusicHoarder.Api.Deezer;
+using MusicHoarder.Api.Discover;
 using MusicHoarder.Api.Download;
 using MusicHoarder.Api.Import;
 using MusicHoarder.Api.Logging;
@@ -48,6 +49,7 @@ public class WishlistService(
     MusicHoarderDbContext db,
     ISpotifyApiService spotifyApi,
     IDeezerCatalogService deezer,
+    ISpotifyPlaylistArchive spotifyArchive,
     ISpotifyIsrcResolver isrcResolver,
     IYouTubePlaylistReader youTubePlaylists,
     IYouTubeMetadataResolver youTubeVideos,
@@ -67,6 +69,8 @@ public class WishlistService(
     {
         if (type == WishlistSourceType.Playlist && string.IsNullOrWhiteSpace(playlistId))
             throw new InvalidOperationException("A playlistId is required for a playlist source.");
+        if (type == WishlistSourceType.SpotifyArchivePlaylist && !ArchiveFormat.IsSpotifyId(playlistId))
+            throw new InvalidOperationException("A valid Spotify playlist id is required for an archived Spotify playlist source.");
         if (type == WishlistSourceType.DeezerPlaylist && string.IsNullOrWhiteSpace(playlistId))
             throw new InvalidOperationException("A deezerPlaylistId is required for a Deezer playlist source.");
         if (type == WishlistSourceType.YouTubePlaylist && string.IsNullOrWhiteSpace(playlistId))
@@ -75,7 +79,7 @@ public class WishlistService(
         // The single provider playlist id lands in exactly one of the typed columns (matches the unique
         // indexes: Spotify playlists key on SpotifyPlaylistId, Deezer on DeezerPlaylistId, YouTube on
         // YouTubePlaylistId).
-        var spotifyPlaylistId = type == WishlistSourceType.Playlist ? playlistId : null;
+        var spotifyPlaylistId = type is WishlistSourceType.Playlist or WishlistSourceType.SpotifyArchivePlaylist ? playlistId : null;
         var deezerPlaylistId = type == WishlistSourceType.DeezerPlaylist ? playlistId : null;
         var youTubePlaylistId = type == WishlistSourceType.YouTubePlaylist ? playlistId?.Trim() : null;
 
@@ -122,6 +126,7 @@ public class WishlistService(
         {
             WishlistSourceType.DeezerPlaylist => SyncDeezerSourceAsync(ownerId, source, ct),
             WishlistSourceType.YouTubePlaylist => SyncYouTubeSourceAsync(ownerId, source, ct),
+            WishlistSourceType.SpotifyArchivePlaylist => SyncSpotifyArchiveSourceAsync(ownerId, source, ct),
             _ => SyncSpotifySourceAsync(ownerId, source, ct, maxPages),
         };
 
@@ -218,6 +223,89 @@ public class WishlistService(
 
         if (added > 0)
             logger.LogInformation("Wishlist source {SourceId} ({Name}): added {Added} new items", source.Id, LogSanitizer.ForLog(source.Name), added);
+
+        return new WishlistSyncResult(source.Id, added, alreadyPresent);
+    }
+
+    /// <summary>
+    /// Appends an archived Spotify playlist's new tracks. The archive is a daily snapshot read without
+    /// a Spotify account, and its tracklist is always complete, so a source is recorded in full and
+    /// skipped while the snapshot id has not moved. When the archive cannot answer nothing changes.
+    /// </summary>
+    private async Task<WishlistSyncResult> SyncSpotifyArchiveSourceAsync(
+        Guid ownerId, WishlistSource source, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(source.SpotifyPlaylistId))
+            return new WishlistSyncResult(source.Id, 0, 0);
+
+        var archived = await spotifyArchive.GetTracksAsync(source.SpotifyPlaylistId, ct);
+        if (archived is null)
+        {
+            logger.LogWarning("Wishlist source {SourceId}: the Spotify playlist archive has no tracklist for it; left unchanged", source.Id);
+            return new WishlistSyncResult(source.Id, 0, 0);
+        }
+
+        var snapshotId = archived.Playlist.SnapshotId;
+        if (source.TracksRecordedAtUtc is not null
+            && !string.IsNullOrEmpty(snapshotId)
+            && string.Equals(snapshotId, source.RemoteChecksum, StringComparison.Ordinal))
+        {
+            source.LastSyncedAtUtc = DateTime.UtcNow;
+            await db.SaveChangesAsync(ct);
+            return new WishlistSyncResult(source.Id, 0, 0);
+        }
+
+        var existingIds = await db.WishlistItems
+            .IgnoreQueryFilters()
+            .Where(w => w.OwnerUserId == ownerId && w.SpotifyTrackId != null)
+            .Select(w => w.SpotifyTrackId!)
+            .ToListAsync(ct);
+        var seen = new HashSet<string>(existingIds, StringComparer.Ordinal);
+
+        var added = 0;
+        var alreadyPresent = 0;
+        var now = DateTime.UtcNow;
+        var remoteOrder = new List<string>(archived.Tracks.Count);
+        foreach (var track in archived.Tracks)
+        {
+            remoteOrder.Add(track.SpotifyTrackId);
+            if (!seen.Add(track.SpotifyTrackId))
+            {
+                alreadyPresent++;
+                continue;
+            }
+
+            db.WishlistItems.Add(new WishlistItem
+            {
+                OwnerUserId = ownerId,
+                WishlistSourceId = source.Id,
+                SpotifyTrackId = track.SpotifyTrackId,
+                Title = track.Title,
+                Artist = ArchiveFormat.ArtistCredit(track.Artists),
+                Album = track.Album,
+                DurationMs = track.DurationMs,
+                SpotifyAddedAtUtc = track.AddedAtUtc,
+                Status = WishlistItemStatus.Pending,
+                CreatedAtUtc = now,
+                UpdatedAtUtc = now,
+            });
+            added++;
+        }
+        await db.SaveChangesAsync(ct);
+
+        var itemIdBySpotifyId = await db.WishlistItems
+            .IgnoreQueryFilters()
+            .Where(w => w.OwnerUserId == ownerId && w.SpotifyTrackId != null && remoteOrder.Contains(w.SpotifyTrackId))
+            .Select(w => new { w.Id, w.SpotifyTrackId })
+            .ToDictionaryAsync(w => w.SpotifyTrackId!, w => w.Id, StringComparer.Ordinal, ct);
+        await RecordSourceTracksAsync(source, OrderedItemIds(remoteOrder, itemIdBySpotifyId), ct);
+
+        source.RemoteChecksum = snapshotId;
+        source.LastSyncedAtUtc = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+
+        if (added > 0)
+            logger.LogInformation("Wishlist source {SourceId} ({Name}): added {Added} new archived Spotify items", source.Id, LogSanitizer.ForLog(source.Name), added);
 
         return new WishlistSyncResult(source.Id, added, alreadyPresent);
     }
@@ -614,6 +702,14 @@ public class WishlistService(
             return outcome?.Playlist is { } youTube
                 ? (youTube.Title, youTube.ThumbnailUrl)
                 : (playlistId ?? "Playlist", null);
+        }
+
+        if (type == WishlistSourceType.SpotifyArchivePlaylist)
+        {
+            var archived = await spotifyArchive.FindAsync(playlistId ?? "", ct);
+            return archived is null
+                ? (playlistId ?? "Playlist", null)
+                : (archived.Name, await spotifyArchive.GetCoverUrlAsync(archived.Id, ct));
         }
 
         if (type == WishlistSourceType.DeezerPlaylist)

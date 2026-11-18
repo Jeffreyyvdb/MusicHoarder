@@ -14,105 +14,106 @@ using MusicHoarder.Api.Spotify;
 namespace MusicHoarder.Api.Endpoints;
 
 /// <summary>
-/// Editorial "Discover" browse over Deezer's free public API (Spotify permanently 404s editorial playlists
-/// for personal API apps). Reads are authenticated but demo-allowed (no <c>RequireAdmin</c>); only the
-/// subscribe-by-URL resolve is owner-only.
+/// "Discover": Spotify's own playlists, browsed from the public Spotify Playlist Archive (Spotify's Web API
+/// permanently 404s editorial playlists for personal apps, the archive snapshots them daily). Reads are
+/// authenticated but demo-allowed (no <c>RequireAdmin</c>); only the subscribe-by-URL resolve is owner-only.
+/// Existing Deezer subscriptions still sync, and a pasted Deezer link still resolves.
 /// </summary>
 public static class DiscoverEndpoints
 {
+    /// <summary>The <c>provider</c> a resolved link answers with when the playlist came from the archive.</summary>
+    public const string ArchiveProvider = "spotifyArchive";
+
     public static IEndpointRouteBuilder MapDiscoverEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/discover").WithTags("Discover");
 
-        group.MapGet("/genres", async (IDeezerCatalogService deezer, CancellationToken ct) =>
-            {
-                var genres = await deezer.GetGenresAsync(ct);
-                var dtos = genres.Select(g => new DiscoverGenreDto(g.Id, g.Name, g.PictureUrl)).ToList();
-                return Results.Ok(new { genres = dtos });
-            })
-            .WithName("DiscoverGenres")
-            .WithSummary("Deezer editorial genres for the discover browser.");
-
         group.MapGet("/playlists", async (
-                int? genreId,
                 string? search,
                 int? limit,
-                IDeezerCatalogService deezer,
+                ISpotifyPlaylistArchive archive,
                 IOptions<MusicEnricherOptions> options,
                 MusicHoarderDbContext db,
                 CancellationToken ct) =>
             {
-                var take = Math.Clamp(limit ?? options.Value.DeezerBrowsePlaylistLimit, 1, 100);
+                var take = Math.Clamp(limit ?? options.Value.DiscoverPlaylistLimit, 1, 100);
 
-                IReadOnlyList<DeezerPlaylistSummary> playlists;
-                if (!string.IsNullOrWhiteSpace(search))
-                    playlists = await deezer.SearchPlaylistsAsync(search, take, ct);
-                else
-                    playlists = await deezer.GetChartPlaylistsAsync(genreId, take, ct);
+                var playlists = await archive.BrowseAsync(search, take, ct);
+                if (playlists is null)
+                    return ArchiveUnavailable();
 
-                var subs = await LoadDeezerSubscriptionsAsync(db, playlists.Select(p => p.Id).ToList(), ct);
-                var dtos = playlists.Select(p => ToSummaryDto(p, subs)).ToList();
+                var subs = await LoadArchiveSubscriptionsAsync(db, playlists.Select(p => p.Id).ToList(), ct);
+                var covers = await Task.WhenAll(playlists.Select(p => archive.GetCoverUrlAsync(p.Id, ct)));
+                var dtos = playlists.Select((p, i) => ToSummaryDto(p, covers[i], trackCount: null, subs)).ToList();
                 return Results.Ok(new { playlists = dtos });
             })
             .WithName("DiscoverPlaylists")
-            .WithSummary("Chart or search playlists from Deezer, annotated with the owner's subscriptions.");
+            .WithSummary("Most followed Spotify playlists from the Spotify Playlist Archive, optionally searched, annotated with the owner's subscriptions.");
 
         group.MapGet("/playlists/{id}", async (
                 string id,
-                IDeezerCatalogService deezer,
+                ISpotifyPlaylistArchive archive,
                 IOptions<MusicEnricherOptions> options,
                 IMemoryCache cache,
                 ICurrentUserAccessor currentUser,
                 MusicHoarderDbContext db,
                 CancellationToken ct) =>
             {
-                var playlist = await deezer.GetPlaylistAsync(id, ct);
-                if (playlist is null)
-                    return Results.NotFound(new { error = "not_found", message = $"Deezer playlist '{id}' was not found." });
+                var archived = await archive.GetTracksAsync(id, ct);
+                if (archived is null)
+                    return Results.NotFound(new
+                    {
+                        error = "not_found",
+                        message = $"Playlist '{id}' is not in the Spotify Playlist Archive, or the archive could not be read.",
+                    });
 
-                // Cap the tracklist paged in the request path; the playlist's real total stays in trackCount.
-                var tracks = (await deezer.GetPlaylistTracksAsync(id, options.Value.DiscoverDetailTrackLimit, ct)).Tracks;
+                var playlist = archived.Playlist;
+                // Cap the tracklist sent back; the playlist's real total stays in trackCount.
+                var tracks = archived.Tracks.Take(options.Value.DiscoverDetailTrackLimit).ToList();
 
-                var subs = await LoadDeezerSubscriptionsAsync(db, [playlist.Id], ct);
+                var subs = await LoadArchiveSubscriptionsAsync(db, [playlist.Id], ct);
+                var cover = await archive.GetCoverUrlAsync(playlist.Id, ct);
 
                 // inLibrary: cheap normalized artist+title membership over the caller's non-deleted songs
-                // (browse tracks carry no ISRC, so ISRC matching doesn't apply here). Cached ~60s per owner
+                // (archived tracks carry no ISRC, so ISRC matching doesn't apply here). Cached ~60s per owner
                 // so repeated detail views don't rescan the whole library each time.
                 var libraryKeys = await GetLibraryMembershipAsync(db, cache, currentUser.UserId, ct);
 
-                // inWishlist: the caller's wishlist items keyed by Deezer track id.
-                var trackIds = tracks.Select(t => t.Id).ToList();
+                // inWishlist: the caller's wishlist items keyed by Spotify track id.
+                var trackIds = tracks.Select(t => t.SpotifyTrackId).ToList();
                 var wishlisted = new HashSet<string>(
                     await db.WishlistItems
                         .AsNoTracking()
-                        .Where(w => w.DeezerTrackId != null && trackIds.Contains(w.DeezerTrackId))
-                        .Select(w => w.DeezerTrackId!)
+                        .Where(w => w.SpotifyTrackId != null && trackIds.Contains(w.SpotifyTrackId))
+                        .Select(w => w.SpotifyTrackId!)
                         .ToListAsync(ct),
                     StringComparer.Ordinal);
 
                 var trackDtos = tracks.Select(t => new DiscoverTrackDto(
-                    t.Id,
+                    t.SpotifyTrackId,
                     t.Title,
-                    t.Artist,
+                    ArchiveFormat.ArtistCredit(t.Artists),
                     t.Album,
                     t.DurationMs == 0 ? null : t.DurationMs,
-                    t.CoverUrl,
-                    libraryKeys.Contains(LibraryKey(t.Artist, t.Title)),
-                    wishlisted.Contains(t.Id))).ToList();
+                    CoverUrl: null,
+                    IsInLibrary(libraryKeys, t),
+                    wishlisted.Contains(t.SpotifyTrackId))).ToList();
 
                 return Results.Ok(new
                 {
-                    playlist = ToSummaryDto(playlist, subs),
+                    playlist = ToSummaryDto(playlist, cover, archived.Tracks.Count, subs),
                     tracks = trackDtos,
                 });
             })
             .WithName("DiscoverPlaylistDetail")
-            .WithSummary("A discover playlist's metadata and tracklist, annotated with library/wishlist state.");
+            .WithSummary("An archived Spotify playlist's metadata and tracklist, annotated with library/wishlist state.");
 
         group.MapPost("/resolve", async (
                 ResolvePlaylistRequest body,
                 IDeezerCatalogService deezer,
                 ISpotifyApiService spotifyApi,
+                ISpotifyPlaylistArchive archive,
+                ILoggerFactory loggerFactory,
                 IYouTubePlaylistReader youTubePlaylists,
                 MusicHoarderDbContext db,
                 CancellationToken ct) =>
@@ -145,21 +146,8 @@ public static class DiscoverEndpoints
                 }
 
                 if (provider == PlaylistUrlParser.Spotify)
-                {
-                    var lookup = await spotifyApi.GetPlaylistAsync(playlistId, ct);
-                    if (!lookup.Found || lookup.Playlist is null)
-                        return Results.UnprocessableEntity(new
-                        {
-                            error = "spotify_editorial_blocked",
-                            message = "Spotify blocks editorial and algorithmic playlists for personal API apps. Search for an equivalent playlist on the Discover page instead.",
-                        });
-
-                    var subscribed = await db.WishlistSources
-                        .AnyAsync(s => s.SourceType == WishlistSourceType.Playlist && s.SpotifyPlaylistId == playlistId, ct);
-                    var p = lookup.Playlist;
-                    return Results.Ok(new ResolvePlaylistResponse(
-                        PlaylistUrlParser.Spotify, p.SpotifyId, p.Name, p.ImageUrl, p.TrackCount, subscribed));
-                }
+                    return await ResolveSpotifyAsync(
+                        playlistId, spotifyApi, archive, db, loggerFactory.CreateLogger("Discover"), ct);
 
                 var deezerPlaylist = await deezer.GetPlaylistAsync(playlistId, ct);
                 if (deezerPlaylist is null)
@@ -176,7 +164,7 @@ public static class DiscoverEndpoints
                     deezerPlaylist.CoverUrl, deezerPlaylist.TrackCount, deezerSubscribed));
             })
             .WithName("DiscoverResolve")
-            .WithSummary("Resolve a pasted Spotify/Deezer playlist URL or id, or a YouTube playlist URL, into subscribe-ready metadata.")
+            .WithSummary("Resolve a pasted Spotify/Deezer playlist URL or id, or a YouTube playlist URL, into subscribe-ready metadata. A Spotify playlist the API cannot read resolves through the Spotify Playlist Archive.")
             .RequireAdmin();
 
         return app;
@@ -206,8 +194,8 @@ public static class DiscoverEndpoints
         return keys;
     }
 
-    /// <summary>The caller's Deezer subscriptions keyed by Deezer playlist id (query-filter scoped to the caller).</summary>
-    private static async Task<Dictionary<string, (int SourceId, bool AutoSync)>> LoadDeezerSubscriptionsAsync(
+    /// <summary>The caller's archived-Spotify-playlist subscriptions keyed by playlist id (query-filter scoped to the caller).</summary>
+    private static async Task<Dictionary<string, (int SourceId, bool AutoSync)>> LoadArchiveSubscriptionsAsync(
         MusicHoarderDbContext db, IReadOnlyList<string> playlistIds, CancellationToken ct)
     {
         if (playlistIds.Count == 0)
@@ -215,53 +203,117 @@ public static class DiscoverEndpoints
 
         var rows = await db.WishlistSources
             .AsNoTracking()
-            .Where(s => s.SourceType == WishlistSourceType.DeezerPlaylist
-                && s.DeezerPlaylistId != null
-                && playlistIds.Contains(s.DeezerPlaylistId))
-            .Select(s => new { s.DeezerPlaylistId, s.Id, s.AutoSync })
+            .Where(s => s.SourceType == WishlistSourceType.SpotifyArchivePlaylist
+                && s.SpotifyPlaylistId != null
+                && playlistIds.Contains(s.SpotifyPlaylistId))
+            .Select(s => new { s.SpotifyPlaylistId, s.Id, s.AutoSync })
             .ToListAsync(ct);
 
         var map = new Dictionary<string, (int, bool)>(StringComparer.Ordinal);
         foreach (var r in rows)
-            map[r.DeezerPlaylistId!] = (r.Id, r.AutoSync);
+            map[r.SpotifyPlaylistId!] = (r.Id, r.AutoSync);
         return map;
     }
 
+    /// <summary>
+    /// A pasted Spotify link: the live API first (it reads the caller's own playlists, which the archive does
+    /// not hold), then the archive for the editorial playlists Spotify refuses to a personal app.
+    /// </summary>
+    internal static async Task<IResult> ResolveSpotifyAsync(
+        string playlistId,
+        ISpotifyApiService spotifyApi,
+        ISpotifyPlaylistArchive archive,
+        MusicHoarderDbContext db,
+        ILogger logger,
+        CancellationToken ct)
+    {
+        var live = await TryLookupSpotifyPlaylistAsync(spotifyApi, playlistId, logger, ct);
+        if (live is { Found: true, Playlist: { } p })
+        {
+            var subscribed = await db.WishlistSources
+                .AnyAsync(s => s.SourceType == WishlistSourceType.Playlist && s.SpotifyPlaylistId == playlistId, ct);
+            return Results.Ok(new ResolvePlaylistResponse(
+                PlaylistUrlParser.Spotify, p.SpotifyId, p.Name, p.ImageUrl, p.TrackCount, subscribed));
+        }
+
+        var archived = await archive.GetTracksAsync(playlistId, ct);
+        if (archived is null)
+            return Results.UnprocessableEntity(new
+            {
+                error = "spotify_editorial_blocked",
+                message = "Spotify does not let this app read that playlist, and it is not in the Spotify Playlist Archive. Search for it on the Discover page instead.",
+            });
+
+        var archiveSubscribed = await db.WishlistSources
+            .AnyAsync(s => s.SourceType == WishlistSourceType.SpotifyArchivePlaylist && s.SpotifyPlaylistId == archived.Playlist.Id, ct);
+        return Results.Ok(new ResolvePlaylistResponse(
+            ArchiveProvider, archived.Playlist.Id, archived.Playlist.Name,
+            await archive.GetCoverUrlAsync(archived.Playlist.Id, ct), archived.Tracks.Count, archiveSubscribed));
+    }
+
+    /// <summary>The live Spotify lookup, or null when Spotify cannot be asked (not connected, rate limited, unreachable).</summary>
+    private static async Task<SpotifyPlaylistLookupResult?> TryLookupSpotifyPlaylistAsync(
+        ISpotifyApiService spotifyApi, string playlistId, ILogger logger, CancellationToken ct)
+    {
+        try
+        {
+            return await spotifyApi.GetPlaylistAsync(playlistId, ct);
+        }
+        catch (Exception ex) when (ex is SpotifyNotConnectedException or SpotifyRateLimitException or HttpRequestException)
+        {
+            logger.LogInformation(ex, "Spotify could not be asked about playlist {PlaylistId}; trying the archive", playlistId);
+            return null;
+        }
+    }
+
+    private static IResult ArchiveUnavailable() =>
+        Results.Json(
+            new { error = "archive_unavailable", message = "The Spotify Playlist Archive could not be reached. Try again in a minute." },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+
     private static DiscoverPlaylistDto ToSummaryDto(
-        DeezerPlaylistSummary p, IReadOnlyDictionary<string, (int SourceId, bool AutoSync)> subs)
+        ArchivedPlaylist p, string? coverUrl, int? trackCount, IReadOnlyDictionary<string, (int SourceId, bool AutoSync)> subs)
     {
         var subscribed = subs.TryGetValue(p.Id, out var sub);
         return new DiscoverPlaylistDto(
             p.Id,
-            p.Title,
+            p.Name,
             p.Description,
-            p.CoverUrl,
-            p.TrackCount,
-            p.CreatorName,
+            coverUrl,
+            trackCount,
+            p.Followers,
+            p.OwnerName,
             subscribed,
             subscribed ? sub.SourceId : null,
             subscribed ? sub.AutoSync : null);
     }
 
+    /// <summary>
+    /// A library row's artist is either a track's lead artist or its whole credit depending on how the file
+    /// was tagged, so a track counts as owned under either spelling.
+    /// </summary>
+    private static bool IsInLibrary(HashSet<string> libraryKeys, ArchivedTrack t) =>
+        libraryKeys.Contains(LibraryKey(ArchiveFormat.ArtistCredit(t.Artists), t.Title))
+        || (t.Artists.Count > 0 && libraryKeys.Contains(LibraryKey(t.Artists[0], t.Title)));
+
     private static string LibraryKey(string? artist, string? title) =>
         $"{TitleNormalizer.NormalizeForSearch(artist)}\0{TitleNormalizer.NormalizeForSearch(title)}";
 }
-
-public sealed record DiscoverGenreDto(long Id, string Name, string? PictureUrl);
 
 public sealed record DiscoverPlaylistDto(
     string Id,
     string Title,
     string? Description,
     string? CoverUrl,
-    int TrackCount,
+    int? TrackCount,
+    long Followers,
     string? CreatorName,
     bool Subscribed,
     int? SourceId,
     bool? AutoSync);
 
 public sealed record DiscoverTrackDto(
-    string DeezerTrackId,
+    string SpotifyTrackId,
     string Title,
     string Artist,
     string? Album,

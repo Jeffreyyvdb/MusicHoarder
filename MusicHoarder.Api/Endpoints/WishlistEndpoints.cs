@@ -133,12 +133,12 @@ public static class WishlistEndpoints
                 ILoggerFactory loggerFactory,
                 CancellationToken ct) =>
             {
-                // Accept both the Spotify shape ({ type, playlistId }) and the Deezer discover shape
+                // Accept both the Spotify shape ({ type, playlistId }, also used by archived Spotify playlists) and the Deezer discover shape
                 // ({ sourceType, deezerPlaylistId }); the front-ends differ by provider. A YouTube
                 // playlist carries { sourceType, youTubePlaylistId }.
                 var typeStr = body.SourceType ?? body.Type;
                 if (!Enum.TryParse(typeStr, ignoreCase: true, out WishlistSourceType type) || !Enum.IsDefined(type))
-                    return Results.BadRequest(new { message = "type must be 'LikedSongs', 'Playlist', 'DeezerPlaylist' or 'YouTubePlaylist'." });
+                    return Results.BadRequest(new { message = "type must be 'LikedSongs', 'Playlist', 'SpotifyArchivePlaylist', 'DeezerPlaylist' or 'YouTubePlaylist'." });
 
                 var playlistId = type switch
                 {

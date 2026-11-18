@@ -87,7 +87,7 @@ public static class SongOriginResolver
         var (source, detail) = l.SourceType switch
         {
             WishlistSourceType.LikedSongs => (SongOriginSource.SpotifyLiked, l.SourceName ?? "Liked Songs"),
-            WishlistSourceType.Playlist => (SongOriginSource.SpotifyPlaylist, l.SourceName),
+            WishlistSourceType.Playlist or WishlistSourceType.SpotifyArchivePlaylist => (SongOriginSource.SpotifyPlaylist, l.SourceName),
             WishlistSourceType.DeezerPlaylist => (SongOriginSource.DeezerPlaylist, l.SourceName),
             WishlistSourceType.YouTubePlaylist => (SongOriginSource.YouTubePlaylist, l.SourceName),
             // Album completion carries no WishlistSource (there's no remote collection to sync), so it
@@ -143,7 +143,7 @@ public static class SongOriginResolver
             .OrderBy(l => l.Origin == WishlistItemOrigin.AlbumCompletion ? 5 : l.SourceType switch
             {
                 WishlistSourceType.LikedSongs => 0,
-                WishlistSourceType.Playlist => 1,
+                WishlistSourceType.Playlist or WishlistSourceType.SpotifyArchivePlaylist => 1,
                 WishlistSourceType.DeezerPlaylist => 2,
                 WishlistSourceType.YouTubePlaylist => 3,
                 _ => 4,
