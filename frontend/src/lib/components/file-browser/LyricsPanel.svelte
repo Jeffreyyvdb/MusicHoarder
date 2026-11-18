@@ -385,7 +385,9 @@
         data-lyrics-variant={variant}
         class={cn(
           'no-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[calc(1rem_+_var(--mh-content-pad))]',
-          theater ? 'px-1 sm:px-6' : 'bg-muted rounded-xl p-4'
+          theater
+            ? '[scrollbar-width:none] px-1 sm:px-6 [&::-webkit-scrollbar]:hidden'
+            : 'bg-muted rounded-xl p-4'
         )}
         onwheel={disengageFollow}
         ontouchmove={disengageFollow}
