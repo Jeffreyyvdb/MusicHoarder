@@ -406,6 +406,7 @@ purge_leftovers() {
     for i in $(seq 1 12); do
       remove_network "$net" && continue 2
       sleep 10
+      check_closed "$pr" || return $?
     done
     echo "::error::network ${net} is still there two minutes after its stack was deleted." >&2
     failed=1
@@ -443,7 +444,12 @@ destroy() {
   else
     # A PR closed mid-deploy cancels the workflow run, not Dokploy's deployment. Deleting while it
     # still runs `compose up` would let the stack come back after the delete, so let it end first.
-    # A failed read counts as still running.
+    # Deployments still queued are dropped first: one that started between the last status read
+    # and the delete would re-attach Traefik to the network afterwards. With the queue empty, only
+    # a deployment already running is left, and it shows in the status (a moment after it starts,
+    # hence the pause). A failed read counts as still running.
+    api compose.cleanQueues "$(jq -n --arg id "$compose_id" '{composeId:$id}')" >/dev/null || return 1
+    sleep 5
     local latest status waited=0
     while (( waited < 600 )); do
       if latest="$(latest_deployment "$compose_id")"; then
