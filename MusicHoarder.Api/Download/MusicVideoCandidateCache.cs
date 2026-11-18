@@ -59,8 +59,7 @@ public class MusicVideoCandidateCache(
     public async Task<VideoCandidateList?> GetAsync(
         MusicHoarderDbContext db, SongMetadata song, CancellationToken ct)
     {
-        var row = await db.SongVideoCandidateSets.AsNoTracking()
-            .FirstOrDefaultAsync(c => c.SongId == song.Id, ct);
+        var row = await SetOf(db, song.Id).AsNoTracking().FirstOrDefaultAsync(ct);
         if (row is null || !IsServable(row, QueryKeyFor(song)))
             return null;
         return new VideoCandidateList(Read(row), row.SearchedAtUtc);
@@ -91,7 +90,7 @@ public class MusicVideoCandidateCache(
                 song.DurationMs ?? song.DurationSeconds * 1000),
             ct);
 
-        var row = await db.SongVideoCandidateSets.FirstOrDefaultAsync(c => c.SongId == song.Id, ct);
+        var row = await SetOf(db, song.Id).FirstOrDefaultAsync(ct);
 
         // Nothing but the pinned current video (which the search adds itself) means the search
         // found nothing — and an empty answer is also what a refused search looks like (a bot
@@ -150,7 +149,7 @@ public class MusicVideoCandidateCache(
     /// <summary>Records that searching for the song failed, so the prefetch does not retry it every pass.</summary>
     public async Task RecordFailureAsync(MusicHoarderDbContext db, SongMetadata song, string error, CancellationToken ct)
     {
-        var row = await db.SongVideoCandidateSets.FirstOrDefaultAsync(c => c.SongId == song.Id, ct);
+        var row = await SetOf(db, song.Id).FirstOrDefaultAsync(ct);
         if (row is null)
         {
             row = new SongVideoCandidateSet { SongId = song.Id, CandidatesJson = "[]" };
@@ -172,7 +171,7 @@ public class MusicVideoCandidateCache(
         if (result.Motion == MusicVideoMotion.Unknown)
             return;
 
-        var row = await db.SongVideoCandidateSets.FirstOrDefaultAsync(c => c.SongId == songId, ct);
+        var row = await SetOf(db, songId).FirstOrDefaultAsync(ct);
         if (row is null)
             return;
 
@@ -184,6 +183,9 @@ public class MusicVideoCandidateCache(
         row.CandidatesJson = JsonSerializer.Serialize(candidates, Json);
         await TrySaveAsync(db, songId, ct);
     }
+
+    private static IQueryable<SongVideoCandidateSet> SetOf(MusicHoarderDbContext db, int songId) =>
+        db.SongVideoCandidateSets.IgnoreQueryFilters().Where(c => c.SongId == songId);
 
     private static CachedVideoCandidate Merge(CachedVideoCandidate candidate, MusicVideoProbeResult probed) =>
         probed.Motion == MusicVideoMotion.Unknown && probed.Error is not null
