@@ -845,6 +845,175 @@ public class EnrichmentOrchestratorTests
     }
 
     [Fact]
+    public async Task FetchLyrics_LrclibEmpty_UsesGeniusAndLabelsTheOrigin()
+    {
+        await using var db = CreateDb();
+        var song = AddPendingSong(db);
+        song.EnrichmentStatus = EnrichmentStatus.Matched;
+        await db.SaveChangesAsync();
+
+        var genius = new StubGeniusService(_ => Task.FromResult<LyricsResult?>(GeniusLyrics()));
+        var orchestrator = CreateOrchestratorWithProviders(
+            db, [], lrcLibService: new StubLrcLibService(_ => Task.FromResult<LyricsResult?>(null)), geniusService: genius);
+
+        Assert.True(await orchestrator.FetchLyricsForSongAsync(song.Id));
+
+        var updated = await db.Songs.SingleAsync();
+        Assert.Equal(LyricsStatus.Fetched, updated.LyricsStatus);
+        Assert.Equal("Scheisse\nEyo, Gubes", updated.PlainLyrics);
+        Assert.Null(updated.SyncedLyrics);
+        Assert.Equal(LyricsOrigin.Genius, updated.LyricsOrigin);
+        Assert.Equal(4242, updated.GeniusSongId);
+    }
+
+    [Fact]
+    public async Task FetchLyrics_LrclibHasLyrics_NeverAsksGenius()
+    {
+        await using var db = CreateDb();
+        var song = AddPendingSong(db);
+        song.EnrichmentStatus = EnrichmentStatus.Matched;
+        await db.SaveChangesAsync();
+
+        var genius = new StubGeniusService(_ => Task.FromResult<LyricsResult?>(GeniusLyrics()));
+        var lrcLib = new StubLrcLibService(_ =>
+            Task.FromResult<LyricsResult?>(new LyricsResult(null, "Hello", false, LrclibId: 7)));
+        var orchestrator = CreateOrchestratorWithProviders(db, [], lrcLibService: lrcLib, geniusService: genius);
+
+        await orchestrator.FetchLyricsForSongAsync(song.Id);
+
+        Assert.Equal(0, genius.CallCount);
+        var updated = await db.Songs.SingleAsync();
+        Assert.Equal("Hello", updated.PlainLyrics);
+        Assert.Equal(LyricsOrigin.Lrclib, updated.LyricsOrigin);
+    }
+
+    [Fact]
+    public async Task FetchLyrics_LrclibSaysInstrumental_NeverAsksGenius()
+    {
+        await using var db = CreateDb();
+        var song = AddPendingSong(db);
+        song.EnrichmentStatus = EnrichmentStatus.Matched;
+        await db.SaveChangesAsync();
+
+        var genius = new StubGeniusService(_ => Task.FromResult<LyricsResult?>(GeniusLyrics()));
+        var lrcLib = new StubLrcLibService(_ =>
+            Task.FromResult<LyricsResult?>(new LyricsResult(null, null, true, LrclibId: 7)));
+        var orchestrator = CreateOrchestratorWithProviders(db, [], lrcLibService: lrcLib, geniusService: genius);
+
+        await orchestrator.FetchLyricsForSongAsync(song.Id);
+
+        Assert.Equal(0, genius.CallCount);
+        Assert.Equal(LyricsStatus.Instrumental, (await db.Songs.SingleAsync()).LyricsStatus);
+    }
+
+    [Fact]
+    public async Task FetchLyrics_GeniusDisabled_NeverAsksGenius()
+    {
+        await using var db = CreateDb();
+        var song = AddPendingSong(db);
+        song.EnrichmentStatus = EnrichmentStatus.Matched;
+        await db.SaveChangesAsync();
+
+        var opts = CreateOptions();
+        opts.Value.EnableGeniusLyrics = false;
+        var genius = new StubGeniusService(_ => Task.FromResult<LyricsResult?>(GeniusLyrics()));
+        var orchestrator = CreateOrchestratorWithProviders(
+            db, [], opts, new StubLrcLibService(_ => Task.FromResult<LyricsResult?>(null)), genius);
+
+        await orchestrator.FetchLyricsForSongAsync(song.Id);
+
+        Assert.Equal(0, genius.CallCount);
+        Assert.Equal(LyricsStatus.NotFound, (await db.Songs.SingleAsync()).LyricsStatus);
+    }
+
+    [Fact]
+    public async Task FetchLyrics_GeniusUnavailable_LeavesTheSongAsLrclibLeftIt()
+    {
+        await using var db = CreateDb();
+        var song = AddPendingSong(db);
+        song.EnrichmentStatus = EnrichmentStatus.Matched;
+        await db.SaveChangesAsync();
+
+        var genius = new StubGeniusService(_ => Task.FromResult<LyricsResult?>(null));
+        var orchestrator = CreateOrchestratorWithProviders(
+            db, [], lrcLibService: new StubLrcLibService(_ => Task.FromResult<LyricsResult?>(null)), geniusService: genius);
+
+        await orchestrator.FetchLyricsForSongAsync(song.Id);
+
+        Assert.Equal(1, genius.CallCount);
+        var updated = await db.Songs.SingleAsync();
+        Assert.Equal(LyricsStatus.NotFound, updated.LyricsStatus);
+        Assert.Equal(LyricsOrigin.Lrclib, updated.LyricsOrigin);
+        Assert.Null(updated.GeniusSongId);
+    }
+
+    [Fact]
+    public async Task RecheckLyrics_NotFoundSong_GetsGeniusWhenLrclibStillHasNothing()
+    {
+        await using var db = CreateDb();
+        var song = AddPendingSong(db);
+        song.EnrichmentStatus = EnrichmentStatus.Matched;
+        song.MarkLyricsNotFound();
+        await db.SaveChangesAsync();
+
+        var genius = new StubGeniusService(_ => Task.FromResult<LyricsResult?>(GeniusLyrics()));
+        var orchestrator = CreateOrchestratorWithProviders(
+            db, [], lrcLibService: new StubLrcLibService(_ => Task.FromResult<LyricsResult?>(null)), geniusService: genius);
+
+        Assert.True(await orchestrator.RecheckLyricsForSongAsync(song.Id, force: true));
+
+        var updated = await db.Songs.SingleAsync();
+        Assert.Equal(LyricsStatus.Fetched, updated.LyricsStatus);
+        Assert.Equal(LyricsOrigin.Genius, updated.LyricsOrigin);
+        Assert.Equal(4242, updated.GeniusSongId);
+    }
+
+    [Fact]
+    public async Task RecheckLyrics_SongWithGeniusLyrics_IsUpgradedToLrclibSyncedAndRelabelled()
+    {
+        await using var db = CreateDb();
+        var song = AddPendingSong(db);
+        song.EnrichmentStatus = EnrichmentStatus.Matched;
+        song.ApplyLyricsResult(null, "Scheisse", false, origin: LyricsOrigin.Genius, geniusSongId: 4242);
+        await db.SaveChangesAsync();
+
+        var genius = new StubGeniusService(_ => Task.FromResult<LyricsResult?>(GeniusLyrics()));
+        var lrcLib = new StubLrcLibService(_ =>
+            Task.FromResult<LyricsResult?>(new LyricsResult("[00:01.00]Scheisse", "Scheisse", false, LrclibId: 9)));
+        var orchestrator = CreateOrchestratorWithProviders(db, [], lrcLibService: lrcLib, geniusService: genius);
+
+        Assert.True(await orchestrator.RecheckLyricsForSongAsync(song.Id, force: true));
+
+        Assert.Equal(0, genius.CallCount);
+        var updated = await db.Songs.SingleAsync();
+        Assert.Equal("[00:01.00]Scheisse", updated.SyncedLyrics);
+        Assert.Equal(LyricsOrigin.Lrclib, updated.LyricsOrigin);
+        Assert.Null(updated.GeniusSongId);
+        Assert.Equal("9", updated.LrclibId);
+    }
+
+    [Fact]
+    public async Task RecheckLyrics_SongWithLyrics_IsNeverReplacedByGenius()
+    {
+        await using var db = CreateDb();
+        var song = AddPendingSong(db);
+        song.EnrichmentStatus = EnrichmentStatus.Matched;
+        song.ApplyLyricsResult(null, "Hello", false, lrclibId: 7);
+        await db.SaveChangesAsync();
+
+        var genius = new StubGeniusService(_ => Task.FromResult<LyricsResult?>(GeniusLyrics()));
+        var orchestrator = CreateOrchestratorWithProviders(
+            db, [], lrcLibService: new StubLrcLibService(_ => Task.FromResult<LyricsResult?>(null)), geniusService: genius);
+
+        Assert.False(await orchestrator.RecheckLyricsForSongAsync(song.Id, force: true));
+
+        Assert.Equal(0, genius.CallCount);
+        var updated = await db.Songs.SingleAsync();
+        Assert.Equal("Hello", updated.PlainLyrics);
+        Assert.Equal(LyricsOrigin.Lrclib, updated.LyricsOrigin);
+    }
+
+    [Fact]
     public async Task ProcessSong_MatchPreservesExistingArtist_WhenMatchArtistIsBlank()
     {
         await using var db = CreateDb();
@@ -1741,6 +1910,7 @@ public class EnrichmentOrchestratorTests
             scopeFactory,
             providerList,
             lrcLibService ?? new NoOpLrcLibService(),
+            new StubGeniusService(_ => Task.FromResult<LyricsResult?>(null)),
             opts,
             new TestRuntimeSettingsService(opts.Value),
             NullLogger<EnrichmentOrchestrator>.Instance);
@@ -1750,7 +1920,8 @@ public class EnrichmentOrchestratorTests
         MusicHoarderDbContext db,
         IEnrichmentProvider[] providerList,
         IOptions<MusicEnricherOptions>? opts = null,
-        ILrcLibService? lrcLibService = null)
+        ILrcLibService? lrcLibService = null,
+        IGeniusLyricsService? geniusService = null)
     {
         opts ??= CreateOptions();
         var scopeFactory = new OrchestratorScopeFactory(db);
@@ -1759,6 +1930,7 @@ public class EnrichmentOrchestratorTests
             scopeFactory,
             providerList,
             lrcLibService ?? new NoOpLrcLibService(),
+            geniusService ?? new StubGeniusService(_ => Task.FromResult<LyricsResult?>(null)),
             opts,
             new TestRuntimeSettingsService(opts.Value),
             NullLogger<EnrichmentOrchestrator>.Instance);
@@ -1776,6 +1948,21 @@ public class EnrichmentOrchestratorTests
         public Task<LyricsResult?> FetchLyricsAsync(SongMetadata song, CancellationToken ct = default)
             => Task.FromResult<LyricsResult?>(null);
     }
+
+    private sealed class StubGeniusService(
+        Func<SongMetadata, Task<LyricsResult?>> handler) : IGeniusLyricsService
+    {
+        public int CallCount { get; private set; }
+
+        public Task<LyricsResult?> FetchLyricsAsync(SongMetadata song, CancellationToken ct = default)
+        {
+            CallCount++;
+            return handler(song);
+        }
+    }
+
+    private static LyricsResult GeniusLyrics() =>
+        new(null, "Scheisse\nEyo, Gubes", false, Origin: LyricsOrigin.Genius, GeniusSongId: 4242);
 
     private sealed class StubLrcLibService(
         Func<SongMetadata, Task<LyricsResult?>> handler) : ILrcLibService

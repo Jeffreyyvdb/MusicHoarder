@@ -94,7 +94,8 @@ a mock-up. The image above follows your GitHub light or dark theme.</sub>
 - **Duplicate detection** — groups songs by identical fingerprint and elects the best copy (codec
   tier and bitrate, then metadata trustworthiness, then file size) so only the best version is built.
 - **Synced lyrics + AI transcription** — fetches time-synced (karaoke-style) or plain lyrics from
-  LRCLIB and embeds them into the built file. *Optional, experimental:* when no lyrics exist
+  LRCLIB, falls back to Genius's plain lyrics when LRCLIB has none (`MusicEnricher:EnableGeniusLyrics`,
+  on by default), and embeds them into the built file. *Optional, experimental:* when no lyrics exist
   anywhere, an OpenAI-compatible **Whisper** pass (default `whisper-1`; repoint it at Groq or a
   self-hosted model) transcribes the audio into a fresh synced `.lrc` — stored **separately** from
   any curated lyrics and clearly marked, so it never overwrites the real thing. No key → the

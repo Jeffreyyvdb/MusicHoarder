@@ -236,7 +236,7 @@ export const privacyPage: ProsePage = {
           items: [
             'Fingerprints and track durations go to AcoustID, and release lookups go to MusicBrainz, to identify songs.',
             'Spotify, Deezer, Apple Music and the Cover Art Archive are queried for metadata, artwork and album details. Connecting your own Spotify account through OAuth is optional and only used to import your liked songs and playlists.',
-            'LRCLIB is queried for synced lyrics.',
+            'LRCLIB is queried for synced lyrics, and Genius for plain lyrics when LRCLIB has none.',
             'If you enable AI match grading or AI lyrics transcription, the corresponding request is sent to whichever OpenAI-compatible endpoint you configured, using your own key.'
           ]
         },

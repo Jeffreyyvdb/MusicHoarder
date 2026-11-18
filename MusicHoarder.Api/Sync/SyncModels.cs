@@ -110,7 +110,10 @@ public sealed record SyncTrackPayload(
     // the wire, so without this the receiver could not tell an album-fill track from a wanted one and
     // its "My music" view would quietly swallow every filled track. Optional and defaulted for the
     // same back-compat reason as LikedAtUtc: an older pusher's payload reads as Explicit.
-    SongAcquisitionIntent AcquisitionIntent = SongAcquisitionIntent.Explicit);
+    SongAcquisitionIntent AcquisitionIntent = SongAcquisitionIntent.Explicit,
+    // Where the lyrics text came from. Optional so an older pusher's payload reads as LRCLIB.
+    LyricsOrigin LyricsOrigin = LyricsOrigin.Lrclib,
+    int? GeniusSongId = null);
 
 /// <summary>
 /// Metadata-only like update for a track already present on the remote (no file re-upload). Identity

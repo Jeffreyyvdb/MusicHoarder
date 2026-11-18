@@ -224,6 +224,8 @@ public class TrackSyncProcessor(
             IsInstrumental: song.IsInstrumental,
             LyricsStatus: song.LyricsStatus,
             LikedAtUtc: song.LikedAtUtc,
-            AcquisitionIntent: song.AcquisitionIntent);
+            AcquisitionIntent: song.AcquisitionIntent,
+            LyricsOrigin: song.LyricsOrigin,
+            GeniusSongId: song.GeniusSongId);
     }
 }

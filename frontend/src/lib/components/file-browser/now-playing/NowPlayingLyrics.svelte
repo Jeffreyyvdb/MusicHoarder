@@ -75,7 +75,7 @@
   const sourceLine = $derived.by(() => {
     if (!wide || !isOwner) return null;
     if (ai.canCompare)
-      return `Player shows: ${ai.preferredSource === 'transcribed' ? `AI-synced · ${ai.transcription?.model ?? 'whisper'}` : 'LRCLIB'}`;
+      return `Player shows: ${ai.preferredSource === 'transcribed' ? `AI-synced · ${ai.transcription?.model ?? 'whisper'}` : lrclibDoc.sourceLabel}`;
     if (ai.transcription)
       return `AI transcription${ai.transcription.model ? ` · ${ai.transcription.model}` : ''}`;
     return null;
