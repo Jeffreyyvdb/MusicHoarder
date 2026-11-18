@@ -168,7 +168,8 @@
     person ? personTitle : section !== null && visible.length > 1 ? labelOf(section) : null
   );
   $effect(() => {
-    if (ownTitle && tabMemory.titleOf(page.url) !== ownTitle) tabMemory.setTitle(page.url, ownTitle);
+    if (ownTitle && tabMemory.titleOf(page.url) !== ownTitle)
+      tabMemory.setTitle(page.url, ownTitle);
   });
 
   // Account opens on its own header (avatar, name, email), which is the page's visual title, so
@@ -1238,7 +1239,8 @@
 
   <!-- Soulseek & sync (read-only status) -->
   {#if admin}
-    <GroupedList.Section headingLevel={2}
+    <GroupedList.Section
+      headingLevel={2}
       header="Soulseek and sync"
       footer="Read-only: both are configured with server environment variables."
     >
@@ -1677,7 +1679,8 @@
       <GroupedList.Row label="Role" value={roleLabel(user.role)} />
     </GroupedList.Section>
 
-    <GroupedList.Section headingLevel={2}
+    <GroupedList.Section
+      headingLevel={2}
       header="Accounts on this device"
       footer="Sign in to each account once, then switch between them without signing out."
     >
@@ -1901,7 +1904,8 @@
     </GroupedList.Section>
   {/if}
 
-  <GroupedList.Section headingLevel={2}
+  <GroupedList.Section
+    headingLevel={2}
     header="Update command"
     footer="Run this in your compose stack’s directory. It pulls the latest images and recreates the containers — your database and library are untouched."
   >
@@ -1913,7 +1917,8 @@
     </div>
   </GroupedList.Section>
 
-  <GroupedList.Section headingLevel={2}
+  <GroupedList.Section
+    headingLevel={2}
     header="Automatic updates"
     footer="When a newer release is out, a banner across the app says so — this page is the reference copy of the same instructions."
   >

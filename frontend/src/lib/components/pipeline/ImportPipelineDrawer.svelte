@@ -71,7 +71,8 @@
 
   function togglePause(key: StageKey) {
     const paused = pipelineOverlay.isStagePaused(key);
-    if (!paused && key === 'build' && pipelineOverlay.needsConfirm('pause-build')) ask('pause-build');
+    if (!paused && key === 'build' && pipelineOverlay.needsConfirm('pause-build'))
+      ask('pause-build');
     else void pipelineOverlay.setStagePaused(key, !paused);
   }
 
@@ -200,7 +201,9 @@
 
     <!-- The log is a well inside the drawer: the grouped page colour reads as inset in both
          themes (a translucent fill with an opacity modifier did not). -->
-    <div class="bg-background-grouped border-border flex min-h-0 flex-col border-t md:border-t-0 md:border-l">
+    <div
+      class="bg-background-grouped border-border flex min-h-0 flex-col border-t md:border-t-0 md:border-l"
+    >
       <div
         class="text-muted-foreground border-border flex items-center justify-between border-b px-4 py-2.5 text-[12px] font-medium"
       >
@@ -219,7 +222,9 @@
               <PipelineLogRow {activity} older={i >= LOG_FRESH_ROWS} />
             {/each}
           {:else}
-            <p class="text-muted-foreground px-1 py-2 text-center text-[12px]">No recent activity yet.</p>
+            <p class="text-muted-foreground px-1 py-2 text-center text-[12px]">
+              No recent activity yet.
+            </p>
           {/if}
         </div>
       </ScrollArea>
@@ -235,7 +240,9 @@
     </AlertDialog.Header>
     <AlertDialog.Footer>
       <AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
-      <AlertDialog.Action variant="destructive" onclick={confirmAction}>{confirmCopy.action}</AlertDialog.Action>
+      <AlertDialog.Action variant="destructive" onclick={confirmAction}
+        >{confirmCopy.action}</AlertDialog.Action
+      >
     </AlertDialog.Footer>
   </AlertDialog.Content>
 </AlertDialog.Root>

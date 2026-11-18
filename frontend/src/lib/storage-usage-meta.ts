@@ -16,18 +16,58 @@ export type StorageCategoryMeta = { label: string; description: string; color: s
 export type StorageOriginMeta = { label: string; color: string };
 
 const CATEGORY_META: Record<StorageCategoryKey, StorageCategoryMeta> = {
-  library: { label: 'Library', description: 'Built tracks in the library output folder', color: 'bg-chart-1' },
-  source: { label: 'Local files', description: 'Your own files in the source folder', color: 'bg-chart-2' },
-  staging: { label: 'Download staging', description: 'Downloads not yet released after building', color: 'bg-chart-4' },
-  synced: { label: 'Synced', description: 'Received from another MusicHoarder instance', color: 'bg-chart-3' },
-  soulseekStaging: { label: 'Soulseek staging', description: "slskd's completed-downloads folder", color: 'bg-orange-500' },
+  library: {
+    label: 'Library',
+    description: 'Built tracks in the library output folder',
+    color: 'bg-chart-1'
+  },
+  source: {
+    label: 'Local files',
+    description: 'Your own files in the source folder',
+    color: 'bg-chart-2'
+  },
+  staging: {
+    label: 'Download staging',
+    description: 'Downloads not yet released after building',
+    color: 'bg-chart-4'
+  },
+  synced: {
+    label: 'Synced',
+    description: 'Received from another MusicHoarder instance',
+    color: 'bg-chart-3'
+  },
+  soulseekStaging: {
+    label: 'Soulseek staging',
+    description: "slskd's completed-downloads folder",
+    color: 'bg-orange-500'
+  },
   videos: { label: 'Music videos', description: 'Clips and their thumbnails', color: 'bg-chart-5' },
-  covers: { label: 'Album covers', description: 'Cover images in the library folders', color: 'bg-sky-500' },
-  thumbnailCache: { label: 'Thumbnail cache', description: 'Resized covers; safe to delete, regenerates', color: 'bg-teal-500' },
+  covers: {
+    label: 'Album covers',
+    description: 'Cover images in the library folders',
+    color: 'bg-sky-500'
+  },
+  thumbnailCache: {
+    label: 'Thumbnail cache',
+    description: 'Resized covers; safe to delete, regenerates',
+    color: 'bg-teal-500'
+  },
   playlists: { label: 'Playlists', description: 'Exported m3u8 files', color: 'bg-violet-500' },
-  untracked: { label: 'Untracked audio', description: 'Audio files no library track points at', color: 'bg-rose-500' },
-  temp: { label: 'Temporary', description: 'In-flight uploads and hidden folders', color: 'bg-muted-foreground/60' },
-  other: { label: 'Other files', description: 'Everything else in the managed folders', color: 'bg-muted-foreground/40' }
+  untracked: {
+    label: 'Untracked audio',
+    description: 'Audio files no library track points at',
+    color: 'bg-rose-500'
+  },
+  temp: {
+    label: 'Temporary',
+    description: 'In-flight uploads and hidden folders',
+    color: 'bg-muted-foreground/60'
+  },
+  other: {
+    label: 'Other files',
+    description: 'Everything else in the managed folders',
+    color: 'bg-muted-foreground/40'
+  }
 };
 
 const ORIGIN_META: Record<StorageOriginKey, StorageOriginMeta> = {
@@ -58,7 +98,12 @@ export function categoryMeta(key: string): StorageCategoryMeta {
 }
 
 export function originMeta(key: string): StorageOriginMeta {
-  return (ORIGIN_META as Record<string, StorageOriginMeta>)[key] ?? { label: key, color: 'bg-muted-foreground/40' };
+  return (
+    (ORIGIN_META as Record<string, StorageOriginMeta>)[key] ?? {
+      label: key,
+      color: 'bg-muted-foreground/40'
+    }
+  );
 }
 
 export function rootLabel(key: string): string {
@@ -88,7 +133,11 @@ export function storageSummary(
       ? []
       : snapshot.categories
           .filter((c) => c.bytes > 0)
-          .map((c) => ({ key: c.key, pct: (c.bytes / total) * 100, color: categoryMeta(c.key).color }));
+          .map((c) => ({
+            key: c.key,
+            pct: (c.bytes / total) * 100,
+            color: categoryMeta(c.key).color
+          }));
   return { label, segments };
 }
 

@@ -30,7 +30,13 @@ export type StageKey = 'scan' | 'fingerprint' | 'enrich' | 'build';
 
 const STAGE_KEYS: readonly StageKey[] = ['scan', 'fingerprint', 'enrich', 'build'] as const;
 
-type RateSample = { t: number; scanned: number; fingerprinted: number; enriched: number; built: number };
+type RateSample = {
+  t: number;
+  scanned: number;
+  fingerprinted: number;
+  enriched: number;
+  built: number;
+};
 
 function readPersistedOpen(): boolean {
   if (typeof window === 'undefined') return false;

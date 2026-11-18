@@ -17,8 +17,12 @@ function song(over: Partial<ApiSong>): ApiSong {
 
 describe('isSpotifySourced', () => {
   it('covers liked songs and playlists, whether or not the file was downloaded', () => {
-    expect(isSpotifySourced(song({ originSource: 'SpotifyLiked', originKind: 'Downloaded' }))).toBe(true);
-    expect(isSpotifySourced(song({ originSource: 'SpotifyPlaylist', originKind: 'Scanned' }))).toBe(true);
+    expect(isSpotifySourced(song({ originSource: 'SpotifyLiked', originKind: 'Downloaded' }))).toBe(
+      true
+    );
+    expect(isSpotifySourced(song({ originSource: 'SpotifyPlaylist', originKind: 'Scanned' }))).toBe(
+      true
+    );
   });
 
   it('excludes every other origin', () => {
@@ -30,8 +34,11 @@ describe('isSpotifySourced', () => {
 });
 
 describe('spotifyAddedTime', () => {
-  it('reads Spotify\'s save date, not the local like', () => {
-    const s = song({ spotifyAddedAtUtc: '2024-03-04T00:00:00Z', likedAtUtc: '2026-01-01T00:00:00Z' });
+  it("reads Spotify's save date, not the local like", () => {
+    const s = song({
+      spotifyAddedAtUtc: '2024-03-04T00:00:00Z',
+      likedAtUtc: '2026-01-01T00:00:00Z'
+    });
     expect(spotifyAddedTime(s)).toBe(Date.parse('2024-03-04T00:00:00Z'));
   });
 
@@ -53,7 +60,11 @@ describe('spotifyAddedTime', () => {
 
 describe('songOriginLabel', () => {
   it('names the collection in the tooltip and stays terse in the pill', () => {
-    const s = song({ originSource: 'SpotifyPlaylist', originDetail: 'Late Night', originKind: 'Downloaded' });
+    const s = song({
+      originSource: 'SpotifyPlaylist',
+      originDetail: 'Late Night',
+      originKind: 'Downloaded'
+    });
     const label = songOriginLabel(s);
     expect(label?.label).toBe('Spotify');
     expect(label?.title).toContain('Late Night');
@@ -66,9 +77,15 @@ describe('songOriginLabel', () => {
   });
 
   it('falls back to how the file arrived when no collection asked for it', () => {
-    expect(songOriginLabel(song({ originKind: 'Scanned', originSource: 'None' }))?.label).toBe('Library');
-    expect(songOriginLabel(song({ originKind: 'Downloaded', originSource: 'None' }))?.label).toBe('Download');
-    expect(songOriginLabel(song({ originKind: 'Synced', originSource: 'None' }))?.label).toBe('Synced');
+    expect(songOriginLabel(song({ originKind: 'Scanned', originSource: 'None' }))?.label).toBe(
+      'Library'
+    );
+    expect(songOriginLabel(song({ originKind: 'Downloaded', originSource: 'None' }))?.label).toBe(
+      'Download'
+    );
+    expect(songOriginLabel(song({ originKind: 'Synced', originSource: 'None' }))?.label).toBe(
+      'Synced'
+    );
   });
 
   it('returns null for a row the API never annotated', () => {
@@ -76,7 +93,11 @@ describe('songOriginLabel', () => {
   });
 
   it('names the YouTube playlist a synced video came from, and does not call it a link', () => {
-    const s = song({ originSource: 'YouTubePlaylist', originDetail: 'Cool music', originKind: 'Downloaded' });
+    const s = song({
+      originSource: 'YouTubePlaylist',
+      originDetail: 'Cool music',
+      originKind: 'Downloaded'
+    });
     const label = songOriginLabel(s);
     expect(label?.label).toBe('YouTube');
     expect(label?.title).toContain('Cool music');

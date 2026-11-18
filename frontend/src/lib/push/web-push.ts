@@ -110,7 +110,9 @@ export async function enablePush(userId: string): Promise<PushState> {
   if (!pushSupported()) return pushState(userId);
   // First, while the tap still counts: iOS only shows the prompt inside a user gesture.
   const permission =
-    Notification.permission === 'default' ? await Notification.requestPermission() : Notification.permission;
+    Notification.permission === 'default'
+      ? await Notification.requestPermission()
+      : Notification.permission;
   if (permission === 'denied') return 'denied';
   if (permission !== 'granted') return 'off';
 
@@ -140,7 +142,8 @@ export async function disablePush(userId: string): Promise<void> {
  * have changed). Quiet — never prompts.
  */
 export async function syncPush(userId: string | null | undefined): Promise<void> {
-  if (!userId || !pushSupported() || Notification.permission !== 'granted' || pref(userId) !== 'on') return;
+  if (!userId || !pushSupported() || Notification.permission !== 'granted' || pref(userId) !== 'on')
+    return;
   try {
     const config = await fetchPushConfig();
     if (!config.enabled || !config.publicKey) return;

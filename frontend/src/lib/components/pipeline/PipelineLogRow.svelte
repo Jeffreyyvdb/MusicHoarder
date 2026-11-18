@@ -40,7 +40,9 @@
   );
 </script>
 
-<div class="hover:bg-accent grid grid-cols-[80px_60px_1fr] items-baseline gap-2 rounded px-1.5 py-0.5">
+<div
+  class="hover:bg-accent grid grid-cols-[80px_60px_1fr] items-baseline gap-2 rounded px-1.5 py-0.5"
+>
   <span class="text-muted-foreground-dim font-mono text-[11px] tabular-nums">{activity.time}</span>
   <span class={cn('font-mono text-[11px] font-semibold', t.tone)}>[{t.tag}]</span>
   <span class={cn('truncate font-mono text-[11px]', msgTone)}>{subject}</span>

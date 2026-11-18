@@ -53,7 +53,6 @@
     return motionFly({ y: 8, duration: 200, easing: cubicOut });
   }
 
-
   // Progress as a 0..1 fraction. Driven into the seek bar via `transform: scaleX`
   // (composite-only) rather than a bits-ui Slider, whose per-value reflow on the
   // ~10 Hz time tick saturates the main thread and starves audio playback.
@@ -287,7 +286,9 @@
              the line under the title ("Playing on iPhone") is a target of its own — the lower
              half of the text column, 28pt at the smallest bar — that opens the device picker.
              The art is a pointer target only; the title is the keyboard stop for the same place. -->
-        <div class="grid h-full min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] grid-rows-2 gap-x-3 pl-3.5">
+        <div
+          class="grid h-full min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] grid-rows-2 gap-x-3 pl-3.5"
+        >
           <button
             type="button"
             tabindex="-1"
@@ -309,7 +310,7 @@
             type="button"
             onclick={openNowPlaying}
             aria-label={`Open now playing: ${song.title} by ${song.artist}`}
-            class="text-subheadline focus-visible:ring-ring flex min-w-0 items-end rounded-md text-left font-semibold focus-visible:outline-hidden focus-visible:ring-2"
+            class="text-subheadline focus-visible:ring-ring flex min-w-0 items-end rounded-md text-left font-semibold focus-visible:ring-2 focus-visible:outline-hidden"
           >
             <span class="truncate">{song.title}</span>
           </button>
@@ -320,7 +321,7 @@
                 type="button"
                 aria-label={`${deviceLine}. Choose a device`}
                 class={cn(
-                  'text-footnote focus-visible:ring-ring flex min-w-0 items-start gap-1 rounded-md text-left focus-visible:outline-hidden focus-visible:ring-2',
+                  'text-footnote focus-visible:ring-ring flex min-w-0 items-start gap-1 rounded-md text-left focus-visible:ring-2 focus-visible:outline-hidden',
                   deviceTone
                 )}
               >
@@ -347,7 +348,7 @@
               type="button"
               onclick={openNowPlaying}
               aria-label="Open now playing"
-              class="focus-visible:ring-ring col-start-1 row-start-1 flex min-w-0 items-center gap-3 rounded-full pl-3.5 text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset"
+              class="focus-visible:ring-ring col-start-1 row-start-1 flex min-w-0 items-center gap-3 rounded-full pl-3.5 text-left focus-visible:ring-2 focus-visible:outline-hidden focus-visible:ring-inset"
             >
               <Cover
                 artist={song.artist}
@@ -411,7 +412,12 @@
             ></span>
           {/snippet}
         </DropdownMenu.Trigger>
-        <DropdownMenu.Content side="top" align="center" sideOffset={8} class="w-60 pointer-coarse:w-72">
+        <DropdownMenu.Content
+          side="top"
+          align="center"
+          sideOffset={8}
+          class="w-60 pointer-coarse:w-72"
+        >
           {#if librarySong}
             <DropdownMenu.Group>
               <DropdownMenu.Item onSelect={toggleLike}>
@@ -510,7 +516,7 @@
                 type="button"
                 onclick={openNowPlaying}
                 aria-label="Open now playing"
-                class="group/np col-start-1 row-start-1 focus-visible:ring-ring flex max-w-full min-w-0 items-center gap-2.5 rounded-md px-1.5 py-0.5 text-left focus-visible:outline-hidden focus-visible:ring-2"
+                class="group/np focus-visible:ring-ring col-start-1 row-start-1 flex max-w-full min-w-0 items-center gap-2.5 rounded-md px-1.5 py-0.5 text-left focus-visible:ring-2 focus-visible:outline-hidden"
               >
                 <!-- Album art with an Apple-Music-style enlarge affordance: the cover
                      eases up a touch and a dim scrim + expand glyph fade in on hover.
@@ -557,7 +563,7 @@
             aria-valuenow={Math.round(progress * 100)}
             aria-valuetext={`${formatDuration(playerStore.currentTime)} of ${formatDuration(playerStore.duration)}`}
             aria-label="Seek"
-            class="group/seek relative flex h-3 w-full max-w-[440px] cursor-pointer touch-none items-center rounded-full focus-visible:outline-hidden select-none after:absolute after:inset-x-0 after:-inset-y-2 after:content-['']"
+            class="group/seek relative flex h-3 w-full max-w-[440px] cursor-pointer touch-none items-center rounded-full select-none after:absolute after:inset-x-0 after:-inset-y-2 after:content-[''] focus-visible:outline-hidden"
             onpointerdown={onSeekPointerDown}
             onpointermove={onSeekPointerMove}
             onpointerup={onSeekPointerUp}
@@ -598,7 +604,7 @@
                   type="button"
                   aria-label={`${deviceLine}. Choose a device`}
                   class={cn(
-                    'focus-visible:ring-ring relative flex h-8 max-w-40 min-w-0 items-center gap-1.5 rounded-full px-2 text-xs focus-visible:outline-hidden focus-visible:ring-2 pointer-fine:hover:bg-accent',
+                    'focus-visible:ring-ring pointer-fine:hover:bg-accent relative flex h-8 max-w-40 min-w-0 items-center gap-1.5 rounded-full px-2 text-xs focus-visible:ring-2 focus-visible:outline-hidden',
                     deviceTone
                   )}
                 >
@@ -615,7 +621,7 @@
                   type="button"
                   aria-label="Devices"
                   title="Devices"
-                  class="text-muted-foreground hover:text-foreground focus-visible:ring-ring flex size-8 shrink-0 items-center justify-center rounded-md focus-visible:outline-hidden focus-visible:ring-2"
+                  class="text-muted-foreground hover:text-foreground focus-visible:ring-ring flex size-8 shrink-0 items-center justify-center rounded-md focus-visible:ring-2 focus-visible:outline-hidden"
                 >
                   <MonitorSpeaker class="size-4" />
                 </button>

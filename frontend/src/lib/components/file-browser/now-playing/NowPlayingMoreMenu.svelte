@@ -40,7 +40,7 @@
    *   Add to playlist… · Go to album · Go to artist
    *   Share link… · Send to… · Share with a friend…           (admin)
    *   Lyrics › · Music video › · Playback speed › · Hide player
- *   Report wrong download…                                    (admin, a downloaded track)
+   *   Report wrong download…                                    (admin, a downloaded track)
    *
    * Lyrics › gathers what used to be lg-only or buried in the compare split — the view, Synced /
    * Plain, the player's default source, Compare, the AI run, the timing check, the LRCLIB
@@ -153,7 +153,7 @@
   </DropdownMenu.Trigger>
   <!-- Now Playing's media appearance (dark whatever the app theme; none under the hardware skin). z-[70]:
        above the overlay's z-60. -->
-  <DropdownMenu.Content align="end" class={["z-[70] min-w-56", mediaAppearance()]}>
+  <DropdownMenu.Content align="end" class={['z-[70] min-w-56', mediaAppearance()]}>
     <DropdownMenu.Group>
       <DropdownMenu.Item onSelect={onAddToPlaylist}>
         <ListPlus />

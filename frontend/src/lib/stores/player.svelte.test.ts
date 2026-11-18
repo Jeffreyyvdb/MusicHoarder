@@ -1063,7 +1063,9 @@ describe('shuffle', () => {
     await playerStore.startQueue(album, 0, { shuffle: true });
     expect(playerStore.shuffle).toBe(true);
     const first = playerStore.currentSong!.id;
-    expect([first, ...upNextIds(playerStore)].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect([first, ...upNextIds(playerStore)].sort((a, b) => a - b)).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8
+    ]);
 
     // Off: the album's own order from the song the shuffle started on.
     playerStore.toggleShuffle();

@@ -9,7 +9,12 @@
   import { fetchChatPeople, sendChatToPeople, type ChatPerson } from '#lib/api-client.ts';
   import { isDemo } from '#lib/auth/capabilities.ts';
   import { linkCaption, sharedLink } from '#lib/chat/chat-text.ts';
-  import { clearPendingShare, pendingShareFrom, readPendingShare, type PendingShare } from '#lib/chat/pending-share.ts';
+  import {
+    clearPendingShare,
+    pendingShareFrom,
+    readPendingShare,
+    type PendingShare
+  } from '#lib/chat/pending-share.ts';
   import { replaceUrl } from '#lib/navigation/replace-url.ts';
   import { chatStore } from '#lib/stores/chat.svelte.ts';
   import PeoplePicker from './PeoplePicker.svelte';
@@ -69,7 +74,9 @@
       void chatStore.refresh();
       toast.success(selected.length === 1 ? 'Sent' : `Sent to ${selected.length} people`);
       // A replace: Back from the conversation goes to the chat list, not to this page again.
-      await replaceUrl(messages.length === 1 ? `/chats/${messages[0].conversationId}` : '/chats', { reset: true });
+      await replaceUrl(messages.length === 1 ? `/chats/${messages[0].conversationId}` : '/chats', {
+        reset: true
+      });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not send it.');
     } finally {
@@ -126,7 +133,9 @@
         <PeoplePicker {people} {loading} {selected} multiple onpick={toggle} />
 
         <div class="flex gap-3 px-4 md:px-0">
-          <Button variant="gray" class="h-12 flex-1 rounded-full md:h-10" onclick={cancel}>Cancel</Button>
+          <Button variant="gray" class="h-12 flex-1 rounded-full md:h-10" onclick={cancel}
+            >Cancel</Button
+          >
           <Button
             class="h-12 flex-1 rounded-full md:h-10"
             onclick={send}

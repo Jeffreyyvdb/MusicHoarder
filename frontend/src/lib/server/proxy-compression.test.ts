@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { brotliCompressSync, brotliDecompressSync, constants, gunzipSync } from 'node:zlib';
 import { BROTLI_BLOCK_BYTES, compressBody, pickProxyEncoding } from './proxy-compression';
 
-const req = (acceptEncoding: string | null) => new Headers(acceptEncoding === null ? {} : { 'accept-encoding': acceptEncoding });
-const json = (extra: Record<string, string> = {}) => new Headers({ 'content-type': 'application/json; charset=utf-8', ...extra });
+const req = (acceptEncoding: string | null) =>
+  new Headers(acceptEncoding === null ? {} : { 'accept-encoding': acceptEncoding });
+const json = (extra: Record<string, string> = {}) =>
+  new Headers({ 'content-type': 'application/json; charset=utf-8', ...extra });
 
 describe('pickProxyEncoding', () => {
   it('prefers brotli, then gzip, then nothing', () => {
@@ -19,8 +21,12 @@ describe('pickProxyEncoding', () => {
   });
 
   it('leaves media, event streams and byte ranges alone', () => {
-    expect(pickProxyEncoding(req('br'), 200, new Headers({ 'content-type': 'audio/flac' }))).toBeNull();
-    expect(pickProxyEncoding(req('br'), 200, new Headers({ 'content-type': 'text/event-stream' }))).toBeNull();
+    expect(
+      pickProxyEncoding(req('br'), 200, new Headers({ 'content-type': 'audio/flac' }))
+    ).toBeNull();
+    expect(
+      pickProxyEncoding(req('br'), 200, new Headers({ 'content-type': 'text/event-stream' }))
+    ).toBeNull();
     expect(pickProxyEncoding(req('br'), 206, json())).toBeNull();
     expect(pickProxyEncoding(req('br'), 304, json())).toBeNull();
   });
@@ -29,15 +35,21 @@ describe('pickProxyEncoding', () => {
     expect(pickProxyEncoding(req('br'), 200, json({ 'content-length': '212' }))).toBeNull();
     expect(pickProxyEncoding(req('br'), 200, json({ 'content-length': '4096' }))).toBe('br');
     expect(pickProxyEncoding(req('br'), 200, json({ 'content-encoding': 'gzip' }))).toBeNull();
-    expect(pickProxyEncoding(req('br'), 200, json({ 'cache-control': 'no-store, no-transform' }))).toBeNull();
+    expect(
+      pickProxyEncoding(req('br'), 200, json({ 'cache-control': 'no-store, no-transform' }))
+    ).toBeNull();
   });
 });
 
 describe('compressBody', () => {
-  const payload = JSON.stringify({ songs: Array.from({ length: 500 }, (_, id) => ({ id, title: `Track ${id}` })) });
+  const payload = JSON.stringify({
+    songs: Array.from({ length: 500 }, (_, id) => ({ id, title: `Track ${id}` }))
+  });
 
   it.each(['br', 'gzip'] as const)('round-trips as %s', async (encoding) => {
-    const compressed = Buffer.from(await new Response(compressBody(new Response(payload).body!, encoding)).arrayBuffer());
+    const compressed = Buffer.from(
+      await new Response(compressBody(new Response(payload).body!, encoding)).arrayBuffer()
+    );
     expect(compressed.byteLength).toBeLessThan(payload.length / 2);
     const decoded = encoding === 'br' ? brotliDecompressSync(compressed) : gunzipSync(compressed);
     expect(decoded.toString()).toBe(payload);
@@ -47,7 +59,8 @@ describe('compressBody', () => {
   const inPieces = (bytes: Uint8Array, chunkBytes: number) =>
     new ReadableStream<Uint8Array>({
       start(controller) {
-        for (let at = 0; at < bytes.byteLength; at += chunkBytes) controller.enqueue(bytes.subarray(at, at + chunkBytes));
+        for (let at = 0; at < bytes.byteLength; at += chunkBytes)
+          controller.enqueue(bytes.subarray(at, at + chunkBytes));
         controller.close();
       }
     });
@@ -56,7 +69,15 @@ describe('compressBody', () => {
   const rows = (bytes: number) => {
     const out: string[] = [];
     for (let id = 0, size = 0; size < bytes; id++) {
-      const row = JSON.stringify({ id, title: `Track ${id}`, artist: `Artist ${id % 97}`, album: `Album ${id % 931}`, durationSeconds: 150 + (id % 240), isBuilt: true, playCount: id % 13 });
+      const row = JSON.stringify({
+        id,
+        title: `Track ${id}`,
+        artist: `Artist ${id % 97}`,
+        album: `Album ${id % 931}`,
+        durationSeconds: 150 + (id % 240),
+        isBuilt: true,
+        playCount: id % 13
+      });
       out.push(row);
       size += row.length + 1;
     }
@@ -83,7 +104,9 @@ describe('compressBody', () => {
     // Brotli's fast encoder treats each write as a block of its own: fed the API's ~15 kB pieces
     // directly, the song list went out up to 60% larger than the same bytes compressed in one go.
     const body = rows(4 * BROTLI_BLOCK_BYTES);
-    const whole = brotliCompressSync(body, { params: { [constants.BROTLI_PARAM_QUALITY]: 1 } }).byteLength;
+    const whole = brotliCompressSync(body, {
+      params: { [constants.BROTLI_PARAM_QUALITY]: 1 }
+    }).byteLength;
     const pieces = (await compressedAs('br', inPieces(body, 15_000))).byteLength;
     expect(pieces).toBeLessThan(whole * 1.05);
   });

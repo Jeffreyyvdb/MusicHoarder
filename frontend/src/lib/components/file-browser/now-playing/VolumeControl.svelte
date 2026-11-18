@@ -40,7 +40,7 @@
 <div class="flex items-center gap-3">
   <button
     type="button"
-    class="text-muted-foreground hover:text-foreground focus-visible:ring-ring flex size-8 shrink-0 items-center justify-center rounded-full focus-visible:outline-hidden focus-visible:ring-2"
+    class="text-muted-foreground hover:text-foreground focus-visible:ring-ring flex size-8 shrink-0 items-center justify-center rounded-full focus-visible:ring-2 focus-visible:outline-hidden"
     aria-label={level === 0 ? 'Unmute' : 'Mute'}
     onclick={() => playerStore.toggleMute()}
   >
@@ -58,7 +58,7 @@
     aria-valuemax={100}
     aria-valuenow={Math.round(level * 100)}
     aria-valuetext={`${Math.round(level * 100)}%`}
-    class="group/vol relative flex h-4 min-w-0 flex-1 cursor-pointer touch-none items-center focus-visible:outline-hidden select-none"
+    class="group/vol relative flex h-4 min-w-0 flex-1 cursor-pointer touch-none items-center select-none focus-visible:outline-hidden"
     onpointerdown={(e) => {
       const target = e.currentTarget as HTMLElement;
       target.setPointerCapture(e.pointerId);

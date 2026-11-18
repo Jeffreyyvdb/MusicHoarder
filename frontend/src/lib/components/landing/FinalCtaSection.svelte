@@ -24,13 +24,7 @@
 
   <div class="mt-9 flex flex-wrap justify-center gap-3">
     <Button size="pill" onclick={cta.activate} disabled={cta.busy}>{cta.label}</Button>
-    <Button
-      size="pill"
-      variant="tinted"
-      href={githubUrl}
-      target="_blank"
-      rel="noopener noreferrer"
-    >
+    <Button size="pill" variant="tinted" href={githubUrl} target="_blank" rel="noopener noreferrer">
       <ExternalLink aria-hidden="true" />
       View on GitHub
     </Button>

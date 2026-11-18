@@ -27,9 +27,22 @@
   import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
   import { replaceUrl } from '#lib/navigation/replace-url.ts';
   import { prefersReducedMotion } from '#lib/motion.ts';
-  import { QUALITY_BUCKETS, VERDICT_TABS, issueLabel, qualityCategoryLabel } from '#lib/quality-ui.ts';
+  import {
+    QUALITY_BUCKETS,
+    VERDICT_TABS,
+    issueLabel,
+    qualityCategoryLabel
+  } from '#lib/quality-ui.ts';
   import { cn } from '#lib/utils.ts';
-  import { ChevronDown, History, Loader2, RefreshCw, Sparkles, TriangleAlert, X } from '@lucide/svelte';
+  import {
+    ChevronDown,
+    History,
+    Loader2,
+    RefreshCw,
+    Sparkles,
+    TriangleAlert,
+    X
+  } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
   import { tick, untrack } from 'svelte';
 
@@ -174,7 +187,8 @@
   // The URL's song while it is in the list; otherwise the split view shows the first row and the
   // drill-down shows the list.
   const selectedId = $derived.by(() => {
-    if (detailParam != null && displayedSongs.some((s) => s.songId === detailParam)) return detailParam;
+    if (detailParam != null && displayedSongs.some((s) => s.songId === detailParam))
+      return detailParam;
     return narrow ? null : (displayedSongs[0]?.songId ?? null);
   });
   const selectedRow = $derived(displayedSongs.find((s) => s.songId === selectedId) ?? null);
@@ -191,7 +205,9 @@
 
   const position = $derived.by(() => {
     const i = displayedSongs.findIndex((s) => s.songId === selectedId);
-    return i < 0 ? undefined : `${(i + 1).toLocaleString()} of ${displayedSongs.length.toLocaleString()}`;
+    return i < 0
+      ? undefined
+      : `${(i + 1).toLocaleString()} of ${displayedSongs.length.toLocaleString()}`;
   });
 
   // The list page's scroll position survives a trip into a detail and back (the two pages are
@@ -298,14 +314,19 @@
         title={gradingConfigured ? undefined : 'AI grading is not configured on the server'}
         class="rounded-full"
       >
-        {#if busy || polling}<Loader2 class="animate-spin" aria-hidden="true" />{:else}<Sparkles aria-hidden="true" />{/if}
+        {#if busy || polling}<Loader2 class="animate-spin" aria-hidden="true" />{:else}<Sparkles
+            aria-hidden="true"
+          />{/if}
         <span class="max-md:sr-only">Re-grade library</span>
       </Button>
     {/snippet}
     {#snippet more()}
       {#if overview && overview.outdatedCount > 0}
         <!-- Grades made with an older prompt or model: re-grade just those. -->
-        <DropdownMenu.Item onSelect={onGradeOutdated} disabled={busy || polling || !gradingConfigured}>
+        <DropdownMenu.Item
+          onSelect={onGradeOutdated}
+          disabled={busy || polling || !gradingConfigured}
+        >
           <History />
           Re-grade {overview.outdatedCount.toLocaleString()} outdated
         </DropdownMenu.Item>
@@ -326,8 +347,8 @@
         <span class="text-subheadline md:text-[12.5px]">
           AI grading is not configured on the server, so grading does nothing. Set
           <code class="font-mono text-[0.92em]">QUALITY_GRADING_API_KEY</code> (and optionally
-          <code class="font-mono text-[0.92em]">QUALITY_GRADING_MODEL</code>) in the deployment environment and
-          redeploy.
+          <code class="font-mono text-[0.92em]">QUALITY_GRADING_MODEL</code>) in the deployment
+          environment and redeploy.
         </span>
       </GroupedList.Row>
     </GroupedList.Section>
@@ -359,7 +380,10 @@
           ? `Grading ${gradeProgress.processed.toLocaleString()} of ${gradeProgress.total.toLocaleString()}`
           : 'Grading in progress'}
       >
-        {#snippet leading()}<Loader2 class="text-muted-foreground size-5 animate-spin" aria-hidden="true" />{/snippet}
+        {#snippet leading()}<Loader2
+            class="text-muted-foreground size-5 animate-spin"
+            aria-hidden="true"
+          />{/snippet}
         {#if gradeProgress}
           <LinearProgress
             label="Grading progress"
@@ -385,28 +409,37 @@
           <button
             {...props}
             type="button"
-            class="text-primary focus-visible:ring-ring/50 relative -my-1 inline-flex items-center gap-1 rounded-md py-1 font-semibold focus-visible:outline-hidden focus-visible:ring-3 pointer-coarse:after:absolute pointer-coarse:after:-inset-x-2 pointer-coarse:after:-inset-y-[9px]"
+            class="text-primary focus-visible:ring-ring/50 relative -my-1 inline-flex items-center gap-1 rounded-md py-1 font-semibold focus-visible:ring-3 focus-visible:outline-hidden pointer-coarse:after:absolute pointer-coarse:after:-inset-x-2 pointer-coarse:after:-inset-y-[9px]"
           >
             {qualityCategoryLabel(category)}
-            <span class="text-muted-foreground font-normal tabular-nums">{tabCounts[category].toLocaleString()}</span>
+            <span class="text-muted-foreground font-normal tabular-nums"
+              >{tabCounts[category].toLocaleString()}</span
+            >
             <ChevronDown class="size-3.5" aria-hidden="true" />
             <span class="sr-only">— change what the list shows</span>
           </button>
         {/snippet}
       </DropdownMenu.Trigger>
       <DropdownMenu.Content align="start" class="min-w-60">
-        <DropdownMenu.RadioGroup value={category} onValueChange={(v) => selectCategory(v as QualityCategory)}>
+        <DropdownMenu.RadioGroup
+          value={category}
+          onValueChange={(v) => selectCategory(v as QualityCategory)}
+        >
           {#each QUALITY_BUCKETS as b (b.id)}
             <DropdownMenu.RadioItem value={b.id}>
               <span class="flex-1">{b.label}</span>
-              <span class="text-muted-foreground tabular-nums">{tabCounts[b.id].toLocaleString()}</span>
+              <span class="text-muted-foreground tabular-nums"
+                >{tabCounts[b.id].toLocaleString()}</span
+              >
             </DropdownMenu.RadioItem>
           {/each}
           <DropdownMenu.Separator />
           {#each VERDICT_TABS as t (t.id)}
             <DropdownMenu.RadioItem value={t.id}>
               <span class="flex-1">{t.label}</span>
-              <span class="text-muted-foreground tabular-nums">{tabCounts[t.id].toLocaleString()}</span>
+              <span class="text-muted-foreground tabular-nums"
+                >{tabCounts[t.id].toLocaleString()}</span
+              >
             </DropdownMenu.RadioItem>
           {/each}
         </DropdownMenu.RadioGroup>
@@ -427,7 +460,7 @@
     onclick={() => (issueFilter = null)}
     aria-label="Clear the issue filter {label}"
     title={issueFilter ?? undefined}
-    class="bg-primary/12 text-primary focus-visible:ring-ring/50 relative inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[12px] focus-visible:outline-hidden focus-visible:ring-3 pointer-coarse:after:absolute pointer-coarse:after:-inset-x-2 pointer-coarse:after:-inset-y-2.5"
+    class="bg-primary/12 text-primary focus-visible:ring-ring/50 relative inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[12px] focus-visible:ring-3 focus-visible:outline-hidden pointer-coarse:after:absolute pointer-coarse:after:-inset-x-2 pointer-coarse:after:-inset-y-2.5"
   >
     <span>{label}</span>
     <X class="size-3" aria-hidden="true" />
@@ -480,7 +513,9 @@
             />
           </GroupedList.Section>
         {:else if isLoading}
-          <div class="text-muted-foreground text-body flex items-center justify-center gap-2 py-10 md:text-[13px]">
+          <div
+            class="text-muted-foreground text-body flex items-center justify-center gap-2 py-10 md:text-[13px]"
+          >
             <Loader2 class="size-4 animate-spin" aria-hidden="true" /> Loading quality rollups…
           </div>
         {:else if overview && lib}
@@ -498,8 +533,8 @@
             <QualityFixesRow layout="rows" topIssues={lib.topIssues} {onSelectIssue} />
             {#if lib.graded === 0}
               <p class="text-body text-muted-foreground px-8 py-8 text-center md:px-4">
-                Nothing graded yet. Use Re-grade library to start grading, or grade a single song from its
-                provenance timeline.
+                Nothing graded yet. Use Re-grade library to start grading, or grade a single song
+                from its provenance timeline.
               </p>
             {:else}
               <div bind:this={listAnchor} class="scroll-mt-[calc(var(--mh-navbar-h,0px)+8px)]">
@@ -532,16 +567,28 @@
             </div>
 
             {#if lib.graded === 0}
-              <div class="bg-card text-muted-foreground rounded-xl px-4 py-10 text-center text-[13px]">
-                Nothing graded yet. Use <span class="text-foreground font-medium">Re-grade library</span> to start
-                grading, or grade a single song from the Provenance &amp; review page.
+              <div
+                class="bg-card text-muted-foreground rounded-xl px-4 py-10 text-center text-[13px]"
+              >
+                Nothing graded yet. Use <span class="text-foreground font-medium"
+                  >Re-grade library</span
+                > to start grading, or grade a single song from the Provenance &amp; review page.
               </div>
             {:else}
               <!-- Verdict chips (the same categories as the cards, by AI verdict). -->
-              <div class="flex shrink-0 flex-wrap items-center gap-2" role="group" aria-label="Show songs">
+              <div
+                class="flex shrink-0 flex-wrap items-center gap-2"
+                role="group"
+                aria-label="Show songs"
+              >
                 {#each VERDICT_TABS as t (t.id)}
-                  <FilterChip pressed={category === t.id} onclick={() => selectCategory(t.id)} count={tabCounts[t.id]}>
-                    {#if t.dot}<span class={cn('size-2 rounded-full', t.dot)} aria-hidden="true"></span>{/if}
+                  <FilterChip
+                    pressed={category === t.id}
+                    onclick={() => selectCategory(t.id)}
+                    count={tabCounts[t.id]}
+                  >
+                    {#if t.dot}<span class={cn('size-2 rounded-full', t.dot)} aria-hidden="true"
+                      ></span>{/if}
                     {t.label}
                   </FilterChip>
                 {/each}

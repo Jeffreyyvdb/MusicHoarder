@@ -293,7 +293,7 @@
     showCloseButton={false}
     overlayClass="z-[75] data-open:animate-none! data-closed:animate-none!"
     class={cn(
-      'z-[75] gap-0 overflow-hidden p-0 data-open:animate-none! data-closed:animate-none!',
+      'z-[75] gap-0 overflow-hidden p-0 data-closed:animate-none! data-open:animate-none!',
       // Desktop: the panel, high enough that the whole list fits under it.
       'md:top-[10vh] md:max-w-2xl md:translate-y-0',
       // Phone: the whole screen, a plain page rather than a floating card.
@@ -317,7 +317,7 @@
         <button
           type="button"
           onclick={dismiss}
-          class="text-primary text-body focus-visible:ring-ring -mr-1 h-11 shrink-0 rounded-md px-2 focus-visible:outline-hidden focus-visible:ring-2 md:hidden"
+          class="text-primary text-body focus-visible:ring-ring -mr-1 h-11 shrink-0 rounded-md px-2 focus-visible:ring-2 focus-visible:outline-hidden md:hidden"
         >
           Cancel
         </button>

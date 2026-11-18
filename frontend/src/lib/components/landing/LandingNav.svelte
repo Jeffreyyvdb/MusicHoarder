@@ -41,7 +41,10 @@
     aria-label="Main"
     class="mx-auto flex h-14 max-w-[1200px] items-center justify-between gap-3 px-4 md:h-12 md:px-10"
   >
-    <a href="/" class="flex min-h-11 items-center gap-2 text-[17px] font-semibold tracking-tight md:text-[15px]">
+    <a
+      href="/"
+      class="flex min-h-11 items-center gap-2 text-[17px] font-semibold tracking-tight md:text-[15px]"
+    >
       <BrandMark class="size-7 md:size-6" />
       <span>MusicHoarder</span>
     </a>

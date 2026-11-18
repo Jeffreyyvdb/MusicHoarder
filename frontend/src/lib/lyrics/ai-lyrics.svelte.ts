@@ -70,7 +70,11 @@ export type AiLyricsApi = {
   setPreferredLyricsSource: (
     songId: number,
     source: LyricsSource
-  ) => Promise<{ id: number; preferredLyricsSource: string; lyricsTranslationStale?: boolean | null }>;
+  ) => Promise<{
+    id: number;
+    preferredLyricsSource: string;
+    lyricsTranslationStale?: boolean | null;
+  }>;
 };
 
 const realApi: AiLyricsApi = {
@@ -183,7 +187,9 @@ export function createAiLyrics(opts: {
   const comparing = $derived(showCompare && canCompare);
   // The big synced viewer shows the AI version when it's the chosen default (or it's all we have).
   const showAiInViewer = $derived(
-    lyricsFeatureEnabled && transcription != null && (!hasLyrics || preferredSource === 'transcribed')
+    lyricsFeatureEnabled &&
+      transcription != null &&
+      (!hasLyrics || preferredSource === 'transcribed')
   );
 
   // Secondary document stacked under the original lines, picked by the current lyrics view. The
@@ -434,7 +440,8 @@ export function createAiLyrics(opts: {
       preferredSource = current.preferredLyricsSource === 'Transcribed' ? 'transcribed' : 'lrclib';
       // The songs list carries no translation flag, so any song with lyrics may have one — one small
       // fetch covers both the transcription and the translation.
-      if (!current.hasTranscribedLyrics && !current.hasSyncedLyrics && !current.hasPlainLyrics) return;
+      if (!current.hasTranscribedLyrics && !current.hasSyncedLyrics && !current.hasPlainLyrics)
+        return;
       api
         .fetchTrackLyrics(id)
         .then((d) => {
@@ -503,7 +510,9 @@ export function createAiLyrics(opts: {
       // A failed re-sync is the outcome to report even when the translation landed: the timing is what the
       // button is pressed for, and "Done" over unchanged lyrics reads as "the AI found nothing to fix". It
       // stays up until the next run or another song, since it may say when to try again.
-      const failure = transcribeFailure ? `Couldn't re-sync the lyrics. ${transcribeFailure}` : translateFailure;
+      const failure = transcribeFailure
+        ? `Couldn't re-sync the lyrics. ${transcribeFailure}`
+        : translateFailure;
       if (failure) {
         enhanceState = 'error';
         enhanceError = failure;

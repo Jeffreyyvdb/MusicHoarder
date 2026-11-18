@@ -353,7 +353,7 @@
       </p>
       <button
         type="button"
-        class="text-subheadline focus-visible:ring-ring bg-secondary pointer-fine:hover:bg-secondary-hover h-11 shrink-0 rounded-full px-4 font-medium focus-visible:outline-hidden focus-visible:ring-2 md:h-8 md:px-3"
+        class="text-subheadline focus-visible:ring-ring bg-secondary pointer-fine:hover:bg-secondary-hover h-11 shrink-0 rounded-full px-4 font-medium focus-visible:ring-2 focus-visible:outline-hidden md:h-8 md:px-3"
         onclick={() => (listRows += LIST_ROWS)}
       >
         Show more

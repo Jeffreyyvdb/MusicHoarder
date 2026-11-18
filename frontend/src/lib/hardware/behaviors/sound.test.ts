@@ -15,7 +15,12 @@ class FakeNode {
   }
   stop() {}
   frequency = { value: 0, setValueAtTime() {}, exponentialRampToValueAtTime() {} };
-  gain = { value: 0, setValueAtTime() {}, linearRampToValueAtTime() {}, exponentialRampToValueAtTime() {} };
+  gain = {
+    value: 0,
+    setValueAtTime() {},
+    linearRampToValueAtTime() {},
+    exponentialRampToValueAtTime() {}
+  };
   Q = { value: 0 };
   playbackRate = { value: 1 };
   type = '';
@@ -62,7 +67,10 @@ let session: { type: string };
 function stubPage({ shell }: { shell: boolean }) {
   session = { type: 'auto' };
   vi.stubGlobal('localStorage', { getItem: () => 'on', setItem() {} });
-  vi.stubGlobal('document', { documentElement: { dataset: { mhSkin: 'hardware' } }, activeElement: null });
+  vi.stubGlobal('document', {
+    documentElement: { dataset: { mhSkin: 'hardware' } },
+    activeElement: null
+  });
   vi.stubGlobal('navigator', { audioSession: session });
   vi.stubGlobal('window', {
     AudioContext: FakeContext,

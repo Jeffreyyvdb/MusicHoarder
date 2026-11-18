@@ -54,10 +54,14 @@
         <Icon class="size-6" />
       </span>
       <div class="min-w-0">
-        <h3 class="text-[17px] leading-[22px] font-semibold tracking-[-0.01em] sm:mt-4 sm:text-[19px] sm:leading-[24px]">
+        <h3
+          class="text-[17px] leading-[22px] font-semibold tracking-[-0.01em] sm:mt-4 sm:text-[19px] sm:leading-[24px]"
+        >
           {feature.title}
         </h3>
-        <p class="text-muted-foreground mt-1 text-[15px] leading-[20px] text-pretty sm:mt-2 sm:leading-[21px]">
+        <p
+          class="text-muted-foreground mt-1 text-[15px] leading-[20px] text-pretty sm:mt-2 sm:leading-[21px]"
+        >
           {feature.body}
         </p>
       </div>

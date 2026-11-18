@@ -31,7 +31,9 @@
     class="mt-16 grid grid-cols-1 items-center gap-8 md:mt-24 lg:grid-cols-[1fr_1.35fr] lg:gap-12"
   >
     <div class="text-center lg:order-first lg:text-left">
-      <h3 class="text-[clamp(26px,3vw,34px)] leading-[1.12] font-bold tracking-[-0.025em] text-balance">
+      <h3
+        class="text-[clamp(26px,3vw,34px)] leading-[1.12] font-bold tracking-[-0.025em] text-balance"
+      >
         Clear the Inbox from your phone.
       </h3>
       <p class="text-muted-foreground mt-4 text-[17px] leading-[1.5] text-pretty">

@@ -23,7 +23,7 @@
   <a
     {href}
     onclick={() => onOpen?.()}
-    class="group/tile focus-visible:ring-ring/50 block rounded-md focus-visible:outline-hidden focus-visible:ring-3"
+    class="group/tile focus-visible:ring-ring/50 block rounded-md focus-visible:ring-3 focus-visible:outline-hidden"
   >
     <div
       class="bg-muted relative aspect-square w-full overflow-hidden rounded-md shadow-[0_1px_2px_rgb(0_0_0/0.08)] transition-transform duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] group-active/tile:scale-[0.97]"
@@ -46,7 +46,9 @@
     <div class="mt-1.5 min-w-0">
       <h3 class="text-subheadline truncate font-medium md:text-sm">{playlist.title}</h3>
       <p class="text-footnote text-muted-foreground truncate md:text-xs">
-        {formatCompactCount(playlist.followers)} follower{playlist.followers === 1 ? '' : 's'}{playlist.trackCount != null
+        {formatCompactCount(playlist.followers)} follower{playlist.followers === 1
+          ? ''
+          : 's'}{playlist.trackCount != null
           ? ` · ${playlist.trackCount.toLocaleString()} track${playlist.trackCount === 1 ? '' : 's'}`
           : ''}
       </p>
@@ -70,7 +72,7 @@
       title="Subscribe"
       disabled={isBusy}
       onclick={onQuickSubscribe}
-      class="focus-visible:ring-ring/50 absolute top-1.5 right-1.5 grid size-8 place-items-center rounded-full bg-black/50 text-white shadow-sm backdrop-blur-md transition-[background-color,transform] duration-150 focus-visible:outline-hidden after:absolute after:-inset-1.5 hover:bg-black/65 focus-visible:ring-3 active:scale-[0.94] disabled:opacity-60"
+      class="focus-visible:ring-ring/50 absolute top-1.5 right-1.5 grid size-8 place-items-center rounded-full bg-black/50 text-white shadow-sm backdrop-blur-md transition-[background-color,transform] duration-150 after:absolute after:-inset-1.5 hover:bg-black/65 focus-visible:ring-3 focus-visible:outline-hidden active:scale-[0.94] disabled:opacity-60"
     >
       {#if isBusy}
         <Loader2 class="size-4 animate-spin" aria-hidden="true" />

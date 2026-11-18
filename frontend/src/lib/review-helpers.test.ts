@@ -6,9 +6,9 @@ describe('reasonFor', () => {
     expect(reasonFor({ hasFingerprint: false, matchWarnings: [], matchConfidence: 0.5 }).key).toBe(
       'no_fingerprint'
     );
-    expect(reasonFor({ hasFingerprint: undefined, matchWarnings: [], matchConfidence: 0.5 }).key).toBe(
-      'no_fingerprint'
-    );
+    expect(
+      reasonFor({ hasFingerprint: undefined, matchWarnings: [], matchConfidence: 0.5 }).key
+    ).toBe('no_fingerprint');
   });
 
   it('returns multiple_matches when more than one warning is present', () => {

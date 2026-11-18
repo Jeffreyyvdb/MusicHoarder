@@ -38,7 +38,7 @@
   <Alert.Root
     variant="destructive"
     aria-live="polite"
-    class="mx-4 my-2 w-auto border-destructive/40 bg-destructive/10"
+    class="border-destructive/40 bg-destructive/10 mx-4 my-2 w-auto"
   >
     <CircleAlert class="size-4" />
     <Alert.Description class="min-w-0 break-words">

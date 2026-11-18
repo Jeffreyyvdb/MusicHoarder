@@ -1,7 +1,14 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { Bell, BellOff, MessageCircle, SquarePen, TriangleAlert, UserRound } from '@lucide/svelte';
+  import {
+    Bell,
+    BellOff,
+    MessageCircle,
+    SquarePen,
+    TriangleAlert,
+    UserRound
+  } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
   import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
   import * as BottomSheet from '#lib/components/ui/bottom-sheet/index.ts';
@@ -80,7 +87,8 @@
   async function testNotification() {
     try {
       const result = await sendTestPush();
-      if (result.delivered === 0) toast.error('No device of yours is set up for notifications yet.');
+      if (result.delivered === 0)
+        toast.error('No device of yours is set up for notifications yet.');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not send a test notification.');
     }
@@ -205,22 +213,39 @@
                   href={`/chats/${conversation.id}`}
                   aria-current={selected ? 'page' : undefined}
                   class={cn(
-                    'focus-visible:ring-ring flex items-center gap-3 px-4 py-2.5 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset md:rounded-xl md:px-3',
+                    'focus-visible:ring-ring flex items-center gap-3 px-4 py-2.5 focus-visible:ring-2 focus-visible:outline-hidden focus-visible:ring-inset md:rounded-xl md:px-3',
                     selected ? 'bg-secondary' : 'hover:bg-secondary/0 md:hover:bg-accent'
                   )}
                 >
                   <ChatAvatar person={conversation.members[0]} size={compact ? 52 : 44} />
                   <span class="min-w-0 flex-1 border-b py-1 md:border-b-0">
                     <span class="flex items-baseline gap-2">
-                      <span class={cn('text-body min-w-0 flex-1 truncate md:text-sm', unreadHere ? 'font-semibold' : 'font-medium')}>
+                      <span
+                        class={cn(
+                          'text-body min-w-0 flex-1 truncate md:text-sm',
+                          unreadHere ? 'font-semibold' : 'font-medium'
+                        )}
+                      >
                         {conversationTitle(conversation)}
                       </span>
-                      <span class={cn('text-footnote shrink-0 tabular-nums md:text-xs', unreadHere ? 'text-primary' : 'text-muted-foreground')}>
-                        {conversation.lastMessage ? listTimeLabel(conversation.lastMessageAtUtc) : ''}
+                      <span
+                        class={cn(
+                          'text-footnote shrink-0 tabular-nums md:text-xs',
+                          unreadHere ? 'text-primary' : 'text-muted-foreground'
+                        )}
+                      >
+                        {conversation.lastMessage
+                          ? listTimeLabel(conversation.lastMessageAtUtc)
+                          : ''}
                       </span>
                     </span>
                     <span class="flex items-center gap-2">
-                      <span class={cn('text-subheadline min-w-0 flex-1 truncate md:text-[13px]', unreadHere ? 'text-foreground' : 'text-muted-foreground')}>
+                      <span
+                        class={cn(
+                          'text-subheadline min-w-0 flex-1 truncate md:text-[13px]',
+                          unreadHere ? 'text-foreground' : 'text-muted-foreground'
+                        )}
+                      >
                         {messagePreview(conversation.lastMessage)}
                       </span>
                       {#if unreadHere}
@@ -245,7 +270,13 @@
 
 <div class="flex min-h-0 flex-1">
   {#if showList}
-    <div class={cn('flex min-h-0 flex-col', showThread || !compact ? 'md:w-[360px] md:shrink-0 md:border-r' : 'flex-1', compact && 'flex-1')}>
+    <div
+      class={cn(
+        'flex min-h-0 flex-col',
+        showThread || !compact ? 'md:w-[360px] md:shrink-0 md:border-r' : 'flex-1',
+        compact && 'flex-1'
+      )}
+    >
       {@render list()}
     </div>
   {/if}
@@ -256,9 +287,13 @@
       {/key}
     </div>
   {:else if !compact}
-    <div class="text-muted-foreground hidden min-w-0 flex-1 flex-col items-center justify-center gap-2 md:flex">
+    <div
+      class="text-muted-foreground hidden min-w-0 flex-1 flex-col items-center justify-center gap-2 md:flex"
+    >
       <MessageCircle class="size-8" aria-hidden="true" />
-      <p class="text-sm">{demo ? 'Chat is off for the demo' : 'Pick a conversation, or start a new one.'}</p>
+      <p class="text-sm">
+        {demo ? 'Chat is off for the demo' : 'Pick a conversation, or start a new one.'}
+      </p>
     </div>
   {/if}
 </div>

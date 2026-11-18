@@ -6,7 +6,11 @@
 
   // A person as a tinted circle with their initials. The tint is the album-cover hash on the
   // account id, so one person keeps one colour everywhere and nobody's is chosen by hand.
-  type Props = { person: Pick<ChatPerson, 'id' | 'name'> | null | undefined; size?: number; class?: string };
+  type Props = {
+    person: Pick<ChatPerson, 'id' | 'name'> | null | undefined;
+    size?: number;
+    class?: string;
+  };
   const { person, size = 40, class: className }: Props = $props();
 
   const tint = $derived(albumTint(person?.id ?? '', person?.name ?? ''));

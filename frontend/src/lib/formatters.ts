@@ -128,7 +128,10 @@ export function computeInitials(title: string | null | undefined): string {
 }
 
 /** "FLAC 1024kbps" — match the design's bitrate label. */
-export function formatBitrate(bitRate: number | null | undefined, extension?: string | null): string {
+export function formatBitrate(
+  bitRate: number | null | undefined,
+  extension?: string | null
+): string {
   const ext = (extension ?? '').replace(/^\./, '').toUpperCase();
   if (!bitRate || bitRate <= 0) return ext || '—';
   return ext ? `${ext} ${bitRate}kbps` : `${bitRate} kbps`;
@@ -229,5 +232,7 @@ export function localDayKey(iso: string): string {
 
 /** A large count in its short form: 33574029 reads "33.6M". */
 export function formatCompactCount(value: number, locale?: string): string {
-  return new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 }).format(value);
+  return new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 }).format(
+    value
+  );
 }

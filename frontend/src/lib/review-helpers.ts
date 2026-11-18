@@ -8,7 +8,11 @@ import type {
   ProviderAttempt
 } from '#lib/api-client.ts';
 
-export type ReviewReasonKey = 'low_confidence' | 'multiple_matches' | 'no_fingerprint' | 'below_threshold';
+export type ReviewReasonKey =
+  | 'low_confidence'
+  | 'multiple_matches'
+  | 'no_fingerprint'
+  | 'below_threshold';
 
 export interface ReviewReason {
   key: ReviewReasonKey;
@@ -22,7 +26,9 @@ export interface ReviewReason {
  * reason enum, so it's derived from the same signals the pipeline uses: a missing
  * fingerprint, several competing matches, or a single low-confidence match.
  */
-export function reasonFor(track: Pick<ApiSong, 'hasFingerprint' | 'matchWarnings' | 'matchConfidence'>): ReviewReason {
+export function reasonFor(
+  track: Pick<ApiSong, 'hasFingerprint' | 'matchWarnings' | 'matchConfidence'>
+): ReviewReason {
   if (!track.hasFingerprint) return { key: 'no_fingerprint', label: 'No fingerprint', tint: 'err' };
   if ((track.matchWarnings?.length ?? 0) > 1)
     return { key: 'multiple_matches', label: 'Multiple matches', tint: 'info' };
@@ -72,10 +78,15 @@ export interface ReviewCandidate {
  * that actually produced a candidate are shown (matches the design, which lists
  * provider matches only — embedded tags are rendered separately).
  */
-export function candidatesFromDetail(detail: EnrichmentDetail | null | undefined): ReviewCandidate[] {
+export function candidatesFromDetail(
+  detail: EnrichmentDetail | null | undefined
+): ReviewCandidate[] {
   if (!detail) return [];
   return detail.providerAttempts
-    .filter((a): a is ProviderAttempt & { candidate: NonNullable<ProviderAttempt['candidate']> } => a.candidate != null)
+    .filter(
+      (a): a is ProviderAttempt & { candidate: NonNullable<ProviderAttempt['candidate']> } =>
+        a.candidate != null
+    )
     .map((a) => {
       const c = a.candidate;
       const title = c.title ?? '';
@@ -120,7 +131,9 @@ export interface ProviderAttemptRow {
  * for the Fingerprint tab — matched rows first by score, then the rest. The winner
  * is derived from the song's `matchedBy` since the backend stores no explicit flag.
  */
-export function providerAttemptRows(detail: EnrichmentDetail | null | undefined): ProviderAttemptRow[] {
+export function providerAttemptRows(
+  detail: EnrichmentDetail | null | undefined
+): ProviderAttemptRow[] {
   if (!detail) return [];
   const matchedBy = detail.matchedBy ?? null;
   return detail.providerAttempts
@@ -156,7 +169,9 @@ export interface EmbeddedTag {
 }
 
 /** The file's embedded id3 tags as ordered key/value rows for display. */
-export function embeddedTags(track: Pick<ApiSong, 'title' | 'artist' | 'album' | 'year' | 'trackNumber'>): EmbeddedTag[] {
+export function embeddedTags(
+  track: Pick<ApiSong, 'title' | 'artist' | 'album' | 'year' | 'trackNumber'>
+): EmbeddedTag[] {
   return [
     { key: 'title', value: track.title ?? '' },
     { key: 'artist', value: track.artist ?? '' },
@@ -231,7 +246,10 @@ export function providerColor(name: string | null | undefined): string {
  * Returns null when the provider has no linkable web search (AcoustID is fingerprint-only;
  * the YeTracker is a static local catalog).
  */
-export function providerSearchUrl(provider: string | null | undefined, query: string | null | undefined): string | null {
+export function providerSearchUrl(
+  provider: string | null | undefined,
+  query: string | null | undefined
+): string | null {
   if (!query || !query.trim()) return null;
   const q = encodeURIComponent(query.trim());
   switch (provider) {
@@ -258,7 +276,9 @@ export interface ContributedProvider {
 }
 
 /** Distinct providers that produced a candidate, for the CONTRIBUTED chip row. */
-export function contributedProviders(detail: EnrichmentDetail | null | undefined): ContributedProvider[] {
+export function contributedProviders(
+  detail: EnrichmentDetail | null | undefined
+): ContributedProvider[] {
   if (!detail) return [];
   const seen = new Set<string>();
   const out: ContributedProvider[] = [];
@@ -390,18 +410,27 @@ export interface BannerInfo {
   body: string;
 }
 
-export function bannerFor(
-  track: ApiSong,
-  detail: EnrichmentDetail | null | undefined
-): BannerInfo {
+export function bannerFor(track: ApiSong, detail: EnrichmentDetail | null | undefined): BannerInfo {
   const status = (detail?.enrichmentStatus ?? String(track.enrichmentStatus ?? '')).toLowerCase();
   if (status === 'matched') {
     return detail?.isManuallyApproved
-      ? { tone: 'ok', title: 'Accepted', body: 'You approved this match — it will be written to the library.' }
-      : { tone: 'ok', title: 'Matched', body: 'Auto-accepted above the confidence threshold. Re-enrich to recompute.' };
+      ? {
+          tone: 'ok',
+          title: 'Accepted',
+          body: 'You approved this match — it will be written to the library.'
+        }
+      : {
+          tone: 'ok',
+          title: 'Matched',
+          body: 'Auto-accepted above the confidence threshold. Re-enrich to recompute.'
+        };
   }
   if (status === 'failed') {
-    return { tone: 'err', title: 'Enrichment failed', body: detail?.enrichmentError || 'No provider could match this file.' };
+    return {
+      tone: 'err',
+      title: 'Enrichment failed',
+      body: detail?.enrichmentError || 'No provider could match this file.'
+    };
   }
   const reason = reasonFor(track);
   if (reason.key === 'no_fingerprint') {
@@ -531,7 +560,10 @@ export interface TimelineEvent {
 }
 
 /** Reconstruct what the pipeline did, oldest-first, from stored timestamps + attempts. */
-export function buildTimeline(track: ApiSong, detail: EnrichmentDetail | null | undefined): TimelineEvent[] {
+export function buildTimeline(
+  track: ApiSong,
+  detail: EnrichmentDetail | null | undefined
+): TimelineEvent[] {
   // The pipeline stamps come with the track's detail; the library list does not carry them.
   const indexedAtUtc = detail?.indexedAtUtc ?? null;
   const libraryBuiltAtUtc = detail?.libraryBuiltAtUtc ?? null;
@@ -568,7 +600,8 @@ export function buildTimeline(track: ApiSong, detail: EnrichmentDetail | null | 
     (x, y) => new Date(x.attemptedAtUtc).getTime() - new Date(y.attemptedAtUtc).getTime()
   )) {
     const label = providerLabel(a.candidate?.matchedBy ?? a.provider);
-    const pct = a.candidate?.matchConfidence != null ? Math.round(a.candidate.matchConfidence * 100) : null;
+    const pct =
+      a.candidate?.matchConfidence != null ? Math.round(a.candidate.matchConfidence * 100) : null;
     const stage = providerLabel(a.provider) === 'AcoustID' ? 'FP LOOKUP' : 'METADATA';
     let tint: TimelineTint = 'ok';
     let description: string;
@@ -639,7 +672,9 @@ export function buildTimeline(track: ApiSong, detail: EnrichmentDetail | null | 
             pct: detail.matchConfidence != null ? Math.round(detail.matchConfidence * 100) : null
           }
         : null,
-      description: detail?.isManuallyApproved ? 'accepted by reviewer' : 'auto-accepted by consensus'
+      description: detail?.isManuallyApproved
+        ? 'accepted by reviewer'
+        : 'auto-accepted by consensus'
     });
   }
 

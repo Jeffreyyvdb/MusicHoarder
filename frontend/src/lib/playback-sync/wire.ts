@@ -155,7 +155,9 @@ export function parseDevice(value: unknown): PlaybackDevice | null {
   if (!isRecord(value)) return null;
   const deviceId = nonEmptyString(value.deviceId);
   if (!deviceId) return null;
-  const kind = DEVICE_KINDS.includes(value.kind as DeviceKind) ? (value.kind as DeviceKind) : 'unknown';
+  const kind = DEVICE_KINDS.includes(value.kind as DeviceKind)
+    ? (value.kind as DeviceKind)
+    : 'unknown';
   return {
     deviceId,
     installId: nonEmptyString(value.installId),

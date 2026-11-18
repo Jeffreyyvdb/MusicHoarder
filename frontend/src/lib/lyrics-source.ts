@@ -1,16 +1,16 @@
-import { lrclibWebUrl } from "#lib/lrclib-url.ts"
+import { lrclibWebUrl } from '#lib/lrclib-url.ts';
 
-export type LyricsOrigin = "lrclib" | "genius"
+export type LyricsOrigin = 'lrclib' | 'genius';
 
-const GENIUS_ORIGIN = "https://genius.com"
+const GENIUS_ORIGIN = 'https://genius.com';
 
 /** The API sends the enum name ("Lrclib" | "Genius"); anything else, or nothing, reads as LRCLIB. */
 export function parseLyricsOrigin(raw: string | null | undefined): LyricsOrigin {
-  return raw?.toLowerCase() === "genius" ? "genius" : "lrclib"
+  return raw?.toLowerCase() === 'genius' ? 'genius' : 'lrclib';
 }
 
 export function lyricsSourceLabel(origin: LyricsOrigin): string {
-  return origin === "genius" ? "Genius" : "LRCLIB"
+  return origin === 'genius' ? 'Genius' : 'LRCLIB';
 }
 
 /**
@@ -23,6 +23,6 @@ export function lyricsSourceUrl(
   artist: string | null | undefined,
   title: string | null | undefined
 ): string {
-  if (origin === "genius" && geniusSongId) return `${GENIUS_ORIGIN}/songs/${geniusSongId}`
-  return lrclibWebUrl(artist, title)
+  if (origin === 'genius' && geniusSongId) return `${GENIUS_ORIGIN}/songs/${geniusSongId}`;
+  return lrclibWebUrl(artist, title);
 }

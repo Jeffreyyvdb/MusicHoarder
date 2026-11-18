@@ -16,10 +16,7 @@
 
   function copy() {
     // Clipboard is browser-only; the button is inert during SSR until hydrated.
-    navigator.clipboard
-      ?.writeText(text)
-      .then(flash)
-      .catch(fail);
+    navigator.clipboard?.writeText(text).then(flash).catch(fail);
   }
   function flash() {
     copyFailed = false;

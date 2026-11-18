@@ -269,7 +269,7 @@
               <button
                 type="button"
                 aria-label={`Use the embedded ${row.label.toLowerCase()}`}
-                class="text-primary relative z-10 shrink-0 font-medium focus-visible:outline-hidden after:absolute after:-inset-x-2 after:-top-1.5 after:-bottom-5 focus-visible:underline"
+                class="text-primary relative z-10 shrink-0 font-medium after:absolute after:-inset-x-2 after:-top-1.5 after:-bottom-5 focus-visible:underline focus-visible:outline-hidden"
                 onclick={() => oncopy(row.key, row.embedded)}>Use</button
               >
             {/if}

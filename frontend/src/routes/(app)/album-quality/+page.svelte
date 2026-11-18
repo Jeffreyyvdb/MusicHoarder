@@ -140,8 +140,16 @@
           { label: 'Graded', value: lib.graded.toLocaleString() },
           { label: 'Coverage', value: `${Math.round(overview.coverage * 100)}%` },
           { label: 'Avg score', value: lib.averageScore != null ? String(lib.averageScore) : '—' },
-          { label: 'Wrong', value: lib.verdicts.wrong.toLocaleString(), tone: lib.verdicts.wrong > 0 ? 'text-destructive-text' : undefined },
-          { label: 'Questionable', value: lib.verdicts.questionable.toLocaleString(), tone: lib.verdicts.questionable > 0 ? 'text-warning-text' : undefined },
+          {
+            label: 'Wrong',
+            value: lib.verdicts.wrong.toLocaleString(),
+            tone: lib.verdicts.wrong > 0 ? 'text-destructive-text' : undefined
+          },
+          {
+            label: 'Questionable',
+            value: lib.verdicts.questionable.toLocaleString(),
+            tone: lib.verdicts.questionable > 0 ? 'text-warning-text' : undefined
+          },
           { label: 'Excellent', value: lib.verdicts.excellent.toLocaleString() }
         ]
       : []
@@ -221,7 +229,9 @@
           {/each}
         </GroupedList.Section>
       {:else if !overview || lib === undefined}
-        <p class="text-body text-muted-foreground px-8 py-14 text-center md:text-sm">No album grades yet.</p>
+        <p class="text-body text-muted-foreground px-8 py-14 text-center md:text-sm">
+          No album grades yet.
+        </p>
       {:else}
         <!-- Rollup: value rows on a phone, a strip of six figures on a desktop. -->
         <GroupedList.Section headingLevel={2} header="Summary">
@@ -229,7 +239,9 @@
             {#each rollup as r (r.label)}
               <GroupedList.Row label={r.label}>
                 {#snippet trailing()}
-                  <span class={cn('text-body tabular-nums', r.tone ?? 'text-muted-foreground')}>{r.value}</span>
+                  <span class={cn('text-body tabular-nums', r.tone ?? 'text-muted-foreground')}
+                    >{r.value}</span
+                  >
                 {/snippet}
               </GroupedList.Row>
             {/each}
@@ -245,7 +257,8 @@
         </GroupedList.Section>
 
         <!-- Worst offenders: each row opens the album. -->
-        <GroupedList.Section headingLevel={2}
+        <GroupedList.Section
+          headingLevel={2}
           header="Worst matches"
           footer={overview.worstOffenders.length > 0
             ? 'Owned tracks against the canonical release, worst grade first.'

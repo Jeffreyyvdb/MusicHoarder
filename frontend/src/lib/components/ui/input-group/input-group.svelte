@@ -1,24 +1,24 @@
 <script lang="ts">
-	import { cn, type WithElementRef } from "#lib/utils.js";
-	import type { HTMLAttributes } from "svelte/elements";
+  import { cn, type WithElementRef } from '#lib/utils.js';
+  import type { HTMLAttributes } from 'svelte/elements';
 
-	let {
-		ref = $bindable(null),
-		class: className,
-		children,
-		...props
-	}: WithElementRef<HTMLAttributes<HTMLDivElement>> = $props();
+  let {
+    ref = $bindable(null),
+    class: className,
+    children,
+    ...props
+  }: WithElementRef<HTMLAttributes<HTMLDivElement>> = $props();
 </script>
 
 <div
-	bind:this={ref}
-	data-slot="input-group"
-	role="group"
-	class={cn(
-		"group/input-group bg-input border-transparent has-[[data-slot=input-group-control]:focus-visible]:border-ring has-[[data-slot=input-group-control]:focus-visible]:ring-ring/50 has-[[data-slot][aria-invalid=true]]:ring-destructive/20 has-[[data-slot][aria-invalid=true]]:border-destructive dark:has-[[data-slot][aria-invalid=true]]:ring-destructive/40 h-11 md:h-8 rounded-lg border transition-colors in-data-[slot=combobox-content]:focus-within:border-inherit in-data-[slot=combobox-content]:focus-within:ring-0 has-disabled:opacity-50 has-[[data-slot=input-group-control]:focus-visible]:ring-3 has-[[data-slot][aria-invalid=true]]:ring-3 has-[>[data-align=block-end]]:h-auto has-[>[data-align=block-end]]:flex-col has-[>[data-align=block-start]]:h-auto has-[>[data-align=block-start]]:flex-col has-[>[data-align=block-end]]:[&>input]:pt-3 has-[>[data-align=block-start]]:[&>input]:pb-3 has-[>[data-align=inline-end]]:[&>input]:pr-1.5 has-[>[data-align=inline-start]]:[&>input]:pl-1.5 relative flex w-full min-w-0 items-center focus-visible:outline-hidden has-[>textarea]:h-auto",
-		className
-	)}
-	{...props}
+  bind:this={ref}
+  data-slot="input-group"
+  role="group"
+  class={cn(
+    'group/input-group bg-input has-[[data-slot=input-group-control]:focus-visible]:border-ring has-[[data-slot=input-group-control]:focus-visible]:ring-ring/50 has-[[data-slot][aria-invalid=true]]:ring-destructive/20 has-[[data-slot][aria-invalid=true]]:border-destructive dark:has-[[data-slot][aria-invalid=true]]:ring-destructive/40 relative flex h-11 w-full min-w-0 items-center rounded-lg border border-transparent transition-colors focus-visible:outline-hidden in-data-[slot=combobox-content]:focus-within:border-inherit in-data-[slot=combobox-content]:focus-within:ring-0 has-disabled:opacity-50 has-[[data-slot=input-group-control]:focus-visible]:ring-3 has-[[data-slot][aria-invalid=true]]:ring-3 has-[>[data-align=block-end]]:h-auto has-[>[data-align=block-end]]:flex-col has-[>[data-align=block-start]]:h-auto has-[>[data-align=block-start]]:flex-col has-[>textarea]:h-auto md:h-8 has-[>[data-align=block-end]]:[&>input]:pt-3 has-[>[data-align=block-start]]:[&>input]:pb-3 has-[>[data-align=inline-end]]:[&>input]:pr-1.5 has-[>[data-align=inline-start]]:[&>input]:pl-1.5',
+    className
+  )}
+  {...props}
 >
-	{@render children?.()}
+  {@render children?.()}
 </div>

@@ -28,7 +28,12 @@ function makeSong(over: Partial<ApiSong> = {}): ApiSong {
 }
 
 const songWithLyrics = (over: Partial<ApiSong> = {}) =>
-  makeSong({ hasSyncedLyrics: true, syncedLyrics: '[00:01.00] la', lyricsStatus: 'Fetched', ...over });
+  makeSong({
+    hasSyncedLyrics: true,
+    syncedLyrics: '[00:01.00] la',
+    lyricsStatus: 'Fetched',
+    ...over
+  });
 
 function stubApi(over: Partial<AiLyricsApi> = {}): AiLyricsApi {
   return {
@@ -57,13 +62,15 @@ function stubApi(over: Partial<AiLyricsApi> = {}): AiLyricsApi {
  * The component owns the `$effect` that forwards song changes into `syncToSong()`; the harness
  * plays that role by hand, which keeps every test synchronous where the machine is.
  */
-function setup(opts: {
-  song?: ApiSong;
-  isOwner?: boolean;
-  lyricsFeature?: boolean;
-  translationFeature?: boolean;
-  api?: Partial<AiLyricsApi>;
-} = {}) {
+function setup(
+  opts: {
+    song?: ApiSong;
+    isOwner?: boolean;
+    lyricsFeature?: boolean;
+    translationFeature?: boolean;
+    api?: Partial<AiLyricsApi>;
+  } = {}
+) {
   let current = $state(opts.song ?? songWithLyrics());
   const api = stubApi(opts.api);
   const ai = createAiLyrics({
@@ -156,7 +163,7 @@ describe('syncToSong', () => {
     expect(api.fetchTrackLyrics).toHaveBeenCalledTimes(1);
   });
 
-  it('resets a previous song\'s state and discards its in-flight response after navigating away', async () => {
+  it("resets a previous song's state and discards its in-flight response after navigating away", async () => {
     const first = deferred<Awaited<ReturnType<AiLyricsApi['fetchTrackLyrics']>>>();
     const fetchTrackLyrics = vi
       .fn()
@@ -230,7 +237,9 @@ describe('enhance — the two-stage run', () => {
     const { ai, api } = setup({
       api: {
         transcribeSongLyrics: vi.fn(async () => {
-          throw new Error('The transcription quota is used up for now. Try again in about 8 minutes.');
+          throw new Error(
+            'The transcription quota is used up for now. Try again in about 8 minutes.'
+          );
         })
       }
     });
@@ -482,7 +491,9 @@ describe('viewer document selection', () => {
   });
 
   it('shows the AI version when it is all there is, and a re-timed one reads AI-enhanced', async () => {
-    const { ai } = setup({ song: makeSong({ hasSyncedLyrics: true, preferredLyricsSource: null }) });
+    const { ai } = setup({
+      song: makeSong({ hasSyncedLyrics: true, preferredLyricsSource: null })
+    });
     ai.syncToSong();
     await ai.enhance(); // stub transcribes with resynced: true
     // preferred stays lrclib, but with hasLyrics false-ish it would show AI; here lyrics exist so:

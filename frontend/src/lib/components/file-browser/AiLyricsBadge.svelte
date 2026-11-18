@@ -41,9 +41,7 @@
 
   const { provenance, variant = 'panel', class: className }: Props = $props();
 
-  const copy = $derived(
-    provenance && provenance !== 'Human' ? AI_LYRICS_COPY[provenance] : null
-  );
+  const copy = $derived(provenance && provenance !== 'Human' ? AI_LYRICS_COPY[provenance] : null);
 </script>
 
 <!--

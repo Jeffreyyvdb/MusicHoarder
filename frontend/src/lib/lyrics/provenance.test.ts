@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { computeLyricsProvenance } from './provenance'
+import { describe, expect, it } from 'vitest';
+import { computeLyricsProvenance } from './provenance';
 
 /**
  * The client-side copy of the API's provenance rule. It exists because the track panel switches
@@ -14,8 +14,8 @@ describe('computeLyricsProvenance', () => {
         alignedToReference: false,
         hasSyncedLyrics: true
       })
-    ).toBe('Human')
-  })
+    ).toBe('Human');
+  });
 
   it('calls a transcription aligned to the official lyrics "AI Enhanced"', () => {
     expect(
@@ -24,8 +24,8 @@ describe('computeLyricsProvenance', () => {
         alignedToReference: true,
         hasSyncedLyrics: true
       })
-    ).toBe('AiEnhanced')
-  })
+    ).toBe('AiEnhanced');
+  });
 
   it('calls a transcription it could not align "AI Generated"', () => {
     // The words here are the model's guess, not anybody's lyric sheet — the stronger disclosure.
@@ -35,8 +35,8 @@ describe('computeLyricsProvenance', () => {
         alignedToReference: false,
         hasSyncedLyrics: false
       })
-    ).toBe('AiGenerated')
-  })
+    ).toBe('AiGenerated');
+  });
 
   it('calls human lyrics re-timed by the probe "AI Enhanced"', () => {
     expect(
@@ -46,8 +46,8 @@ describe('computeLyricsProvenance', () => {
         hasSyncedLyrics: true,
         syncOffsetMs: 15000
       })
-    ).toBe('AiEnhanced')
-  })
+    ).toBe('AiEnhanced');
+  });
 
   it('does not claim a repair for a song that has no synced lyrics to repair', () => {
     expect(
@@ -57,8 +57,8 @@ describe('computeLyricsProvenance', () => {
         hasSyncedLyrics: false,
         syncOffsetMs: 15000
       })
-    ).toBe('Human')
-  })
+    ).toBe('Human');
+  });
 
   it('treats a zero offset as a real repair, not as absent', () => {
     // 0 is falsy in JS; reading it as "no offset" would silently drop the label on a song whose
@@ -70,6 +70,6 @@ describe('computeLyricsProvenance', () => {
         hasSyncedLyrics: true,
         syncOffsetMs: 0
       })
-    ).toBe('AiEnhanced')
-  })
-})
+    ).toBe('AiEnhanced');
+  });
+});

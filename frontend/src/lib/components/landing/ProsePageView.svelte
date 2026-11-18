@@ -51,7 +51,9 @@
               {/each}
             </ul>
           {:else}
-            <ul class="bg-background-grouped mt-5 flex flex-col rounded-[18px] px-5 py-2 dark:bg-card">
+            <ul
+              class="bg-background-grouped dark:bg-card mt-5 flex flex-col rounded-[18px] px-5 py-2"
+            >
               {#each block.items as link (link.href)}
                 <li
                   class="border-separator text-muted-foreground border-b py-3 text-[17px] leading-[1.5] last:border-b-0"

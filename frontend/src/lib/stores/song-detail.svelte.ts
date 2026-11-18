@@ -51,7 +51,8 @@ const resolved = $derived.by(() => {
   if (!target) return null;
   const { songId, albumKey } = target;
   const album = albumKey
-    ? albums.find((a) => a.key === albumKey) ?? albums.find((a) => a.songs.some((s) => s.id === songId))
+    ? (albums.find((a) => a.key === albumKey) ??
+      albums.find((a) => a.songs.some((s) => s.id === songId)))
     : albums.find((a) => a.songs.some((s) => s.id === songId));
   if (!album) return null;
   const index = album.songs.findIndex((s) => s.id === songId);

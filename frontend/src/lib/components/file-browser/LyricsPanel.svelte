@@ -148,7 +148,12 @@
     secondarySynced && Boolean(loadedSynced) && showSynced ? parseLrc(secondarySynced) : null
   );
   const secondaryByIndex = $derived.by(() => {
-    if (!parsedLines || parsedLines.length === 0 || !parsedSecondary || parsedSecondary.length === 0)
+    if (
+      !parsedLines ||
+      parsedLines.length === 0 ||
+      !parsedSecondary ||
+      parsedSecondary.length === 0
+    )
       return null;
     if (parsedSecondary.length === parsedLines.length) return parsedSecondary.map((l) => l.text);
     const byTime = new Map(parsedSecondary.map((l) => [l.timeMs, l.text]));
@@ -273,7 +278,11 @@
   <div class="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 py-8 text-center">
     <AlertCircle class="text-destructive-text size-8" />
     <p class="text-subheadline text-muted-foreground">Failed to load lyrics.</p>
-    <Button variant="gray" class="h-9 rounded-full px-4 pointer-coarse:h-11" onclick={() => doc.retry()}>
+    <Button
+      variant="gray"
+      class="h-9 rounded-full px-4 pointer-coarse:h-11"
+      onclick={() => doc.retry()}
+    >
       Retry
     </Button>
   </div>
@@ -369,7 +378,9 @@
       view is where a missing LRC is actually noticed.
     -->
     {#if !doc.hasSynced}
-      <div class={cn('flex flex-wrap items-center gap-2', theater && 'justify-center px-1 sm:px-6')}>
+      <div
+        class={cn('flex flex-wrap items-center gap-2', theater && 'justify-center px-1 sm:px-6')}
+      >
         {@render recheckButton('Look for synced lyrics')}
       </div>
     {/if}
@@ -435,7 +446,7 @@
                   theater && !isTracking && 'text-foreground',
                   onSeek &&
                     (theater
-                      ? 'cursor-pointer pointer-fine:hover:text-foreground/80'
+                      ? 'pointer-fine:hover:text-foreground/80 cursor-pointer'
                       : 'hover:bg-primary/5 cursor-pointer')
                 )}
                 role={onSeek ? 'button' : undefined}
@@ -468,7 +479,7 @@
                        dot) and stays a seek target, named "Instrumental, 1:23" above rather than
                        read out as "middle dot". -->
                   <span
-                    class={cn(!line.text && 'select-none opacity-0')}
+                    class={cn(!line.text && 'opacity-0 select-none')}
                     aria-hidden={!line.text || undefined}
                   >
                     {line.text || '·'}
@@ -506,7 +517,8 @@
                   class={cn(
                     theater && 'text-title-1 text-foreground font-bold',
                     !pair.text && 'select-none'
-                  )}>{pair.text || ' '}</span>
+                  )}>{pair.text || ' '}</span
+                >
                 {#if pair.secondary && pair.secondary !== pair.text}
                   <span
                     class={cn(
@@ -525,7 +537,9 @@
           <pre
             class={cn(
               'font-sans whitespace-pre-wrap',
-              theater ? 'text-title-1 text-foreground font-bold' : 'text-body md:text-sm md:leading-relaxed'
+              theater
+                ? 'text-title-1 text-foreground font-bold'
+                : 'text-body md:text-sm md:leading-relaxed'
             )}>{fallbackText}</pre>
         {/if}
       </div>
@@ -543,7 +557,9 @@
               'bg-foreground text-background inline-flex items-center gap-1.5 rounded-full',
               'font-semibold shadow-lg transition-transform duration-150',
               'active:scale-[0.97] pointer-fine:hover:scale-[1.03]',
-              theater ? 'text-subheadline h-11 px-4' : 'h-8 px-3 text-xs pointer-coarse:h-11 pointer-coarse:px-4'
+              theater
+                ? 'text-subheadline h-11 px-4'
+                : 'h-8 px-3 text-xs pointer-coarse:h-11 pointer-coarse:px-4'
             )}
           >
             <AudioLines class={theater ? 'size-4' : 'size-3.5'} />

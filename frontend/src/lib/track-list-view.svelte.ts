@@ -12,11 +12,25 @@ import {
   type ApiSong
 } from '#lib/api-client.ts';
 import { isBuiltSong } from '#lib/album-sections.ts';
-import { filterBySearch, normalizeFields, searchTerms, type SearchEntry } from '#lib/search/match.ts';
+import {
+  filterBySearch,
+  normalizeFields,
+  searchTerms,
+  type SearchEntry
+} from '#lib/search/match.ts';
 import { isAnyUnreleasedSong } from '#lib/release-status.ts';
 
 export type SortKey =
-  'added' | 'liked' | 'spotify' | 'title' | 'artist' | 'album' | 'year' | 'size' | 'match' | 'dur';
+  | 'added'
+  | 'liked'
+  | 'spotify'
+  | 'title'
+  | 'artist'
+  | 'album'
+  | 'year'
+  | 'size'
+  | 'match'
+  | 'dur';
 
 const STRING_KEYS: SortKey[] = ['title', 'artist', 'album'];
 
@@ -151,7 +165,13 @@ export function tapActionFor(songId: number, loadedId: number | null | undefined
  * confirmed leak, snippet, demo or stem). A local file is very often a released one.
  */
 export type ChipKey =
-  'spotify-liked' | 'mh-liked' | 'local' | 'added' | 'video' | 'lyrics' | 'unreleased';
+  | 'spotify-liked'
+  | 'mh-liked'
+  | 'local'
+  | 'added'
+  | 'video'
+  | 'lyrics'
+  | 'unreleased';
 
 /** Display order, which is also the order the chip row renders in. */
 export const CHIP_KEYS: readonly ChipKey[] = [

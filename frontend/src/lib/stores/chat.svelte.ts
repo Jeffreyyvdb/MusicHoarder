@@ -152,7 +152,9 @@ export const chatStore = {
   async markRead(conversationId: string): Promise<void> {
     const conversation = conversations.find((c) => c.id === conversationId);
     if (conversation && conversation.unreadCount > 0) {
-      conversations = conversations.map((c) => (c.id === conversationId ? { ...c, unreadCount: 0 } : c));
+      conversations = conversations.map((c) =>
+        c.id === conversationId ? { ...c, unreadCount: 0 } : c
+      );
     }
     try {
       await markChatRead(conversationId);

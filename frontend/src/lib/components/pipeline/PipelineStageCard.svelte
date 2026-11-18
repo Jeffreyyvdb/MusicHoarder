@@ -24,8 +24,17 @@
     pauseBusy?: boolean;
   };
 
-  const { icon: Icon, label, status, isPaused, count, total, perSec, onTogglePause, pauseBusy = false }: Props =
-    $props();
+  const {
+    icon: Icon,
+    label,
+    status,
+    isPaused,
+    count,
+    total,
+    perSec,
+    onTogglePause,
+    pauseBusy = false
+  }: Props = $props();
 
   // A paused Enrich step keeps reporting Running (its workers hold the queue), and a paused
   // build is Running until its job winds down — neither is flowing, so neither lights up.

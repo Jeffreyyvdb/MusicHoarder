@@ -66,7 +66,7 @@
     aria-expanded={expanded}
     aria-controls={compareId}
     aria-label={expanded ? 'Hide the comparison' : 'Compare with the possible match'}
-    class="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 relative grid shrink-0 place-items-center rounded-full focus-visible:outline-hidden focus-visible:ring-3 {extra}"
+    class="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 relative grid shrink-0 place-items-center rounded-full focus-visible:ring-3 focus-visible:outline-hidden {extra}"
     onclick={toggleCompare}
   >
     {#if expanded}
@@ -88,7 +88,7 @@
     <button
       type="button"
       aria-label="In library — open the song"
-      class="text-primary focus-visible:ring-ring/50 relative -mr-1 grid size-8 shrink-0 place-items-center rounded-full focus-visible:outline-hidden after:absolute after:-inset-1.5 focus-visible:ring-3"
+      class="text-primary focus-visible:ring-ring/50 relative -mr-1 grid size-8 shrink-0 place-items-center rounded-full after:absolute after:-inset-1.5 focus-visible:ring-3 focus-visible:outline-hidden"
       onclick={openInLibrary}
     >
       <CircleCheck class="size-[22px]" aria-hidden="true" />
@@ -98,7 +98,7 @@
       <button
         type="button"
         aria-label="Possible match, {pct} — open the best guess"
-        class="text-warning-text text-subheadline relative shrink-0 font-medium tabular-nums focus-visible:outline-hidden after:absolute after:-inset-x-1 after:-inset-y-3 focus-visible:underline"
+        class="text-warning-text text-subheadline relative shrink-0 font-medium tabular-nums after:absolute after:-inset-x-1 after:-inset-y-3 focus-visible:underline focus-visible:outline-hidden"
         onclick={openInLibrary}
       >
         ~{pct}
@@ -265,7 +265,7 @@
             <button
               type="button"
               onclick={openInLibrary}
-              class="text-primary text-footnote relative inline-flex items-center gap-1 focus-visible:outline-hidden after:absolute after:-inset-x-2 after:-inset-y-3 hover:underline focus-visible:underline md:text-xs"
+              class="text-primary text-footnote relative inline-flex items-center gap-1 after:absolute after:-inset-x-2 after:-inset-y-3 hover:underline focus-visible:underline focus-visible:outline-hidden md:text-xs"
             >
               Open
               <Link2 class="size-3" aria-hidden="true" />

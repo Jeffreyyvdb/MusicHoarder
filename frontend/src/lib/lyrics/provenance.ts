@@ -1,4 +1,4 @@
-import type { LyricsProvenance } from '#lib/types.ts'
+import type { LyricsProvenance } from '#lib/types.ts';
 
 /**
  * How much of the lyrics on screen came from an AI.
@@ -14,15 +14,15 @@ import type { LyricsProvenance } from '#lib/types.ts'
  */
 export function computeLyricsProvenance(input: {
   /** True when the viewer is currently showing the AI transcription rather than the LRCLIB lyrics. */
-  showingTranscription: boolean
+  showingTranscription: boolean;
   /** True when that transcription carries the official words re-timed, not its own guess at them. */
-  alignedToReference: boolean
-  hasSyncedLyrics: boolean
+  alignedToReference: boolean;
+  hasSyncedLyrics: boolean;
   /** Non-null when a measured constant offset was applied to the stored LRC. */
-  syncOffsetMs?: number | null
+  syncOffsetMs?: number | null;
 }): LyricsProvenance {
   if (input.showingTranscription) {
-    return input.alignedToReference ? 'AiEnhanced' : 'AiGenerated'
+    return input.alignedToReference ? 'AiEnhanced' : 'AiGenerated';
   }
-  return input.syncOffsetMs != null && input.hasSyncedLyrics ? 'AiEnhanced' : 'Human'
+  return input.syncOffsetMs != null && input.hasSyncedLyrics ? 'AiEnhanced' : 'Human';
 }

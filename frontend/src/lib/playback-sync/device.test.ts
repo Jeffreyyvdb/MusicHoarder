@@ -109,7 +109,12 @@ describe('claimTabDeviceId', () => {
     const storage = new MemoryStorage();
     storage.setItem(DEVICE_ID_KEY, 'tab-a-0001');
     const timers = manualTimers();
-    const tab = claimTabDeviceId({ storage, channel: bus.open(), create, setTimer: timers.setTimer });
+    const tab = claimTabDeviceId({
+      storage,
+      channel: bus.open(),
+      create,
+      setTimer: timers.setTimer
+    });
     timers.fire();
     await expect(tab.ready).resolves.toBe('tab-a-0001');
   });
@@ -131,7 +136,12 @@ describe('claimTabDeviceId', () => {
     // Duplicating a tab copies its sessionStorage, id included.
     const copyStorage = new MemoryStorage();
     copyStorage.setItem(DEVICE_ID_KEY, 'tab-a-0001');
-    const copy = claimTabDeviceId({ storage: copyStorage, channel: bus.open(), create, setTimer: timers.setTimer });
+    const copy = claimTabDeviceId({
+      storage: copyStorage,
+      channel: bus.open(),
+      create,
+      setTimer: timers.setTimer
+    });
     timers.fire();
     const settled = await copy.ready;
 
@@ -147,12 +157,22 @@ describe('claimTabDeviceId', () => {
     const timers = manualTimers();
     const storage = new MemoryStorage();
     storage.setItem(DEVICE_ID_KEY, 'tab-b-0001');
-    const first = claimTabDeviceId({ storage, channel: bus.open(), create, setTimer: timers.setTimer });
+    const first = claimTabDeviceId({
+      storage,
+      channel: bus.open(),
+      create,
+      setTimer: timers.setTimer
+    });
     timers.fire();
     await first.ready;
     first.dispose();
 
-    const again = claimTabDeviceId({ storage, channel: bus.open(), create, setTimer: timers.setTimer });
+    const again = claimTabDeviceId({
+      storage,
+      channel: bus.open(),
+      create,
+      setTimer: timers.setTimer
+    });
     timers.fire();
     await expect(again.ready).resolves.toBe('tab-b-0001');
   });

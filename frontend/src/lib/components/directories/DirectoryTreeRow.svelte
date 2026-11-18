@@ -49,7 +49,9 @@
   let enrichState = $state<'idle' | 'loading' | 'error'>('idle');
 
   // Persistent in-flight state while the request is live OR this folder's enrich job is running.
-  const isEnriching = $derived(enrichState === 'loading' || (enrichingPaths?.has(node.path) ?? false));
+  const isEnriching = $derived(
+    enrichState === 'loading' || (enrichingPaths?.has(node.path) ?? false)
+  );
 
   // The action enriches and builds every track into the library, so the label reflects the
   // outcome. A folder counts as already in the library only once every track has been written
@@ -147,7 +149,7 @@
       type="button"
       onclick={toggle}
       class={cn(
-        'focus-visible:ring-ring/50 flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-lg text-left focus-visible:outline-hidden focus-visible:ring-3 focus-visible:ring-inset md:min-h-9',
+        'focus-visible:ring-ring/50 flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-lg text-left focus-visible:ring-3 focus-visible:outline-hidden focus-visible:ring-inset md:min-h-9',
         'text-body md:text-[13px]',
         // Below md the indent stops growing after three levels and steps 14px, not 18px: a
         // folder four deep on a phone otherwise starts its name 80px in.
@@ -166,7 +168,9 @@
         )}
       />
 
-      <span class="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5 py-1.5 md:flex-nowrap md:py-0">
+      <span
+        class="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5 py-1.5 md:flex-nowrap md:py-0"
+      >
         <span
           class={cn('min-w-0 truncate md:font-medium', node.expectedLow && 'text-muted-foreground')}
           title={node.path || node.name}
@@ -181,13 +185,17 @@
           </span>
         {:else}
           {#if node.needsReview > 0}
-            <span class="text-muted-foreground text-caption-1 inline-flex shrink-0 items-center gap-1.5 font-normal whitespace-nowrap">
+            <span
+              class="text-muted-foreground text-caption-1 inline-flex shrink-0 items-center gap-1.5 font-normal whitespace-nowrap"
+            >
               <span class="bg-warning size-1.5 rounded-full" aria-hidden="true"></span>
               {node.needsReview.toLocaleString()} review
             </span>
           {/if}
           {#if node.failed > 0}
-            <span class="text-muted-foreground text-caption-1 inline-flex shrink-0 items-center gap-1.5 font-normal whitespace-nowrap">
+            <span
+              class="text-muted-foreground text-caption-1 inline-flex shrink-0 items-center gap-1.5 font-normal whitespace-nowrap"
+            >
               <span class="bg-destructive size-1.5 rounded-full" aria-hidden="true"></span>
               {node.failed.toLocaleString()} failed
             </span>
@@ -208,10 +216,12 @@
         <span class="bg-muted-foreground-dim h-full" style="width: {pct(node.pending)}%"></span>
       </span>
 
-      <span class="text-muted-foreground hidden w-16 shrink-0 text-right text-xs tabular-nums md:block">
-        <span class="text-foreground">{enriched.toLocaleString()}</span><span aria-hidden="true">/</span><span
-          class="sr-only"> of </span
-        >{node.total.toLocaleString()}
+      <span
+        class="text-muted-foreground hidden w-16 shrink-0 text-right text-xs tabular-nums md:block"
+      >
+        <span class="text-foreground">{enriched.toLocaleString()}</span><span aria-hidden="true"
+          >/</span
+        ><span class="sr-only"> of </span>{node.total.toLocaleString()}
       </span>
 
       <span
@@ -286,7 +296,9 @@
           title={node.expectedLow
             ? 'Clear expected-low tag'
             : 'Mark as expected low match (leaks, unreleased, field recordings)'}
-          aria-label={node.expectedLow ? `Clear expected-low tag on ${name}` : `Mark ${name} as expected low`}
+          aria-label={node.expectedLow
+            ? `Clear expected-low tag on ${name}`
+            : `Mark ${name} as expected low`}
           class={cn(
             '-my-1 shrink-0 transition-colors',
             node.expectedLow
@@ -337,7 +349,14 @@
   {#if expanded}
     <div>
       {#each node.children as child (child.path)}
-        <Self node={child} depth={depth + 1} {enrichingPaths} {refreshToken} {onEnriched} {onToggleExpected} />
+        <Self
+          node={child}
+          depth={depth + 1}
+          {enrichingPaths}
+          {refreshToken}
+          {onEnriched}
+          {onToggleExpected}
+        />
       {/each}
 
       {#if hasFiles}

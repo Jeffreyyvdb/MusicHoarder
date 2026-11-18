@@ -10,10 +10,10 @@ const { registerOptions } = createAddHookMessageChannel();
 register('import-in-the-middle/hook.mjs', import.meta.url, registerOptions);
 
 if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
-	const sdk = new NodeSDK({
-		serviceName: process.env.OTEL_SERVICE_NAME ?? 'frontend',
-		traceExporter: new OTLPTraceExporter(),
-		instrumentations: [getNodeAutoInstrumentations()]
-	});
-	sdk.start();
+  const sdk = new NodeSDK({
+    serviceName: process.env.OTEL_SERVICE_NAME ?? 'frontend',
+    traceExporter: new OTLPTraceExporter(),
+    instrumentations: [getNodeAutoInstrumentations()]
+  });
+  sdk.start();
 }

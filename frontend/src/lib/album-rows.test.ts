@@ -112,7 +112,9 @@ describe('buildDisplayRows', () => {
     );
     expectUniqueKeys(rows);
     // All owned songs still appear exactly once.
-    const ownedIds = rows.filter((r) => r.kind === 'owned').map((r) => (r as { song: ApiSong }).song.id);
+    const ownedIds = rows
+      .filter((r) => r.kind === 'owned')
+      .map((r) => (r as { song: ApiSong }).song.id);
     expect(ownedIds.sort()).toEqual([5, 6, 7]);
   });
 });

@@ -18,7 +18,14 @@
  */
 import type { ReadonlyURL } from '$app/state';
 import { untrack } from 'svelte';
-import { findTab, isTabRoot, tabFor, type NavAudience, type NavBack, type NavTab } from '#lib/nav.ts';
+import {
+  findTab,
+  isTabRoot,
+  tabFor,
+  type NavAudience,
+  type NavBack,
+  type NavTab
+} from '#lib/nav.ts';
 import { prefersReducedMotion } from '#lib/motion.ts';
 import {
   EMPTY_TAB_MEMORY,

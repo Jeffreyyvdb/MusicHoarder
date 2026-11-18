@@ -21,13 +21,17 @@ function result(over: Partial<AlbumCompletionRunResult>): AlbumCompletionRunResu
  */
 describe('albumCompletionSummary', () => {
   it('reports what it queued', () => {
-    const s = albumCompletionSummary(result({ tracksQueued: 12, albumsFilled: 3, albumsExamined: 5 }));
+    const s = albumCompletionSummary(
+      result({ tracksQueued: 12, albumsFilled: 3, albumsExamined: 5 })
+    );
     expect(s).toContain('12 missing tracks');
     expect(s).toContain('3 albums');
   });
 
   it('singularises a single track and album', () => {
-    const s = albumCompletionSummary(result({ tracksQueued: 1, albumsFilled: 1, albumsExamined: 1 }));
+    const s = albumCompletionSummary(
+      result({ tracksQueued: 1, albumsFilled: 1, albumsExamined: 1 })
+    );
     expect(s).toContain('1 missing track ');
     expect(s).toContain('1 album.');
   });
@@ -55,7 +59,9 @@ describe('albumCompletionSummary', () => {
     ['library-empty', 'no music'],
     ['no-candidates', 'recently']
   ])('turns the %s idle reason into an explanation', (reason, expected) => {
-    expect(albumCompletionSummary(result({ idleReason: reason })).toLowerCase()).toContain(expected);
+    expect(albumCompletionSummary(result({ idleReason: reason })).toLowerCase()).toContain(
+      expected
+    );
   });
 
   it('prefers the idle reason over a count breakdown', () => {

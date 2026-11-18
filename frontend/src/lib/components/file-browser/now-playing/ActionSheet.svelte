@@ -33,7 +33,14 @@
 </script>
 
 <!-- showClose off: Cancel is the way out, at the bottom; a desktop X beside it would be a second. -->
-<BottomSheet.Root bind:open nested showClose={false} class={mediaAppearance()} {title} {description}>
+<BottomSheet.Root
+  bind:open
+  nested
+  showClose={false}
+  class={mediaAppearance()}
+  {title}
+  {description}
+>
   <div class="flex flex-col gap-3">
     <GroupedList.Section>
       <GroupedList.Row

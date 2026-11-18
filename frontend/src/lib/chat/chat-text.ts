@@ -38,7 +38,9 @@ export function sharedLink(fields: {
   return firstUrl(fields.url) ?? firstUrl(fields.text) ?? firstUrl(fields.title);
 }
 
-export type TextSegment = { kind: 'text'; value: string } | { kind: 'link'; value: string; href: string };
+export type TextSegment =
+  | { kind: 'text'; value: string }
+  | { kind: 'link'; value: string; href: string };
 
 /** A message's text split into plain runs and links, so links render as anchors (never as HTML). */
 export function linkSegments(text: string): TextSegment[] {
@@ -116,9 +118,13 @@ export function conversationTitle(conversation: Pick<ChatConversation, 'members'
 
 /** One or two letters for an avatar. */
 export function initials(person: Pick<ChatPerson, 'name'> | null | undefined): string {
-  const words = (person?.name ?? '').trim().split(/[\s._@-]+/).filter(Boolean);
+  const words = (person?.name ?? '')
+    .trim()
+    .split(/[\s._@-]+/)
+    .filter(Boolean);
   if (words.length === 0) return '?';
-  const letters = words.length === 1 ? words[0].slice(0, 2) : words[0][0] + words[words.length - 1][0];
+  const letters =
+    words.length === 1 ? words[0].slice(0, 2) : words[0][0] + words[words.length - 1][0];
   return letters.toUpperCase();
 }
 
@@ -135,7 +141,9 @@ export function continuesRun(previous: ChatMessage | undefined, message: ChatMes
 /** Whether a day separator goes before `message` (a new local day since `previous`). */
 export function startsDay(previous: ChatMessage | undefined, message: ChatMessage): boolean {
   if (!previous) return true;
-  return new Date(previous.createdAtUtc).toDateString() !== new Date(message.createdAtUtc).toDateString();
+  return (
+    new Date(previous.createdAtUtc).toDateString() !== new Date(message.createdAtUtc).toDateString()
+  );
 }
 
 /**
@@ -159,7 +167,10 @@ export function seenMessageId(
 }
 
 /** Merge a fetched page into what is shown: by id, oldest first, a newer copy winning. */
-export function mergeMessages(current: readonly ChatMessage[], incoming: readonly ChatMessage[]): ChatMessage[] {
+export function mergeMessages(
+  current: readonly ChatMessage[],
+  incoming: readonly ChatMessage[]
+): ChatMessage[] {
   const byId = new Map<number, ChatMessage>();
   for (const m of current) byId.set(m.id, m);
   for (const m of incoming) byId.set(m.id, m);

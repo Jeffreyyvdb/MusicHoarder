@@ -250,7 +250,11 @@
       {
         id: 'scan',
         label: 'Scan',
-        count: stageCount(s?.scanned, job?.tracksProcessed, running && s?.scan?.status === 'Running'),
+        count: stageCount(
+          s?.scanned,
+          job?.tracksProcessed,
+          running && s?.scan?.status === 'Running'
+        ),
         live: running && flowing('scan'),
         paused: paused('scan'),
         rate: running && rates.scan > 0 ? rates.scan : null
@@ -270,7 +274,11 @@
       {
         id: 'match',
         label: 'Match',
-        count: stageCount(s?.enriched, job?.tracksBuildEligible, running && s?.enrich?.status === 'Running'),
+        count: stageCount(
+          s?.enriched,
+          job?.tracksBuildEligible,
+          running && s?.enrich?.status === 'Running'
+        ),
         live: running && flowing('enrich'),
         paused: paused('enrich'),
         rate: running && rates.enrich > 0 ? rates.enrich : null
@@ -302,7 +310,11 @@
       {
         id: 'library',
         label: 'Library',
-        count: stageCount(s?.built, job?.tracksCopied ?? inLibrary, running && s?.build?.status === 'Running'),
+        count: stageCount(
+          s?.built,
+          job?.tracksCopied ?? inLibrary,
+          running && s?.build?.status === 'Running'
+        ),
         live: running && flowing('build'),
         paused: paused('build'),
         rate: running && rates.build > 0 ? rates.build : null
@@ -321,8 +333,10 @@
     const lines: DetailLine[] = [];
 
     if (st.id === 'decide') {
-      if (decidedCount != null) lines.push({ label: 'Decided', value: decidedCount.toLocaleString() });
-      if (matchedCount != null) lines.push({ label: 'Matched', value: matchedCount.toLocaleString() });
+      if (decidedCount != null)
+        lines.push({ label: 'Decided', value: decidedCount.toLocaleString() });
+      if (matchedCount != null)
+        lines.push({ label: 'Matched', value: matchedCount.toLocaleString() });
       if (tagReviewCount != null)
         lines.push({
           label: 'To review',
@@ -332,14 +346,18 @@
       return lines;
     }
     if (st.id === 'grade') {
-      if (qualityGraded != null) lines.push({ label: 'Graded', value: qualityGraded.toLocaleString() });
+      if (qualityGraded != null)
+        lines.push({ label: 'Graded', value: qualityGraded.toLocaleString() });
       if (avgQuality != null) lines.push({ label: 'Avg score', value: avgQuality.toFixed(0) });
-      if (aiFlaggedCount != null) lines.push({ label: 'Flagged', value: aiFlaggedCount.toLocaleString() });
+      if (aiFlaggedCount != null)
+        lines.push({ label: 'Flagged', value: aiFlaggedCount.toLocaleString() });
       return lines;
     }
     if (st.id === 'dedupe') {
-      if (duplicateCount != null) lines.push({ label: 'Duplicates', value: duplicateCount.toLocaleString() });
-      if (duplicates?.groups != null) lines.push({ label: 'Clusters', value: duplicates.groups.toLocaleString() });
+      if (duplicateCount != null)
+        lines.push({ label: 'Duplicates', value: duplicateCount.toLocaleString() });
+      if (duplicates?.groups != null)
+        lines.push({ label: 'Clusters', value: duplicates.groups.toLocaleString() });
       return lines;
     }
 
@@ -473,7 +491,9 @@
       if (j.running) return 'Pausing…';
       return 'Paused';
     }
-    return j.rate > 0 ? `${j.rate >= 10 ? Math.round(j.rate) : j.rate.toFixed(1)} files/s` : 'Running';
+    return j.rate > 0
+      ? `${j.rate >= 10 ? Math.round(j.rate) : j.rate.toFixed(1)} files/s`
+      : 'Running';
   }
 
   // The status line is the page's subtitle — on a phone it is the first thing under the title,
@@ -501,7 +521,8 @@
   }
 
   function togglePause(j: JobRow) {
-    if (!j.paused && j.key === 'build' && pipelineOverlay.needsConfirm('pause-build')) ask('pause-build');
+    if (!j.paused && j.key === 'build' && pipelineOverlay.needsConfirm('pause-build'))
+      ask('pause-build');
     else void pipelineOverlay.setStagePaused(j.key, !j.paused);
   }
 
@@ -578,7 +599,12 @@
 
 <!-- One figure of the lg+ strip. The label and its detail take a line each, wrapping rather than
      truncating: a sixth of the column is too narrow for "In library · 78% matched" on one line. -->
-{#snippet kpi(label: string, value: string, sub: string | null, opts?: { tone?: string; loading?: boolean })}
+{#snippet kpi(
+  label: string,
+  value: string,
+  sub: string | null,
+  opts?: { tone?: string; loading?: boolean }
+)}
   <div class="min-w-0 flex-1 px-4 py-4 xl:px-5">
     {#if opts?.loading}
       <Skeleton class="h-7 w-14" />
@@ -663,7 +689,8 @@
           <!-- The live pulse beside the desktop title; on a phone the subtitle already says
                "Running" and the Running now rows pulse below it. -->
           <span class="hidden items-center md:inline-flex">
-            <span class="bg-primary mh-v2-pulse size-2 shrink-0 rounded-full" aria-hidden="true"></span>
+            <span class="bg-primary mh-v2-pulse size-2 shrink-0 rounded-full" aria-hidden="true"
+            ></span>
             <span class="sr-only">running</span>
           </span>
         {/if}
@@ -698,7 +725,11 @@
             sublabel="What's below may be missing or out of date."
           >
             {#snippet trailing()}
-              <Button variant="ghost" class="text-primary hover:text-primary h-11 md:h-8" onclick={() => void loadAll()}>
+              <Button
+                variant="ghost"
+                class="text-primary hover:text-primary h-11 md:h-8"
+                onclick={() => void loadAll()}
+              >
                 Retry
               </Button>
             {/snippet}
@@ -709,7 +740,8 @@
       <!-- Running now — what is moving, how long is left, and the controls to hold or stop it.
            On a phone these rows are the ONLY job controls (the drawer is desktop-only). -->
       {#if jobRows.length > 0}
-        <GroupedList.Section headingLevel={2}
+        <GroupedList.Section
+          headingLevel={2}
           header={anyFlowing ? 'Running now' : 'Paused'}
           footer={anyFlowing && etaSeconds != null
             ? `${etaPhrase(etaSeconds).replace(/^./, (c) => c.toUpperCase())} for everything in flight.`
@@ -742,7 +774,9 @@
                     class="relative h-8 rounded-full px-3 text-[13px] pointer-coarse:after:absolute pointer-coarse:after:-inset-1.5"
                     onclick={() => togglePause(j)}
                     disabled={j.busy}
-                    aria-label={j.paused ? `Resume ${j.label.toLowerCase()}` : `Pause ${j.label.toLowerCase()}`}
+                    aria-label={j.paused
+                      ? `Resume ${j.label.toLowerCase()}`
+                      : `Pause ${j.label.toLowerCase()}`}
                   >
                     {#if j.busy}
                       <Loader2 class="animate-spin" aria-hidden="true" />
@@ -777,7 +811,10 @@
             'Source files',
             fmtNum(sourceTotal),
             sourceBytes != null ? formatBytesShort(sourceBytes) : null,
-            { loading: sourceTotal == null && !loaded, tone: sourceTotal == null ? 'text-muted-foreground' : undefined }
+            {
+              loading: sourceTotal == null && !loaded,
+              tone: sourceTotal == null ? 'text-muted-foreground' : undefined
+            }
           )}
           {@render kpi(
             'In library',
@@ -789,7 +826,7 @@
           <!-- The only interactive figure: it opens the Inbox. -->
           <a
             href="/inbox"
-            class="group hover:bg-accent focus-visible:ring-ring min-w-0 flex-1 px-4 py-4 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset xl:px-5"
+            class="group hover:bg-accent focus-visible:ring-ring min-w-0 flex-1 px-4 py-4 focus-visible:ring-2 focus-visible:outline-hidden focus-visible:ring-inset xl:px-5"
           >
             {#if awaitingYou == null && !loaded}
               <Skeleton class="h-7 w-12" />
@@ -803,15 +840,22 @@
                 {fmtNum(awaitingYou)}
               </div>
             {/if}
-            <div class="text-muted-foreground group-hover:text-foreground mt-1 flex items-center gap-0.5 text-[12.5px]">
+            <div
+              class="text-muted-foreground group-hover:text-foreground mt-1 flex items-center gap-0.5 text-[12.5px]"
+            >
               Awaiting you <ChevronRight class="size-3" aria-hidden="true" />
             </div>
           </a>
           {@render kpi(
             'Avg quality',
             avgQuality == null ? '—' : avgQuality.toFixed(1),
-            qualityGraded != null && qualityGraded > 0 ? `${qualityGraded.toLocaleString()} graded` : null,
-            { loading: avgQuality == null && !loaded, tone: avgQuality == null ? 'text-muted-foreground' : undefined }
+            qualityGraded != null && qualityGraded > 0
+              ? `${qualityGraded.toLocaleString()} graded`
+              : null,
+            {
+              loading: avgQuality == null && !loaded,
+              tone: avgQuality == null ? 'text-muted-foreground' : undefined
+            }
           )}
           {@render kpi('Errors', fmtNum(errorCount), null, {
             loading: errorCount == null,
@@ -852,7 +896,8 @@
 
       <!-- Stages: the seven-step conveyor. Selecting a stage shows its figures — inline under the
            row below lg, under the flow from lg. -->
-      <GroupedList.Section headingLevel={2}
+      <GroupedList.Section
+        headingLevel={2}
         header="Stages"
         footer="Select a stage to see its figures."
       >
@@ -871,12 +916,14 @@
                   type="button"
                   onclick={() => (activeStage = st.id)}
                   aria-pressed={isActive}
-                  class="group focus-visible:ring-ring flex flex-col items-center gap-2.5 rounded-md pb-1 text-center transition-transform duration-100 ease-out focus-visible:outline-hidden focus-visible:ring-2 active:scale-[0.97]"
+                  class="group focus-visible:ring-ring flex flex-col items-center gap-2.5 rounded-md pb-1 text-center transition-transform duration-100 ease-out focus-visible:ring-2 focus-visible:outline-hidden active:scale-[0.97]"
                 >
                   {@render stageNode(st)}
                   <!-- Label and count on their own lines: seven nodes share the column, and "Fingerprint
                        75" on one line truncated before 1280px. -->
-                  <span class="flex max-w-full flex-col items-center px-1 text-[13px] leading-tight">
+                  <span
+                    class="flex max-w-full flex-col items-center px-1 text-[13px] leading-tight"
+                  >
                     <span
                       class={cn(
                         'max-w-full truncate transition-colors',
@@ -909,10 +956,7 @@
         <div class="lg:hidden">
           {#each stages as st, i (st.id)}
             {@const isActive = activeStage === st.id}
-            <GroupedList.Row
-              onclick={() => (activeStage = st.id)}
-              aria-pressed={isActive}
-            >
+            <GroupedList.Row onclick={() => (activeStage = st.id)} aria-pressed={isActive}>
               {#snippet leading()}
                 <!-- The connecting line is positioned against the row itself (the nearest
                      positioned box), so it spans the whole row however tall the open one grows:
@@ -929,9 +973,12 @@
                   <span class="relative flex items-center">{@render stageNode(st)}</span>
                 </span>
               {/snippet}
-              <span class={cn('text-body md:text-sm', isActive && 'font-semibold')}>{st.label}</span>
+              <span class={cn('text-body md:text-sm', isActive && 'font-semibold')}>{st.label}</span
+              >
               {#if isActive}
-                <span class="text-subheadline text-muted-foreground mt-0.5 md:text-xs">{@render stageDetailLine()}</span>
+                <span class="text-subheadline text-muted-foreground mt-0.5 md:text-xs"
+                  >{@render stageDetailLine()}</span
+                >
               {/if}
               {#snippet trailing()}
                 <span class="text-subheadline flex items-center gap-3 md:text-xs">
@@ -947,12 +994,21 @@
       </GroupedList.Section>
 
       <!-- Needs you — each row opens its queue. -->
-      <GroupedList.Section headingLevel={2} footer="When the pipeline can't decide, items pile up here.">
+      <GroupedList.Section
+        headingLevel={2}
+        footer="When the pipeline can't decide, items pile up here."
+      >
         {#snippet header()}
           {@render sectionHeader('Needs you', { href: '/inbox', label: 'Open Inbox' })}
         {/snippet}
         {#each needRows as row (row.id)}
-          <GroupedList.Row href={row.href} icon={row.icon} label={row.label} sublabel={row.body} chevron>
+          <GroupedList.Row
+            href={row.href}
+            icon={row.icon}
+            label={row.label}
+            sublabel={row.body}
+            chevron
+          >
             {#snippet trailing()}
               {#if row.count == null}
                 {#if loaded}
@@ -1052,7 +1108,7 @@
                 {/snippet}
                 <a
                   href={`/library?album=${encodeURIComponent(album.key)}`}
-                  class="text-body md:text-sm truncate focus-visible:outline-hidden after:absolute after:inset-0 focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset"
+                  class="text-body focus-visible:after:ring-ring truncate after:absolute after:inset-0 focus-visible:outline-hidden focus-visible:after:ring-2 focus-visible:after:ring-inset md:text-sm"
                 >
                   {album.title}
                 </a>
@@ -1094,7 +1150,9 @@
     </AlertDialog.Header>
     <AlertDialog.Footer>
       <AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
-      <AlertDialog.Action variant="destructive" onclick={confirmAction}>{confirmCopy.action}</AlertDialog.Action>
+      <AlertDialog.Action variant="destructive" onclick={confirmAction}
+        >{confirmCopy.action}</AlertDialog.Action
+      >
     </AlertDialog.Footer>
   </AlertDialog.Content>
 </AlertDialog.Root>

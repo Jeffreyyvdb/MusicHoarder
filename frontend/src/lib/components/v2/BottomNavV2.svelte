@@ -118,7 +118,7 @@
       type="button"
       aria-label="Search"
       data-mh-tabbar-search=""
-      class="mh-glass mh-chrome text-foreground focus-visible:ring-ring pointer-events-auto grid size-(--mh-tabbar-h) shrink-0 place-items-center rounded-full focus-visible:outline-hidden focus-visible:ring-2"
+      class="mh-glass mh-chrome text-foreground focus-visible:ring-ring pointer-events-auto grid size-(--mh-tabbar-h) shrink-0 place-items-center rounded-full focus-visible:ring-2 focus-visible:outline-hidden"
       onpointerdown={() => songsStore.ensureLoaded()}
       onfocus={() => songsStore.ensureLoaded()}
       onclick={() => commandPalette.setOpen(true)}

@@ -38,8 +38,8 @@
     <div class="min-w-0">
       <CommandBlock text={composeSnippet} label="docker-compose.yml" />
       <p class="text-muted-foreground mt-4 text-[15px] leading-[21px]">
-        Abridged — the full compose file, with Postgres, the environment and health checks, lives
-        in the repository.
+        Abridged — the full compose file, with Postgres, the environment and health checks, lives in
+        the repository.
         <a
           href={githubUrl}
           target="_blank"

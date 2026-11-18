@@ -142,8 +142,7 @@ function renderIcon(size: number, opts: { dark: boolean }): Uint8Array {
       function ring(r: number, width: number, alpha: number) {
         const inner = r - width / 2;
         const outer = r + width / 2;
-        const cov =
-          smoothstep(inner - 1, inner + 1, dist) - smoothstep(outer - 1, outer + 1, dist);
+        const cov = smoothstep(inner - 1, inner + 1, dist) - smoothstep(outer - 1, outer + 1, dist);
         if (cov > 0) {
           px = over(px, groove, cov * alpha);
         }

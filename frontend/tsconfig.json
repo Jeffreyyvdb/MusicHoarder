@@ -6,11 +6,6 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true
   },
-  "include": [
-    "src",
-    "vite.config.ts"
-  ],
-  "exclude": [
-    "src/service-worker"
-  ]
+  "include": ["src", "vite.config.ts"],
+  "exclude": ["src/service-worker"]
 }

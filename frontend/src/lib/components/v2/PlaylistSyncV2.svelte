@@ -168,7 +168,8 @@
     return Math.min(100, Math.round((c.matchedTrackCount / c.spotifyTrackTotal) * 100));
   }
 
-  const relativeTime = (iso: string | null | undefined) => (iso ? formatRelativeTime(iso) : 'never');
+  const relativeTime = (iso: string | null | undefined) =>
+    iso ? formatRelativeTime(iso) : 'never';
 
   const subscribedCount = $derived(collections.filter((c) => c.subscribed).length);
 

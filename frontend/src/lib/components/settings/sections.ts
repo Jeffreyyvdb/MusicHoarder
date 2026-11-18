@@ -83,7 +83,11 @@ export type SettingsView = {
  * `stacked` is a phone, or a window too narrow for two panes (SettingsV2 measures it): the root
  * list with each section pushed over it.
  */
-export function resolveSettingsView(url: ReadonlyURL, user: Audience, stacked: boolean): SettingsView {
+export function resolveSettingsView(
+  url: ReadonlyURL,
+  user: Audience,
+  stacked: boolean
+): SettingsView {
   const visible = visibleSections(user);
   const asked = requestedSection(url);
   const retired = asked !== null ? RETIRED.get(asked) : undefined;

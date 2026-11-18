@@ -280,8 +280,7 @@
 @theme inline {
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  --font-mono:
-    ui-monospace, 'SFMono-Regular', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
+  --font-mono: ui-monospace, 'SFMono-Regular', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
   /* Chrome type scale. These are the sizes the shell already used as arbitrary
      `text-[Npx]` utilities — named here, at the same values, so the surfaces that share
      an idiom can't drift apart: the nav ones (sidebar, mobile bottom bar, section tab

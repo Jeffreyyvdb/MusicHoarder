@@ -243,120 +243,124 @@
       stroke-linejoin="round"
       aria-hidden="true"
     >
-      <circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /><circle cx="5" cy="12" r="1" />
+      <circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /><circle
+        cx="5"
+        cy="12"
+        r="1"
+      />
     </svg>
   </button>
 {:else}
-<DropdownMenu.Root bind:open={() => open, setOpen}>
-  <DropdownMenu.Trigger>
-    {#snippet child({ props })}
-      <Button
-        {...props}
-        variant="ghost"
-        size="icon"
-        aria-label="More for {title}"
-        class={cn(
-          'text-muted-foreground hover:text-foreground aria-expanded:text-foreground shrink-0 rounded-full pointer-coarse:size-11',
-          className
-        )}
-        onclick={(e: MouseEvent) => {
-          // The row behind this button plays or opens the song on click; the menu must not.
-          e.stopPropagation();
-          (props.onclick as ((ev: MouseEvent) => void) | undefined)?.(e);
-        }}
-        onkeydown={(e: KeyboardEvent) => {
-          // Rows handle Enter/Space themselves; keep the trigger's own key press from reaching them.
-          e.stopPropagation();
-          (props.onkeydown as ((ev: KeyboardEvent) => void) | undefined)?.(e);
-        }}
-      >
-        <Ellipsis class="size-5" />
-      </Button>
-    {/snippet}
-  </DropdownMenu.Trigger>
-  <!-- Capped at the room the screen has: opened from a row mid-way down a phone, the full menu is
+  <DropdownMenu.Root bind:open={() => open, setOpen}>
+    <DropdownMenu.Trigger>
+      {#snippet child({ props })}
+        <Button
+          {...props}
+          variant="ghost"
+          size="icon"
+          aria-label="More for {title}"
+          class={cn(
+            'text-muted-foreground hover:text-foreground aria-expanded:text-foreground shrink-0 rounded-full pointer-coarse:size-11',
+            className
+          )}
+          onclick={(e: MouseEvent) => {
+            // The row behind this button plays or opens the song on click; the menu must not.
+            e.stopPropagation();
+            (props.onclick as ((ev: MouseEvent) => void) | undefined)?.(e);
+          }}
+          onkeydown={(e: KeyboardEvent) => {
+            // Rows handle Enter/Space themselves; keep the trigger's own key press from reaching them.
+            e.stopPropagation();
+            (props.onkeydown as ((ev: KeyboardEvent) => void) | undefined)?.(e);
+          }}
+        >
+          <Ellipsis class="size-5" />
+        </Button>
+      {/snippet}
+    </DropdownMenu.Trigger>
+    <!-- Capped at the room the screen has: opened from a row mid-way down a phone, the full menu is
        taller than the space on either side, and it would run off the top, Play and all. -->
-  <DropdownMenu.Content
-    {customAnchor}
-    side="bottom"
-    align={anchor ? 'start' : 'end'}
-    class="max-h-(--bits-dropdown-menu-content-available-height) w-60 pointer-coarse:w-72"
-  >
-    <DropdownMenu.Group>
-      <DropdownMenu.Item onSelect={onplay}>
-        <Play /> Play
-      </DropdownMenu.Item>
-      <DropdownMenu.Item onSelect={() => queueSong(song, 'next')}>
-        <ListStart /> Play next
-      </DropdownMenu.Item>
-      <DropdownMenu.Item onSelect={() => queueSong(song, 'last')}>
-        <ListEnd /> Add to queue
-      </DropdownMenu.Item>
-    </DropdownMenu.Group>
-    <DropdownMenu.Separator />
-    <DropdownMenu.Group>
-      <DropdownMenu.Item onSelect={toggleLike}>
-        {#if isLiked}
-          <HeartOff /> Remove from favourites
-        {:else}
-          <Heart /> Add to favourites
-        {/if}
-      </DropdownMenu.Item>
-      <DropdownMenu.Item onSelect={openAddToPlaylist}>
-        <ListPlus /> Add to playlist…
-      </DropdownMenu.Item>
-      {#if showAlbum && albumHref}
-        <DropdownMenu.Item onSelect={() => void goto(albumHref)}>
-          <Disc3 /> Go to album
+    <DropdownMenu.Content
+      {customAnchor}
+      side="bottom"
+      align={anchor ? 'start' : 'end'}
+      class="max-h-(--bits-dropdown-menu-content-available-height) w-60 pointer-coarse:w-72"
+    >
+      <DropdownMenu.Group>
+        <DropdownMenu.Item onSelect={onplay}>
+          <Play /> Play
         </DropdownMenu.Item>
-      {/if}
-      {#if showArtist}
-        <DropdownMenu.Item onSelect={() => void goto(artistHref)}>
-          <Mic2 /> Go to artist
+        <DropdownMenu.Item onSelect={() => queueSong(song, 'next')}>
+          <ListStart /> Play next
         </DropdownMenu.Item>
-      {/if}
-    </DropdownMenu.Group>
-    <DropdownMenu.Separator />
-    <DropdownMenu.Group>
-      <DropdownMenu.Item onSelect={songInfo}>
-        <Info /> Song info
-      </DropdownMenu.Item>
-      {#if canShare}
-        <DropdownMenu.Item onSelect={share}>
-          <Share /> Share link…
+        <DropdownMenu.Item onSelect={() => queueSong(song, 'last')}>
+          <ListEnd /> Add to queue
         </DropdownMenu.Item>
-        <DropdownMenu.Item onSelect={() => sendTo.show(sendToSong(song))}>
-          <Send /> Send to…
-        </DropdownMenu.Item>
-      {/if}
-      {#if canShareWithPeople && song.album}
-        <DropdownMenu.Item onSelect={openFriends}>
-          <UsersRound /> Share with a friend…
-        </DropdownMenu.Item>
-      {/if}
-      {#if admin}
-        <DropdownMenu.Item onSelect={() => void goto(`/track/${song.id}`)}>
-          <History /> View timeline
-        </DropdownMenu.Item>
-      {/if}
-    </DropdownMenu.Group>
-    {#if onremove || canReport}
+      </DropdownMenu.Group>
       <DropdownMenu.Separator />
       <DropdownMenu.Group>
-        {#if onremove}
-          <DropdownMenu.Item variant="destructive" onSelect={onremove}>
-            <ListMinus /> Remove from playlist
+        <DropdownMenu.Item onSelect={toggleLike}>
+          {#if isLiked}
+            <HeartOff /> Remove from favourites
+          {:else}
+            <Heart /> Add to favourites
+          {/if}
+        </DropdownMenu.Item>
+        <DropdownMenu.Item onSelect={openAddToPlaylist}>
+          <ListPlus /> Add to playlist…
+        </DropdownMenu.Item>
+        {#if showAlbum && albumHref}
+          <DropdownMenu.Item onSelect={() => void goto(albumHref)}>
+            <Disc3 /> Go to album
           </DropdownMenu.Item>
         {/if}
-        {#if canReport}
-          <DropdownMenu.Item variant="destructive" onSelect={openReport}>
-            <Flag /> Report wrong download…
+        {#if showArtist}
+          <DropdownMenu.Item onSelect={() => void goto(artistHref)}>
+            <Mic2 /> Go to artist
           </DropdownMenu.Item>
         {/if}
       </DropdownMenu.Group>
-    {/if}
-  </DropdownMenu.Content>
-</DropdownMenu.Root>
+      <DropdownMenu.Separator />
+      <DropdownMenu.Group>
+        <DropdownMenu.Item onSelect={songInfo}>
+          <Info /> Song info
+        </DropdownMenu.Item>
+        {#if canShare}
+          <DropdownMenu.Item onSelect={share}>
+            <Share /> Share link…
+          </DropdownMenu.Item>
+          <DropdownMenu.Item onSelect={() => sendTo.show(sendToSong(song))}>
+            <Send /> Send to…
+          </DropdownMenu.Item>
+        {/if}
+        {#if canShareWithPeople && song.album}
+          <DropdownMenu.Item onSelect={openFriends}>
+            <UsersRound /> Share with a friend…
+          </DropdownMenu.Item>
+        {/if}
+        {#if admin}
+          <DropdownMenu.Item onSelect={() => void goto(`/track/${song.id}`)}>
+            <History /> View timeline
+          </DropdownMenu.Item>
+        {/if}
+      </DropdownMenu.Group>
+      {#if onremove || canReport}
+        <DropdownMenu.Separator />
+        <DropdownMenu.Group>
+          {#if onremove}
+            <DropdownMenu.Item variant="destructive" onSelect={onremove}>
+              <ListMinus /> Remove from playlist
+            </DropdownMenu.Item>
+          {/if}
+          {#if canReport}
+            <DropdownMenu.Item variant="destructive" onSelect={openReport}>
+              <Flag /> Report wrong download…
+            </DropdownMenu.Item>
+          {/if}
+        </DropdownMenu.Group>
+      {/if}
+    </DropdownMenu.Content>
+  </DropdownMenu.Root>
 {/if}
 
 {#if playlistMounted}
