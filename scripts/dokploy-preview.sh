@@ -78,14 +78,14 @@ APP_NAME="mh-pr-${PR}"          # appName prefix; Dokploy appends a random suffi
 # `api` (POST) is for mutations, `get` is for read queries like project.all.
 _curl() {
   local proc="$1"; shift
-  local out status
+  local out status rc=0
   out="$(mktemp)"
   # --fail-with-body (curl >=7.76) keeps the response body on HTTP errors so Dokploy's validation
   # message is visible, unlike plain -f which discards it.
   status="$(curl --fail-with-body -sS --max-time 120 -o "$out" -w '%{http_code}' \
     -H "x-api-key: ${DOKPLOY_API_KEY}" "$@" \
-    "${BASE}/api/${proc}" 2>"$out".err || true)"
-  if [[ ! "$status" =~ ^2 ]]; then
+    "${BASE}/api/${proc}" 2>"$out".err)" || rc=$?
+  if [[ "$rc" -ne 0 || ! "$status" =~ ^2 ]]; then
     echo "::${CURL_ERROR_LEVEL:-error}::Dokploy ${proc} failed (HTTP ${status:-???})" >&2
     cat "$out" "$out".err >&2 || true
     rm -f "$out" "$out".err
@@ -105,7 +105,13 @@ api() {
 }
 
 # get <router>.<proc>  -> GET query
-get() { _curl "$1"; }
+# A query always answers with JSON, so an empty body is a failed read, never an empty list.
+get() {
+  local body
+  body="$(_curl "$1")" || return 1
+  [[ -n "$body" ]] || { echo "::${CURL_ERROR_LEVEL:-error}::Dokploy $1 answered with an empty body" >&2; return 1; }
+  printf '%s\n' "$body"
+}
 
 # Both helpers take a pre-fetched project.all payload on stdin so a fresh provision needs only one
 # API round-trip. The payload may be a bare array or nested under .data depending on the response
@@ -343,14 +349,14 @@ list_preview_resources() {
 # Removes a Docker network by name through Dokploy, which only removes networks it tracks: import it
 # first when it is not tracked yet. Docker refuses while anything is still attached to it.
 remove_network() {
-  local name="$1" id
+  local name="$1" sync tracked id found
   CURL_ERROR_LEVEL=notice api network.import "$(jq -n --arg n "$name" '{names:[$n]}')" >/dev/null || true
-  id="$(get network.all | jq -r --arg n "$name" '[(.data? // .)[] | select(.name == $n) | .networkId] | first // empty')"
+  # Untracked first, then tracked: a network only moves from untracked to tracked (an import running
+  # beside this one), so one missing from both lists, read in this order, is gone from Docker.
+  sync="$(get network.networksToSync)" || return 1
+  tracked="$(get network.all)" || return 1
+  id="$(jq -r --arg n "$name" '[(.data? // .)[] | select(.name == $n) | .networkId] | first // empty' <<<"$tracked")" || return 1
   if [[ -z "$id" ]]; then
-    # Not tracked and not importable means Docker no longer has it: a teardown running beside the
-    # sweep removed it first.
-    local sync found
-    sync="$(get network.networksToSync)" || return 1
     found="$(jq -r --arg n "$name" '((.data? // .).importable // []) | any(.name == $n)' <<<"$sync")" || return 1
     [[ "$found" == false ]] && { echo "Network ${name} is already gone."; return 0; }
     echo "::warning::network ${name} could not be imported into Dokploy" >&2
@@ -363,8 +369,17 @@ remove_network() {
 # then the network they were attached to. A network that still has endpoints (a compose.delete
 # that is still stopping the stack) is retried for two minutes before giving up.
 purge_leftovers() {
-  local pr="$1" all resources kind rpr name ref failed=0 networks=()
+  local pr="$1" all projects live resources kind rpr name ref failed=0 networks=()
   all="$(list_preview_resources)" || return 1
+  # Read after the inventory: a pr-<n> compose that exists now belongs to a PR reopened since its
+  # old stack was deleted, and anything listed may be part of its new stack. Leave all of it; the
+  # PR's next close removes what is left.
+  projects="$(get project.all)" || return 1
+  live="$(find_compose_id <<<"$projects")" || return 1
+  if [[ -n "$live" ]]; then
+    echo "::warning::${NAME} has a compose again (${live}); leaving its Docker resources alone." >&2
+    return 0
+  fi
   resources="$(awk -F'\t' -v pr="$pr" '$2 == pr' <<<"$all")"
   [[ -n "$resources" ]] || { echo "No Docker leftovers for ${NAME}."; return 0; }
   while IFS=$'\t' read -r kind rpr name ref; do
@@ -401,9 +416,14 @@ destroy() {
     # A PR closed mid-deploy cancels the workflow run, not Dokploy's deployment. Deleting while it
     # still runs `compose up` would let the stack come back after the delete, so let it end first.
     # A failed read counts as still running.
-    local status waited=0
+    local latest status waited=0
     while (( waited < 600 )); do
-      status="$(latest_deployment "$compose_id" | jq -r '.status // empty')" || status=unknown
+      if latest="$(latest_deployment "$compose_id")"; then
+        [[ -n "$latest" ]] || latest='{"status":"none"}'
+        status="$(jq -r '.status // "unknown"' <<<"$latest")" || status=unknown
+      else
+        status=unknown
+      fi
       [[ "$status" == running || "$status" == unknown ]] || break
       (( waited == 0 )) && echo "A deployment of '${NAME}' may still be running (${status}); waiting for it to end..."
       sleep 15
