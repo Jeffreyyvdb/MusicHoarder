@@ -210,12 +210,12 @@ Compact means below `md` (768px, `IsMobile`'s default) — one boundary; `lg` on
 
 ## Frontend tests
 
-Vitest runs every test file in one shared module cache per worker (`isolate: false`) and in a random order (`sequence.shuffle`), because loading the app again for each file was most of the suite's time. That makes leftovers a real failure, so:
+Vitest reuses each worker across test files (`isolate: false`) and runs files and tests in a random order (`sequence.shuffle`). Reusing workers cut the suite by about a quarter; modules are still evaluated again for every file. Leftovers between files are therefore a real failure, so:
 
-- **Nothing outlives its file.** `src/test-setup.ts` resets the module registry before each file and, after it, restores real timers, stubbed globals and env, and spies. A module singleton (a store) is therefore fresh per file. Within a file it is not: a file whose tests share one needs its own `beforeEach` that resets the singleton, or loads it again with `vi.resetModules()` and a dynamic `import()`, as `player-sync.svelte.test.ts` does.
-- **Mock before you import.** `vi.mock` only reaches modules imported after it. Never import the module under test before a `vi.mock` it depends on in the same file, and never rely on another file having loaded it.
+- **Nothing outlives its file, if it was stubbed.** `src/test-setup.ts` resets the module registry before each file and, after it, restores real timers, stubbed globals and env, and spies. Change a global or an env var only through `vi.stubGlobal` / `vi.stubEnv`: a plain `globalThis.x = …` or `process.env.X = …` survives into the next file. A module singleton (a store) is therefore fresh per file. Within a file it is not: a file whose tests share one needs its own `beforeEach` that resets the singleton, or loads it again with `vi.resetModules()` and a dynamic `import()`, as `player-sync.svelte.test.ts` does.
+- **Mock before you import.** `vi.mock` is hoisted above the file's static imports, but `vi.doMock` is not, and neither reaches a module that was already loaded. Load the module under test after its mocks (a dynamic `import()` after `vi.doMock`), and never rely on another file having loaded it.
 - **A test reads only what it made.** Reset every file-level `let` a test assigns in `beforeEach`. A variable that keeps the previous test's object lets an assertion pass against the wrong thing (`player-sync`'s `audio` did).
-- **A red shuffled run is a bug, never a flake.** The failing run prints its seed. `bun run test -- --sequence.seed=<n>` replays that order. Fix the leak; do not pin an order or turn isolation back on.
+- **A red shuffled run is a bug, never a flake.** The failing run prints its seed. `bun run test -- --sequence.seed=<n> --maxWorkers=1` replays that order (the seed fixes the order, not which files share a worker; one worker makes a leak from CI's four reproduce). Fix the leak; do not pin an order or turn isolation back on.
 
 ## Frontend flex / scrolling gotcha
 
