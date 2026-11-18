@@ -142,6 +142,12 @@ export default ts.config(
               importNames: ['hardwareMode'],
               message:
                 'A skin changes look, never features. Use skinLook() for a look value, or style it in app-skin.css; see lib/hardware/README.md.'
+            },
+            {
+              group: ['**/hardware/behaviors/active*'],
+              importNames: ['skinActive'],
+              message:
+                'A skin changes look, never features. Use skinLook() for a look value, or style it in app-skin.css; see lib/hardware/README.md.'
             }
           ]
         }

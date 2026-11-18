@@ -27,19 +27,23 @@ was gone under the skin. Three checks keep it that way, one per way a gap can be
 
 - **The stylesheet hides only decoration** (`skin-contract.test.ts`, in `bun run test`). It reads
   `app-skin.css`, `musichoarder.css` and any `<style>` block in this folder, and fails on a
-  declaration that takes an element off the screen (`display: none`, `visibility`, `opacity: 0`,
-  zero sizes, a full clip) unless the selector's subject is a pseudo-element, the kit's own markup
-  (`data-kit`, `data-device`) or an element marked as decoration. It also fails when the skin sets
-  the tracks table's columns: `TrackList`'s `GRID` is the only definition of the table, and a skin
-  that needs room changes type or spacing.
-- **No component can branch on the skin** (ESLint, `no-restricted-imports`). `hardwareMode` may be
-  imported in this folder and by the three places that switch the skin (the root layout, the
-  account menu, the command palette). Everything else asks for a look value:
+  declaration that takes an element off the screen or out of reach (`display: none`, `visibility`,
+  `opacity: 0`, zero sizes or scale, a full clip, `pointer-events: none`) unless the selector's
+  subject is a pseudo-element or an element marked as decoration. It also fails when the skin sets
+  the tracks table's columns (`TrackList`'s `GRID` is the only definition of the table, and a skin
+  that needs room changes type or spacing), and when a `skinLook` value would hide something
+  (`hidden`, `sr-only`, `invisible`, `0`).
+- **Components do not read the flag** (ESLint, `no-restricted-imports`). `hardwareMode` and
+  `skinActive` may be imported in this folder, and `hardwareMode` by the three places that switch
+  the skin (the root layout, the account menu, the command palette). Everything else asks for a look value:
   `skinLook(plain, skinned)` returns a class, an attribute value or a size (TrackList's row height,
-  Now Playing's surface), `mediaAppearance()` is the class for Now Playing's menus, and
-  `skinHousing(frame)` hands a component a frame to draw *around* content it still renders.
+  Now Playing's surface), `mediaAppearance()` is the class for Now Playing's media appearance (its overlay and the menus
+  opened from it), and `skinHousing(frame)` hands a component a snippet that draws *around*
+  content it still renders. These checks stop the usual ways; a determined bypass (a dynamic
+  import, `data-mh-skin` read off `<html>`) is what the comparison below is for.
 - **The deployed page is compared with itself** (`perf/src/web/preview-checks.ts`, on every PR
-  preview). The tracks list and Now Playing are loaded with the skin off and on, and any control
+  preview). The tracks list, and Now Playing with a song playing and with one only browsed, are
+  loaded with the skin off and on, and any control
   or column head present without the skin and missing with it fails the check. Add a scene there
   when a page gets a skin section of its own.
 

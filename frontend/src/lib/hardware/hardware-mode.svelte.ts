@@ -14,6 +14,7 @@
  * page-wide haptics and sounds check that attribute before they do anything
  * (behaviors/active.ts).
  */
+import type { Snippet } from 'svelte';
 import { isNativeShell } from '#lib/native/shell.ts';
 import { ensureSkinStylesheet } from './skin-stylesheet.ts';
 
@@ -146,7 +147,7 @@ export function skinLook<T extends string | number | undefined>(plain: T, skinne
   return enabled ? skinned : plain;
 }
 
-export function skinHousing<Frame>(frame: Frame): Frame | undefined {
+export function skinHousing<A extends unknown[]>(frame: Snippet<A>): Snippet<A> | undefined {
   return enabled ? frame : undefined;
 }
 

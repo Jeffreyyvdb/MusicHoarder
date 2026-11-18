@@ -619,6 +619,7 @@
     <HardwareVideo {housing} status={videoLine} />
   {:catch}
     {@render housing.screen()}
+    {#if videoLine}{@render videoCaption()}{/if}
   {/await}
 {/snippet}
 

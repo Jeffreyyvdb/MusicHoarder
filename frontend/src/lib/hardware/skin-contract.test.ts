@@ -14,7 +14,11 @@ const HIDES: Record<string, RegExp> = {
   height: /^0([a-z%]+)?$/,
   'max-width': /^0([a-z%]+)?$/,
   'max-height': /^0([a-z%]+)?$/,
-  'clip-path': /inset\(\s*(50|100)%/
+  'clip-path': /inset\(\s*(50|100)%/,
+  clip: /^rect\(\s*0/,
+  scale: /^0(\s+0)?$/,
+  transform: /scale[xy]?\(\s*0\s*[,)]/,
+  'pointer-events': /^none$/
 };
 
 const GRID = new Set(['grid', 'grid-template', 'grid-template-columns']);
@@ -64,7 +68,6 @@ function mayHide(selector: string): boolean {
   const bare = withoutArguments(subject);
   if (/::[\w-]+|:(before|after)\b/.test(bare)) return true;
   if (/\[data-mh-decor\b/.test(bare)) return true;
-  if (/\[data-(kit|device)\b/.test(bare)) return true;
   const list = /^:(?:is|where)\((.*)\)$/s.exec(subject);
   return list !== null && splitTopLevel(list[1], /,/).every(mayHide);
 }
@@ -120,12 +123,37 @@ function violations(css: string, file: string, lineOffset = 0): string[] {
 const here = fileURLToPath(new URL('.', import.meta.url));
 const src = join(here, '..', '..');
 
-function svelteFiles(dir: string): string[] {
+function filesIn(dir: string, name: RegExp): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name);
-    if (entry.isDirectory()) return svelteFiles(path);
-    return entry.name.endsWith('.svelte') ? [path] : [];
+    if (entry.isDirectory()) return filesIn(path, name);
+    return name.test(entry.name) ? [path] : [];
   });
+}
+
+const svelteFiles = (dir: string) => filesIn(dir, /\.svelte$/);
+
+const HIDING_LOOK = /^(['"`])?(.*\b(hidden|sr-only|invisible|opacity-0|collapse)\b.*|0)\1$/;
+
+function lookViolations(source: string, file: string): string[] {
+  const found: string[] = [];
+  for (const match of source.matchAll(/\bskinLook\(/g)) {
+    const open = match.index + match[0].length;
+    let depth = 1;
+    let end = open;
+    for (; end < source.length && depth > 0; end += 1) {
+      if (source[end] === '(') depth += 1;
+      else if (source[end] === ')') depth -= 1;
+    }
+    const args = splitTopLevel(source.slice(open, end - 1), /,/);
+    if (args.some((arg) => HIDING_LOOK.test(arg))) {
+      const line = source.slice(0, match.index).split('\n').length;
+      found.push(
+        `${file}:${line} skinLook(${args.join(', ')}) can hide something under the skin. A look value changes size, type or colour; a hide belongs in app-skin.css on an element marked data-mh-decor.`
+      );
+    }
+  }
+  return found;
 }
 
 function skinViolations(): string[] {
@@ -185,7 +213,7 @@ function decorViolations(source: string, file: string): string[] {
 }
 
 describe('the skin contract', () => {
-  it('finds a hide of content and lets decoration, pseudo-elements and kit markup through', () => {
+  it('finds a hide of content and lets decoration and pseudo-elements through', () => {
     const fixture = `
       :root[data-mh-skin='hardware'] [data-slot='filter-chip'] > svg { display: none; }
       :root[data-mh-skin='hardware'] :is([data-a], [data-b]) > :is(:nth-child(2), :nth-child(8)) {
@@ -196,10 +224,13 @@ describe('the skin contract', () => {
       :root[data-mh-skin='hardware'] [data-mh-tracks='wide'] > [role='button'] {
         grid-template-columns: 40px 1fr;
       }
+      :root[data-mh-skin='hardware'] [data-slot='button'] { pointer-events: none; }
+      :root[data-mh-skin='hardware'] [data-slot='badge'] { transform: scale(0); }
 
       :root[data-mh-skin='hardware'] [data-mh-decor='wash'] { display: none; }
       :root[data-mh-skin='hardware'] .nav-search [data-slot='search-field']::before { display: none; }
       [data-skin='hardware'] [data-kit='lcd-body'] { opacity: 0; }
+      :root[data-mh-skin='hardware'] [data-slot='button']:active { transform: scale(0.97); }
       :root[data-mh-skin='hardware'] [data-mh-tracks='wide'] { clip-path: inset(0 -8px -8px -8px); }
       :root[data-mh-skin='hardware'] :is([data-mh-decor='a'], [data-mh-decor='b']) { display: none; }
       @keyframes blink { 50% { opacity: 0; } }
@@ -211,6 +242,9 @@ describe('the skin contract', () => {
         `fixture.css:4 hides ":root[data-mh-skin='hardware'] :is([data-a], [data-b]) > :is(:nth-child(2), :nth-child(8))"`,
         `fixture.css:6 hides ":root[data-mh-skin='hardware'] [data-x]:not([data-mh-decor])"`,
         `fixture.css:7 hides ":is([data-skin='hardware'] [data-mh-video-key]) > small"`,
+        `fixture.css:11 hides ":root[data-mh-skin='hardware'] [data-slot='button']"`,
+        `fixture.css:12 hides ":root[data-mh-skin='hardware'] [data-slot='badge']"`,
+        `fixture.css:16 hides "[data-skin='hardware'] [data-kit='lcd-body']"`,
         `fixture.css:9 sets grid-template-columns on ":root[data-mh-skin='hardware'] [data-mh-tracks='wide'] > [role='button']". TrackList's GRID is the only definition of the tracks table; a skin that needs room changes type or spacing, never the columns.`
       ].sort()
     );
@@ -231,6 +265,26 @@ describe('the skin contract', () => {
       expect.stringContaining('Fixture.svelte:4 is marked data-mh-decor but is an interactive'),
       expect.stringContaining('Fixture.svelte:4 is marked data-mh-decor but carries a handler')
     ]);
+  });
+
+  it('knows a look value that hides', () => {
+    const fixture = `
+      const rowH = skinLook(56, 40);
+      <div class={skinLook('', 'hidden md:block')}></div>
+      <Cover size={skinLook(36, 0)} />
+      <span class={skinLook('dark', undefined)}></span>
+    `;
+    expect(lookViolations(fixture, 'Fixture.svelte')).toEqual([
+      expect.stringContaining('Fixture.svelte:3 skinLook'),
+      expect.stringContaining('Fixture.svelte:4 skinLook')
+    ]);
+  });
+
+  it('asks the skin only for look values that keep everything shown', () => {
+    const found = filesIn(src, /\.(svelte|ts)$/)
+      .filter((path) => !path.endsWith('.test.ts'))
+      .flatMap((path) => lookViolations(readFileSync(path, 'utf8'), relative(src, path)));
+    expect(found).toEqual([]);
   });
 
   it('marks only decoration as decoration', () => {

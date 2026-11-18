@@ -261,9 +261,15 @@ for (const forcedColors of ['none', 'active'] as const) {
     const tracksList = async () => {
       await page.locator('[data-mh-tracks] :is([role="button"], [role="listitem"])').first().waitFor()
     }
-    const nowPlaying = (width: number, height: number) => async () => {
+    const nowPlaying = (width: number, height: number, playing: boolean) => async () => {
       await page.setViewportSize({ width: 1280, height: 900 })
-      await page.locator('[data-mh-tracks="wide"] > [role="button"]').first().press('Enter')
+      const row = page.locator('[data-mh-tracks="wide"] > [role="button"]').first()
+      if (playing) {
+        await row.hover()
+        await row.getByRole('button', { name: 'Play track' }).click()
+        await page.locator('[data-mh-mini]').first().waitFor()
+      }
+      await row.press('Enter')
       await page.locator('[data-mh-np="keys"]').first().waitFor()
       await page.setViewportSize({ width, height })
     }
@@ -272,8 +278,9 @@ for (const forcedColors of ['none', 'active'] as const) {
       { name: 'tracks, 1000 wide', width: 1000, height: 900, ready: tracksList },
       { name: 'tracks, 1200 wide', width: 1200, height: 900, ready: tracksList },
       { name: 'tracks, 1500 wide', width: 1500, height: 900, ready: tracksList },
-      { name: 'Now Playing, 1280×800', width: 1280, height: 800, ready: nowPlaying(1280, 800) },
-      { name: 'Now Playing, 390×844', width: 390, height: 844, ready: nowPlaying(390, 844) },
+      { name: 'Now Playing, playing, 1280×800', width: 1280, height: 800, ready: nowPlaying(1280, 800, true) },
+      { name: 'Now Playing, playing, 390×844', width: 390, height: 844, ready: nowPlaying(390, 844, true) },
+      { name: 'Now Playing, browsed, 1280×800', width: 1280, height: 800, ready: nowPlaying(1280, 800, false) },
     ]
     await page.setViewportSize({ width: 1280, height: 900 })
     await page.goto(base + '/tracks', { waitUntil: 'networkidle' })

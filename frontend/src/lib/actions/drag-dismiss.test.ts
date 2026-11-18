@@ -186,7 +186,7 @@ describe('dragDismiss, touch', () => {
   });
 
   it.each([
-    ['data-drag-ignore', 'the hardware device, a wide window, full-screen video, a queue handle'],
+    ['data-drag-ignore', 'a wide window, full-screen video, a queue handle'],
     ['role="slider"', 'the scrubber'],
     ['aria-haspopup', 'a menu trigger']
   ])('leaves a press on [%s] to its owner (%s)', (attr) => {
