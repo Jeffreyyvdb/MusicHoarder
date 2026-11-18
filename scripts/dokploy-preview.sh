@@ -460,13 +460,24 @@ destroy() {
     check_closed "$PR" || return $?
     api compose.cleanQueues "$(jq -n --arg id "$compose_id" '{composeId:$id}')" >/dev/null || return 1
     sleep 5
-    local latest status waited=0
+    # A compose marked running with no running deployment row for two minutes is a leftover of a
+    # Dokploy restart mid-deploy (a real deployment writes its row within seconds), not a deployment.
+    local latest status waited=0 rowless=0
     while (( waited < 600 )); do
       if latest="$(latest_deployment "$compose_id")" && projects="$(get project.all)"; then
         [[ -n "$latest" ]] || latest='{"status":"none"}'
         status="$(jq -r '.status // "unknown"' <<<"$latest")" || status=unknown
         if [[ "$status" != running && "$status" != unknown ]]; then
           status="$(compose_status "$compose_id" <<<"$projects")" || status=unknown
+          if [[ "$status" == running ]]; then
+            rowless=$((rowless + 15))
+            if (( rowless > 120 )); then
+              echo "'${NAME}' is marked running but has had no running deployment for two minutes; treating the mark as stale."
+              break
+            fi
+          fi
+        else
+          rowless=0
         fi
       else
         status=unknown
