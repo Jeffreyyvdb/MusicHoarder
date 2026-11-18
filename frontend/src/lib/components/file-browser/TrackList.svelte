@@ -36,7 +36,7 @@
   import { playerStore } from '#lib/stores/player.svelte.ts';
   import { songsStore } from '#lib/stores/songs.svelte.ts';
   import { cn } from '#lib/utils.ts';
-  import { hardwareMode } from '#lib/hardware/hardware-mode.svelte.ts';
+  import { skinLook } from '#lib/hardware/hardware-mode.svelte.ts';
 
   type Props = {
     /**
@@ -148,7 +148,7 @@
   // The hardware skin (an easter egg, #lib/hardware) sets the desktop table as a screen of tight
   // lines; the cover shrinks to fit the shorter row.
   const rowH = $derived(
-    compact ? Math.max(64, Math.round(64 * typeScale)) : hardwareMode.enabled ? 40 : 56
+    compact ? Math.max(64, Math.round(64 * typeScale)) : skinLook(56, 40)
   );
   const OVERSCAN = 8;
 

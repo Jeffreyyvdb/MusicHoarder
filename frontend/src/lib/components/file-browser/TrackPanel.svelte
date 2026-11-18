@@ -22,7 +22,7 @@
   } from '#lib/components/file-browser/VideoWatchTab.svelte';
   import AiLyricsBadge, { AI_LYRICS_COPY } from '#lib/components/file-browser/AiLyricsBadge.svelte';
   import NowPlayingArt from '#lib/components/file-browser/now-playing/NowPlayingArt.svelte';
-  import { hardwareMode } from '#lib/hardware/hardware-mode.svelte.ts';
+  import { skinHousing } from '#lib/hardware/hardware-mode.svelte.ts';
   import NowPlayingInfo from '#lib/components/file-browser/now-playing/NowPlayingInfo.svelte';
   import NowPlayingLyrics from '#lib/components/file-browser/now-playing/NowPlayingLyrics.svelte';
   import NowPlayingMoreMenu from '#lib/components/file-browser/now-playing/NowPlayingMoreMenu.svelte';
@@ -615,8 +615,8 @@
 {/snippet}
 
 <!-- Under the hardware skin the clip plays on the MH-2, a monitor that carries the status line on
-     its LCD. Loaded on demand: its stylesheet is the vendored SPEC-01 kit, which nobody without
-     the easter egg should download. -->
+     its LCD (so the caption under the picture would say it twice). Loaded on demand: its
+     stylesheet is the vendored SPEC-01 kit, which nobody without the easter egg should download. -->
 {#snippet videoHousing(housing: VideoHousing)}
   {#await import('#lib/hardware/HardwareVideo.svelte') then { default: HardwareVideo }}
     <HardwareVideo {housing} status={videoLine} />
@@ -628,6 +628,7 @@
 <!-- The swapping region: the compact middle, or the lg right column. Info stays mounted (hidden)
      so its lazy loads settle once per song however often the mode changes. -->
 {#snippet modeContent()}
+  {@const monitor = skinHousing(videoHousing)}
   {#if content === 'lyrics'}
     <NowPlayingLyrics
       {ai}
@@ -650,8 +651,8 @@
         title={trackTitle}
         artist={trackArtist}
         fallbackDuration={song.durationSeconds ?? 0}
-        caption={videoLine && !hardwareMode.enabled ? videoCaption : undefined}
-        housing={hardwareMode.enabled ? videoHousing : undefined}
+        caption={videoLine && !monitor ? videoCaption : undefined}
+        housing={monitor}
         onPlayRequest={handlePlayToggle}
       />
     </div>
