@@ -416,10 +416,23 @@ pr_state() {
   gh pr view "$1" --repo "$GITHUB_REPOSITORY" --json state -q .state 2>/dev/null || echo UNKNOWN
 }
 
+# Succeeds while the PR is closed or merged. Otherwise says why the preview stays and fails, with 10
+# for an open PR (keeping it is right) and 1 when the state cannot be read.
+check_closed() {
+  local state
+  state="$(pr_state "$1")"
+  case "$state" in
+    CLOSED|MERGED) return 0 ;;
+    OPEN) echo "PR #$1 is open; keeping its preview."; return 10 ;;
+    *) echo "::warning::Could not read the state of PR #$1; keeping its preview." >&2; return 1 ;;
+  esac
+}
+
 destroy() {
   : "${GH_TOKEN:?GH_TOKEN is required}"
   : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
-  local projects compose_id state gone=1
+  local projects compose_id gone=1
+  check_closed "$PR" || { (( $? == 10 )) && return 0; return 1; }
   projects="$(get project.all)" || return 1
   compose_id="$(find_compose_id <<<"$projects")" || return 1
   if [[ -z "$compose_id" ]]; then
@@ -441,16 +454,15 @@ destroy() {
       sleep 15
       waited=$((waited + 15))
     done
+    # A deployment that ends after the delete re-attaches Traefik to the stack's network, and Dokploy
+    # has no call to detach it, so that network could never be removed. Leave the stack to a later
+    # cleanup run instead.
     if (( waited >= 600 )); then
-      echo "::warning::'${NAME}' still shows a running deployment after 10 minutes; deleting anyway. Anything it brings back afterwards is removed by the next cleanup run, which needs no compose." >&2
+      echo "::error::'${NAME}' still shows a running deployment (${status}) after 10 minutes; keeping it for the next cleanup run." >&2
+      return 1
     fi
     # Asked again after the wait: a PR reopened meanwhile redeploys this same compose.
-    state="$(pr_state "$PR")"
-    case "$state" in
-      CLOSED|MERGED) ;;
-      OPEN) echo "PR #${PR} is open again; keeping its preview."; return 0 ;;
-      *) echo "::warning::Could not read the state of PR #${PR}; keeping its preview." >&2; return 1 ;;
-    esac
+    check_closed "$PR" || { (( $? == 10 )) && return 0; return 1; }
     echo "Deleting compose '${NAME}' (${compose_id}) and its volumes..."
     # compose.delete stops the stack and removes its volumes before it answers, which takes longer
     # than the proxy in front of Dokploy waits: the proxy answers 520 at ~30s while the delete
