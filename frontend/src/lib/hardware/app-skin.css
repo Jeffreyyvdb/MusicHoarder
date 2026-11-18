@@ -912,7 +912,8 @@
     0 2px 5px rgb(0 0 0 / 0.18);
 }
 /* The bezel and the glass paint over the picture (Cover is its own stacking context; the image
-   sits at z-3). */
+   sits at z-3). Every .mh-cover must be `relative isolate` like Cover: on a static one the bezel
+   covers the nearest positioned ancestor instead, such as the page's scroller. */
 :root[data-mh-skin='hardware'] .mh-cover::after {
   content: '';
   position: absolute;
