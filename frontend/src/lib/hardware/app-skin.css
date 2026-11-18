@@ -21,8 +21,8 @@
  *   labels   small spaced capitals in grey, printed on the body: titles, headings, column heads
  *   LED      a red dot before a device name; red text plus a dash at each end marks the selection
  *
- * What it leaves out is part of the look: the nav icons, chip icons, the tracks table's covers and
- * its size, match and source columns, the cover wash behind Now Playing.
+ * What it leaves out is part of the look: the nav icons, chip icons, the tracks table's size,
+ * match and source columns, the cover wash behind Now Playing.
  *
  * Dark mode is a graphite body with black screens. Text tokens keep the app's WCAG floor; each
  * contrast is noted next to it.
@@ -696,22 +696,22 @@
 :root[data-mh-skin='hardware'] [data-mh-tracks='wide'] > [aria-current='true']::after {
   right: -10px;
 }
-/* Fewer columns: no covers, and no size, match or source. The cells are, in order: # · cover ·
+/* Fewer columns: no size, match or source. The cells are, in order: # · cover ·
    title · artist · album · year · format · size · match · source · like · time · menu (TrackList's
    GRID, which this re-declares per container width); keep the two in step. */
 :root[data-mh-skin='hardware']
   :is([data-mh-tracks-head], [data-mh-tracks='wide'] > [role='button'])
-  > :is(:nth-child(2), :nth-child(8), :nth-child(9), :nth-child(10)) {
+  > :is(:nth-child(8), :nth-child(9), :nth-child(10)) {
   display: none;
 }
 :root[data-mh-skin='hardware']
   :is([data-mh-tracks-head], [data-mh-tracks='wide'] > [role='button']) {
-  grid-template-columns: 40px minmax(0, 1fr) 28px 52px 32px;
+  grid-template-columns: 40px 40px minmax(0, 1fr) 28px 52px 32px;
 }
 @container (min-width: 36rem) {
   :root[data-mh-skin='hardware']
     :is([data-mh-tracks-head], [data-mh-tracks='wide'] > [role='button']) {
-    grid-template-columns: 40px minmax(0, 1.5fr) minmax(0, 1fr) 56px 28px 52px 32px;
+    grid-template-columns: 40px 40px minmax(0, 1.5fr) minmax(0, 1fr) 56px 28px 52px 32px;
   }
   /* The artist has its own column from here, so the title's second line goes unless it carries
      a Review badge or a shared-by badge (which has a title): the title is then one line. */
@@ -727,8 +727,8 @@
   :root[data-mh-skin='hardware']
     :is([data-mh-tracks-head], [data-mh-tracks='wide'] > [role='button']) {
     grid-template-columns:
-      44px minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr) 52px 64px 28px 52px
-      32px;
+      44px 44px minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr) 52px 64px 28px
+      52px 32px;
   }
   /* The format column stays narrow, so the bitrate TrackList adds from 64rem stays out. */
   :root[data-mh-skin='hardware']
