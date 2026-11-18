@@ -82,12 +82,22 @@ class FakeAudio {
   }
 }
 
-let audio: FakeAudio;
+// The element the store made in this test. Reset per test: a test that makes none must not see
+// the one the previous test made.
+let audio: FakeAudio | undefined;
+/** The element the store made in this test, which a test that steers it expects to exist. */
+const element = (): FakeAudio => {
+  if (!audio) throw new Error('the store made no audio element in this test');
+  return audio;
+};
+/** Whether this test's element, if the store made one, was asked to play. */
+const askedToPlay = () => (audio?.play.mock.calls.length ?? 0) > 0;
 let handlers: Map<string, unknown>;
 let session: Map<string, string>;
 
 beforeEach(() => {
   vi.resetModules();
+  audio = undefined;
   reportSongPlayed.mockClear();
   notePlayed.mockClear();
   handlers = new Map();
@@ -180,13 +190,13 @@ describe('play intents', () => {
     expect(sync.playIntent).toHaveBeenCalledTimes(2);
     await settle();
 
-    audio.currentTime = 1;
+    element().currentTime = 1;
     playerStore.playPrevious();
     expect(sync.playIntent).toHaveBeenCalledTimes(3);
     await settle();
 
     // A track ending hands on to the next one: news, not a claim.
-    audio.finish();
+    element().finish();
     await settle();
     expect(sync.playIntent).toHaveBeenCalledTimes(3);
     expect(playerStore.currentSong?.id).toBe(2);
@@ -201,7 +211,7 @@ describe('play intents', () => {
     sync.changed.mockClear();
 
     playerStore.pause();
-    audio.dispatch('pause');
+    element().dispatch('pause');
     playerStore.seek(30);
     expect(sync.playIntent).not.toHaveBeenCalled();
     expect(sync.changed).toHaveBeenCalled();
@@ -253,7 +263,7 @@ describe('while the session plays elsewhere', () => {
     expect(sync.remote.previous).toHaveBeenCalled();
     playerStore.seek(12);
     expect(sync.remote.seek).toHaveBeenCalledWith(12);
-    expect(audio?.play).not.toHaveBeenCalled();
+    expect(askedToPlay()).toBe(false);
     expect(sync.playIntent).not.toHaveBeenCalled();
   });
 
@@ -266,7 +276,7 @@ describe('while the session plays elsewhere', () => {
     expect(sync.remote.resume).toHaveBeenCalledTimes(1);
     expect(sync.playIntent).not.toHaveBeenCalled();
     expect(reportSongPlayed).not.toHaveBeenCalled();
-    expect(audio?.play).not.toHaveBeenCalled();
+    expect(askedToPlay()).toBe(false);
     expect(playerStore.isMiniPlayerDismissed).toBe(false);
   });
 
@@ -285,9 +295,9 @@ describe('while the session plays elsewhere', () => {
       await playerStore.startQueue([song(9), song(8)], 0);
       expect(sync.remote.resume).not.toHaveBeenCalled();
       expect(sync.playIntent).toHaveBeenCalledTimes(1);
-      expect(audio.src).toBe('/api/mh/songs/9/stream');
-      expect(audio.currentTime).toBe(0);
-      expect(audio.paused).toBe(false);
+      expect(element().src).toBe('/api/mh/songs/9/stream');
+      expect(element().currentTime).toBe(0);
+      expect(element().paused).toBe(false);
       expect(localPlayback.state()).toMatchObject({ queue: [9, 8], queueIndex: 0 });
       expect(reportSongPlayed).toHaveBeenCalledWith(9);
       expect(playerStore.isMiniPlayerDismissed).toBe(false);
@@ -313,16 +323,16 @@ describe('while the session plays elsewhere', () => {
   it('starting something else here is a local play intent, fresh from the top', async () => {
     const { playerStore, setPlaybackSync } = await load();
     await playerStore.startQueue(QUEUE, 0);
-    audio.currentTime = 77; // the superseded leftovers, paused mid-song
-    audio.pause();
+    element().currentTime = 77; // the superseded leftovers, paused mid-song
+    element().pause();
     const sync = fakeSync({ active: true });
     setPlaybackSync(sync);
 
     await playerStore.startQueue(QUEUE, 0);
     expect(sync.playIntent).toHaveBeenCalledTimes(1);
     // Reloaded rather than resumed at the leftovers' stale second.
-    expect(audio.currentTime).toBe(0);
-    expect(audio.paused).toBe(false);
+    expect(element().currentTime).toBe(0);
+    expect(element().paused).toBe(false);
   });
 
   it('a media key picks the session up here instead of steering it', async () => {
@@ -347,7 +357,7 @@ describe('a pick whose pre-flight fails', () => {
     const sync = fakeSync();
     setPlaybackSync(sync);
     await playerStore.startQueue(QUEUE, 0);
-    audio.currentTime = 20;
+    element().currentTime = 20;
     sync.changed.mockClear();
 
     vi.mocked(fetch).mockResolvedValueOnce({ ok: false } as Response);
@@ -387,7 +397,7 @@ describe('a pick still in its pre-flight when the session pauses this device', (
     const { playerStore, localPlayback, setPlaybackSync } = await load();
     setPlaybackSync(fakeSync());
     await playerStore.startQueue(QUEUE, 0);
-    audio.currentTime = 20;
+    element().currentTime = 20;
     let answer!: (value: Response) => void;
     vi.mocked(fetch).mockImplementationOnce(
       () => new Promise<Response>((resolve) => (answer = resolve))
@@ -401,9 +411,9 @@ describe('a pick still in its pre-flight when the session pauses this device', (
     answer({ ok: true } as Response);
     await picked;
 
-    expect(audio.play).toHaveBeenCalledTimes(1);
-    expect(audio.src).toBe('/api/mh/songs/1/stream');
-    expect(audio.paused).toBe(true);
+    expect(element().play).toHaveBeenCalledTimes(1);
+    expect(element().src).toBe('/api/mh/songs/1/stream');
+    expect(element().paused).toBe(true);
     expect(reportSongPlayed).not.toHaveBeenCalledWith(2);
     expect(localPlayback.state()).toMatchObject({
       song: { id: 1 },
@@ -415,7 +425,7 @@ describe('a pick still in its pre-flight when the session pauses this device', (
     // The queue is back on the song that is here: Next goes to the pick, not past it.
     playerStore.playNext();
     await settle();
-    expect(audio.src).toBe('/api/mh/songs/2/stream');
+    expect(element().src).toBe('/api/mh/songs/2/stream');
   });
 
   // The auto-advance after song 1 ended: there is no song 1 to go back to, only one to replay.
@@ -428,7 +438,7 @@ describe('a pick still in its pre-flight when the session pauses this device', (
       () => new Promise<Response>((resolve) => (answer = resolve))
     );
     // Song 1 plays out — back at 0:00, paused — and the queue moves on to song 2's pre-flight.
-    audio.finish();
+    element().finish();
     expect(localPlayback.loading()?.id).toBe(2);
 
     // Another device sent Pause (or took the session).
@@ -438,9 +448,9 @@ describe('a pick still in its pre-flight when the session pauses this device', (
     await settle();
 
     // Song 2 is on the element, paused at its start, where Android's player waits too.
-    expect(audio.play).toHaveBeenCalledTimes(1); // song 1's, and nothing since
-    expect(audio.src).toBe('/api/mh/songs/2/stream');
-    expect(audio.paused).toBe(true);
+    expect(element().play).toHaveBeenCalledTimes(1); // song 1's, and nothing since
+    expect(element().src).toBe('/api/mh/songs/2/stream');
+    expect(element().paused).toBe(true);
     expect(localPlayback.state()).toMatchObject({
       song: { id: 2 },
       queueIndex: 1,
@@ -453,9 +463,9 @@ describe('a pick still in its pre-flight when the session pauses this device', (
 
     // Resume plays song 2 (not song 1 again from 0:00), and that is its listen.
     await localPlayback.resume();
-    expect(audio.play).toHaveBeenCalledTimes(2);
-    expect(audio.src).toBe('/api/mh/songs/2/stream');
-    expect(audio.paused).toBe(false);
+    expect(element().play).toHaveBeenCalledTimes(2);
+    expect(element().src).toBe('/api/mh/songs/2/stream');
+    expect(element().paused).toBe(false);
     expect(reportSongPlayed).toHaveBeenCalledWith(2);
     expect(reportSongPlayed).toHaveBeenCalledTimes(2); // song 1's, then song 2's once
     await localPlayback.resume();
@@ -474,8 +484,8 @@ describe('a track the element cannot play', () => {
     // As the media error steps leave it: `play()` was called, the source failed, and `paused` is
     // never set back — only the error says anything happened. (What the store then does about it —
     // reload, skip, give up — is the player's recovery; see playback-sync's test of giving up.)
-    audio.error = { code: 2 };
-    expect(audio.paused).toBe(false);
+    element().error = { code: 2 };
+    expect(element().paused).toBe(false);
     expect(localPlayback.playing()).toBe(false);
     expect(localPlayback.state()).toMatchObject({ song: { id: 1 }, isPlaying: false });
 
@@ -496,9 +506,9 @@ describe('localPlayback.adopt', () => {
       radioSeedId: 1
     });
     // Synchronously: the element has the track, the second, and play() was called.
-    expect(audio.src).toBe('/api/mh/songs/2/stream');
-    expect(audio.currentTime).toBe(83);
-    expect(audio.play).toHaveBeenCalledTimes(1);
+    expect(element().src).toBe('/api/mh/songs/2/stream');
+    expect(element().currentTime).toBe(83);
+    expect(element().play).toHaveBeenCalledTimes(1);
     expect(fetch).not.toHaveBeenCalled();
     await expect(outcome).resolves.toBe('played');
     expect(playerStore.currentSong?.id).toBe(2);
@@ -530,13 +540,13 @@ describe('localPlayback.adopt', () => {
     expect(playerStore.currentSong).toMatchObject({ id: 2, title: 'Song 2' });
     expect(playerStore.currentSong?.standIn).toBeUndefined();
     // Played on as it is: the element was not touched.
-    expect(audio.play).toHaveBeenCalledTimes(1);
+    expect(element().play).toHaveBeenCalledTimes(1);
   });
 
   it('says when the browser refused to start it', async () => {
     const { localPlayback, initPlayer } = await load();
     initPlayer();
-    audio.playResult = 'blocked';
+    element().playResult = 'blocked';
     const outcome = localPlayback.adopt({ queue: QUEUE, index: 0, positionSec: 0, radioSeedId: null });
     await expect(outcome).resolves.toBe('blocked');
   });
@@ -544,7 +554,7 @@ describe('localPlayback.adopt', () => {
   it('reports its state from the queue item, before the element catches up', async () => {
     const { localPlayback, playerStore } = await load();
     await playerStore.startQueue(QUEUE, 0);
-    audio.currentTime = 12.5;
+    element().currentTime = 12.5;
     expect(localPlayback.state()).toMatchObject({
       song: { id: 1 },
       queue: [1, 2, 3],
@@ -583,8 +593,8 @@ describe('the reload restore', () => {
     initPlayer('u1');
     await settle();
     expect(sync.restoreGate).toHaveBeenCalled();
-    expect(audio.play).not.toHaveBeenCalled();
-    expect(audio.src).toBe('/api/mh/songs/2/stream');
+    expect(element().play).not.toHaveBeenCalled();
+    expect(element().src).toBe('/api/mh/songs/2/stream');
   });
 
   it('carries on and claims when the gate allows it', async () => {
@@ -594,7 +604,7 @@ describe('the reload restore', () => {
     setPlaybackSync(sync);
     initPlayer('u1');
     await settle();
-    expect(audio.play).toHaveBeenCalledTimes(1);
+    expect(element().play).toHaveBeenCalledTimes(1);
     expect(sync.playIntent).toHaveBeenCalledTimes(1);
     expect(reportSongPlayed).not.toHaveBeenCalled();
   });
@@ -603,6 +613,6 @@ describe('the reload restore', () => {
     storeSnapshot();
     const { initPlayer } = await load();
     initPlayer('u1');
-    expect(audio.play).toHaveBeenCalledTimes(1);
+    expect(element().play).toHaveBeenCalledTimes(1);
   });
 });
