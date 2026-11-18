@@ -10,12 +10,12 @@
     { label: string; detail: string }
   > = {
     AiEnhanced: {
-      label: 'AI enhanced',
+      label: 'Lyrics synced by AI',
       detail:
         "These are the song's own lyrics. Only the timing was adjusted by AI, to line the words up with this recording."
     },
     AiGenerated: {
-      label: 'AI generated',
+      label: 'Lyrics transcribed by AI',
       detail:
         'An AI transcribed these lyrics from the audio. No published lyrics were available for this track, so the words may be wrong.'
     }
@@ -51,9 +51,10 @@
   and the public share page — because the claim it makes is about the words on the screen, not about
   who happens to be looking at them.
 
-  Two labels, deliberately not one: "AI enhanced" means a machine moved timestamps under the real
-  lyric, and "AI generated" means a machine chose the words. Collapsing them would let the weaker
-  disclosure cover the stronger case.
+  Two labels, deliberately not one: "synced by AI" means a machine moved timestamps under the real
+  lyric, and "transcribed by AI" means a machine chose the words. Collapsing them would let the
+  weaker disclosure cover the stronger case. Each label names the lyrics because in Now Playing the
+  chip sits under the song's title, where a bare "AI generated" read as a claim about the song.
 -->
 {#if copy}
   <Badge

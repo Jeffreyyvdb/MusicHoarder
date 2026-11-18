@@ -8,12 +8,24 @@ import {
   type TranscribeLyricsResponse,
   type TranslateLyricsResponse
 } from '#lib/api-client.ts';
+import { toast } from 'svelte-sonner';
 import { computeLyricsProvenance } from '#lib/lyrics/provenance.ts';
 import type { LyricsProvenance, LyricsStatus } from '#lib/types.ts';
 
 export type LyricsSource = 'lrclib' | 'transcribed';
 export type LyricsViewMode = 'original' | 'pronunciation' | 'translation';
 export type EnhanceState = 'idle' | 'transcribing' | 'translating' | 'success' | 'error';
+
+/** An already-English song completes with a language code but no generated documents. */
+function isAlreadyEnglish(t: AiTranslation): boolean {
+  return (
+    t.language === 'en' &&
+    !t.romanizedSynced &&
+    !t.romanizedPlain &&
+    !t.translatedSynced &&
+    !t.translatedPlain
+  );
+}
 
 export type AiTranscription = {
   synced?: string;
@@ -140,15 +152,7 @@ export function createAiLyrics(opts: {
     Boolean(song.hasSyncedLyrics) || Boolean(song.hasPlainLyrics) || lyricsStatus === 'Fetched'
   );
 
-  // An already-English song completes with a language code but no generated documents.
-  const translationIsEnglish = $derived(
-    translation != null &&
-      translation.language === 'en' &&
-      !translation.romanizedSynced &&
-      !translation.romanizedPlain &&
-      !translation.translatedSynced &&
-      !translation.translatedPlain
-  );
+  const translationIsEnglish = $derived(translation != null && isAlreadyEnglish(translation));
   const hasTranslation = $derived(translation != null && !translationIsEnglish);
 
   // What the single AI action can actually do for this track. Translation needs lyrics to work from,
@@ -298,6 +302,8 @@ export function createAiLyrics(opts: {
       lyricsView = 'pronunciation'; // show the fresh result right away
     }
     translationStale = false;
+    // Nothing to show for an English song, so the answer is a passing note, not a status line.
+    if (isAlreadyEnglish(translation)) toast('Lyrics are already in English.');
   }
 
   return {

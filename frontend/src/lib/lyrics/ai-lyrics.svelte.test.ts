@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { toast } from 'svelte-sonner';
 import { createAiLyrics, type AiLyricsApi } from './ai-lyrics.svelte';
 import type { ApiSong } from '#lib/api-client.ts';
+
+vi.mock('svelte-sonner', () => ({ toast: vi.fn() }));
 
 /**
  * This state machine used to live inline in TrackPanel.svelte, where none of it was reachable from
@@ -415,6 +418,28 @@ describe('capability and label rules', () => {
     expect(ai.translationIsEnglish).toBe(true);
     expect(ai.hasTranslation).toBe(false);
     expect(ai.secondarySynced).toBeUndefined();
+  });
+
+  it('says an English song needs no translation once, as a toast, only when one was asked for', async () => {
+    vi.mocked(toast).mockClear();
+    const englishTranslation = {
+      id: 1,
+      lyricsStatus: 'Fetched',
+      lyricsTranslationStatus: 'Completed',
+      detectedLanguage: 'en'
+    };
+    const { ai } = setup({
+      api: {
+        fetchTrackLyrics: vi.fn(async () => englishTranslation),
+        translateSongLyrics: vi.fn(async () => ({ id: 1, detectedLanguage: 'en' }))
+      }
+    });
+    ai.syncToSong();
+    await vi.waitFor(() => expect(ai.translationIsEnglish).toBe(true));
+    expect(toast).not.toHaveBeenCalled();
+
+    await ai.enhance();
+    expect(toast).toHaveBeenCalledExactlyOnceWith('Lyrics are already in English.');
   });
 });
 

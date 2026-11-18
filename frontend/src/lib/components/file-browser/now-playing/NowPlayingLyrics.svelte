@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { AlertTriangle, CircleCheck, Languages, Loader2, Sparkles, Timer } from '@lucide/svelte';
+  import { AlertTriangle, CircleCheck, Loader2, Sparkles, Timer } from '@lucide/svelte';
   import { Badge } from '#lib/components/ui/badge/index.ts';
   import { Button } from '#lib/components/ui/button/index.ts';
   import { SegmentedControl } from '#lib/components/ui/segmented-control/index.ts';
@@ -14,7 +14,7 @@
   /**
    * Lyrics mode: the karaoke viewer filling the middle of Now Playing, with a quiet status row
    * above it for what used to be scattered (and partly lg-only): the AI run's progress, the
-   * "already in English" note, the outdated-translation warning, and — for admins — the timing
+   * outdated-translation warning, and — for admins — the timing
    * verdict with its "Check the timing" button. The Original / Pronunciation / Translation
    * control sits here too when a translation exists.
    *
@@ -62,7 +62,6 @@
         warn: true,
         text: 'Lyrics changed — pronunciation and translation are outdated. Run it again to refresh.'
       };
-    if (ai.translationIsEnglish) return { text: 'Lyrics are already in English.' };
     return null;
   });
   const timingSuspect = $derived(
@@ -106,8 +105,6 @@
             <CircleCheck class="text-primary size-3.5 shrink-0" />
           {:else if aiLine.warn}
             <AlertTriangle class="text-warning-text size-3.5 shrink-0" />
-          {:else}
-            <Languages class="size-3.5 shrink-0" />
           {/if}
           <span>{aiLine.text}</span>
         </p>
