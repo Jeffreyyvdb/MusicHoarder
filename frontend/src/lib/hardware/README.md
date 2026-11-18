@@ -8,7 +8,8 @@ a red LED, and the selection is red between two dashes. Some detail goes on purp
 chip icons, the tracks table's covers and its size, match and source columns, the cover wash on the
 album page and behind Now Playing. Now Playing becomes the MH-1, a device built from SPEC-01's
 components on Vercel's [UI SDK](https://ui-sdk.dev), sitting on the same desk, and its Video mode
-plays the clip on the MH-2, a monitor beside it.
+plays the clip on the MH-2, a monitor beside it. A music video still plays behind Now Playing, as an
+old CRT television: scanlines, a vignette, a rolling bar and a power-on line.
 
 It is hidden. It unlocks with the **Konami code** (↑ ↑ ↓ ↓ ← → ← → B A, anywhere outside a text
 field) or by searching for **`spec-01`** (phones have no arrow keys). Finding it switches it on and
@@ -33,7 +34,11 @@ like Appearance: `localStorage['mh:hardware']` is absent (locked), `on` or `off`
   `:root[data-mh-skin='hardware']` — with the skin off nothing here applies.
 - Two behaviour changes ride on the flag, both read from `hardwareMode.enabled`: TrackList's desktop
   rows are 40px instead of 56px (no art), and Now Playing (`SongDetailHost`) drops its forced-dark
-  media appearance and cover wash for the desk, so `theme-color` stays the skin's there too.
+  media appearance and cover wash for the desk, so `theme-color` stays the skin's there too. A music
+  video behind it plays as a CRT (`VideoBackdrop`'s `desk`, styled in `app-skin.css` through
+  `data-mh-crt`); while it is up the overlay carries `data-mh-tv-on`, which gives it the skin's dark
+  tokens in either theme so the ink reads over the picture, and the `theme-surface` store's `tv`
+  claim turns `theme-color` to the skin's dark body.
 - `HardwareNowPlaying.svelte` → `HardwarePlayer.svelte` — the device, which `TrackPanel` loads on
   demand in place of the art, title and transport for the loaded song (not while the music plays on
   another device). Lazy because its stylesheet, the vendored skin, is ~150 KB gzipped.

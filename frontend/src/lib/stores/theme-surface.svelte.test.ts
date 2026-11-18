@@ -21,4 +21,15 @@ describe('themeSurface', () => {
     b();
     expect(themeSurface.media).toBe(false);
   });
+
+  it('holds the TV apart from the media surface', () => {
+    const media = themeSurface.claimMedia();
+    expect(themeSurface.tv).toBe(false);
+    const tv = themeSurface.claimTv();
+    expect(themeSurface.tv).toBe(true);
+    media();
+    expect(themeSurface.tv).toBe(true);
+    tv();
+    expect(themeSurface.tv).toBe(false);
+  });
 });
