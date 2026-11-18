@@ -166,25 +166,38 @@ internal static class ComposeFileExtensions
     }
 
     /// <summary>
-    /// Sends the api's and the frontend's OTLP logs, traces and metrics to the OpenTelemetry Collector
-    /// that runs beside the stack on the musichoarder.app host, which stores them in Loki, Tempo and
-    /// Prometheus. The collector's stack owns the external <c>observability</c> overlay network, so it
-    /// must be deployed first: <c>docker stack deploy</c> refuses a stack whose external network does
-    /// not exist. While the collector is down the exporters drop telemetry and the app runs on.
+    /// The musichoarder.app host runs an OpenTelemetry Collector beside the stack (storing into Loki,
+    /// Tempo and Prometheus), so prod exports to it unless OTEL_EXPORTER_OTLP_ENDPOINT says otherwise.
+    /// The collector's stack owns the external <c>observability</c> overlay network, so it must be
+    /// deployed first: <c>docker stack deploy</c> refuses a stack whose external network does not exist.
     /// </summary>
     private static void ExportTelemetryToHostCollector(this ComposeFile file, Service api, Service frontend)
     {
         const string network = "observability";
         file.Networks[network] = new Network { Name = network, External = true };
-
         api.Networks.Add(network);
-        api.Environment["OTEL_EXPORTER_OTLP_ENDPOINT"] = "http://otel-collector:4317";
-        api.Environment["OTEL_EXPORTER_OTLP_PROTOCOL"] = "grpc";
+        frontend.Networks.Add(network);
+
+        ConfigureTelemetryExport(api, frontend, defaultEndpoint: "http://otel-collector:4317");
+    }
+
+    /// <summary>
+    /// Telemetry is opt-in and not tied to a backend: the api and the frontend export OTLP only when
+    /// OTEL_EXPORTER_OTLP_ENDPOINT is set, and then to any OTLP receiver. The standard protocol and
+    /// headers variables pass through for receivers that take only HTTP or need an auth header.
+    /// </summary>
+    private static void ConfigureTelemetryExport(Service api, Service frontend, string defaultEndpoint = "")
+    {
+        var endpoint = $"${{OTEL_EXPORTER_OTLP_ENDPOINT:-{defaultEndpoint}}}";
+
+        api.Environment["OTEL_EXPORTER_OTLP_ENDPOINT"] = endpoint;
+        api.Environment["OTEL_EXPORTER_OTLP_PROTOCOL"] = "${OTEL_EXPORTER_OTLP_PROTOCOL:-grpc}";
+        api.Environment["OTEL_EXPORTER_OTLP_HEADERS"] = "${OTEL_EXPORTER_OTLP_HEADERS:-}";
         api.Environment["OTEL_SERVICE_NAME"] = "api";
 
-        frontend.Networks.Add(network);
-        frontend.Environment["OTEL_EXPORTER_OTLP_ENDPOINT"] = "http://otel-collector:4317";
-        frontend.Environment["OTEL_EXPORTER_OTLP_PROTOCOL"] = "grpc";
+        frontend.Environment["OTEL_EXPORTER_OTLP_ENDPOINT"] = endpoint;
+        frontend.Environment["OTEL_EXPORTER_OTLP_PROTOCOL"] = "${OTEL_EXPORTER_OTLP_PROTOCOL:-grpc}";
+        frontend.Environment["OTEL_EXPORTER_OTLP_HEADERS"] = "${OTEL_EXPORTER_OTLP_HEADERS:-}";
         frontend.Environment["OTEL_SERVICE_NAME"] = "frontend";
     }
 
@@ -206,6 +219,7 @@ internal static class ComposeFileExtensions
         file.PersistDataProtectionKeys(api);
         file.ConfigureWishlistDownloads(api);
         ApplyProviderEnvDefaults(api);
+        ConfigureTelemetryExport(api, frontend);
 
         // Music library: read-only source bind at the deploy-provided path; destination is a managed
         // named volume so Dokploy's compose.delete(deleteVolumes:true) reaps the per-PR build on teardown.
@@ -294,6 +308,7 @@ internal static class ComposeFileExtensions
         file.ConfigureWishlistDownloads(api);
         file.MountSyncedSource(api);
         ApplyProviderEnvDefaults(api);
+        ConfigureTelemetryExport(api, frontend);
 
         // Prebuilt images pulled from GHCR, pinned by MUSICHOARDER_VERSION (defaults to :latest). The
         // build-from-source override (docker-compose.build.yml) layers `build:` on these same services.

@@ -80,6 +80,7 @@ Nothing is strictly required for a localhost trial — every value defaults. The
 | `LYRICS_TRANSCRIPTION_API_KEY` | — | Experimental AI lyrics transcription + compare. **Blank → the feature is hidden in the UI.** Groq recommended; see below. |
 | `LYRICS_TRANSCRIPTION_BASE_URL` / `_MODEL` / `_LLM_MODEL` | — | Transcription endpoint, Whisper model, and (optional) cleanup LLM for the above. |
 | `PUBLIC_UMAMI_*` | — | Optional self-hosted Umami analytics. |
+| `OTEL_EXPORTER_OTLP_*` | — | Optional OpenTelemetry export to any OTLP receiver. Blank → off. |
 | `PUBLIC_LOOPING_URL` | — | Optional [Looping](https://github.com/Jeffreyyvdb/looping) problem-report inbox. Blank loads nothing. |
 | `WEBMCP_ORIGIN_TRIAL_TOKEN` | — | Optional Chrome origin-trial token for WebMCP, registered for your instance's origin. Lets an AI agent in Chrome search, play and manage playlists in an open MusicHoarder tab. |
 | `AUTO_SCAN_INTERVAL_MINUTES` | — | How often the source library is re-scanned so newly copied files are picked up without clicking Scan. Defaults to `15`; `0` disables it. |
@@ -157,6 +158,14 @@ web form:
   optionally use a fast cleanup LLM (`LYRICS_TRANSCRIPTION_LLM_MODEL`) via the `QUALITY_GRADING_*` creds.
 - **Umami analytics** — set `PUBLIC_UMAMI_SRC` (full `…/script.js` URL) and
   `PUBLIC_UMAMI_WEBSITE_ID` to load a self-hosted Umami tracker.
+- **OpenTelemetry (logs, traces, metrics)** — off by default; the app's logs still go to
+  `docker compose logs`. To keep them searchable, set `OTEL_EXPORTER_OTLP_ENDPOINT` to any OTLP
+  receiver you run. The smallest option is one container of the standalone
+  [Aspire dashboard](https://aspire.dev/dashboard/standalone/) (it keeps data in memory). A
+  Grafana stack (Loki, Tempo, Prometheus) or a hosted service works the same way. For an
+  HTTP-only receiver, set `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf`; put an API key in
+  `OTEL_EXPORTER_OTLP_HEADERS` (`key=value`, comma-separated). The receiver must be reachable from
+  the containers, for example as another service in the same compose project.
 - **Soulseek via slskd** — MusicHoarder can use a [slskd](https://github.com/slskd/slskd) instance
   **you run and manage yourself** as a wishlist download source (tried before yt-dlp) and for
   manual per-track/album quality upgrades. MusicHoarder never joins the Soulseek network itself —
