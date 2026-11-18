@@ -1270,8 +1270,10 @@ public class SongMetadata
         if (!gainedSynced && !gainedPlain)
             return false;
 
-        // Keep the plain lyrics we already have if this response carried only the synced form.
-        ApplyLyricsResult(syncedLyrics, plainLyrics ?? PlainLyrics, false, lrclibId, lrclibDuration, origin, geniusSongId);
+        // Keep the plain lyrics we already have if this response carried only the synced form, but only
+        // from the same service: Genius's words under an LRCLIB label would credit the wrong source.
+        var keptPlain = origin == LyricsOrigin ? PlainLyrics : null;
+        ApplyLyricsResult(syncedLyrics, plainLyrics ?? keptPlain, false, lrclibId, lrclibDuration, origin, geniusSongId);
         return true;
     }
 
