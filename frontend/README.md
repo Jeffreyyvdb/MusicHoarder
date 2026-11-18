@@ -76,7 +76,7 @@ Make sure the API is reachable at `MUSICHOARDER_API_URL` or at the localhost fal
 - `bun run start:prod` — serve the production build with Bun
 - `bun run check` — svelte-check + TypeScript
 - `bun run lint` — oxlint (`.oxlintrc.json`, written by `bun oxlint/generate-config.mjs`), plus the markup half of `local/sideways-scroller`
-- `bun run format` — Prettier
+- `bun run format` — oxfmt (Prettier-compatible, with Svelte and Tailwind class sorting)
 - `bun run release:dry` — dry-run semantic-release
 
 ## Spotify OAuth (non-Aspire)

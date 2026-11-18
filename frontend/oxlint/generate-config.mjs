@@ -6,7 +6,6 @@
 //   bun oxlint/generate-config.mjs
 import { execFileSync } from 'node:child_process';
 import { rmSync, writeFileSync } from 'node:fs';
-import { format, resolveConfig } from 'prettier';
 
 const OUTPUT = '.oxlintrc.json';
 const OXLINT = 'node_modules/.bin/oxlint';
@@ -43,10 +42,10 @@ const KINDS = [
 
 /** Rules that stay off whatever the tree holds. */
 const OFF = {
-  'eslint/curly': 'prettier owns formatting (eslint-config-prettier turns it off)',
-  'unicorn/empty-brace-spaces': 'prettier owns formatting (eslint-config-prettier turns it off)',
-  'unicorn/no-nested-ternary': 'prettier owns formatting (eslint-config-prettier turns it off)',
-  'unicorn/number-literal-case': 'prettier owns formatting (eslint-config-prettier turns it off)'
+  'eslint/curly': 'the formatter owns this (eslint-config-prettier turned it off)',
+  'unicorn/empty-brace-spaces': 'the formatter owns this (eslint-config-prettier turned it off)',
+  'unicorn/no-nested-ternary': 'the formatter owns this (eslint-config-prettier turned it off)',
+  'unicorn/number-literal-case': 'the formatter owns this (eslint-config-prettier turned it off)'
 };
 
 /** Options for rules that are on. */
@@ -175,8 +174,8 @@ for (const [rule, byKind] of [...counts].sort(([a], [b]) => a.localeCompare(b)))
 const config = buildConfig(off);
 const notes = new Map([[config.rules, off.root]]);
 KINDS.forEach((kind, i) => notes.set(config.overrides[i].rules, off[kind.name] ?? {}));
-const prettier = { ...(await resolveConfig(OUTPUT)), filepath: OUTPUT };
-writeFileSync(OUTPUT, await format(jsonc(config, notes), prettier));
+writeFileSync(OUTPUT, jsonc(config, notes));
+execFileSync('node_modules/.bin/oxfmt', [OUTPUT]);
 
 const remaining = oxlint(['--format', 'unix', '.']);
 if (remaining.trim()) throw new Error(`${OUTPUT} still reports:\n${remaining}`);

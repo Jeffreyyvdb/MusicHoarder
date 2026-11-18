@@ -29,10 +29,10 @@
       }
     ],
     "local/no-layout-read-before-resize-observer": "error",
-    "eslint/curly": "off", // prettier owns formatting (eslint-config-prettier turns it off)
-    "unicorn/empty-brace-spaces": "off", // prettier owns formatting (eslint-config-prettier turns it off)
-    "unicorn/no-nested-ternary": "off", // prettier owns formatting (eslint-config-prettier turns it off)
-    "unicorn/number-literal-case": "off", // prettier owns formatting (eslint-config-prettier turns it off)
+    "eslint/curly": "off", // the formatter owns this (eslint-config-prettier turned it off)
+    "unicorn/empty-brace-spaces": "off", // the formatter owns this (eslint-config-prettier turned it off)
+    "unicorn/no-nested-ternary": "off", // the formatter owns this (eslint-config-prettier turned it off)
+    "unicorn/number-literal-case": "off", // the formatter owns this (eslint-config-prettier turned it off)
     "eslint/capitalized-comments": "off", // 1947 findings
     "eslint/class-methods-use-this": "off", // 15 findings
     "eslint/complexity": "off", // 8 findings
@@ -66,13 +66,13 @@
     "eslint/no-undefined": "off", // 265 findings
     "eslint/no-use-before-define": "off", // 289 findings
     "eslint/no-void": "off", // 336 findings
-    "eslint/one-var": "off", // 3923 findings
+    "eslint/one-var": "off", // 3922 findings
     "eslint/prefer-destructuring": "off", // 99 findings
     "eslint/prefer-named-capture-group": "off", // 35 findings
     "eslint/prefer-template": "off", // 14 findings
     "eslint/require-await": "off", // 228 findings
     "eslint/require-unicode-regexp": "off", // 177 findings
-    "eslint/sort-imports": "off", // 1317 findings
+    "eslint/sort-imports": "off", // 1316 findings
     "eslint/sort-keys": "off", // 2019 findings
     "import/consistent-type-specifier-style": "off", // 442 findings
     "import/exports-last": "off", // 848 findings
@@ -86,12 +86,11 @@
     "import/prefer-default-export": "off", // 46 findings
     "jsdoc/require-param": "off", // 712 findings
     "jsdoc/require-returns": "off", // 728 findings
-    "node/no-sync": "off", // 99 findings
-    "node/no-top-level-await": "off", // 7 findings
+    "node/no-sync": "off", // 100 findings
     "oxc/no-async-await": "off", // 1047 findings
     "oxc/no-map-spread": "off", // 12 findings
     "oxc/no-optional-chaining": "off", // 942 findings
-    "oxc/no-rest-spread-properties": "off", // 472 findings
+    "oxc/no-rest-spread-properties": "off", // 471 findings
     "promise/always-return": "off", // 37 findings
     "promise/avoid-new": "off", // 50 findings
     "promise/catch-or-return": "off", // 9 findings
@@ -257,6 +256,7 @@
         "eslint/no-unsafe-optional-chaining": "off", // 3 findings
         "import/first": "off", // 3 findings
         "node/callback-return": "off", // 7 findings
+        "node/no-top-level-await": "off", // 5 findings
         "typescript/no-extraneous-class": "off", // 6 findings
         "typescript/no-floating-promises": "off", // 3 findings
         "typescript/prefer-regexp-exec": "off", // 1 finding
