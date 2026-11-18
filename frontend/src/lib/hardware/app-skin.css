@@ -682,11 +682,9 @@
   right: -10px;
 }
 :root[data-mh-skin='hardware'] [data-mh-tracks='wide'] > [role='button'] > .mh-cover {
-  width: 28px !important;
-  height: 28px !important;
   justify-self: center;
 }
-:root[data-mh-skin='hardware'] [data-mh-tracks='wide'] > [role='button'] > div:nth-child(3) > * {
+:root[data-mh-skin='hardware'] [data-mh-tracks='wide'] [data-mh-track-title] > * {
   margin-top: 0;
   line-height: 1.3;
 }
@@ -978,13 +976,11 @@
 
 @media (min-width: 1024px) {
   :root[data-mh-skin='hardware'] [data-mh-np='body'] {
+    --mh-np-chrome: 520px;
     padding: 16px 20px 20px;
     border-radius: 26px;
     background: var(--mh-body);
     box-shadow: var(--mh-body-shadow);
-  }
-  :root[data-mh-skin='hardware'] [data-mh-np='screen'] > div {
-    max-width: min(100%, 46vh, max(200px, calc(100svh - 520px)));
   }
 }
 :root[data-mh-skin='hardware'] [data-mh-np='screen']::before {
@@ -1083,19 +1079,14 @@
   font-size: 11px;
   letter-spacing: 0.06em;
 }
-:root[data-mh-skin='hardware'] [data-mh-np='keys'] > [role='slider'] + div > :nth-child(2) > * {
+:root[data-mh-skin='hardware'] [data-mh-np='keys'] [data-mh-capsules] > * {
   border-radius: 3px;
   background: var(--mh-lcd);
   box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.15);
   color: var(--mh-lcd-ink);
   text-transform: uppercase;
 }
-:root[data-mh-skin='hardware']
-  [data-mh-np='keys']
-  > [role='slider']
-  + div
-  > :nth-child(2)
-  > button {
+:root[data-mh-skin='hardware'] [data-mh-np='keys'] [data-mh-capsules] > button {
   color: var(--mh-lcd-red);
 }
 :root[data-mh-skin='hardware'] [data-mh-np='keys'] [data-slot='button'] {

@@ -129,7 +129,7 @@
   class="text-caption-1 text-muted-foreground mt-1.5 grid grid-cols-[1fr_auto_1fr] items-center gap-2 font-medium tabular-nums"
 >
   <span>{formatTime(elapsed)}</span>
-  <span class="flex items-center justify-center gap-1.5">
+  <span data-mh-capsules class="flex items-center justify-center gap-1.5">
     {#if format}
       <!-- Label-colour text on the capsule: over Now Playing's coloured wash the 72% secondary
            tone on a 14% white fill lands near 4:1, short of what 12px text needs. -->

@@ -648,7 +648,7 @@
         title={trackTitle}
         artist={trackArtist}
         fallbackDuration={song.durationSeconds ?? 0}
-        caption={videoLine && !monitor ? videoCaption : undefined}
+        caption={videoLine ? videoCaption : undefined}
         housing={monitor}
         onPlayRequest={handlePlayToggle}
       />
@@ -760,7 +760,7 @@
                 size={400}
                 corner={12}
                 playing={artPlaying}
-                class="mx-auto w-full max-w-[min(100%,46vh,max(200px,calc(100svh-460px)))]"
+                class="mx-auto w-full max-w-[min(100%,46vh,max(200px,calc(100svh-var(--mh-np-chrome,460px))))]"
               />
             </div>
             <div class="mt-6" data-mh-np="readout">

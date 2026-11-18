@@ -484,13 +484,13 @@
                 title={song.album ?? titleOf(song)}
                 coverUrl={rowCoverUrlForSong(song)}
                 fallbackUrl={rowCoverFallbackForSong(song)}
-                size={36}
+                size={skinLook(36, 28)}
                 corner={4}
                 caption={false}
               />
 
               <!-- title + sub -->
-              <div class="min-w-0">
+              <div class="min-w-0" data-mh-track-title>
                 <div class={cn('truncate text-[13px] font-medium', isLoaded && 'text-primary')}>
                   {#if isLoaded}<span class="sr-only">Now playing, </span>{/if}{titleOf(song)}
                 </div>
