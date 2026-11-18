@@ -1,0 +1,32 @@
+name: Time budget
+# Used twice per CI job: right after checkout without `seconds` (records the start), and as the
+# last step with the job's budget, where it fails the job if the time since that start exceeds it.
+# A budget is a promise about how fast CI answers: a job that grows past it fails here, so the
+# slowdown is fixed in the change that caused it rather than noticed months later.
+description: Record a job's start, or fail the job when it ran longer than its budget.
+inputs:
+  seconds:
+    description: The job's budget in seconds. Leave out on the first call, which records the start.
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        BUDGET: ${{ inputs.seconds }}
+      run: |
+        if [[ -z $BUDGET ]]; then
+          echo "BUDGET_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+          exit 0
+        fi
+        if [[ ! ${BUDGET_STARTED_AT:-} =~ ^[0-9]+$ ]]; then
+          echo "::error title=Budget::No start recorded. Add the budget step without 'seconds' right after checkout."
+          exit 1
+        fi
+        elapsed=$(( $(date +%s) - BUDGET_STARTED_AT ))
+        if (( elapsed > BUDGET )); then
+          echo "::error title=Over budget::This job took ${elapsed}s; its budget is ${BUDGET}s. Find what got slower, or raise the budget in ci.yml with the reason."
+          exit 1
+        fi
+        echo "${elapsed}s of a ${BUDGET}s budget"
