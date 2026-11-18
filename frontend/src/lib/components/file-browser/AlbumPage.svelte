@@ -489,6 +489,12 @@
     }
   }
 
+  const playbackSource = $derived(
+    album
+      ? { label: album.title, href: `/library?album=${encodeURIComponent(album.key)}` }
+      : undefined
+  );
+
   /** Plays the album from `target`; never pauses (a tap, a menu's Play, the Play pill). */
   function playFrom(target: ApiSong, options?: StartQueueOptions) {
     if (!album) return;
@@ -496,7 +502,7 @@
     void playerStore.startQueue(
       queue,
       tracks.findIndex((t) => t.id === target.id),
-      options
+      { ...options, source: playbackSource }
     );
   }
 
@@ -522,7 +528,7 @@
     void playerStore.startQueue(
       tracks.map((t) => toPlayerSong(t, album.artist)),
       0,
-      { shuffle: true }
+      { shuffle: true, source: playbackSource }
     );
   }
 
@@ -534,7 +540,8 @@
     void playerStore.playSong(
       toPlayerSong(s, album.artist),
       queue,
-      tracks.findIndex((t) => t.id === s.id)
+      tracks.findIndex((t) => t.id === s.id),
+      playbackSource
     );
   }
 

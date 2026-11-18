@@ -2,6 +2,7 @@
   import {
     Airplay,
     ChevronDown,
+    ChevronRight,
     Heart,
     Info,
     ListMusic,
@@ -307,6 +308,7 @@
 
   // ── Song facts ──────────────────────────────────────────────────────────────
   const isCurrentlyLoaded = $derived(playerStore.currentSong?.id === song.id);
+  const playbackSource = $derived(isCurrentlyLoaded ? playerStore.playbackSource : null);
   const isCurrentlyPlaying = $derived(isCurrentlyLoaded && playerStore.isPlaying);
   // The account's session, when it plays on another device (or is only remembered): the transport
   // steers it there, a line under the toggle row says where, and this device's volume — which is
@@ -387,7 +389,10 @@
       return;
     }
     const queue = album.songs.map((s) => toPlayerSong(s, album.artist));
-    void playerStore.playSong(toPlayerSong(song, album.artist), queue, trackIndex);
+    void playerStore.playSong(toPlayerSong(song, album.artist), queue, trackIndex, {
+      label: album.title,
+      href: albumHref
+    });
   }
 
   function go(href: string) {
@@ -797,6 +802,25 @@
   </div>
 {/snippet}
 
+{#snippet sourceLink()}
+  {#if playbackSource}
+    <div class="flex min-w-0 flex-1 justify-center">
+      <a
+        href={playbackSource.href}
+        onclick={onClose}
+        data-drag-ignore
+        class="text-subheadline focus-visible:ring-ring inline-flex min-h-11 min-w-0 items-center gap-1 rounded-lg px-3 font-semibold focus-visible:ring-2 focus-visible:outline-hidden pointer-fine:hover:underline"
+        aria-label={`Started from ${playbackSource.label}. Open source`}
+      >
+        <span class="truncate">{playbackSource.label}</span>
+        <ChevronRight class="text-muted-foreground size-3.5 shrink-0" />
+      </a>
+    </div>
+  {:else}
+    <div class="flex-1"></div>
+  {/if}
+{/snippet}
+
 <!-- Compact top bar, where a mouse can drag Now Playing down (a touch can anywhere): the grabber
      (a tap closes too), ⌄, and the ⋯ menu.
      Outside the artwork the song is condensed into the bar — tap it to go back to the art. -->
@@ -837,7 +861,7 @@
         </button>
         {@render heart('md')}
       {:else}
-        <div class="flex-1"></div>
+        {@render sourceLink()}
       {/if}
       {@render moreMenu()}
     </div>
@@ -851,6 +875,7 @@
     <!-- lg: close and ⋯ in a bar; art, title and transport on the left; the mode on the right. -->
     <header class="flex shrink-0 items-center justify-between px-5 pt-3 pb-1">
       {@render closeButton()}
+      {@render sourceLink()}
       {@render moreMenu()}
     </header>
     <div

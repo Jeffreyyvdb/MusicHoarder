@@ -90,7 +90,10 @@
   function playAlbum(album: AlbumSummary, shuffled = false) {
     if (album.songs.length === 0) return;
     const ordered = album.songs.map((s) => toPlayerSong(s, album.artist));
-    void playerStore.startQueue(ordered, 0, { shuffle: shuffled });
+    void playerStore.startQueue(ordered, 0, {
+      shuffle: shuffled,
+      source: { label: album.title, href: `/library?album=${encodeURIComponent(album.key)}` }
+    });
   }
 
   function playFirst(album: AlbumSummary, e: MouseEvent) {

@@ -2,6 +2,7 @@
   import { untrack } from 'svelte';
   import { MediaQuery } from 'svelte/reactivity';
   import { page } from '$app/state';
+  import { afterNavigate } from '$app/navigation';
   import { replaceUrl } from '#lib/navigation/replace-url.ts';
   import {
     ArrowUpDown,
@@ -159,12 +160,17 @@
     void replaceUrl(url.pathname + url.search);
   }
 
-  // Local search box (not a URL param, so the routes stay untouched). Persisted per-tab in
+  // Search edits stay local. A playback source can reopen the Tracks list with its saved search.
+  // Search is persisted per tab in
   // sessionStorage so the typed text survives drilling into an item and navigating back (the
   // artist grid remounts on a real route change, which would otherwise wipe it).
   const searchKey = $derived(`mh-lib-search:${tab}`);
   // `tab` is fixed per route mount; capture the initial stored value once.
   let query = $state(untrack(() => sessionGet(`mh-lib-search:${tab}`)) ?? '');
+  afterNavigate(({ to }) => {
+    const search = to?.url.searchParams.get('q');
+    if (tab === 'tracks' && search != null) query = search;
+  });
   $effect(() => {
     sessionSet(searchKey, query);
   });
@@ -371,7 +377,7 @@
     void playerStore.startQueue(
       list.map((s) => toPlayerSong(s, fallbackArtist(s))),
       from,
-      { shuffle }
+      { shuffle, source: playbackSource }
     );
   }
   /** Plays exactly what the list is showing, in the order it is showing it. */
@@ -483,6 +489,19 @@
   // Albums grid with a "filtering by" token. Same URL contract, so every existing link lands here.
   const artistName = $derived(browse?.artist ? browseFilterLabel(browse) : null);
   const isArtistView = $derived(tab === 'albums' && artistName !== null && !albumKey);
+  const playbackSource = $derived.by(() => {
+    const url = new URL(page.url.href);
+    url.searchParams.delete('song');
+    url.searchParams.delete('track');
+    if (tab === 'tracks') url.searchParams.set('q', query);
+    const label =
+      isArtistView && artistName
+        ? artistName
+        : chips.length === 1
+          ? CHIP_LABELS[chips[0]]
+          : 'Tracks';
+    return { label, href: url.pathname + url.search };
+  });
   // The artist's albums are the server-narrowed cards (a compilation shows only this artist's
   // tracks), and their songs, in album order, are the artist's song list.
   const artistAlbums = $derived(isArtistView ? sortAlbums(scopedAlbums, albumSort) : []);
@@ -1145,6 +1164,7 @@
   <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
     <TrackList
       view={listView}
+      {playbackSource}
       {isLoading}
       selectedId={tracksSelectedId}
       onSelect={selectTrack}

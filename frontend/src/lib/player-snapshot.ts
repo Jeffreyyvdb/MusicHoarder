@@ -20,7 +20,10 @@ import type { PlayerSong } from '#lib/stores/player.svelte.ts';
  * Kept as a plain module with the storage passed in, so the shape and its validation are
  * testable without a browser or the rune-backed store.
  */
+export type PlaybackSource = { label: string; href: string };
+
 export interface PlaybackSnapshot {
+  source?: PlaybackSource;
   /** The account that wrote it. A different account signing in must never inherit a queue. */
   userId: string;
   queue: PlayerSong[];
@@ -255,8 +258,17 @@ function parseFields(value: Record<string, unknown>): Omit<PlaybackSnapshot, 'qu
     shuffle: value.shuffle === true,
     miniPlayerDismissed: value.miniPlayerDismissed,
     savedAt: value.savedAt as number,
-    ...queuedField(value.queued)
+    ...queuedField(value.queued),
+    ...sourceField(value.source)
   };
+}
+
+function sourceField(value: unknown): { source?: PlaybackSource } {
+  if (!isRecord(value)) return {};
+  const { label, href } = value;
+  if (typeof label !== 'string' || !label.trim() || typeof href !== 'string') return {};
+  if (!href.startsWith('/') || href.startsWith('//') || /[\\\r\n\t]/.test(href)) return {};
+  return { source: { label, href } };
 }
 
 /**

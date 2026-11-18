@@ -25,7 +25,8 @@ import {
   canAutoResume,
   createPlaybackSnapshotStore,
   type PlaybackSnapshot,
-  type PlaybackSnapshotStore
+  type PlaybackSnapshotStore,
+  type PlaybackSource
 } from '#lib/player-snapshot.ts';
 import { describeDevice } from '#lib/playback-sync/device.ts';
 import { previousAction } from '#lib/player-seek.ts';
@@ -102,6 +103,7 @@ let playbackRateState = $state(1);
  * of it cost main-thread time between a tap and the sound.
  */
 let queue = $state.raw<PlayerSong[]>([]);
+let queueSource = $state.raw<PlaybackSource | null>(null);
 let queueIndex = $state(-1);
 /**
  * Shuffle, as a mode of the current queue (Now Playing's button, or a list's Shuffle): what follows
@@ -1057,7 +1059,13 @@ function reportPlay(songId: number) {
  * Make `contextQueue` (or just `song`) the queue, positioned at `song`. With `shuffle`, `song` plays
  * first and the rest of the list follows in random order; without it, shuffle goes off.
  */
-function seedQueue(song: PlayerSong, contextQueue?: PlayerSong[], index?: number, shuffle = false) {
+function seedQueue(
+  song: PlayerSong,
+  contextQueue?: PlayerSong[],
+  index?: number,
+  { shuffle = false, source = null }: StartQueueOptions = {}
+) {
+  queueSource = source;
   // The songs added by hand and not yet played carry over to the new list (Spotify's queue does).
   const pending = queueIndex >= 0 ? queuedSongs(queue, queueIndex, queuedBlock) : [];
   if (contextQueue && contextQueue.length > 0) {
@@ -1095,7 +1103,12 @@ function seedQueue(song: PlayerSong, contextQueue?: PlayerSong[], index?: number
  * row tap, uses `startQueue` instead. `index` defaults to the song's position
  * in `contextQueue`.
  */
-async function playSong(song: PlayerSong, contextQueue?: PlayerSong[], index?: number) {
+async function playSong(
+  song: PlayerSong,
+  contextQueue?: PlayerSong[],
+  index?: number,
+  source?: PlaybackSource
+) {
   // The session's song on another device toggles THERE, like the glyph on screen promises.
   const remote = remoteView();
   if (remote && remote.song?.id === song.id) {
@@ -1108,7 +1121,9 @@ async function playSong(song: PlayerSong, contextQueue?: PlayerSong[], index?: n
   // A superseded device's paused leftovers are not "the loaded song": a pick starts it afresh.
   const toggles = !remote && currentSong?.id === song.id;
   // Pausing the loaded song from its row's glyph is not a new list: a shuffled queue stays as it is.
-  if (!(toggles && shuffleOn)) seedQueue(song, contextQueue, index);
+  if (!(toggles && shuffleOn)) {
+    seedQueue(song, contextQueue, index, { source });
+  }
 
   if (toggles) {
     if (audioEl.paused) {
@@ -1125,6 +1140,7 @@ async function playSong(song: PlayerSong, contextQueue?: PlayerSong[], index?: n
 
 /** How {@link startQueue} treats the song it starts at. */
 export interface StartQueueOptions {
+  source?: PlaybackSource | null;
   /**
    * The caller means "carry on with this song" (an album's Play pill on the album's loaded track),
    * so the account's session shown from another device counts as loaded too: it resumes there
@@ -1171,7 +1187,7 @@ async function startQueue(contextQueue: PlayerSong[], index = 0, options: StartQ
   // Starting a list here while the session plays elsewhere takes the session (a local play
   // intent); the paused leftovers of a superseded device are not "already loaded".
   const leftovers = remote !== null;
-  seedQueue(song, contextQueue, index, options.shuffle === true);
+  seedQueue(song, contextQueue, index, options);
   sync?.playIntent();
 
   if (!leftovers && currentSong?.id === song.id) {
@@ -1600,6 +1616,7 @@ function stop() {
   currentTime = 0;
   duration = 0;
   queue = [];
+  queueSource = null;
   queueIndex = -1;
   queuedBlock = NO_QUEUED;
   shuffleOn = false;
@@ -1676,6 +1693,7 @@ function composePlaybackSnapshot(): PlaybackSnapshot | null {
   return {
     userId: persistUserId,
     queue,
+    ...(queueSource ? { source: queueSource } : {}),
     queueIndex,
     position: audioEl?.currentTime ?? 0,
     wasPlaying: isPlaying,
@@ -1803,6 +1821,7 @@ function restorePlayback(userId: string) {
 
   const song = snapshot.queue[snapshot.queueIndex];
   queue = snapshot.queue;
+  queueSource = snapshot.source ?? null;
   queueIndex = snapshot.queueIndex;
   queuedBlock = snapshot.queued ?? NO_QUEUED;
   for (const entry of queuedSongs(queue, queueIndex, queuedBlock)) addedByHand.add(entry);
@@ -1893,6 +1912,7 @@ function adoptQueue(target: AdoptTarget): Promise<PlayOutcome> {
   if (!el || !song) return Promise.resolve('failed');
 
   queue = target.queue;
+  queueSource = null;
   queueIndex = target.index;
   // The session carries the queue's order, not which songs were added by hand.
   queuedBlock = NO_QUEUED;
@@ -2088,6 +2108,10 @@ export function initPlayer(userId?: string): void {
 // The song, state and position getters (and the transport above) follow the account's session
 // while it plays elsewhere — see PlayerRemote. Volume, speed and the panel/bar flags stay local.
 export const playerStore = {
+  get playbackSource(): PlaybackSource | null {
+    if (remoteView() || !currentSong || queue[queueIndex]?.id !== currentSong.id) return null;
+    return queueSource;
+  },
   get currentSong() {
     const remote = remoteView();
     return remote ? remote.song : currentSong;
