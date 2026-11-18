@@ -246,6 +246,7 @@ for (const forcedColors of ['none', 'active'] as const) {
           .filter(Boolean)
         return { controls: [...new Set(controls)], heads }
       })
+    const pause = page.locator('[data-mh-np="keys"]').getByRole('button', { name: 'Pause', exact: true })
     const withSkin = async (on: boolean, ready: () => Promise<void>): Promise<Reachable> => {
       await page.evaluate((value) => localStorage.setItem('mh:hardware', value), on ? 'on' : 'off')
       await page.reload({ waitUntil: 'load' })
@@ -256,31 +257,64 @@ for (const forcedColors of ['none', 'active'] as const) {
       )
       await ready()
       await page.waitForTimeout(500)
-      return reachable()
+      const snapshot = await reachable()
+      if (await pause.isVisible()) await pause.click()
+      return snapshot
     }
     const tracksList = async () => {
       await page.locator('[data-mh-tracks] :is([role="button"], [role="listitem"])').first().waitFor()
     }
+    // Preview databases have demo rows without their audio files. Serve a minute of silent
+    // PCM so the browser can play a real stream and exercise the loaded player's controls.
+    const audio = Buffer.alloc(44 + 60 * 8_000, 128)
+    audio.write('RIFF', 0)
+    audio.writeUInt32LE(audio.length - 8, 4)
+    audio.write('WAVEfmt ', 8)
+    audio.writeUInt32LE(16, 16)
+    audio.writeUInt16LE(1, 20)
+    audio.writeUInt16LE(1, 22)
+    audio.writeUInt32LE(8_000, 24)
+    audio.writeUInt32LE(8_000, 28)
+    audio.writeUInt16LE(1, 32)
+    audio.writeUInt16LE(8, 34)
+    audio.write('data', 36)
+    audio.writeUInt32LE(audio.length - 44, 40)
+    const stream = /\/api\/mh\/songs\/\d+\/stream(?:\?|$)/
+    await page.route(stream, (route) => {
+      const range = /^bytes=(\d+)-(\d*)$/.exec(route.request().headers().range ?? '')
+      if (!range) return route.fulfill({ contentType: 'audio/wav', body: audio })
+      const first = Number(range[1])
+      const last = range[2] ? Math.min(Number(range[2]), audio.length - 1) : audio.length - 1
+      return route.fulfill({
+        status: 206,
+        contentType: 'audio/wav',
+        headers: { 'content-range': `bytes ${first}-${last}/${audio.length}` },
+        body: audio.subarray(first, last + 1),
+      })
+    })
     const nowPlaying = (width: number, height: number, playing: boolean) => async () => {
       await page.setViewportSize({ width: 1280, height: 900 })
       const row = page.locator('[data-mh-tracks="wide"] > [role="button"]').first()
       if (playing) {
         await row.hover()
-        await row.getByRole('button', { name: 'Play track' }).click()
-        await page.locator('[data-mh-mini]').first().waitFor()
+        await row.getByRole('button', { name: 'Play track', exact: true }).click()
+        await row.getByRole('button', { name: 'Pause track', exact: true }).waitFor()
+        await page.getByRole('button', { name: 'Open now playing', exact: true }).click()
+      } else {
+        await row.press('Enter')
       }
-      await row.press('Enter')
       await page.locator('[data-mh-np="keys"]').first().waitFor()
       await page.setViewportSize({ width, height })
+      if (playing) await pause.waitFor()
     }
     const SKIN_SCENES: { name: string; width: number; height: number; ready: () => Promise<void> }[] = [
       { name: 'tracks, 700 wide', width: 700, height: 900, ready: tracksList },
       { name: 'tracks, 1000 wide', width: 1000, height: 900, ready: tracksList },
       { name: 'tracks, 1200 wide', width: 1200, height: 900, ready: tracksList },
       { name: 'tracks, 1500 wide', width: 1500, height: 900, ready: tracksList },
+      { name: 'Now Playing, browsed, 1280×800', width: 1280, height: 800, ready: nowPlaying(1280, 800, false) },
       { name: 'Now Playing, playing, 1280×800', width: 1280, height: 800, ready: nowPlaying(1280, 800, true) },
       { name: 'Now Playing, playing, 390×844', width: 390, height: 844, ready: nowPlaying(390, 844, true) },
-      { name: 'Now Playing, browsed, 1280×800', width: 1280, height: 800, ready: nowPlaying(1280, 800, false) },
     ]
     await page.setViewportSize({ width: 1280, height: 900 })
     await page.goto(base + '/tracks', { waitUntil: 'networkidle' })
@@ -306,6 +340,7 @@ for (const forcedColors of ['none', 'active'] as const) {
         )
       }
     }
+    await page.unroute(stream)
     await page.evaluate(() => localStorage.removeItem('mh:hardware'))
     await page.setViewportSize({ width: 1280, height: 900 })
   }
