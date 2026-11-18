@@ -95,21 +95,25 @@ public sealed class MusicBrainzWebService(
 
     public async Task<MusicBrainzRecording?> LookupByRecordingIdAsync(string mbid, CancellationToken ct = default)
     {
+        // No "labels": MusicBrainz answers 400 to it on the recording resource, so a release's
+        // label-info is never part of this response.
         var dto = await GetAsync<MusicBrainzRecordingDto>(
-            $"recording/{Uri.EscapeDataString(mbid)}?inc=artist-credits+releases+release-groups+media+isrcs+genres+labels&fmt=json", ct);
+            $"recording/{Uri.EscapeDataString(mbid)}?inc=artist-credits+releases+release-groups+media+isrcs+genres&fmt=json", ct);
         return dto is null ? null : MusicBrainzResponseMapper.MapRecording(dto);
     }
 
     public async Task<MusicBrainzRecording?> LookupByIsrcAsync(string isrc, CancellationToken ct = default)
     {
         var normalized = isrc.Trim().ToUpperInvariant().Replace("-", "", StringComparison.Ordinal);
-        var dto = await GetAsync<MusicBrainzIsrcDto>(
-            $"isrc/{Uri.EscapeDataString(normalized)}?inc=artist-credits+releases+release-groups+media+genres+labels&fmt=json", ct);
+        // The isrc resource rejects release-groups, genres and labels with a 400, and returns no
+        // releases even when asked for them, so it only names the recording; its release data comes
+        // from the recording lookup.
+        var dto = await GetAsync<MusicBrainzIsrcDto>($"isrc/{Uri.EscapeDataString(normalized)}?fmt=json", ct);
         if (dto?.Recordings is null or { Count: 0 })
             return null;
 
-        var count = dto.Recordings.Count;
-        return MusicBrainzResponseMapper.MapRecording(dto.Recordings[0]) with { CandidateCount = count, Isrc = normalized };
+        var recording = await LookupByRecordingIdAsync(dto.Recordings[0].Id, ct);
+        return recording is null ? null : recording with { CandidateCount = dto.Recordings.Count, Isrc = normalized };
     }
 
     public async Task<IReadOnlyList<MusicBrainzRecording>> SearchAsync(

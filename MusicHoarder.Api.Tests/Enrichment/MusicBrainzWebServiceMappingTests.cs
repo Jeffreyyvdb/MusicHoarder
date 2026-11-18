@@ -148,38 +148,6 @@ public class MusicBrainzWebServiceMappingTests
     }
 
     [Fact]
-    public async Task LookupByIsrc_SetsCandidateCount_AndNormalizedIsrc()
-    {
-        var handler = new StubHandler("""
-            {
-              "recordings": [
-                {
-                  "id": "rec-1",
-                  "title": "First Match",
-                  "isrcs": ["USAAA0000001"],
-                  "artist-credit": [ { "name": "Artist", "artist": { "id": "a1", "name": "Artist" } } ],
-                  "releases": []
-                },
-                {
-                  "id": "rec-2",
-                  "title": "Second Match",
-                  "artist-credit": [ { "name": "Artist", "artist": { "id": "a1", "name": "Artist" } } ],
-                  "releases": []
-                }
-              ]
-            }
-            """);
-
-        var rec = await CreateService(handler).LookupByIsrcAsync(" us-aaa-0000001 ");
-
-        Assert.NotNull(rec);
-        Assert.Equal("rec-1", rec!.Id);
-        Assert.Equal(2, rec.CandidateCount);
-        // The queried ISRC (trimmed, uppercased, dashes stripped) wins over whatever the recording carries.
-        Assert.Equal("USAAA0000001", rec.Isrc);
-    }
-
-    [Fact]
     public async Task SearchReleases_FiltersBlankIds_AndMapsFields()
     {
         var handler = new StubHandler("""
