@@ -1,7 +1,8 @@
 <script lang="ts">
   // A device's body: one molded off-white shell with its model printed small in the corner beside a
   // power LED. Where the page is narrower than the device, as on a phone, the whole device is zoomed
-  // down to fit rather than reflowed, so its layout stays as designed.
+  // down to fit rather than reflowed, so its layout stays as designed. With `fill` it is also zoomed
+  // up to the page's width, for a layout that sizes the page for it.
   import type { Snippet } from 'svelte';
   import './skin/devices.css';
 
@@ -9,8 +10,9 @@
     model,
     name,
     on = true,
+    fill = false,
     children
-  }: { model: string; name: string; on?: boolean; children: Snippet } = $props();
+  }: { model: string; name: string; on?: boolean; fill?: boolean; children: Snippet } = $props();
 
   let body: HTMLElement;
 
@@ -27,7 +29,7 @@
       el.style.zoom = '';
       const style = getComputedStyle(page);
       const room = width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
-      if (room > 0 && el.offsetWidth > room) el.style.zoom = String(room / el.offsetWidth);
+      if (room > 0 && (fill || el.offsetWidth > room)) el.style.zoom = String(room / el.offsetWidth);
     };
     // Fitted now, not in the observer's first callback: zooming there would resize the page it is
     // watching before the callback returns, and deferring that to a frame would show the device
