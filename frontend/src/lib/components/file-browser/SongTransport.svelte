@@ -183,7 +183,7 @@
   {:else}
     <!-- Naked solid glyphs, no disc and no hover wash (a translucent circle reads as a smudge on
        artwork); feedback is press-scale on the glyph itself. Evenly spread, like iOS. -->
-    <div class="mt-2 flex items-center justify-evenly">
+    <div class="mt-2 flex items-center justify-evenly" data-mh-rocker>
       {#if shuffle}
         <!-- On: a dot under the glyph (Spotify's), so the state is not colour alone, and the green
            Now Playing keeps for live state (the liked heart's): its --primary is white there, since

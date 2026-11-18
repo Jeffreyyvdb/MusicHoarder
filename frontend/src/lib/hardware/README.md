@@ -91,8 +91,12 @@ with its dim. Everything else is restyled, never hidden.
   scrubber, times and transport), `modes` (Lyrics, Devices, Video, Info, Queue) and `volume`, in
   the wide, phone and sideways layouts alike. The stylesheet dresses them: a molded case at lg, a
   printed plate with an LED lit while the song plays, the cover in its bezel, the readout on an
-  LCD, black transport keys with the scrubber as a fader, white mode keys. A control added to Now
-  Playing is in the MH-1 with no skin work.
+  LCD, the transport as one black rocker (a cap on a side wall that tilts toward the pressed end)
+  with the scrubber as a fader, Like and Mute as latching keys, the volume as a flat knob over a
+  tick ring, white mode keys with an LED for the selected one. All of it is drawn from the app's
+  own elements: `VolumeControl` hands the stylesheet its level as `--np-volume` and asks
+  `skinLook` whether the slider is slid or turned (a knob follows an up or down drag). A control
+  added to Now Playing is in the MH-1 with no skin work.
 - Now Playing's look values: `SongDetailHost` takes its surface from `skinLook` (the desk in the
   app's own theme, where the plain app is forced dark on black), so `theme-color` stays the skin's
   there too. A music video behind it plays as a CRT (`VideoBackdrop`'s `data-mh-crt`); while it is

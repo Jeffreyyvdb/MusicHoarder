@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Volume1, Volume2, VolumeX } from '@lucide/svelte';
+  import { skinLook } from '#lib/hardware/hardware-mode.svelte.ts';
   import { playerStore } from '#lib/stores/player.svelte.ts';
   import { cn } from '#lib/utils.ts';
 
@@ -10,14 +11,26 @@
    * only (the caller hides it on touch): iOS ignores `audio.volume`, and Apple
    * discourages an in-app volume slider on touch devices. Drawn with transforms and pointer
    * handlers, not a bits-ui Slider, for the same reflow reason as the scrubber.
+   *
+   * A skin may draw the slider as a knob, which is turned rather than pointed at: `turn` moves the
+   * level by how far the pointer travels up or down from where it went down, 2px per percent.
    */
+  type Turn = { fromY: number; fromLevel: number };
+
   let dragging = $state(false);
+  let turn: Turn | null = null;
   const level = $derived(Math.max(0, Math.min(1, playerStore.volume)));
+  const feel = $derived(skinLook<'slide' | 'turn'>('slide', 'turn'));
 
   function setFromX(target: HTMLElement, clientX: number) {
     const rect = target.getBoundingClientRect();
     if (rect.width <= 0) return;
     playerStore.setVolume((clientX - rect.left) / rect.width);
+  }
+
+  function endDrag() {
+    dragging = false;
+    turn = null;
   }
 
   function onKeyDown(e: KeyboardEvent) {
@@ -37,7 +50,11 @@
   }
 </script>
 
-<div class="flex items-center gap-3">
+<div
+  class="flex items-center gap-3"
+  style:--np-volume={level}
+  data-muted={level === 0 || undefined}
+>
   <button
     type="button"
     class="text-muted-foreground hover:text-foreground focus-visible:ring-ring flex size-8 shrink-0 items-center justify-center rounded-full focus-visible:ring-2 focus-visible:outline-hidden"
@@ -63,14 +80,17 @@
       const target = e.currentTarget as HTMLElement;
       target.setPointerCapture(e.pointerId);
       dragging = true;
-      setFromX(target, e.clientX);
+      if (feel === 'turn') turn = { fromY: e.clientY, fromLevel: level };
+      else setFromX(target, e.clientX);
     }}
     onpointermove={(e) => {
       const target = e.currentTarget as HTMLElement;
-      if (target.hasPointerCapture(e.pointerId)) setFromX(target, e.clientX);
+      if (!target.hasPointerCapture(e.pointerId)) return;
+      if (turn) playerStore.setVolume(turn.fromLevel + (turn.fromY - e.clientY) / 200);
+      else setFromX(target, e.clientX);
     }}
-    onpointerup={() => (dragging = false)}
-    onpointercancel={() => (dragging = false)}
+    onpointerup={endDrag}
+    onpointercancel={endDrag}
     onkeydown={onKeyDown}
   >
     <div
@@ -85,5 +105,9 @@
       ></div>
     </div>
   </div>
-  <Volume2 class="text-muted-foreground size-4 shrink-0" aria-hidden="true" />
+  <Volume2
+    class="text-muted-foreground size-4 shrink-0"
+    aria-hidden="true"
+    data-mh-decor="volume-max"
+  />
 </div>
