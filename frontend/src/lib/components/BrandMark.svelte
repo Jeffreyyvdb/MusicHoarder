@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { SVGAttributes } from 'svelte/elements';
   import { cn } from '#lib/utils.ts';
 
   /**
@@ -11,7 +12,7 @@
    * follows the in-app theme toggle as well as the system setting. Always decorative: the product
    * name is next to it or in the page title.
    */
-  let { class: className }: { class?: string } = $props();
+  let { class: className, ...rest }: { class?: string } & SVGAttributes<SVGSVGElement> = $props();
 </script>
 
 <svg
@@ -20,6 +21,7 @@
   aria-hidden="true"
   focusable="false"
   class={cn('block size-7 shrink-0', className)}
+  {...rest}
 >
   <rect width="180" height="180" rx="36" class="fill-foreground" />
   <g transform="translate(90 90)">

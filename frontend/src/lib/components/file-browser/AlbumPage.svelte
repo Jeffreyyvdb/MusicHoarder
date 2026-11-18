@@ -794,7 +794,7 @@
     <div class="album-wash relative isolate -mt-[49px] pt-[57px] md:-mt-12 md:pt-14">
       <div
         aria-hidden="true"
-        data-mh-wash=""
+        data-mh-decor="wash"
         class="mh-crossfade pointer-events-none absolute inset-0 -z-10 transition-opacity duration-300 ease-out"
         style:background={heroWash}
         style:opacity={heroWash ? 1 : 0}

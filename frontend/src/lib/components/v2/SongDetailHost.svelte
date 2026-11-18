@@ -286,18 +286,20 @@
           {ambientUrl}
           {dimAlpha}
           {video}
-          {desk}
           blurred={videoWatching}
           bind:showing={videoShowing}
         />
-      {:else if ambientUrl && !desk}
+      {:else if ambientUrl}
         <img
           src={ambientUrl}
           alt=""
           aria-hidden="true"
+          data-mh-decor="backdrop"
           class="pointer-events-none absolute inset-0 size-full scale-150 object-cover blur-[64px] saturate-150"
         />
         <div
+          aria-hidden="true"
+          data-mh-decor="backdrop"
           class="pointer-events-none absolute inset-0"
           style="background: rgb(0 0 0 / {dimAlpha})"
         ></div>

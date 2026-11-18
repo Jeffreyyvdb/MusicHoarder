@@ -316,8 +316,9 @@
 }
 
 /* The sidebar, printed: a device name with its LED, groups as small labels, the page you are on in
-   red. The nav icons stay, by the owner's choice; the brand's logo gives way to the LED. */
-:root[data-mh-skin='hardware'] [data-slot='sidebar-header'] svg {
+   red. The nav icons stay; the brand's logo, which is decoration beside its name, gives way to the
+   LED. */
+:root[data-mh-skin='hardware'] [data-mh-decor='brand'] {
   display: none;
 }
 :root[data-mh-skin='hardware'] [data-mh-brand] {
@@ -543,9 +544,6 @@
   padding-inline: 12px;
   border-radius: 8px;
   font-size: 11px;
-}
-:root[data-mh-skin='hardware'] [data-slot='filter-chip'] > svg {
-  display: none;
 }
 :root[data-mh-skin='hardware'] [data-slot='filter-chip']::before {
   content: '';
@@ -974,6 +972,11 @@
 
 /* ── Now Playing: on the desk, not over a cover wash (SongDetailHost drops its media appearance) ─ */
 
+/* The blurred cover and its dim are decoration (their components say so): the desk has neither. */
+:root[data-mh-skin='hardware'] [data-mh-decor='backdrop'] {
+  display: none;
+}
+
 :root[data-mh-skin='hardware'] .mh-np[data-mh-desk] {
   --np-secondary: var(--muted-foreground);
   --np-fill: var(--secondary);
@@ -1105,7 +1108,7 @@
 /* ── The album page: the cover on its screen, the name printed, the tracks on an LCD ───────────── */
 
 /* No wash of the cover's colours behind the hero: the body is the body. */
-:root[data-mh-skin='hardware'] [data-mh-wash] {
+:root[data-mh-skin='hardware'] [data-mh-decor='wash'] {
   display: none;
 }
 :root[data-mh-skin='hardware'] h2[data-mh-hero-title] {

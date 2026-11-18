@@ -159,7 +159,7 @@
               <a {...props} href={isFriend ? APP_HOME : '/pipeline'}>
                 <!-- The one app mark: the same disc as the favicon, the Home Screen icon and the
                      sign-in, invite and error screens. -->
-                <BrandMark class="size-[30px]" />
+                <BrandMark class="size-[30px]" aria-hidden="true" data-mh-decor="brand" />
                 <div data-mh-brand="" class="grid min-w-0 flex-1 text-left leading-tight">
                   <span class="truncate text-sm font-semibold">MusicHoarder</span>
                   <span class="text-muted-foreground truncate text-[11px]">
