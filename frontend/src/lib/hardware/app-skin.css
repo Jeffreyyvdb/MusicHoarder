@@ -30,10 +30,10 @@
  * (PageToolbarV2), `data-mh-tracks` / `-tracks-head` (TrackList), `data-mh-mini` /
  * `-transport` (MiniPlayer), `data-mh-tabbar` / `-tabbar-search` / `-tab-badge` (BottomNavV2),
  * `data-mh-desk` / `-tv-on` (Now Playing), `data-mh-np` (TrackPanel's parts: body, screen, readout,
- * keys, modes, volume), `data-mh-rocker` (SongTransport's buttons), `--np-volume` / `data-muted`
- * (VolumeControl), `data-mh-crt` (VideoBackdrop), `data-mh-lcd`, `data-mh-decor` (decoration,
- * wherever a component marks it), plus `data-lyric-state` on Now Playing's lyric lines
- * (LyricsPanel).
+ * keys, modes, volume), `data-mh-rocker` (SongTransport's buttons, TrackPanel's mode row),
+ * `--np-volume` / `data-muted` (VolumeControl), `data-mh-crt` (VideoBackdrop), `data-mh-lcd`,
+ * `data-mh-decor` (decoration, wherever a component marks it), plus `data-lyric-state` on Now
+ * Playing's lyric lines (LyricsPanel).
  */
 
 @import './fonts.css';
@@ -131,6 +131,9 @@
   --mh-led-glow: 0 0 6px rgb(255 59 16 / 0.7);
   --mh-led-off: #cfcec8;
   --mh-groove: #1d1d1b;
+  --mh-tick: #9a9a96;
+  --mh-tick-lit: #2a2a29;
+  --mh-lip: #fff;
 }
 
 :root[data-mh-skin='hardware'].dark,
@@ -209,6 +212,16 @@
   --mh-key-black: linear-gradient(180deg, #161614, #0c0c0b);
   --mh-led-off: #4a4a45;
   --mh-groove: #0c0c0b;
+  --mh-tick: #6b6a64;
+  --mh-tick-lit: #ecebe5;
+  --mh-lip: rgb(255 255 255 / 0.08);
+}
+/* The MH-1's case is light in either theme. Its unlit LEDs are a shade deeper than the body's, to
+   show in the shadow the cover casts. */
+:root[data-mh-skin='hardware'] [data-mh-console] {
+  --mh-led-off: #bdbdb2;
+  --mh-tick: #9a9a96;
+  --mh-tick-lit: #2a2a29;
 }
 
 /* Increase Contrast: deepen the printed greys to the ink, and draw the rules harder. */
@@ -1120,10 +1133,11 @@
 :root[data-mh-skin='hardware'] [data-mh-np='keys'] [data-mh-capsules] > button {
   color: var(--mh-lcd-red);
 }
-/* The transport is one rigid cap on a side wall (SPEC-01's rocker): Shuffle, Previous, Play and
-   Next are zones of it. Two heights, how far the cap's left and right ends stand above the panel,
-   drive everything: pressing an end takes that end down and brings the other up, pressing a zone
-   in the middle lowers it all. Registered so the heights can be animated. */
+/* A rocker (SPEC-01's): one rigid cap on a side wall, its buttons zones of it. The transport is
+   one, black; the mode row is another, in the kit's white. Two heights, how far the cap's left and
+   right ends stand above the panel, drive everything: pressing an end takes that end down and
+   brings the other up, pressing a zone in the middle lowers it all. Registered so the heights can
+   be animated. */
 @property --mh-wall-l {
   syntax: '<length>';
   inherits: true;
@@ -1136,10 +1150,11 @@
 }
 /* The cap's tilt is worked out from its width (100cqw), so its ends travel the same distance
    whatever the layout; the container is whatever the cap fills. */
-:root[data-mh-skin='hardware'] [data-mh-np='keys']:has(> [data-mh-rocker]) {
+:root[data-mh-skin='hardware']
+  :is([data-mh-np='keys']:has(> [data-mh-rocker]), [data-mh-np='modes']) {
   container-type: inline-size;
 }
-:root[data-mh-skin='hardware'] [data-mh-np='keys'] [data-mh-rocker] {
+:root[data-mh-skin='hardware'] [data-mh-np] [data-mh-rocker] {
   --edge: 3px;
   --mh-wall-l: var(--edge);
   --mh-wall-r: var(--edge);
@@ -1147,6 +1162,13 @@
   --tilt: atan2(var(--mh-wall-l) - var(--mh-wall-r), 100cqw);
   --sink: calc(var(--edge) - (var(--mh-wall-l) + var(--mh-wall-r)) / 2);
   --press-shade: transparent;
+  --rk-rim: linear-gradient(180deg, #161615, #0a0a0a);
+  --rk-face: linear-gradient(180deg, #41413d, #2a2a28 55%, #222220);
+  --rk-face-edge: inset 0 1px 0 rgb(255 255 255 / 0.18), inset 0 -1px 1px rgb(0 0 0 / 0.4);
+  --rk-ink: #f1f1ee;
+  --rk-divider: rgb(0 0 0 / 0.6);
+  --rk-divider-light: rgb(255 255 255 / 0.09);
+  --rk-shade: rgb(0 0 0 / 0.3);
   position: relative;
   margin-top: 12px;
   /* The wall's room is inside the box, so nothing drawn here leaves it: WebKit can clip what
@@ -1162,31 +1184,28 @@
     --mh-wall-r 80ms cubic-bezier(0.3, 0, 0.6, 1);
 }
 /* The wall is fixed to the panel: it undoes the cap's own movement, about the cap's centre. */
-:root[data-mh-skin='hardware'] [data-mh-np='keys'] [data-mh-rocker]::before {
+:root[data-mh-skin='hardware'] [data-mh-np] [data-mh-rocker]::before {
   content: '';
   position: absolute;
   inset: var(--edge) 0 0;
   z-index: -2;
   border-radius: inherit;
-  background: linear-gradient(180deg, #161615, #0a0a0a);
+  background: var(--rk-rim);
   transform-origin: 50% calc(50% - var(--edge) / 2);
   transform: skewY(calc(var(--tilt) * -1)) translateY(calc(var(--sink) * -1));
 }
 /* The cap's face, and the shade its pressed end takes as it tips away from the light. */
-:root[data-mh-skin='hardware'] [data-mh-np='keys'] [data-mh-rocker]::after {
+:root[data-mh-skin='hardware'] [data-mh-np] [data-mh-rocker]::after {
   content: '';
   position: absolute;
   inset: 0 0 var(--edge);
   z-index: -1;
   border-radius: inherit;
   background:
-    linear-gradient(var(--shade-dir, 90deg), transparent 40%, var(--press-shade)),
-    linear-gradient(180deg, #41413d, #2a2a28 55%, #222220);
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.18),
-    inset 0 -1px 1px rgb(0 0 0 / 0.4);
+    linear-gradient(var(--shade-dir, 90deg), transparent 40%, var(--press-shade)), var(--rk-face);
+  box-shadow: var(--rk-face-edge);
 }
-:root[data-mh-skin='hardware'] [data-mh-np='keys'] [data-mh-rocker] > [data-slot='button'] {
+:root[data-mh-skin='hardware'] [data-mh-np] [data-mh-rocker] > button {
   position: relative;
   flex: 1 1 0;
   width: auto;
@@ -1194,74 +1213,60 @@
   border-radius: 0;
   background: none;
   box-shadow: none;
-  color: #f1f1ee;
+  color: var(--rk-ink);
   scale: 1;
 }
-:root[data-mh-skin='hardware']
-  [data-mh-np='keys']
-  [data-mh-rocker]
-  > [data-slot='button']:first-of-type {
+:root[data-mh-skin='hardware'] [data-mh-np] [data-mh-rocker] > button:first-of-type {
   border-radius: 11px 0 0 11px;
 }
-:root[data-mh-skin='hardware']
-  [data-mh-np='keys']
-  [data-mh-rocker]
-  > [data-slot='button']:last-of-type {
+:root[data-mh-skin='hardware'] [data-mh-np] [data-mh-rocker] > button:last-of-type {
   border-radius: 0 11px 11px 0;
 }
-:root[data-mh-skin='hardware']
-  [data-mh-np='keys']
-  [data-mh-rocker]
-  > [data-slot='button']:focus-visible {
+:root[data-mh-skin='hardware'] [data-mh-np] [data-mh-rocker] > button:disabled {
+  /* A mode with nothing to show (no lyrics, no video) is a key that will not go down. */
+  color: color-mix(in srgb, var(--rk-ink) 45%, transparent);
+}
+:root[data-mh-skin='hardware'] [data-mh-np] [data-mh-rocker] > button:focus-visible {
   z-index: 1;
 }
 :root[data-mh-skin='hardware'] [data-mh-np='keys'] [data-mh-decor='transport-spacer'] {
   display: none;
 }
 /* The engraved line between zones. */
-:root[data-mh-skin='hardware']
-  [data-mh-np='keys']
-  [data-mh-rocker]
-  > [data-slot='button']
-  + [data-slot='button']::before {
+:root[data-mh-skin='hardware'] [data-mh-np] [data-mh-rocker] > button + button::before {
   content: '';
   position: absolute;
   inset: 26% auto 26% 0;
   width: 1px;
-  background: rgb(0 0 0 / 0.6);
-  box-shadow: 1px 0 0 rgb(255 255 255 / 0.09);
+  background: var(--rk-divider);
+  box-shadow: 1px 0 0 var(--rk-divider-light);
 }
-:root[data-mh-skin='hardware']
-  [data-mh-np='keys']
-  [data-mh-rocker]
-  > [data-slot='button'][aria-pressed='true'] {
+:root[data-mh-skin='hardware'] [data-mh-np='keys'] [data-mh-rocker] > button[aria-pressed='true'] {
   color: var(--np-liked);
 }
-:root[data-mh-skin='hardware'] [data-mh-np='keys'] [data-mh-rocker] > [data-slot='button'] > svg {
+:root[data-mh-skin='hardware'] [data-mh-np='keys'] [data-mh-rocker] > button > svg {
   width: 20px;
   height: 20px;
 }
 :root[data-mh-skin='hardware']
-  [data-mh-np='keys']
-  [data-mh-rocker]:has(> [data-slot='button']:first-of-type:active:not(:disabled)) {
+  [data-mh-np]
+  [data-mh-rocker]:has(> button:first-of-type:active:not(:disabled)) {
   --mh-wall-l: 1.25px;
   --mh-wall-r: 2.75px;
   --shade-dir: 270deg;
-  --press-shade: rgb(0 0 0 / 0.3);
+  --press-shade: var(--rk-shade);
 }
 :root[data-mh-skin='hardware']
-  [data-mh-np='keys']
-  [data-mh-rocker]:has(> [data-slot='button']:last-of-type:active:not(:disabled)) {
+  [data-mh-np]
+  [data-mh-rocker]:has(> button:last-of-type:active:not(:disabled)) {
   --mh-wall-l: 2.75px;
   --mh-wall-r: 1.25px;
   --shade-dir: 90deg;
-  --press-shade: rgb(0 0 0 / 0.3);
+  --press-shade: var(--rk-shade);
 }
 :root[data-mh-skin='hardware']
-  [data-mh-np='keys']
-  [data-mh-rocker]:has(
-    > [data-slot='button']:not(:first-of-type, :last-of-type):active:not(:disabled)
-  ) {
+  [data-mh-np]
+  [data-mh-rocker]:has(> button:not(:first-of-type, :last-of-type):active:not(:disabled)) {
   --mh-wall-l: 1px;
   --mh-wall-r: 1px;
 }
@@ -1271,6 +1276,7 @@
   --console-dim: #5c5c54;
   --console-lcd: linear-gradient(#b5b5ad, #d0d0c7);
   --np-liked: #a93215;
+  container: mh-console / inline-size;
   width: min(100%, 640px);
   margin-inline: auto;
   padding: clamp(12px, 3vw, 22px);
@@ -1297,7 +1303,7 @@
   height: 6px;
   margin-inline-end: 6px;
   border-radius: 50%;
-  background: #bdbdb2;
+  background: var(--mh-led-off);
 }
 
 :root[data-mh-skin='hardware'] [data-mh-console-plate][data-playing]::before {
@@ -1370,31 +1376,45 @@
   height: 16px;
 }
 
-/* Like, Mute and Volume: a row of controls, each over its printed legend. */
+/* Like, Mute and Volume: a row of controls, each over its printed legend. The keys stand on the
+   line the knob's dial ends on, so their legends read along its number. The row wraps where the
+   case is narrow. */
 :root[data-mh-skin='hardware'] [data-mh-console-like] {
   --mh-legend: var(--console-dim);
   --mh-lip: #fff;
   grid-area: like;
-  display: grid;
-  grid-template: 60px auto / auto minmax(0, 1fr);
-  align-items: center;
-  justify-items: start;
-  gap: 2px 10px;
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0 var(--mh-ctl-gap, 10px);
   align-self: start;
-  padding-top: 4px;
+  padding-top: 2px;
+}
+/* Where the case is narrow the three take the sizes the kit gives a small device. */
+@container mh-console (max-width: 470px) {
+  :root[data-mh-skin='hardware'] [data-mh-console-like] {
+    --mh-ctl-gap: 8px;
+    --mh-latch-w: 48px;
+    --mh-knob: 56px;
+    --mh-knob-inset: 10px;
+    --mh-knob-gap: 3px;
+    --mh-knob-num: 10px;
+    --mh-knob-num-h: 16px;
+  }
 }
 
+/* Under the heart's key, which is always the row's first. */
 :root[data-mh-skin='hardware'] [data-mh-console-like] > small {
-  grid-area: 2 / 1;
-  justify-self: center;
+  position: absolute;
+  top: calc(var(--mh-knob, 72px) + 9px);
+  left: calc(var(--mh-latch-w, 56px) / 2);
+  translate: -50% 0;
 }
 
-:root[data-mh-skin='hardware'] [data-mh-console-like] [data-mh-np='volume'] {
-  grid-area: 1 / 2;
-}
-
-/* A latching key (SPEC-01's): a cap standing out of a dark opening on its own side wall. Latched,
-   it stays down in the opening with its top in shade. Like is one, Mute the other. */
+/* A latching key (SPEC-01's Checkbox): a black base with a lit lip, and a matte cap standing 11px
+   out of it on its own side wall. Latched, the cap stays down in the base with its top in shade.
+   Like is one, Mute the other. */
 @property --mh-lift {
   syntax: '<length>';
   inherits: true;
@@ -1402,22 +1422,24 @@
 }
 :root[data-mh-skin='hardware']
   :is([data-mh-console-like] > [data-slot='button'], [data-mh-np='volume'] button) {
-  --travel: 5px;
+  --travel: 11px;
   --mh-lift: var(--travel);
-  --cap-lit: 0.2;
-  --cap: linear-gradient(180deg, #4a4a45, #2a2a28 55%, #21211f);
+  --cap-lit: 0.18;
+  --cap: linear-gradient(180deg, #44443f, #2a2a28 55%, #21211f);
   --cap-shade: inset 0 -2px 2px rgb(0 0 0 / 0.45);
   position: relative;
   isolation: isolate;
   flex: none;
-  width: 50px;
-  height: 44px;
-  border-radius: 12px;
+  width: var(--mh-latch-w, 56px);
+  height: 52px;
+  /* The base ends at the foot of the dial; the legend hangs below. */
+  margin: calc(var(--mh-knob, 72px) - 52px) 0 24px;
+  border-radius: 10px;
   background: linear-gradient(180deg, #0b0b0a, #1a1a19);
   box-shadow:
     inset 0 3px 6px rgb(0 0 0 / 0.85),
     inset 0 -1px 0 rgb(255 255 255 / 0.06),
-    0 1px 0 var(--mh-lip, rgb(255 255 255 / 0.5)),
+    0 1px 0 var(--mh-lip),
     0 -1px 0 rgb(0 0 0 / 0.08);
   color: #f2f2ee;
   scale: 1;
@@ -1428,23 +1450,32 @@
   --wall: max(0px, var(--mh-lift));
   content: '';
   position: absolute;
-  inset: 5px;
+  inset: 6px;
   z-index: -1;
-  border-radius: 17px;
+  border-radius: 12px;
   background: var(--cap);
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / var(--cap-lit)),
     var(--cap-shade),
-    0 calc(var(--wall) * 0.5) 0 #171716,
-    0 var(--wall) 0 #0a0a09,
-    0 calc(var(--wall) + 2px) calc(var(--wall) * 0.9 + 1px) rgb(0 0 0 / 0.7);
+    0 calc(var(--wall) * 0.0909) 0 #1b1b1a,
+    0 calc(var(--wall) * 0.1818) 0 #191918,
+    0 calc(var(--wall) * 0.2727) 0 #171716,
+    0 calc(var(--wall) * 0.3636) 0 #151514,
+    0 calc(var(--wall) * 0.4545) 0 #131312,
+    0 calc(var(--wall) * 0.5455) 0 #111110,
+    0 calc(var(--wall) * 0.6364) 0 #0f0f0e,
+    0 calc(var(--wall) * 0.7273) 0 #0d0d0c,
+    0 calc(var(--wall) * 0.8182) 0 #0b0b0a,
+    0 calc(var(--wall) * 0.9091) 0 #0a0a09,
+    0 var(--wall) 0 #090908,
+    0 calc(var(--wall) + 2px) calc(var(--wall) * 0.9 + 1px) rgb(0 0 0 / 0.63);
   translate: 0 calc(var(--mh-lift) * -1);
 }
 :root[data-mh-skin='hardware']
   :is([data-mh-console-like] > [data-slot='button'], [data-mh-np='volume'] button)
   > svg {
-  width: 17px;
-  height: 17px;
+  width: 16px;
+  height: 16px;
   color: #f2f2ee;
   translate: 0 calc(var(--mh-lift) * -1);
 }
@@ -1477,7 +1508,7 @@
    itself (the app has no words there), so they hang under it. */
 :root[data-mh-skin='hardware'] [data-mh-console-like] > small,
 :root[data-mh-skin='hardware'] [data-mh-np='volume'] button::after,
-:root[data-mh-skin='hardware'] [data-mh-np='volume'] [role='slider']::after {
+:root[data-mh-skin='hardware'] [data-mh-np='volume'] [role='slider'] > div::after {
   color: var(--mh-legend, var(--muted-foreground));
   font-size: 9px;
   line-height: 12px;
@@ -1487,34 +1518,24 @@
   white-space: nowrap;
 }
 :root[data-mh-skin='hardware'] [data-mh-np='volume'] button::after,
-:root[data-mh-skin='hardware'] [data-mh-np='volume'] [role='slider']::after {
+:root[data-mh-skin='hardware'] [data-mh-np='volume'] [role='slider']::after,
+:root[data-mh-skin='hardware'] [data-mh-np='volume'] [role='slider'] > div::after {
   position: absolute;
   left: 50%;
   translate: -50% 0;
 }
-:root[data-mh-skin='hardware'] [data-mh-console-like] > small::before {
-  content: '';
-  display: inline-block;
-  width: 5px;
-  height: 5px;
-  margin-inline-end: 5px;
-  border-radius: 50%;
-  background: var(--mh-led-off);
-  vertical-align: 1px;
-}
-:root[data-mh-skin='hardware']
-  [data-mh-console-like]:has(> [data-slot='button'][aria-pressed='true'])
-  > small::before {
-  background: var(--mh-led);
-  box-shadow: var(--mh-led-glow);
-}
+:root[data-mh-skin='hardware'] [data-mh-console-like] > small,
 :root[data-mh-skin='hardware'] [data-mh-np='volume'] button::after {
-  content: 'Mute';
-  /* Under the 60px row its 44px key is centred in, level with Like's legend. */
-  top: calc(100% + 10px);
   padding-inline-start: 10px;
   background: radial-gradient(circle at 2.5px 50%, var(--mh-led-off) 0 2.5px, transparent 3px);
 }
+:root[data-mh-skin='hardware'] [data-mh-np='volume'] button::after {
+  content: 'Mute';
+  top: calc(100% + 7px);
+}
+:root[data-mh-skin='hardware']
+  [data-mh-console-like]:has(> [data-slot='button'][aria-pressed='true'])
+  > small,
 :root[data-mh-skin='hardware'] [data-mh-np='volume'] [data-muted] > button::after {
   background: radial-gradient(
     circle at 2.5px 50%,
@@ -1524,68 +1545,87 @@
   );
 }
 
-/* Volume is a flat knob over a tick ring (SPEC-01's): 28 ticks over a 270° sweep, every ninth
-   heavier, those up to the level lit. The level is VolumeControl's --np-volume, 0 to 1. */
+/* Volume is SPEC-01's FlatKnob: a white cap with a dark rim and a red dot for the level, over a
+   ring of 28 ticks across a 270° sweep, every ninth heavier and those up to the level in ink, with
+   the number and the name printed under it. The level is VolumeControl's --np-volume, 0 to 1. */
 :root[data-mh-skin='hardware'] [data-mh-np='volume'] > div {
+  flex-wrap: wrap;
+  align-items: flex-start;
   justify-content: center;
-  height: 60px;
-  margin-bottom: 16px;
+  gap: 0 var(--mh-ctl-gap, 10px);
 }
 :root[data-mh-skin='hardware'] [data-mh-console-like] [data-mh-np='volume'] > div {
   justify-content: flex-start;
-  margin-bottom: 0;
 }
 :root[data-mh-skin='hardware'] [data-mh-np='volume'] [data-mh-decor='volume-max'] {
   display: none;
 }
 :root[data-mh-skin='hardware'] [data-mh-np='volume'] [role='slider'] {
   flex: none;
-  width: 60px;
-  height: 60px;
+  --gap: var(--mh-knob-gap, 6px);
+  --num-h: var(--mh-knob-num-h, 24px);
+  width: var(--mh-knob, 72px);
+  height: var(--mh-knob, 72px);
+  /* Room for the number and the name. */
+  margin-bottom: calc(var(--gap) * 2 + var(--num-h) + 14px);
   border-radius: 50%;
   cursor: ns-resize;
 }
+/* The ticks reach from 80% of the dial's radius to its edge, 1px and 2px wide there. */
 :root[data-mh-skin='hardware'] [data-mh-np='volume'] [role='slider']::before {
   --lit: round(down, var(--np-volume) * 27, 1);
   content: '';
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  /* Nothing is lit at zero: the first tick's own width is added only once there is a level. */
   background: conic-gradient(
-    from -138deg,
-    var(--mh-led) calc(var(--lit) * 10deg + min(5.5deg, var(--np-volume) * 9999deg)),
-    var(--mh-tick, #9c9b95) 0
+    from -140deg,
+    var(--mh-tick-lit) calc(var(--lit) * 10deg + 10deg),
+    var(--mh-tick) 0
   );
   mask:
-    radial-gradient(circle closest-side, transparent calc(100% - 7px), #000 calc(100% - 6.5px)),
+    radial-gradient(circle closest-side, transparent calc(80% - 0.5px), #000 80%),
     conic-gradient(from -138deg, #000 276deg, transparent 0),
-    repeating-conic-gradient(from -136.2deg, #000 0 2.4deg, transparent 0 10deg),
+    repeating-conic-gradient(from -135.9deg, #000 0 1.8deg, transparent 0 10deg),
     repeating-conic-gradient(from -136.8deg, #000 0 3.6deg, transparent 0 90deg);
   mask-composite: intersect, intersect, add;
 }
 :root[data-mh-skin='hardware'] [data-mh-np='volume'] [role='slider']::after {
-  content: 'Vol';
-  top: calc(100% + 2px);
+  content: attr(aria-valuenow);
+  top: calc(100% + var(--gap));
+  width: 40px;
+  padding: 2px 0;
+  font-size: var(--mh-knob-num, 15px);
+  line-height: calc(var(--num-h) - 4px);
+  font-weight: 300;
+  letter-spacing: 0;
+  text-align: center;
 }
 /* The slider's track is the knob's cap, which stays still so its light does; its fill is the
-   indicator line, on an overlay turning about the cap's centre. */
+   dot, on an overlay turning about the cap's centre. */
 :root[data-mh-skin='hardware'] [data-mh-np='volume'] [role='slider'] > div {
   position: absolute;
-  inset: 11px;
+  inset: var(--mh-knob-inset, 12px);
   width: auto;
   height: auto;
   overflow: visible;
   border-radius: 50%;
-  background: radial-gradient(circle at 50% 30%, #fff, #f1f0ec 70%);
+  background: radial-gradient(circle at 50% 30%, #fff, #f3f3f2 70%);
   box-shadow:
-    0 0 0 1.5px #2c2c2b,
-    0 3px 0 1px #1b1b1a,
-    0 6px 8px rgb(0 0 0 / 0.28);
+    0 0 0 2px #2c2c2b,
+    0.5px 1.5px 1.5px hsl(45deg 8% 30% / 0.18),
+    1px 3px 5px hsl(45deg 8% 30% / 0.11),
+    2px 5px 9px -3px hsl(45deg 8% 30% / 0.11);
+}
+:root[data-mh-skin='hardware'] [data-mh-np='volume'] [role='slider'] > div::after {
+  content: 'Volume';
+  top: calc(100% + var(--mh-knob-inset, 12px) + var(--gap) * 2 + var(--num-h));
 }
 :root[data-mh-skin='hardware'] [data-mh-np='volume'] [role='slider'] > div > div {
   border-radius: 50%;
-  background: linear-gradient(#1b1b19, #1b1b19) 50% 4px / 2.5px 9px no-repeat;
+  background: radial-gradient(circle, var(--mh-led) 2.1px, transparent 2.5px) 50% 6px / 5px 5px
+    no-repeat;
+  filter: drop-shadow(0 0 2px rgb(255 59 16 / 0.55));
   transform-origin: center;
   /* The fill is sized by an inline transform, which only !important can take back. */
   transform: none !important;
@@ -1669,70 +1709,67 @@
   font-size: inherit;
 }
 
-/* The mode keys are white keycaps on a side wall, in either theme: they sit on the desk, which is
-   dark in dark mode, where a graphite key was mud. The selected mode's key stays down with its
-   LED lit. */
-:root[data-mh-skin='hardware'] [data-mh-np='modes'] > :first-child button {
-  --wall: 4px;
-  position: relative;
-  width: 52px;
-  height: 46px;
-  border-radius: 10px;
-  background: linear-gradient(180deg, #fefefd, #ecebe6);
-  box-shadow:
-    inset 0 1px 0 #fff,
-    inset 0 -1px 0 rgb(0 0 0 / 0.05),
-    0 0 0 1px rgb(0 0 0 / 0.22),
-    0 var(--wall) 0 #c4c3bc,
-    0 var(--wall) 0 1px rgb(0 0 0 / 0.3),
-    0 calc(var(--wall) + 3px) 8px rgb(0 0 0 / 0.28);
-  color: #1b1b19;
-  transition:
-    transform 70ms cubic-bezier(0.3, 0, 0.2, 1),
-    box-shadow 70ms cubic-bezier(0.3, 0, 0.2, 1);
+/* The mode keys are zones of a second rocker, in the kit's white tone: it sits on the desk, which
+   is dark in dark mode, where the transport's black was mud. Each zone carries an LED; the mode
+   that is on has its zone latched down in shade, the LED lit and its glyph in red. */
+:root[data-mh-skin='hardware'] [data-mh-np='modes'] {
+  max-width: 400px;
+  margin: 14px auto 0;
 }
-:root[data-mh-skin='hardware'] [data-mh-np='modes'] > :first-child button > span {
+:root[data-mh-skin='hardware'] [data-mh-np='modes'] [data-mh-rocker] {
+  --rk-rim: linear-gradient(180deg, #dadad6, #cbcbc6);
+  --rk-face:
+    linear-gradient(0deg, rgb(255 255 255 / 0.55), rgb(255 255 255 / 0) 55%, rgb(0 0 0 / 0.025)),
+    #f6f6f4;
+  --rk-face-edge: inset 0 1px 0 #fff, inset 0 -1px 0 rgb(0 0 0 / 0.04);
+  --rk-ink: #2a2a28;
+  --rk-divider: rgb(0 0 0 / 0.13);
+  --rk-divider-light: rgb(255 255 255 / 0.95);
+  --rk-shade: rgb(0 0 0 / 0.05);
+  margin-top: 0;
+}
+:root[data-mh-skin='hardware'] [data-mh-np='modes'] [data-mh-rocker] > button > span {
   background: transparent;
 }
-:root[data-mh-skin='hardware'] [data-mh-np='modes'] > :first-child button svg {
+:root[data-mh-skin='hardware'] [data-mh-np='modes'] [data-mh-rocker] > button svg {
   width: 18px;
   height: 18px;
   translate: 0 4px;
 }
-:root[data-mh-skin='hardware'] [data-mh-np='modes'] > :first-child button::after {
+:root[data-mh-skin='hardware'] [data-mh-np='modes'] [data-mh-rocker] > button::after {
   content: '';
   position: absolute;
-  top: 7px;
+  top: 8px;
   left: calc(50% - 2.5px);
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: #c9c8c2;
-  box-shadow: inset 0 1px 1px rgb(0 0 0 / 0.3);
+  background: #cfcdc7;
 }
 :root[data-mh-skin='hardware']
   [data-mh-np='modes']
-  > :first-child
-  button:is([aria-pressed='true'], [aria-current='true'], .text-primary, :active) {
-  --wall: 1px;
-  transform: translateY(3px);
-  background: linear-gradient(180deg, #dddcd6, #e9e8e3);
+  [data-mh-rocker]
+  > button:is([aria-pressed='true'], [aria-current='true'], .text-primary) {
+  background: linear-gradient(180deg, rgb(0 0 0 / 0.13), rgb(0 0 0 / 0.05));
   box-shadow:
-    inset 0 2px 3px rgb(0 0 0 / 0.16),
-    0 0 0 1px rgb(0 0 0 / 0.28),
-    0 var(--wall) 0 #c4c3bc,
-    0 var(--wall) 0 1px rgb(0 0 0 / 0.3),
-    0 2px 3px rgb(0 0 0 / 0.22);
+    inset 0 2px 4px rgb(0 0 0 / 0.22),
+    inset 0 -1px 0 rgb(255 255 255 / 0.6);
+  /* 6.1:1 on the shaded zone. */
+  color: #a8220a;
 }
 :root[data-mh-skin='hardware']
   [data-mh-np='modes']
-  > :first-child
-  button:is([aria-pressed='true'], [aria-current='true'], .text-primary)::after {
+  [data-mh-rocker]
+  > button:is([aria-pressed='true'], [aria-current='true'], .text-primary)
+  svg {
+  translate: 0 5px;
+}
+:root[data-mh-skin='hardware']
+  [data-mh-np='modes']
+  [data-mh-rocker]
+  > button:is([aria-pressed='true'], [aria-current='true'], .text-primary)::after {
   background: var(--mh-led);
   box-shadow: var(--mh-led-glow);
-}
-:root[data-mh-skin='hardware'] [data-mh-np='modes'] {
-  margin-top: 14px;
 }
 
 /* The wider monospace face needs a smaller reading size than the default theater headings.

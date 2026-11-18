@@ -711,7 +711,7 @@
      Video (when watchable) · Info · Queue (while a queue is loaded here). While the music plays on
      another device, the line under the row says where, and opens the same picker. -->
 {#snippet bottomRow()}
-  <div class="flex items-center justify-evenly">
+  <div class="flex items-center justify-evenly" data-mh-rocker>
     {@render modeButton('lyrics', 'Lyrics', MessageSquareQuote, lyrics, lyricsWhy, pressLyrics)}
     {#if playerStore.airPlayAvailable && isCurrentlyLoaded}
       <button
