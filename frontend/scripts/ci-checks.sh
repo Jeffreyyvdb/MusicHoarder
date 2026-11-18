@@ -1,21 +1,24 @@
 #!/usr/bin/env bash
-# The frontend's lint, type check and unit tests, side by side, for CI (ci.yml, release.yml).
+# The frontend's lint, type check, unit tests and production build, side by side, for CI
+# (ci.yml, release.yml). The build is here so a PR that breaks it fails before the weekly release.
 #
 # Side by side they take as long as the slowest of them (the tests, then svelte-check, which is
 # single-threaded) instead of their sum. Lint is oxlint, which already uses every core.
 # Each log is printed whole once its command ends, so outputs never interleave, and the step fails
-# if any of the three does.
+# if any of them does.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
 echo "Runner: $(nproc) cores, $(free -g | awk '/^Mem:/ { print $2 }') GB memory"
 
-# `check` and `test` each start with their own `svelte-kit sync`. Sync writes a file only when its
-# content changes, so after this one they write nothing and cannot read a half-written file.
+# Sync once before anything reads .svelte-kit/. `check`, `test` and `build` sync again on their own,
+# and on SvelteKit 3.2 every sync rewrites every route's $types.d.ts. svelte-check reads them in
+# its first seconds, before the build's syncs; a read that met a rewrite would be a loud missing-
+# `./$types` error, never a pass. vitest and oxlint do not read .svelte-kit/.
 bunx svelte-kit sync || exit 1
 
 logs=$(mktemp -d)
-names=(lint check test)
+names=(lint check test build)
 declare -A pids
 
 run() {
@@ -34,6 +37,7 @@ run() {
 run lint bun run lint
 run check bun run check
 run test bun run test
+run build bun run build
 
 failed=()
 for name in "${names[@]}"; do
