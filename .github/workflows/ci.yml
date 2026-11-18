@@ -40,6 +40,13 @@ jobs:
         with:
           global-json-file: global.json
 
+      # Saved by main's push runs and read by every PR, which may use caches from the base branch.
+      - uses: actions/cache@v6.1.0
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('global.json', '**/*.csproj', '**/Directory.*.props') }}
+          restore-keys: nuget-${{ runner.os }}-
+
       - name: Restore
         run: dotnet restore MusicHoarder.Api.Tests/MusicHoarder.Api.Tests.csproj
 
