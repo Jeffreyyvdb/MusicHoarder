@@ -383,8 +383,10 @@ purge_leftovers() {
   live="$(find_compose_id <<<"$projects")" || return 1
   if [[ -n "$live" ]]; then
     echo "::warning::${NAME} has a compose again (${live}); leaving its Docker resources alone." >&2
-    return 0
+    return 10
   fi
+  # The last read before anything is removed, so a reopen during the inventory is caught too.
+  check_closed "$pr" || return $?
   resources="$(awk -F'\t' -v pr="$pr" '$2 == pr' <<<"$all")"
   [[ -n "$resources" ]] || { echo "No Docker leftovers for ${NAME}."; return 0; }
   while IFS=$'\t' read -r kind rpr name ref; do
@@ -417,7 +419,8 @@ pr_state() {
 }
 
 # Succeeds while the PR is closed or merged. Otherwise says why the preview stays and fails, with 10
-# for an open PR (keeping it is right) and 1 when the state cannot be read.
+# for an open PR (keeping it is right) and 1 when the state cannot be read. destroy passes the 10
+# on, so reap can tell a kept preview from a failed one.
 check_closed() {
   local state
   state="$(pr_state "$1")"
@@ -432,7 +435,7 @@ destroy() {
   : "${GH_TOKEN:?GH_TOKEN is required}"
   : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
   local projects compose_id gone=1
-  check_closed "$PR" || { (( $? == 10 )) && return 0; return 1; }
+  check_closed "$PR" || return $?
   projects="$(get project.all)" || return 1
   compose_id="$(find_compose_id <<<"$projects")" || return 1
   if [[ -z "$compose_id" ]]; then
@@ -462,7 +465,7 @@ destroy() {
       return 1
     fi
     # Asked again after the wait: a PR reopened meanwhile redeploys this same compose.
-    check_closed "$PR" || { (( $? == 10 )) && return 0; return 1; }
+    check_closed "$PR" || return $?
     echo "Deleting compose '${NAME}' (${compose_id}) and its volumes..."
     # compose.delete stops the stack and removes its volumes before it answers, which takes longer
     # than the proxy in front of Dokploy waits: the proxy answers 520 at ~30s while the delete
@@ -487,7 +490,7 @@ destroy() {
   fi
   # Also when there was no compose: a delete that failed half-way, or one made before this cleanup
   # existed, leaves the network (and maybe containers and volumes) with nothing pointing at them.
-  purge_leftovers "$PR" || return 1
+  purge_leftovers "$PR" || return $?
   echo "Preview '${NAME}' destroyed."
 }
 
@@ -527,18 +530,22 @@ reap() {
       continue
     fi
     echo "PR #${pr}: ${state} — destroying."
-    # One failure must not stop the sweep; the next run retries what is left.
-    ( PR="$pr" NAME="pr-${pr}" APP_NAME="mh-pr-${pr}"; destroy ) \
-      || { echo "::warning::could not fully destroy the preview of #${pr}; the next run retries." >&2; failed=1; }
-    # Drop the stale "preview" label if the close-event teardown missed it. Best-effort.
-    gh pr edit "$pr" --repo "$GITHUB_REPOSITORY" --remove-label preview >/dev/null 2>&1 || true
+    local rc=0
+    ( PR="$pr" NAME="pr-${pr}" APP_NAME="mh-pr-${pr}"; destroy ) || rc=$?
+    case "$rc" in
+      # Drop the stale "preview" label if the close-event teardown missed it. Best-effort.
+      0) gh pr edit "$pr" --repo "$GITHUB_REPOSITORY" --remove-label preview >/dev/null 2>&1 || true ;;
+      10) ;;  # reopened during the sweep; destroy kept the preview
+      # One failure must not stop the sweep; the next run retries what is left.
+      *) echo "::warning::could not fully destroy the preview of #${pr}; the next run retries." >&2; failed=1 ;;
+    esac
   done
   return "$failed"
 }
 
 case "$CMD" in
   provision) provision ;;
-  destroy)   destroy ;;
+  destroy)   destroy || { rc=$?; (( rc == 10 )) && exit 0; exit "$rc"; } ;;
   reap)      reap ;;
   *) echo "Usage: PR=<n> $0 {provision|destroy} | $0 reap" >&2; exit 64 ;;
 esac
