@@ -13,7 +13,7 @@
     "start:prod": "bun build/index.js",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --tsgo-experimental-api",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-    "lint": "svelte-kit sync && oxlint && bun oxlint/svelte-markup.mjs",
+    "lint": "oxfmt --check && svelte-kit sync && oxlint && bun oxlint/svelte-markup.mjs",
     "test": "svelte-kit sync && vitest run",
     "test:watch": "svelte-kit sync && vitest",
     "format": "oxfmt",

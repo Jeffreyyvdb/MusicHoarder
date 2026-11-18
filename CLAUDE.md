@@ -41,7 +41,8 @@ dotnet test MusicHoarder.Api.Tests/MusicHoarder.Api.Tests.csproj --filter "Displ
 cd frontend && MUSICHOARDER_API_URL=http://localhost:<api-port> PORT=3000 bun run dev
 cd frontend && bun run build        # SvelteKit + adapter-node build
 cd frontend && bun run check        # svelte-check + TypeScript
-cd frontend && bun run lint         # oxlint, type-aware (see "Frontend lint" under Coding conventions)
+cd frontend && bun run lint         # oxfmt --check, then oxlint, type-aware (see "Frontend lint" under Coding conventions)
+cd frontend && bun run format       # oxfmt, writes in place; lint fails on any file it would change
 
 # Performance suite (perf/README.md): a local stack with a generated library, API + browser timings
 cd perf && bun install && bun perf all --label baseline   # then: bun perf compare baseline <label>
