@@ -14,9 +14,6 @@ public sealed class FakeDeezerCatalogService : IDeezerCatalogService
     /// <summary>Playlist ids whose tracklist fetch simulates a mid-run page failure (IsComplete = false).</summary>
     public HashSet<string> IncompletePlaylistTracks { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, DeezerCatalogTrack> TracksById { get; } = new(StringComparer.Ordinal);
-    public List<DeezerGenre> Genres { get; } = [];
-    public List<DeezerPlaylistSummary> ChartPlaylists { get; } = [];
-    public List<DeezerPlaylistSummary> SearchResults { get; } = [];
     public List<DeezerArtistCandidate> ArtistSearchResults { get; } = [];
     public Dictionary<string, DeezerAlbumDetail> Albums { get; } = new(StringComparer.Ordinal);
 
@@ -50,15 +47,6 @@ public sealed class FakeDeezerCatalogService : IDeezerCatalogService
 
     public Task<DeezerAlbumDetail?> GetAlbumAsync(string albumId, CancellationToken ct = default) =>
         Task.FromResult(Albums.GetValueOrDefault(albumId));
-
-    public Task<IReadOnlyList<DeezerGenre>> GetGenresAsync(CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyList<DeezerGenre>>(Genres);
-
-    public Task<IReadOnlyList<DeezerPlaylistSummary>> GetChartPlaylistsAsync(long? genreId, int limit, CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyList<DeezerPlaylistSummary>>(ChartPlaylists);
-
-    public Task<IReadOnlyList<DeezerPlaylistSummary>> SearchPlaylistsAsync(string query, int limit, CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyList<DeezerPlaylistSummary>>(SearchResults);
 
     public Task<DeezerPlaylistSummary?> GetPlaylistAsync(string id, CancellationToken ct = default) =>
         Task.FromResult(Playlists.GetValueOrDefault(id));

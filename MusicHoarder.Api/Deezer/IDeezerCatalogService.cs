@@ -38,17 +38,7 @@ public interface IDeezerCatalogService
     Task<IReadOnlyList<DeezerArtistRelease>?> GetArtistReleasesAsync(string artistId, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<DeezerArtistRelease>?>(null);
 
-    // --- Discover (editorial browse) ---
-
-    /// <summary>Editorial genres for the discover browser (<c>GET /genre</c>), cached ~10 min.</summary>
-    Task<IReadOnlyList<DeezerGenre>> GetGenresAsync(CancellationToken ct = default);
-
-    /// <summary>Chart (top) playlists, optionally scoped to a genre (<c>GET /chart/{genreId}/playlists</c>).
-    /// A null genre uses the global chart (genre id 0). Cached ~10 min.</summary>
-    Task<IReadOnlyList<DeezerPlaylistSummary>> GetChartPlaylistsAsync(long? genreId, int limit, CancellationToken ct = default);
-
-    /// <summary>Playlist search (<c>GET /search/playlist</c>). Cached ~10 min.</summary>
-    Task<IReadOnlyList<DeezerPlaylistSummary>> SearchPlaylistsAsync(string query, int limit, CancellationToken ct = default);
+    // --- Playlists ---
 
     /// <summary>Full playlist metadata incl. checksum (<c>GET /playlist/{id}</c>); null if not found.</summary>
     Task<DeezerPlaylistSummary?> GetPlaylistAsync(string id, CancellationToken ct = default);

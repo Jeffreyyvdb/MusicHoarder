@@ -157,51 +157,7 @@ public sealed class DeezerCatalogService(
         return all;
     }
 
-    // --- Discover (editorial browse) ---
-
-    public async Task<IReadOnlyList<DeezerGenre>> GetGenresAsync(CancellationToken ct = default)
-    {
-        const string cacheKey = "deezer_genres";
-        if (cache.TryGetValue(cacheKey, out IReadOnlyList<DeezerGenre>? cached) && cached is not null)
-            return cached;
-
-        var json = await GetAsync($"{BaseUrl}/genre", ct);
-        var genres = json is null ? [] : ParseGenres(json);
-        CacheBrowse(cacheKey, genres);
-        return genres;
-    }
-
-    public async Task<IReadOnlyList<DeezerPlaylistSummary>> GetChartPlaylistsAsync(long? genreId, int limit, CancellationToken ct = default)
-    {
-        var genre = genreId ?? 0;
-        limit = Math.Clamp(limit, 1, 100);
-        var cacheKey = $"deezer_chart_playlists:{genre}:{limit}";
-        if (cache.TryGetValue(cacheKey, out IReadOnlyList<DeezerPlaylistSummary>? cached) && cached is not null)
-            return cached;
-
-        var json = await GetAsync($"{BaseUrl}/chart/{genre}/playlists?limit={limit}", ct);
-        var playlists = json is null ? [] : ParsePlaylistList(json);
-        CacheBrowse(cacheKey, playlists);
-        return playlists;
-    }
-
-    public async Task<IReadOnlyList<DeezerPlaylistSummary>> SearchPlaylistsAsync(string query, int limit, CancellationToken ct = default)
-    {
-        if (string.IsNullOrWhiteSpace(query))
-            return [];
-
-        limit = Math.Clamp(limit, 1, 100);
-        var raw = $"{limit}|{query}";
-        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(raw)));
-        var cacheKey = $"deezer_search_playlists:{hash}";
-        if (cache.TryGetValue(cacheKey, out IReadOnlyList<DeezerPlaylistSummary>? cached) && cached is not null)
-            return cached;
-
-        var json = await GetAsync($"{BaseUrl}/search/playlist?q={Uri.EscapeDataString(query)}&limit={limit}", ct);
-        var playlists = json is null ? [] : ParsePlaylistList(json);
-        CacheBrowse(cacheKey, playlists);
-        return playlists;
-    }
+    // --- Playlists (subscriptions and pasted links) ---
 
     public async Task<DeezerPlaylistSummary?> GetPlaylistAsync(string id, CancellationToken ct = default)
     {
@@ -255,61 +211,6 @@ public sealed class DeezerCatalogService(
         }
 
         return new DeezerPlaylistTracksResult(all, IsComplete: true);
-    }
-
-    private void CacheBrowse<T>(string cacheKey, T value) =>
-        cache.Set(cacheKey, value, new MemoryCacheEntryOptions
-        {
-            AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(Math.Max(1, options.Value.DeezerBrowseCacheMinutes)),
-        });
-
-    private static IReadOnlyList<DeezerGenre> ParseGenres(string json)
-    {
-        try
-        {
-            using var doc = JsonDocument.Parse(json);
-            if (!doc.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
-                return [];
-
-            var list = new List<DeezerGenre>();
-            foreach (var item in data.EnumerateArray())
-            {
-                if (item.ValueKind != JsonValueKind.Object) continue;
-                var id = item.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.Number ? idEl.GetInt64() : -1;
-                if (id < 0) continue;
-                var name = item.TryGetProperty("name", out var nEl) && nEl.ValueKind == JsonValueKind.String ? nEl.GetString() ?? "" : "";
-                var picture = FirstString(item, "picture_medium", "picture_big", "picture");
-                list.Add(new DeezerGenre(id, name, picture));
-            }
-            return list;
-        }
-        catch (JsonException)
-        {
-            return [];
-        }
-    }
-
-    private static IReadOnlyList<DeezerPlaylistSummary> ParsePlaylistList(string json)
-    {
-        try
-        {
-            using var doc = JsonDocument.Parse(json);
-            if (!doc.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
-                return [];
-
-            var list = new List<DeezerPlaylistSummary>();
-            foreach (var item in data.EnumerateArray())
-            {
-                var parsed = ParsePlaylistElement(item);
-                if (parsed is not null)
-                    list.Add(parsed);
-            }
-            return list;
-        }
-        catch (JsonException)
-        {
-            return [];
-        }
     }
 
     private static DeezerPlaylistSummary? ParsePlaylistSummary(string json)

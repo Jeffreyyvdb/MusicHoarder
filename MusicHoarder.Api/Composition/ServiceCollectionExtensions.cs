@@ -10,6 +10,7 @@ using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
 using MusicHoarder.Api.CoverArtArchive;
 using MusicHoarder.Api.Deezer;
+using MusicHoarder.Api.Discover;
 using MusicHoarder.Api.Download;
 using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Enrichment.AlbumTracklist;
@@ -594,6 +595,17 @@ public static class ServiceCollectionExtensions
             var options = sp.GetRequiredService<IOptions<MusicEnricherOptions>>();
             var logger = sp.GetRequiredService<ILogger<DeezerCatalogService>>();
             return new DeezerCatalogService(httpClient, cache, options, logger);
+        });
+
+        services.AddSingleton<ISpotifyPlaylistArchive>(sp =>
+        {
+            var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+            httpClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "MusicHoarder");
+            return new SpotifyPlaylistArchiveClient(
+                httpClient,
+                sp.GetRequiredService<Microsoft.Extensions.Caching.Memory.IMemoryCache>(),
+                sp.GetRequiredService<IOptions<MusicEnricherOptions>>(),
+                sp.GetRequiredService<ILogger<SpotifyPlaylistArchiveClient>>());
         });
 
         services.AddSingleton<IAppleMusicCatalogService>(sp =>

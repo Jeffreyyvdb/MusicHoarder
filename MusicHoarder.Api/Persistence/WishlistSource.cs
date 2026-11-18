@@ -19,6 +19,13 @@ public enum WishlistSourceType
     /// the exact video on the list, audio and music video both, rather than searching by name.
     /// </summary>
     YouTubePlaylist,
+
+    /// <summary>
+    /// One of Spotify's own playlists, read from the public Spotify Playlist Archive (keyed by
+    /// <see cref="WishlistSource.SpotifyPlaylistId"/>). Needs no Spotify account, so it keeps syncing
+    /// while Spotify is disconnected.
+    /// </summary>
+    SpotifyArchivePlaylist,
 }
 
 /// <summary>
@@ -35,7 +42,7 @@ public class WishlistSource
 
     public WishlistSourceType SourceType { get; set; }
 
-    /// <summary>Spotify playlist id; null for <see cref="WishlistSourceType.LikedSongs"/> and Deezer sources.</summary>
+    /// <summary>Spotify playlist id; set for <see cref="WishlistSourceType.Playlist"/> and <see cref="WishlistSourceType.SpotifyArchivePlaylist"/> sources.</summary>
     [MaxLength(64)]
     public string? SpotifyPlaylistId { get; set; }
 
@@ -48,8 +55,9 @@ public class WishlistSource
     public string? YouTubePlaylistId { get; set; }
 
     /// <summary>
-    /// Deezer's tracklist checksum from the last sync (<c>GET /playlist/{id}</c>). When it matches the
-    /// remote playlist's current checksum the sync skips paging the tracklist (nothing changed).
+    /// The remote tracklist's fingerprint from the last complete read: Deezer's playlist checksum, or an
+    /// archived Spotify playlist's snapshot id. When it matches the current one the sync skips the read
+    /// (nothing changed).
     /// </summary>
     [MaxLength(128)]
     public string? RemoteChecksum { get; set; }
@@ -75,8 +83,8 @@ public class WishlistSource
     public DateTime CreatedAtUtc { get; set; }
 
     /// <summary>
-    /// True for the sources read through the owner's Spotify account. Deezer and YouTube playlists are
-    /// read from public listings, so they keep syncing while Spotify is not connected.
+    /// True for the sources read through the owner's Spotify account. Deezer and YouTube playlists and
+    /// archived Spotify playlists are read from public listings, so they keep syncing while Spotify is not connected.
     /// </summary>
     public bool NeedsSpotify => SourceType is WishlistSourceType.LikedSongs or WishlistSourceType.Playlist;
 }

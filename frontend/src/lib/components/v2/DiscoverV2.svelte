@@ -3,7 +3,6 @@
   import { untrack } from 'svelte';
   import { page } from '$app/state';
   import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
-  import FilterChip from '#lib/components/v2/FilterChip.svelte';
   import { Button } from '#lib/components/ui/button/index.ts';
   import { Input } from '#lib/components/ui/input/index.ts';
   import { Switch } from '#lib/components/ui/switch/index.ts';
@@ -21,11 +20,9 @@
     AlertCircle,
     Plus,
     CircleCheck,
-    Music,
     Gift
   } from '@lucide/svelte';
   import {
-    fetchDiscoverGenres,
     fetchDiscoverPlaylists,
     fetchDiscoverPlaylist,
     resolveDiscoverUrl,
@@ -36,7 +33,6 @@
     setWishlistSourceAutoSync,
     fetchSettings,
     ApiError,
-    type DiscoverGenre,
     type DiscoverPlaylistSummary,
     type DiscoverPlaylistDetail,
     type DiscoverResolveResult
@@ -44,7 +40,7 @@
   import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
   import { tabMemory } from '#lib/stores/tab-memory.svelte.ts';
   import { albumTint } from '#lib/album-tint.ts';
-  import { computeInitials } from '#lib/formatters.ts';
+  import { computeInitials, formatCompactCount } from '#lib/formatters.ts';
   import { toast } from 'svelte-sonner';
   import DiscoverPlaylistCard from '#lib/components/discover/DiscoverPlaylistCard.svelte';
   import { heroTitle } from '#lib/components/discover/hero-title.ts';
@@ -55,9 +51,6 @@
   const compact = $derived(isMobile.current);
 
   // ── Browse state ────────────────────────────────────────────────────────────
-  let genres = $state<DiscoverGenre[]>([]);
-  // null = "Top" (global top playlists).
-  let selectedGenreId = $state<number | null>(null);
   let playlists = $state<DiscoverPlaylistSummary[]>([]);
   let loadingPlaylists = $state(true);
   let playlistsError = $state<string | null>(null);
@@ -66,17 +59,17 @@
   let debouncedSearch = $state('');
 
   // ── Detail state ──────────────────────────────────────────────────────────
-  // The open playlist is a page of its own: /discover?playlist=deezer:<id>, a push from the grid,
-  // so Back returns to the grid (with its genre, search and scroll intact — this component stays
-  // mounted) and a playlist can be linked. A bare id is accepted too.
-  const DEEZER = 'deezer:';
+  // The open playlist is a page of its own: /discover?playlist=spotify:<id>, a push from the grid,
+  // so Back returns to the grid (with its search and scroll intact — this component stays mounted)
+  // and a playlist can be linked. A bare id is accepted too.
+  const SPOTIFY = 'spotify:';
   const playlistParam = $derived.by(() => {
     const raw = page.url.searchParams.get('playlist');
     if (!raw) return null;
-    return raw.startsWith(DEEZER) ? raw.slice(DEEZER.length) || null : raw;
+    return raw.startsWith(SPOTIFY) ? raw.slice(SPOTIFY.length) || null : raw;
   });
   function playlistHref(id: string): string {
-    return `/discover?playlist=${encodeURIComponent(DEEZER + id)}`;
+    return `/discover?playlist=${encodeURIComponent(SPOTIFY + id)}`;
   }
   let detail = $state<DiscoverPlaylistDetail | null>(null);
   let loadingDetail = $state(false);
@@ -120,7 +113,7 @@
   }
 
   // Monotonic request tokens: a slower earlier response must not overwrite a newer one when the
-  // genre/search switches (grid) or another playlist is opened (detail) mid-flight.
+  // search changes (grid) or another playlist is opened (detail) mid-flight.
   let playlistsReq = 0;
   let detailReq = 0;
 
@@ -132,12 +125,7 @@
       playlistsError = null;
     }
     try {
-      const params = debouncedSearch
-        ? { search: debouncedSearch }
-        : selectedGenreId != null
-          ? { genreId: selectedGenreId }
-          : {};
-      const res = await fetchDiscoverPlaylists(params);
+      const res = await fetchDiscoverPlaylists(debouncedSearch ? { search: debouncedSearch } : {});
       if (token !== playlistsReq) return; // superseded by a newer load
       playlists = res.playlists;
     } catch (err) {
@@ -148,15 +136,8 @@
     }
   }
 
-  // Genres + settings load once on mount (no reactive reads).
+  // Settings load once on mount (no reactive reads).
   $effect(() => {
-    void (async () => {
-      try {
-        genres = (await fetchDiscoverGenres()).genres;
-      } catch {
-        // Non-fatal — the grid still works without genre chips.
-      }
-    })();
     void (async () => {
       try {
         downloadsEnabled = (await fetchSettings()).downloads.enabled;
@@ -175,10 +156,9 @@
     return () => clearTimeout(id);
   });
 
-  // Reload the grid whenever the debounced search or the selected genre changes.
+  // Reload the grid whenever the debounced search changes.
   $effect(() => {
     void debouncedSearch;
-    void selectedGenreId;
     void loadPlaylists();
   });
 
@@ -230,8 +210,8 @@
   async function subscribe(p: DiscoverPlaylistSummary) {
     setBusy(p.id, true);
     try {
-      const res = await addWishlistSource('DeezerPlaylist', {
-        deezerPlaylistId: p.id,
+      const res = await addWishlistSource('SpotifyArchivePlaylist', {
+        playlistId: p.id,
         autoSync: true
       });
       syncSubState(p.id, { subscribed: true, sourceId: res.sourceId, autoSync: true });
@@ -331,6 +311,13 @@
     resolveError = null;
   }
 
+  // What the header says about a playlist: who made it, how many follow it, and its length once known.
+  function playlistStats(p: DiscoverPlaylistSummary): string {
+    const parts = [p.creatorName ?? 'Spotify', `${formatCompactCount(p.followers)} follower${p.followers === 1 ? '' : 's'}`];
+    if (p.trackCount != null) parts.push(`${p.trackCount.toLocaleString()} song${p.trackCount === 1 ? '' : 's'}`);
+    return parts.join(' · ');
+  }
+
   function fmtDuration(ms: number | null): string {
     if (ms == null) return '--:--';
     const total = Math.round(ms / 1000);
@@ -339,26 +326,15 @@
     return `${m}:${s.toString().padStart(2, '0')}`;
   }
 
-  function selectGenre(id: number | null) {
-    selectedGenreId = id;
-    // Genre selection and free-text search are mutually exclusive; clear the query.
-    searchQuery = '';
-    debouncedSearch = '';
-  }
-
-  const selectedGenreName = $derived(
-    selectedGenreId == null ? 'Top' : (genres.find((g) => g.id === selectedGenreId)?.name ?? '')
-  );
   const gridMeta = $derived.by(() => {
     if (loadingPlaylists || playlistsError) return undefined;
     const n = `${playlists.length} playlist${playlists.length === 1 ? '' : 's'}`;
-    if (debouncedSearch) return `${n} matching “${debouncedSearch}”`;
-    return selectedGenreName ? `${selectedGenreName} · ${n}` : n;
+    return debouncedSearch ? `${n} matching “${debouncedSearch}”` : `Most followed · ${n}`;
   });
 
   // The cover's tint fills an empty cover (no artwork) — identity lives in the art.
   const tint = $derived(
-    detail ? albumTint(detail.playlist.creatorName ?? 'Deezer', detail.playlist.title) : null
+    detail ? albumTint(detail.playlist.creatorName ?? 'Spotify', detail.playlist.title) : null
   );
   const detailBusy = $derived(detail ? busyKeys.has(detail.playlist.id) : false);
 
@@ -424,10 +400,7 @@
               {p.title}
             </h2>
             <p class="text-subheadline text-muted-foreground mt-1 md:text-sm">
-              Deezer{p.creatorName ? ` · ${p.creatorName}` : ''} · {p.trackCount.toLocaleString()} song{p.trackCount ===
-              1
-                ? ''
-                : 's'}
+              {playlistStats(p)}
             </p>
             {#if p.description}
               <p
@@ -510,23 +483,12 @@
           </div>
         {:else}
           <ul class="md:px-3" aria-label="Songs">
-            {#each detail.tracks as track (track.deezerTrackId)}
+            {#each detail.tracks as track, i (`${i}:${track.spotifyTrackId}`)}
               <li class="md:hover:bg-accent flex items-center gap-3 pl-4 md:rounded-md">
-                <div class="bg-muted size-11 shrink-0 overflow-hidden rounded-sm md:size-10">
-                  {#if track.coverUrl}
-                    <img
-                      src={track.coverUrl}
-                      alt=""
-                      loading="lazy"
-                      class="size-full object-cover"
-                      crossorigin="anonymous"
-                    />
-                  {:else}
-                    <div class="flex size-full items-center justify-center">
-                      <Music class="text-muted-foreground size-4" aria-hidden="true" />
-                    </div>
-                  {/if}
-                </div>
+                <span
+                  class="text-subheadline text-muted-foreground w-7 shrink-0 text-right tabular-nums md:text-xs"
+                  >{i + 1}</span
+                >
                 <!-- The hairline starts at the text, like a UITableView inset separator. -->
                 <div
                   class="after:bg-separator relative flex min-h-14 min-w-0 flex-1 items-center gap-3 self-stretch py-2 pr-4 after:absolute after:inset-x-0 after:bottom-0 after:h-(--hairline) md:after:hidden"
@@ -627,18 +589,6 @@
             </Button>
           {/if}
         {/snippet}
-        {#snippet filterRow()}
-          <FilterChip
-            pressed={selectedGenreId === null && !debouncedSearch}
-            onclick={() => selectGenre(null)}>Top</FilterChip
-          >
-          {#each genres as genre (genre.id)}
-            <FilterChip
-              pressed={selectedGenreId === genre.id && !debouncedSearch}
-              onclick={() => selectGenre(genre.id)}>{genre.name}</FilterChip
-            >
-          {/each}
-        {/snippet}
       </PageToolbarV2>
 
       {#if playlistsError}
@@ -674,6 +624,15 @@
             />
           {/each}
         </div>
+        <p class="text-footnote text-muted-foreground px-4 pb-4 md:px-7">
+          Spotify's own playlists, snapshotted daily by mackorone's
+          <a
+            href="https://spotifyplaylistarchive.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="text-primary underline-offset-2 hover:underline">Spotify Playlist Archive</a
+          >.
+        </p>
       {/if}
     </ScrollArea>
   </div>
@@ -737,12 +696,8 @@
         <AlertCircle class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
         <div class="min-w-0 flex-1">
           {#if resolveError.kind === 'editorial'}
-            <p class="font-medium">This is a Spotify editorial playlist.</p>
+            <p class="font-medium">Spotify won't let this app read that playlist.</p>
             <p class="mt-0.5">{resolveError.message}</p>
-            <p class="mt-1">
-              Tip: search for it in Discover — the same editorial playlists are available via
-              Deezer, which does allow subscribing.
-            </p>
           {:else}
             {resolveError.message}
           {/if}

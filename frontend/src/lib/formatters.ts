@@ -226,3 +226,8 @@ export function localDayKey(iso: string): string {
   if (Number.isNaN(d.getTime())) return '';
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
+
+/** A large count in its short form: 33574029 reads "33.6M". */
+export function formatCompactCount(value: number, locale?: string): string {
+  return new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 }).format(value);
+}

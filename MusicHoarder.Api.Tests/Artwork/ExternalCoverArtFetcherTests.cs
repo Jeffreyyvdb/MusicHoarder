@@ -398,15 +398,6 @@ public class ExternalCoverArtFetcherTests
         public Task<DeezerCatalogTrack?> LookupByIdAsync(string id, CancellationToken ct = default)
             => Task.FromResult<DeezerCatalogTrack?>(null);
 
-        public Task<IReadOnlyList<DeezerGenre>> GetGenresAsync(CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<DeezerGenre>>([]);
-
-        public Task<IReadOnlyList<DeezerPlaylistSummary>> GetChartPlaylistsAsync(long? genreId, int limit, CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<DeezerPlaylistSummary>>([]);
-
-        public Task<IReadOnlyList<DeezerPlaylistSummary>> SearchPlaylistsAsync(string query, int limit, CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<DeezerPlaylistSummary>>([]);
-
         public Task<DeezerPlaylistSummary?> GetPlaylistAsync(string id, CancellationToken ct = default)
             => Task.FromResult<DeezerPlaylistSummary?>(null);
 

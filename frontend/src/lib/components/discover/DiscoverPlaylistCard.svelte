@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { DiscoverPlaylistSummary } from '#lib/api-client.ts';
   import { ListMusic, Plus, Check, Loader2 } from '@lucide/svelte';
+  import { formatCompactCount } from '#lib/formatters.ts';
 
   // One playlist in Discover's grid: the Apple Music tile — the cover (8px radius, no card
   // border) with the title and meta under it. The tile is a link (its detail is a page of its
@@ -45,9 +46,9 @@
     <div class="mt-1.5 min-w-0">
       <h3 class="text-subheadline truncate font-medium md:text-sm">{playlist.title}</h3>
       <p class="text-footnote text-muted-foreground truncate md:text-xs">
-        {playlist.trackCount.toLocaleString()} track{playlist.trackCount === 1
-          ? ''
-          : 's'}{playlist.creatorName ? ` · ${playlist.creatorName}` : ''}
+        {formatCompactCount(playlist.followers)} follower{playlist.followers === 1 ? '' : 's'}{playlist.trackCount != null
+          ? ` · ${playlist.trackCount.toLocaleString()} track${playlist.trackCount === 1 ? '' : 's'}`
+          : ''}
       </p>
     </div>
   </a>

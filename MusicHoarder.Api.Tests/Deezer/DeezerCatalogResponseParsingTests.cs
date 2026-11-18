@@ -273,24 +273,6 @@ public class DeezerCatalogResponseParsingTests
     // --- discover ---
 
     [Fact]
-    public async Task GetGenres_SkipsRowsWithoutANumericId_AndSkipsEmptyPictures()
-    {
-        var stub = new RoutingStub(_ => Json("""
-            { "data": [
-                { "id": 0, "name": "All", "picture_medium": "", "picture_big": "big", "picture": "plain" },
-                { "id": "132", "name": "String id" },
-                { "id": -1, "name": "Negative" },
-                { "id": 7 },
-                { "name": "No id" }
-            ] }
-            """));
-
-        var genres = await CreateService(stub).GetGenresAsync();
-
-        Assert.Equal([new DeezerGenre(0, "All", "big"), new DeezerGenre(7, "", null)], genres);
-    }
-
-    [Fact]
     public async Task GetPlaylist_ReadsTheSummary_WithCreatorAndDescriptionRules()
     {
         var stub = new RoutingStub(_ => Json("""
@@ -327,18 +309,6 @@ public class DeezerCatalogResponseParsingTests
     public async Task GetPlaylist_NonPlaylistBody_IsNull(string body)
     {
         Assert.Null(await CreateService(new RoutingStub(_ => Json(body))).GetPlaylistAsync("x"));
-    }
-
-    [Fact]
-    public async Task SearchPlaylists_SkipsRowsWithoutAnId()
-    {
-        var stub = new RoutingStub(_ => Json("""
-            { "data": [ { "id": 1, "title": "Kept" }, { "title": "Dropped" }, "dropped", { "id": "2", "title": "Also kept" } ] }
-            """));
-
-        var playlists = await CreateService(stub).SearchPlaylistsAsync("rap", 10);
-
-        Assert.Equal(["1", "2"], playlists.Select(p => p.Id));
     }
 
     [Fact]
@@ -442,7 +412,6 @@ public class DeezerCatalogResponseParsingTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => CreateService(array).SearchTracksAsync("q"));
         await Assert.ThrowsAsync<InvalidOperationException>(() => CreateService(array).SearchAlbumIdAsync("a", "b"));
         await Assert.ThrowsAsync<InvalidOperationException>(() => CreateService(array).SearchAlbumCandidatesAsync("a", "b"));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => CreateService(array).GetGenresAsync());
         await Assert.ThrowsAsync<InvalidOperationException>(() => CreateService(array).GetPlaylistTracksAsync("pl"));
 
         var albumWithTracksArray = new RoutingStub(_ => Json("""{ "id": 1, "tracks": [] }"""));

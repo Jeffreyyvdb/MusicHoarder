@@ -59,11 +59,8 @@ public record DeezerArtistRelease(
     string? CoverUrl,
     bool Explicit);
 
-/// <summary>A Deezer editorial genre (<c>GET /genre</c>). Id 0 is the catch-all "All".</summary>
-public record DeezerGenre(long Id, string Name, string? PictureUrl);
-
 /// <summary>
-/// A discover playlist as returned by chart / search / playlist lookup. <see cref="Checksum"/> is
+/// A playlist as returned by <c>GET /playlist/{id}</c>. <see cref="Checksum"/> is
 /// Deezer's tracklist fingerprint (present on the full <c>GET /playlist/{id}</c> only) — used to skip
 /// re-syncing an unchanged subscribed playlist.
 /// </summary>

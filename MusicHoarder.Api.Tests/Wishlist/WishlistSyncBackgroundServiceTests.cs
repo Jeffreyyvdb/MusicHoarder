@@ -229,6 +229,7 @@ public class WishlistSyncBackgroundServiceTests
         services.AddSingleton<ISpotifyApiService>(api);
         services.AddSingleton<MusicHoarder.Api.Deezer.IDeezerCatalogService>(
             deezer ?? new MusicHoarder.Api.Tests.Deezer.FakeDeezerCatalogService());
+        services.AddSingleton<MusicHoarder.Api.Discover.ISpotifyPlaylistArchive, MusicHoarder.Api.Tests.Discover.FakeSpotifyPlaylistArchive>();
         services.AddSingleton<ISpotifyIsrcResolver, MusicHoarder.Api.Tests.Deezer.FakeSpotifyIsrcResolver>();
         services.AddSingleton<MusicHoarder.Api.Import.IYouTubePlaylistReader>(
             youTube ?? new MusicHoarder.Api.Tests.Import.FakeYouTubePlaylistReader());

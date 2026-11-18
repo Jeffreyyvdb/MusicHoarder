@@ -475,7 +475,7 @@ public static class PlaylistsEndpoints
         var (type, url) = source.SourceType switch
         {
             WishlistSourceType.LikedSongs => ("spotifyLiked", "https://open.spotify.com/collection/tracks"),
-            WishlistSourceType.Playlist => ("spotifyPlaylist", UrlOf("https://open.spotify.com/playlist/", source.SpotifyPlaylistId)),
+            WishlistSourceType.Playlist or WishlistSourceType.SpotifyArchivePlaylist => ("spotifyPlaylist", UrlOf("https://open.spotify.com/playlist/", source.SpotifyPlaylistId)),
             WishlistSourceType.DeezerPlaylist => ("deezer", UrlOf("https://www.deezer.com/playlist/", source.DeezerPlaylistId)),
             WishlistSourceType.YouTubePlaylist => ("youtube", UrlOf("https://www.youtube.com/playlist?list=", source.YouTubePlaylistId)),
             _ => ("unknown", null),

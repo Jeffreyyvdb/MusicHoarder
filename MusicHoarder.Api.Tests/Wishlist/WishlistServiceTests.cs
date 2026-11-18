@@ -5,7 +5,9 @@ using MusicHoarder.Api.Deezer;
 using MusicHoarder.Api.Import;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Spotify;
+using MusicHoarder.Api.Discover;
 using MusicHoarder.Api.Tests.Deezer;
+using MusicHoarder.Api.Tests.Discover;
 using MusicHoarder.Api.Tests.Import;
 using MusicHoarder.Api.Wishlist;
 
@@ -775,6 +777,135 @@ public class WishlistServiceTests
         return source;
     }
 
+    private const string ArchiveId = "37i9dQZF1DXcBWIGoYBM5M";
+
+    [Fact]
+    public async Task AddSource_ArchivedPlaylist_CreatesItemsWithSpotifyIdsAndNeedsNoSpotifyAccount()
+    {
+        await using var db = CreateDbContext();
+        var archive = new FakeSpotifyPlaylistArchive()
+            .With(FakeSpotifyPlaylistArchive.Playlist(ArchiveId, "Today's Top Hits", "snap-1"),
+                FakeSpotifyPlaylistArchive.Track("0aaaaaaaaaaaaaaaaaaaa1", "Song One", "Ann", "Bob"),
+                FakeSpotifyPlaylistArchive.Track("0aaaaaaaaaaaaaaaaaaaa2", "Song Two"));
+        archive.Covers[ArchiveId] = "https://i.scdn.co/cover";
+        var service = CreateService(db, new FakeSpotifyApi(), archive: archive);
+
+        var result = await service.AddSourceAsync(Owner, WishlistSourceType.SpotifyArchivePlaylist, ArchiveId, autoSync: true, default);
+
+        Assert.Equal(2, result.Added);
+        var source = await db.WishlistSources.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal(("Today's Top Hits", "https://i.scdn.co/cover", ArchiveId), (source.Name, source.ImageUrl, source.SpotifyPlaylistId));
+        Assert.False(source.NeedsSpotify);
+        Assert.Equal("snap-1", source.RemoteChecksum);
+        var first = await db.WishlistItems.IgnoreQueryFilters().SingleAsync(i => i.SpotifyTrackId == "0aaaaaaaaaaaaaaaaaaaa1");
+        Assert.Equal(("Song One", "Ann, Bob", "Album", 200_000), (first.Title, first.Artist, first.Album, first.DurationMs));
+        Assert.Equal(new DateTime(2026, 11, 6, 5, 2, 41, DateTimeKind.Utc), first.SpotifyAddedAtUtc);
+        Assert.Null(first.Isrc);
+        Assert.Equal(WishlistItemStatus.Pending, first.Status);
+    }
+
+    [Fact]
+    public async Task SyncSource_ArchivedPlaylist_DoesNotDuplicateATrackAlreadyOnTheWishlist_AndRecordsRemoteOrder()
+    {
+        await using var db = CreateDbContext();
+        db.WishlistItems.Add(new WishlistItem
+        {
+            OwnerUserId = Owner,
+            SpotifyTrackId = "0aaaaaaaaaaaaaaaaaaaa2",
+            Title = "Liked already",
+            Artist = "Artist",
+            Status = WishlistItemStatus.Downloaded,
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow,
+        });
+        var source = ArchiveSource();
+        db.WishlistSources.Add(source);
+        await db.SaveChangesAsync();
+        var archive = new FakeSpotifyPlaylistArchive()
+            .With(FakeSpotifyPlaylistArchive.Playlist(ArchiveId),
+                FakeSpotifyPlaylistArchive.Track("0aaaaaaaaaaaaaaaaaaaa1", "First"),
+                FakeSpotifyPlaylistArchive.Track("0aaaaaaaaaaaaaaaaaaaa2", "Second"),
+                FakeSpotifyPlaylistArchive.Track("0aaaaaaaaaaaaaaaaaaaa3", "Third"));
+        var service = CreateService(db, new FakeSpotifyApi(), archive: archive);
+
+        var result = await service.SyncSourceAsync(Owner, source, default);
+
+        Assert.Equal((2, 1), (result.Added, result.AlreadyPresent));
+        Assert.Equal(3, await db.WishlistItems.IgnoreQueryFilters().CountAsync());
+        var recorded = await db.WishlistSourceTracks.IgnoreQueryFilters()
+            .Where(t => t.WishlistSourceId == source.Id).OrderBy(t => t.Position)
+            .Select(t => t.WishlistItem!.SpotifyTrackId).ToListAsync();
+        Assert.Equal(["0aaaaaaaaaaaaaaaaaaaa1", "0aaaaaaaaaaaaaaaaaaaa2", "0aaaaaaaaaaaaaaaaaaaa3"], recorded);
+        Assert.NotNull(source.TracksRecordedAtUtc);
+    }
+
+    [Fact]
+    public async Task SyncSource_ArchivedPlaylist_UnchangedSnapshot_SkipsTheRead_ButAChangedOneAddsNewTracks()
+    {
+        await using var db = CreateDbContext();
+        var source = ArchiveSource();
+        db.WishlistSources.Add(source);
+        await db.SaveChangesAsync();
+        var archive = new FakeSpotifyPlaylistArchive()
+            .With(FakeSpotifyPlaylistArchive.Playlist(ArchiveId, snapshotId: "snap-1"),
+                FakeSpotifyPlaylistArchive.Track("0aaaaaaaaaaaaaaaaaaaa1", "First"));
+        var service = CreateService(db, new FakeSpotifyApi(), archive: archive);
+        await service.SyncSourceAsync(Owner, source, default);
+
+        archive.With(FakeSpotifyPlaylistArchive.Playlist(ArchiveId, snapshotId: "snap-1"),
+            FakeSpotifyPlaylistArchive.Track("0aaaaaaaaaaaaaaaaaaaa1", "First"),
+            FakeSpotifyPlaylistArchive.Track("0aaaaaaaaaaaaaaaaaaaa2", "Sneaked in"));
+        var skipped = await service.SyncSourceAsync(Owner, source, default);
+        Assert.Equal(0, skipped.Added);
+
+        archive.With(FakeSpotifyPlaylistArchive.Playlist(ArchiveId, snapshotId: "snap-2"),
+            FakeSpotifyPlaylistArchive.Track("0aaaaaaaaaaaaaaaaaaaa1", "First"),
+            FakeSpotifyPlaylistArchive.Track("0aaaaaaaaaaaaaaaaaaaa2", "Second"));
+        var changed = await service.SyncSourceAsync(Owner, source, default);
+        Assert.Equal(1, changed.Added);
+        Assert.Equal("snap-2", source.RemoteChecksum);
+    }
+
+    [Fact]
+    public async Task SyncSource_ArchivedPlaylist_ArchiveUnavailable_ChangesNothing()
+    {
+        await using var db = CreateDbContext();
+        var source = ArchiveSource();
+        source.RemoteChecksum = "snap-1";
+        db.WishlistSources.Add(source);
+        await db.SaveChangesAsync();
+        var service = CreateService(db, new FakeSpotifyApi(), archive: new FakeSpotifyPlaylistArchive());
+
+        var result = await service.SyncSourceAsync(Owner, source, default);
+
+        Assert.Equal(0, result.Added);
+        Assert.Equal("snap-1", source.RemoteChecksum);
+        Assert.Null(source.LastSyncedAtUtc);
+        Assert.Empty(await db.WishlistItems.IgnoreQueryFilters().ToListAsync());
+    }
+
+    [Theory]
+    [InlineData("../x")]
+    [InlineData("0aaaaaaaaaaaaaaaaaaaa")]
+    [InlineData("")]
+    public async Task AddSource_ArchivedPlaylist_RejectsAnIdThatIsNotASpotifyId(string id)
+    {
+        await using var db = CreateDbContext();
+        var service = CreateService(db, new FakeSpotifyApi());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.AddSourceAsync(Owner, WishlistSourceType.SpotifyArchivePlaylist, id, false, default));
+    }
+
+    private static WishlistSource ArchiveSource() => new()
+    {
+        OwnerUserId = Owner,
+        SourceType = WishlistSourceType.SpotifyArchivePlaylist,
+        SpotifyPlaylistId = ArchiveId,
+        Name = "Today's Top Hits",
+        CreatedAtUtc = DateTime.UtcNow,
+    };
+
     private static DeezerCatalogTrack DeezerDetail(string id, string? isrc) =>
         new(id, "Title", "Artist", "Album", 2024, 1, 200_000, isrc);
 
@@ -784,8 +915,9 @@ public class WishlistServiceTests
         IDeezerCatalogService? deezer = null,
         ISpotifyIsrcResolver? resolver = null,
         IYouTubePlaylistReader? youTubePlaylists = null,
-        IYouTubeMetadataResolver? youTubeVideos = null) =>
-        new(db, api, deezer ?? new FakeDeezerCatalogService(), resolver ?? new FakeSpotifyIsrcResolver(),
+        IYouTubeMetadataResolver? youTubeVideos = null,
+        ISpotifyPlaylistArchive? archive = null) =>
+        new(db, api, deezer ?? new FakeDeezerCatalogService(), archive ?? new FakeSpotifyPlaylistArchive(), resolver ?? new FakeSpotifyIsrcResolver(),
             youTubePlaylists ?? new FakeYouTubePlaylistReader(), youTubeVideos ?? new FakeYouTubeMetadataResolver(),
             NullLogger<WishlistService>.Instance);
 
