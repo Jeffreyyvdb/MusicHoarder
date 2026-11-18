@@ -49,6 +49,47 @@ public class MetadataMergerTests
     }
 
     [Fact]
+    public void HealedAlbum_KeepsTheHealersFields_AgainstACorroboratedWinner()
+    {
+        var song = Song(artist: "Artist", title: "Title");
+        song.HealAlbumIdentity(new MusicHoarder.Api.Library.AlbumIdentity(
+            "Healed Album", "Artist", 2019, false, 2, "Album", null, "release-healed", null, null), DateTime.UtcNow);
+        var winner = Winner(artist: "Artist", title: "Title", year: 2018, album: "Provider Album", totalDiscs: 1,
+            releaseTypePrimary: "Single", releaseGroupId: "group-1") with { MusicBrainzReleaseId = "release-provider" };
+
+        var changes = MetadataMerger.ApplyMatch(song, winner, 0.99, 3, AutoUpgrade, warningsJson: null,
+            corroboratedFields: Fields("Album", "Year", "TotalDiscs", "ReleaseTypePrimary"));
+
+        Assert.Equal(("Healed Album", 2019, 2, "Album", "release-healed"),
+            (song.Album, song.Year, song.TotalDiscs, song.ReleaseTypePrimary, song.MusicBrainzReleaseId));
+        Assert.Equal("group-1", song.MusicBrainzReleaseGroupId); // the healer left it empty, so it is filled
+        Assert.DoesNotContain(changes, c => c.Field is "Album" or "Year" or "TotalDiscs" or "ReleaseTypePrimary");
+    }
+
+    [Fact]
+    public void UnhealedAlbum_TakesTheCorroboratedWinnersFields()
+    {
+        var song = Song(artist: "Artist", title: "Title");
+        song.Album = "Old Album";
+        song.Year = 2019;
+
+        MetadataMerger.ApplyMatch(song, Winner(artist: "Artist", title: "Title", year: 2018, album: "Provider Album"),
+            0.99, 3, AutoUpgrade, warningsJson: null, corroboratedFields: Fields("Album", "Year"));
+
+        Assert.Equal(("Provider Album", 2018), (song.Album, song.Year));
+    }
+
+    [Fact]
+    public void LowQualityExisting_SameAsIncoming_RecordsNoChange()
+    {
+        // A title equal to the file name reads as low quality; replacing it with the same text is no change.
+        var song = Song(artist: "Artist", title: "x");
+        var changes = Merge(song, Winner(artist: "Artist", title: "x"), confidence: 0.90, providers: 1);
+
+        Assert.DoesNotContain(changes, c => c.Field == "Title");
+    }
+
+    [Fact]
     public void NormalizedEqual_IsNoOp()
     {
         var song = Song(artist: "Beyoncé", title: "Halo");

@@ -36,6 +36,18 @@ public static class MetadataMerger
         "Label", "CatalogNumber", "Upc", "Copyright", "AlbumArtistSort", "ReleaseDate", "OriginalReleaseDate",
     };
 
+    /// <summary>
+    /// The album identity the split healer elects per album folder. Once it has corrected a row
+    /// (<see cref="SongMetadata.AlbumIdentityHealedAtUtc"/>) these belong to the album: a match fills
+    /// them when empty and otherwise leaves them, or re-applying it would undo the heal and requeue
+    /// the build, and the next heal would correct it back.
+    /// </summary>
+    private static readonly HashSet<string> HealedAlbumFields = new(StringComparer.Ordinal)
+    {
+        "Album", "AlbumArtist", "Year", "TotalDiscs", "ReleaseTypePrimary", "ReleaseTypes",
+        "MusicBrainzReleaseId", "MusicBrainzReleaseGroupId", "AlbumArtistMusicBrainzId",
+    };
+
     public static IReadOnlyList<FieldChange> ApplyMatch(
         SongMetadata song,
         EnrichmentProviderResult winner,
@@ -59,13 +71,22 @@ public static class MetadataMerger
                 ? corroboratedFields.Contains(field)
                 : highConsensus;
 
+        var healed = song.AlbumIdentityHealedAtUtc is not null;
+        bool Healed(string field, object? existing) =>
+            healed && HealedAlbumFields.Contains(field)
+            && existing switch { null => false, string text => !string.IsNullOrWhiteSpace(text), _ => true };
+
         MergeText(song, "Artist", song.Artist, winner.Artist, v => song.Artist = v, highConsensus, changes);
-        MergeText(song, "AlbumArtist", song.AlbumArtist, winner.AlbumArtist, v => song.AlbumArtist = v, highConsensus, changes);
+        if (!Healed("AlbumArtist", song.AlbumArtist))
+            MergeText(song, "AlbumArtist", song.AlbumArtist, winner.AlbumArtist, v => song.AlbumArtist = v, highConsensus, changes);
         MergeText(song, "Title", song.Title, winner.Title, v => song.Title = v, highConsensus, changes);
-        MergeText(song, "Album", song.Album, winner.Album, v => song.Album = v, Upgrade("Album"), changes);
+        if (!Healed("Album", song.Album))
+            MergeText(song, "Album", song.Album, winner.Album, v => song.Album = v, Upgrade("Album"), changes);
         MergeText(song, "Artists", song.Artists, winner.Artists, v => song.Artists = v, highConsensus, changes);
-        MergeText(song, "ReleaseTypePrimary", song.ReleaseTypePrimary, winner.ReleaseTypePrimary, v => song.ReleaseTypePrimary = v, Upgrade("ReleaseTypePrimary"), changes);
-        MergeText(song, "ReleaseTypes", song.ReleaseTypes, winner.ReleaseTypes, v => song.ReleaseTypes = v, Upgrade("ReleaseTypes"), changes);
+        if (!Healed("ReleaseTypePrimary", song.ReleaseTypePrimary))
+            MergeText(song, "ReleaseTypePrimary", song.ReleaseTypePrimary, winner.ReleaseTypePrimary, v => song.ReleaseTypePrimary = v, Upgrade("ReleaseTypePrimary"), changes);
+        if (!Healed("ReleaseTypes", song.ReleaseTypes))
+            MergeText(song, "ReleaseTypes", song.ReleaseTypes, winner.ReleaseTypes, v => song.ReleaseTypes = v, Upgrade("ReleaseTypes"), changes);
 
         // Descriptive metadata. These are enrichment-sourced (the row starts null), so the initial
         // fill always applies; the gating below only decides rare re-enrichment conflicts. Album-level
@@ -84,17 +105,22 @@ public static class MetadataMerger
         // over an existing good value — SpotiFLAC's "keep the longest candidate" rule.
         MergeReleaseDate(song, "ReleaseDate", song.ReleaseDate, winner.ReleaseDate, v => song.ReleaseDate = v, Upgrade("ReleaseDate"), changes);
         MergeReleaseDate(song, "OriginalReleaseDate", song.OriginalReleaseDate, winner.OriginalReleaseDate, v => song.OriginalReleaseDate = v, Upgrade("OriginalReleaseDate"), changes);
-        MergeNumber(song, "Year", song.Year, winner.Year, v => song.Year = v, Upgrade("Year"), changes);
+        if (!Healed("Year", song.Year))
+            MergeNumber(song, "Year", song.Year, winner.Year, v => song.Year = v, Upgrade("Year"), changes);
         MergeNumber(song, "TrackNumber", song.TrackNumber, winner.TrackNumber, v => song.TrackNumber = v, Upgrade("TrackNumber"), changes);
         MergeNumber(song, "DiscNumber", song.DiscNumber, winner.DiscNumber, v => song.DiscNumber = v, Upgrade("DiscNumber"), changes);
-        MergeNumber(song, "TotalDiscs", song.TotalDiscs, winner.TotalDiscs, v => song.TotalDiscs = v, Upgrade("TotalDiscs"), changes);
+        if (!Healed("TotalDiscs", song.TotalDiscs))
+            MergeNumber(song, "TotalDiscs", song.TotalDiscs, winner.TotalDiscs, v => song.TotalDiscs = v, Upgrade("TotalDiscs"), changes);
         MergeNumber(song, "TotalTracks", song.TotalTracks, winner.TotalTracks, v => song.TotalTracks = v, Upgrade("TotalTracks"), changes);
 
         // Identifiers and the compilation flag are additive facts — attach the matched identity's data.
         if (!string.IsNullOrWhiteSpace(winner.MusicBrainzId)) song.MusicBrainzId = winner.MusicBrainzId;
-        if (!string.IsNullOrWhiteSpace(winner.MusicBrainzReleaseId)) song.MusicBrainzReleaseId = winner.MusicBrainzReleaseId;
-        if (!string.IsNullOrWhiteSpace(winner.MusicBrainzReleaseGroupId)) song.MusicBrainzReleaseGroupId = winner.MusicBrainzReleaseGroupId;
-        if (!string.IsNullOrWhiteSpace(winner.AlbumArtistMusicBrainzId)) song.AlbumArtistMusicBrainzId = winner.AlbumArtistMusicBrainzId;
+        if (!string.IsNullOrWhiteSpace(winner.MusicBrainzReleaseId) && !Healed("MusicBrainzReleaseId", song.MusicBrainzReleaseId))
+            song.MusicBrainzReleaseId = winner.MusicBrainzReleaseId;
+        if (!string.IsNullOrWhiteSpace(winner.MusicBrainzReleaseGroupId) && !Healed("MusicBrainzReleaseGroupId", song.MusicBrainzReleaseGroupId))
+            song.MusicBrainzReleaseGroupId = winner.MusicBrainzReleaseGroupId;
+        if (!string.IsNullOrWhiteSpace(winner.AlbumArtistMusicBrainzId) && !Healed("AlbumArtistMusicBrainzId", song.AlbumArtistMusicBrainzId))
+            song.AlbumArtistMusicBrainzId = winner.AlbumArtistMusicBrainzId;
         if (!string.IsNullOrWhiteSpace(winner.ArtistMusicBrainzIds)) song.ArtistMusicBrainzIds = winner.ArtistMusicBrainzIds;
         if (winner.IsCompilation is true) song.IsCompilation = true;
         if (!string.IsNullOrWhiteSpace(winner.SpotifyId)) song.SpotifyId = winner.SpotifyId;
@@ -116,6 +142,9 @@ public static class MetadataMerger
         Action<string?> set, bool mayUpgrade, List<FieldChange> changes)
     {
         if (string.IsNullOrWhiteSpace(incoming))
+            return;
+
+        if (string.Equals(existing, incoming, StringComparison.Ordinal))
             return;
 
         if (string.IsNullOrWhiteSpace(existing) || MetadataQualityHeuristics.IsLowQuality(existing, song.FileName))

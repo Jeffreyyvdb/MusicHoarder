@@ -202,7 +202,7 @@ public sealed class AlbumSplitHealer(
 
             foreach (var song in members)
             {
-                var changes = song.ApplyIdentityCorrection(identity);
+                var changes = song.HealAlbumIdentity(identity, now);
                 if (changes.Count == 0)
                 {
                     continue;
@@ -622,6 +622,7 @@ public sealed class AlbumSplitHealer(
             if (!persist)
                 continue;
 
+            song.AlbumIdentityHealedAtUtc = now;
             logger.LogInformation(
                 "Restored the album artist of song {SongId} on {Album}: {Previous} came from a canonical album of a different album; back to {RestoredTo}",
                 song.Id, song.Album, previous, restoreTo);

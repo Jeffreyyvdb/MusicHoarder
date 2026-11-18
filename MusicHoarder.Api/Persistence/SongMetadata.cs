@@ -226,6 +226,14 @@ public class SongMetadata
     public int LastEnrichmentAlgorithmVersion { get; set; }
 
     /// <summary>
+    /// When the album split healer last corrected this row's album identity. From then on the album is
+    /// the healer's: enrichment fills its empty album fields but never overwrites them, or a re-applied
+    /// match would undo the correction, requeue the build, and the next heal would correct it back.
+    /// Cleared by <see cref="ResetEnrichment"/>.
+    /// </summary>
+    public DateTime? AlbumIdentityHealedAtUtc { get; set; }
+
+    /// <summary>
     /// When set, the user has explicitly approved/locked this song's match. The enrichment
     /// pipeline skips it and <see cref="ResetEnrichment"/> is a no-op unless forced, so a
     /// re-scan can never silently undo a curated decision.
@@ -718,6 +726,19 @@ public class SongMetadata
     /// or any grade, so it never triggers re-enrichment or an auto-regrade (grade staleness stays
     /// opt-in). Returns the field-level changes (empty when nothing changed) for the change log.
     /// </summary>
+    /// <summary>
+    /// The heal: <see cref="ApplyIdentityCorrection"/>, and when it changed anything, the album is marked
+    /// as the healer's (<see cref="AlbumIdentityHealedAtUtc"/>).
+    /// </summary>
+    public IReadOnlyList<(string Field, string? OldValue, string? NewValue)> HealAlbumIdentity(
+        Library.AlbumIdentity identity, DateTime nowUtc)
+    {
+        var changes = ApplyIdentityCorrection(identity);
+        if (changes.Count > 0)
+            AlbumIdentityHealedAtUtc = nowUtc;
+        return changes;
+    }
+
     public IReadOnlyList<(string Field, string? OldValue, string? NewValue)> ApplyIdentityCorrection(
         Library.AlbumIdentity identity)
     {
@@ -914,6 +935,7 @@ public class SongMetadata
             RestoreOriginalMetadata();
 
         EnrichmentStatus = EnrichmentStatus.Pending;
+        AlbumIdentityHealedAtUtc = null;
         MatchedBy = null;
         MatchConfidence = null;
         MatchWarnings = null;

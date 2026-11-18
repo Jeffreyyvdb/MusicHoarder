@@ -106,7 +106,6 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
 
         var existingAttempts = song.ProviderAttempts.ToDictionary(a => a.Provider);
         var anyProviderActed = false;
-        var anyNewCandidate = false;
 
         // Run every eligible provider (no stop-at-first-match): a single provider can no
         // longer finalize a song. The final decision is made by ConsensusEvaluator below.
@@ -158,11 +157,6 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
             {
                 semaphore.Release();
             }
-
-            // A Matched attempt is never re-run (see above), so one now is a candidate from this run.
-            if (existingAttempts.TryGetValue(providerEnum.Value, out var attempt)
-                && attempt.Status == ProviderAttemptStatus.Matched)
-                anyNewCandidate = true;
         }
 
         var now = DateTime.UtcNow;
@@ -181,15 +175,11 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         if (consensus.Status == EnrichmentStatus.Pending && !HasFreshRateLimit(song, enabledEnums, now, deferralWindow))
             consensus = consensus with { Status = EnrichmentStatus.NeedsReview };
 
-        // No new candidate and the verdict is unchanged → no-op beyond saving the attempts' retry times.
-        // Applying the same winner again would undo later corrections to the row (the album split
-        // healer's) and reset its build, on every retry sweep that finds a provider rate-limited again.
-        if (!anyNewCandidate && consensus.Status == song.EnrichmentStatus)
-        {
-            if (anyProviderActed)
-                await dbContext.SaveChangesAsync(ct);
+        // Nothing ran and the verdict is unchanged → no-op. A re-run where a provider did act re-applies
+        // the verdict; that is harmless because the merge is idempotent and leaves an album the split
+        // healer corrected alone (MetadataMerger.HealedAlbumFields).
+        if (!anyProviderActed && consensus.Status == song.EnrichmentStatus)
             return ToOutcome(song.EnrichmentStatus);
-        }
 
         // Stamp the algorithm version on every terminal verdict so an algorithm bump re-processes this
         // row exactly once (the startup sweep selects rows whose stamp is behind CurrentVersion). Pending

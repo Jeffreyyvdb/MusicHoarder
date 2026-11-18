@@ -1342,8 +1342,12 @@ public class EnrichmentOrchestratorTests
         Assert.Equal(EnrichmentStatus.NeedsReview, updated.EnrichmentStatus);
     }
 
-    [Fact]
-    public async Task ProcessSong_BuiltMatchedSong_RateLimitedAgain_LeavesTheSongAndItsBuildAlone()
+    // Spotify reporting 2019 leaves the year a tie the row's current year breaks, so the healer's
+    // correction changes the verdict itself.
+    [Theory]
+    [InlineData(2018)]
+    [InlineData(2019)]
+    public async Task ProcessSong_BuiltMatchedSong_RateLimitedAgain_LeavesTheSongAndItsBuildAlone(int spotifyYear)
     {
         // The retry sweep re-queues a Matched, built song whenever its rate-limited provider is due.
         // When that provider is rate-limited again, nothing new is known, so the re-run must not apply
@@ -1354,7 +1358,7 @@ public class EnrichmentOrchestratorTests
         await db.SaveChangesAsync();
 
         var acoustId = AgreeingProvider("AcoustID", 100, year: 2018);
-        var spotify = AgreeingProvider("SpotifyAPI", 200, year: 2018);
+        var spotify = AgreeingProvider("SpotifyAPI", 200, year: spotifyYear);
         var musicBrainzCalls = 0;
         var musicBrainz = new StubEnrichmentProvider("MusicBrainzWeb", 300, canHandle: _ => true,
             enrich: _ =>
@@ -1370,8 +1374,8 @@ public class EnrichmentOrchestratorTests
         Assert.Equal(EnrichmentOutcome.Matched, await orchestrator.ProcessSongAsync(song.Id));
         Assert.Equal(2018, song.Year);
 
-        song.ApplyIdentityCorrection(new MusicHoarder.Api.Library.AlbumIdentity(
-            "Some Album", "Some Artist", 2019, false, null, null, null, null, null, null));
+        song.HealAlbumIdentity(new MusicHoarder.Api.Library.AlbumIdentity(
+            "Some Album", "Some Artist", 2019, false, null, null, null, null, null, null), DateTime.UtcNow);
         song.RequeueForRetag();
         await db.SaveChangesAsync();
         song.MarkBuildDone("/dest/Some Artist/Some Album/Some Song.mp3");
@@ -1429,6 +1433,168 @@ public class EnrichmentOrchestratorTests
 
         Assert.Equal("release-1", song.MusicBrainzReleaseId);
         Assert.Equal(LibraryBuildStatus.Pending, song.LibraryBuildStatus);
+    }
+
+    [Fact]
+    public async Task ProcessSong_BuiltMatchedSong_WinnerDisabled_AppliesTheRemainingWinner()
+    {
+        await using var db = CreateDb();
+        var song = AddPendingSong(db, artist: "Some Artist", title: "Some Song");
+        await db.SaveChangesAsync();
+
+        var tracker = AgreeingProvider("Tracker", 100, year: 2018);
+        var spotify = AgreeingProvider("SpotifyAPI", 200, year: 2018);
+        var retryCalls = 0;
+        var musicBrainz = new StubEnrichmentProvider("MusicBrainzWeb", 300, _ => true, _ =>
+        {
+            retryCalls++;
+            return Task.FromResult<ProviderOutcome>(new ProviderRateLimited(TimeSpan.FromHours(1)));
+        });
+        IEnrichmentProvider[] providers = [tracker, spotify, musicBrainz];
+        var opts = CreateOptions();
+        opts.Value.EnableTrackerProvider = true;
+        opts.Value.EnableSpotifyApiProvider = true;
+        opts.Value.EnableMusicBrainzWebProvider = true;
+        var orchestrator = CreateOrchestratorWithProviders(db, providers, opts);
+        Assert.Equal(EnrichmentOutcome.Matched, await orchestrator.ProcessSongAsync(song.Id));
+        Assert.Equal("Tracker", song.MatchedBy);
+
+        song.MarkBuildDone("/dest/Some Song.mp3");
+        var retry = song.ProviderAttempts.Single(a => a.Provider == EnrichmentProvider.MusicBrainzWeb);
+        retry.RetryAfterUtc = DateTime.UtcNow.AddMinutes(-1);
+        await db.SaveChangesAsync();
+        Assert.Contains(song.Id, await db.SongProviderAttempts
+            .WhereRetryableProviderAttempts(DateTime.UtcNow).ToListAsync());
+
+        opts.Value.EnableTrackerProvider = false;
+        orchestrator = CreateOrchestratorWithProviders(db, providers, opts);
+        Assert.Equal(EnrichmentOutcome.Matched, await orchestrator.ProcessSongAsync(song.Id));
+
+        db.ChangeTracker.Clear();
+        var saved = await db.Songs.Include(s => s.ProviderAttempts).SingleAsync(s => s.Id == song.Id);
+        Assert.Equal(2, retryCalls);
+        Assert.True(saved.ProviderAttempts.Single(a => a.Provider == EnrichmentProvider.MusicBrainzWeb)
+            .RetryAfterUtc > DateTime.UtcNow);
+        Assert.Equal("SpotifyAPI", saved.MatchedBy);
+    }
+
+    [Fact]
+    public async Task ProcessSong_FailedSong_RetryFailsDifferently_RecordsTheNewError()
+    {
+        await using var db = CreateDb();
+        var song = AddPendingSong(db, artist: "Some Artist", title: "Some Song");
+        await db.SaveChangesAsync();
+
+        var error = "initial error";
+        var provider = new StubEnrichmentProvider("AcoustID", 100, _ => true,
+            _ => Task.FromException<ProviderOutcome>(new InvalidOperationException(error)));
+        var orchestrator = CreateOrchestratorWithProviders(db, [provider]);
+
+        Assert.Equal(EnrichmentOutcome.Failed, await orchestrator.ProcessSongAsync(song.Id));
+        Assert.Equal(error, song.EnrichmentError);
+
+        error = "different retry error";
+        song.ProviderAttempts.Single().NextRetryAfterUtc = DateTime.UtcNow.AddMinutes(-1);
+        await db.SaveChangesAsync();
+        Assert.Equal(EnrichmentOutcome.Failed, await orchestrator.ProcessSongAsync(song.Id));
+
+        db.ChangeTracker.Clear();
+        var saved = await db.Songs.Include(s => s.ProviderAttempts).SingleAsync(s => s.Id == song.Id);
+        Assert.Equal(error, saved.ProviderAttempts.Single().Error);
+        Assert.True(saved.ProviderAttempts.Single().NextRetryAfterUtc > DateTime.UtcNow);
+        Assert.Equal(error, saved.EnrichmentError);
+    }
+
+    [Theory]
+    [InlineData(EnrichmentStatus.Matched)]
+    [InlineData(EnrichmentStatus.NeedsReview)]
+    public async Task ProcessSong_SameWinner_NewCorroboration_AppliesTheChangedVerdict(
+        EnrichmentStatus status)
+    {
+        await using var db = CreateDbWithRebuildInterceptor();
+        var song = AddPendingSong(db, artist: "Some Artist", title: "Some Song");
+        await db.SaveChangesAsync();
+
+        List<string> warnings = status == EnrichmentStatus.NeedsReview ? ["title_mismatch"] : [];
+        AddCandidate(song, EnrichmentProvider.SpotifyAPI, new EnrichmentProviderResult(
+            "Some Artist", "Some Artist", "Some Song", null, null, "mb-1", null, null, null, null,
+            "SpotifyAPI", 0.9, warnings, status));
+        AddCandidate(song, EnrichmentProvider.AcoustID, new EnrichmentProviderResult(
+            "Some Artist", "Some Artist", "Some Song", 2018, 3, "mb-1", null, null, null, null,
+            "AcoustID", 0.9, [], EnrichmentStatus.Matched, Album: "Some Album"));
+        await db.SaveChangesAsync();
+
+        var retryCalls = 0;
+        IEnrichmentProvider[] providers =
+        [
+            AgreeingProvider("SpotifyAPI", 100, year: 2020),
+            AgreeingProvider("AcoustID", 200, year: 2018),
+            new StubEnrichmentProvider("MusicBrainzWeb", 300, _ => true, _ =>
+            {
+                retryCalls++;
+                return Task.FromResult<ProviderOutcome>(new ProviderNoMatch());
+            }),
+        ];
+        var options = CreateOptions();
+        options.Value.EnableAcoustIdProvider = false;
+        options.Value.EnableSpotifyApiProvider = true;
+        options.Value.EnableMusicBrainzWebProvider = true;
+        var orchestrator = CreateOrchestratorWithProviders(db, providers, options);
+        var outcome = status == EnrichmentStatus.Matched ? EnrichmentOutcome.Matched : EnrichmentOutcome.NeedsReview;
+        Assert.Equal(outcome, await orchestrator.ProcessSongAsync(song.Id));
+        Assert.Equal("SpotifyAPI", song.MatchedBy);
+        Assert.Equal(0.9, song.MatchConfidence);
+        Assert.Null(song.Album);
+
+        song.MarkBuildDone("/dest/Some Song.mp3");
+        song.ProviderAttempts.Single(a => a.Provider == EnrichmentProvider.MusicBrainzWeb)
+            .NextRetryAfterUtc = DateTime.UtcNow.AddMinutes(-1);
+        await db.SaveChangesAsync();
+
+        options.Value.EnableAcoustIdProvider = true;
+        var verdict = ConsensusEvaluator.Evaluate(
+            song, new HashSet<EnrichmentProvider>
+            {
+                EnrichmentProvider.AcoustID, EnrichmentProvider.SpotifyAPI, EnrichmentProvider.MusicBrainzWeb,
+            },
+            ConsensusEvaluator.DefaultIdentityOptions);
+        Assert.Equal(status, verdict.Status);
+        Assert.Equal("SpotifyAPI", verdict.Winner?.MatchedBy);
+        Assert.Equal(0.99, verdict.Confidence);
+        if (status == EnrichmentStatus.Matched)
+            Assert.Equal("Some Album", verdict.Winner?.Album);
+
+        orchestrator = CreateOrchestratorWithProviders(db, providers, options);
+        Assert.Equal(outcome, await orchestrator.ProcessSongAsync(song.Id));
+
+        db.ChangeTracker.Clear();
+        var saved = await db.Songs.Include(s => s.ProviderAttempts).SingleAsync(s => s.Id == song.Id);
+        Assert.Equal(2, retryCalls);
+        Assert.Equal("SpotifyAPI", saved.MatchedBy);
+        if (status == EnrichmentStatus.Matched)
+            Assert.Equal("Some Album", saved.Album);
+        Assert.Equal(0.99, saved.MatchConfidence);
+    }
+
+    [Fact]
+    public async Task ProcessSong_MatchedSongFlippedToPending_SameVerdict_IsMatchedAgain()
+    {
+        // The refresh sweep flips a song to Pending when a provider is switched on; a new provider that
+        // adds nothing leaves the verdict as it was, which must still bring the song back to Matched.
+        await using var db = CreateDb();
+        var song = AddPendingSong(db, artist: "Some Artist", title: "Some Song");
+        await db.SaveChangesAsync();
+        var opts = CreateOptions();
+        opts.Value.EnableSpotifyApiProvider = true;
+        var orchestrator = CreateOrchestratorWithProviders(db,
+            [AgreeingProvider("AcoustID", 100, year: 2018), AgreeingProvider("SpotifyAPI", 200, year: 2018)], opts);
+        Assert.Equal(EnrichmentOutcome.Matched, await orchestrator.ProcessSongAsync(song.Id));
+
+        song.EnrichmentStatus = EnrichmentStatus.Pending;
+        await db.SaveChangesAsync();
+
+        Assert.Equal(EnrichmentOutcome.Matched, await orchestrator.ProcessSongAsync(song.Id));
+        Assert.Equal(EnrichmentStatus.Matched, song.EnrichmentStatus);
     }
 
     private static StubEnrichmentProvider AgreeingProvider(string name, int priority, int year) =>

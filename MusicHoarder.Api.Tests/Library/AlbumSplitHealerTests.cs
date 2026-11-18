@@ -44,6 +44,10 @@ public class AlbumSplitHealerTests
         Assert.NotNull(healed.DestinationPath);
         Assert.Equal(healed.DestinationPath, healed.PreviousDestinationPath);
 
+        // Only the corrected member's album becomes the heal's, which enrichment then leaves alone.
+        Assert.Equal([null, null], songs.Take(2).Select(s => s.AlbumIdentityHealedAtUtc));
+        Assert.NotNull(healed.AlbumIdentityHealedAtUtc);
+
         // Track-level fields are never touched.
         Assert.Equal(3, healed.TrackNumber);
         Assert.Equal("Track 3", healed.Title);
@@ -604,6 +608,7 @@ public class AlbumSplitHealerTests
         var report = Assert.Single(await Healer(db).DetectAsync());
         Assert.Equal(2, report.MembersNeedingCorrection);
         Assert.Equal(2, await db.Songs.CountAsync(s => s.AlbumArtist == "Rigo Dominguez Y Su Grupo Audaz"));
+        Assert.Equal(0, await db.Songs.CountAsync(s => s.AlbumIdentityHealedAtUtc != null));
 
         var result = await Healer(db).HealAsync();
 
@@ -613,6 +618,7 @@ public class AlbumSplitHealerTests
         // The first back to what it had before any wrong write; the second never had a right value on
         // record, so it takes its own artist credit.
         Assert.All(songs, s => Assert.Equal("Kanye West", s.AlbumArtist));
+        Assert.All(songs, s => Assert.NotNull(s.AlbumIdentityHealedAtUtc));
         Assert.All(songs, s => Assert.Equal(LibraryBuildStatus.Pending, s.LibraryBuildStatus));
         Assert.All(songs, s => Assert.NotNull(s.PreviousDestinationPath));
         var restores = await db.SongMetadataChanges.Where(c => c.CreatedAtUtc > EnrichedAt).ToListAsync();
