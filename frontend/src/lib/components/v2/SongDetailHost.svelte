@@ -21,6 +21,7 @@
   import { hardwareMode } from '#lib/hardware/hardware-mode.svelte.ts';
   import { DISMISS_VELOCITY, EASE_PRESENT, prefersReducedMotion } from '#lib/motion.ts';
   import { keepOpenForToasts } from '#lib/components/ui/sonner/index.ts';
+  import { dragDismiss, type DragDismissHandlers } from '#lib/actions/drag-dismiss.ts';
 
   // The single global mount of Now Playing — an Apple-Music-style full-screen overlay (a portaled
   // bits-ui Dialog: focus trap, Escape and body scroll-lock for free). It has its own MEDIA
@@ -187,48 +188,14 @@
   }
 
   // ── Drag to dismiss ─────────────────────────────────────────────────────────
-  // From the grabber/top bar and the artwork (TrackPanel wires the zones). The overlay follows the
-  // finger with no transition; on release it closes past 25% of its height or on a flick faster
-  // than DISMISS_VELOCITY, else springs back. Transform/opacity only, written straight onto the
-  // element. One pointer at a time; under Reduce Motion the drag fades instead of moving.
+  // A touch pulls the whole overlay down from anywhere on it; a mouse from the top bar and the
+  // artwork (#lib/actions/drag-dismiss decides what is a pull). The overlay follows the finger with
+  // no transition; on release it closes past 25% of its height or on a flick faster than
+  // DISMISS_VELOCITY, else springs back. Transform/opacity only, written straight onto the
+  // element. Under Reduce Motion the drag fades instead of moving.
   let contentEl = $state<HTMLElement | null>(null);
   let overlayEl = $state<HTMLElement | null>(null);
-  const DRAG_SLOP = 6;
-  type Drag = {
-    pointerId: number;
-    zone: HTMLElement;
-    startY: number;
-    lastY: number;
-    lastT: number;
-    velocity: number;
-    height: number;
-    active: boolean;
-    reduced: boolean;
-  };
-  let drag: Drag | null = null;
-
-  // Moves and the release are followed on window, not the zone: before the drag is claimed (and
-  // the pointer captured) a quick flick leaves the zone within a frame.
-  function listen(on: boolean) {
-    if (on) {
-      window.addEventListener('pointermove', onDragMove);
-      window.addEventListener('pointerup', onDragEnd);
-      window.addEventListener('pointercancel', onDragCancel);
-    } else {
-      window.removeEventListener('pointermove', onDragMove);
-      window.removeEventListener('pointerup', onDragEnd);
-      window.removeEventListener('pointercancel', onDragCancel);
-    }
-  }
-  $effect(() => () => listen(false));
-
-  function paint(offset: number) {
-    if (!drag || !contentEl) return;
-    const progress = drag.height > 0 ? Math.min(1, offset / drag.height) : 0;
-    if (drag.reduced) contentEl.style.opacity = String(1 - progress);
-    else contentEl.style.transform = offset > 0 ? `translate3d(0, ${offset}px, 0)` : '';
-    if (overlayEl) overlayEl.style.opacity = String(1 - progress);
-  }
+  let drag: { height: number; reduced: boolean } | null = null;
 
   function settle(el: HTMLElement | null) {
     if (!el) return;
@@ -238,85 +205,42 @@
     el.addEventListener('transitionend', () => (el.style.transition = ''), { once: true });
   }
 
-  function onDragStart(event: PointerEvent) {
-    if (drag || !event.isPrimary || event.button !== 0) return;
-    // A menu trigger opens on pointerdown; a drag must not start underneath it.
-    if (event.target instanceof Element && event.target.closest('[aria-haspopup]')) return;
-    drag = {
-      pointerId: event.pointerId,
-      zone: event.currentTarget as HTMLElement,
-      startY: event.clientY,
-      lastY: event.clientY,
-      lastT: event.timeStamp,
-      velocity: 0,
-      height: contentEl?.offsetHeight ?? window.innerHeight,
-      active: false,
-      reduced: prefersReducedMotion()
-    };
-    listen(true);
-  }
-
-  function onDragMove(event: PointerEvent) {
-    if (!drag || event.pointerId !== drag.pointerId) return;
-    const dy = event.clientY - drag.startY;
-    if (!drag.active) {
-      // Below the slop a press is still a tap (⌄, ⋯, the title links keep their click); an upward
-      // move is not a dismiss, so let it go.
-      if (dy < -DRAG_SLOP) {
-        drag = null;
-        listen(false);
-        return;
-      }
-      if (dy < DRAG_SLOP) return;
-      drag.active = true;
-      // Capture only once it is a drag, so a tap's click still lands on the button pressed.
-      drag.zone.setPointerCapture?.(event.pointerId);
+  const dismissDrag: DragDismissHandlers = {
+    onstart() {
+      drag = {
+        height: contentEl?.offsetHeight || window.innerHeight,
+        reduced: prefersReducedMotion()
+      };
       if (contentEl) contentEl.style.transition = 'none';
       if (overlayEl) overlayEl.style.transition = 'none';
-    }
-    const dt = event.timeStamp - drag.lastT;
-    if (dt > 0) {
-      const instant = (event.clientY - drag.lastY) / dt;
-      drag.velocity = drag.velocity * 0.2 + instant * 0.8;
-    }
-    drag.lastY = event.clientY;
-    drag.lastT = event.timeStamp;
-    paint(Math.max(0, dy));
-  }
-
-  function onDragEnd(event: PointerEvent) {
-    if (!drag || event.pointerId !== drag.pointerId) return;
-    const ended = drag;
-    listen(false);
-    if (!ended.active) {
+    },
+    onmove(offset) {
+      if (!drag || !contentEl) return;
+      const progress = Math.min(1, offset / drag.height);
+      if (drag.reduced) contentEl.style.opacity = String(1 - progress);
+      else contentEl.style.transform = offset > 0 ? `translate3d(0, ${offset}px, 0)` : '';
+      if (overlayEl) overlayEl.style.opacity = String(1 - progress);
+    },
+    onend(offset, velocity) {
+      const ended = drag;
       drag = null;
-      return;
-    }
-    const offset = Math.max(0, event.clientY - ended.startY);
-    // A finger that rested before lifting is not a flick, whatever its last speed was.
-    const velocity = event.timeStamp - ended.lastT > 80 ? 0 : ended.velocity;
-    drag = null;
-    if (offset > ended.height * 0.25 || velocity > DISMISS_VELOCITY) {
-      // Close from where the finger left it: the exit keyframes only define `to`, so the slide-out
-      // starts at the inline transform (and the scrim at its inline opacity).
-      if (contentEl) contentEl.style.transition = '';
-      if (overlayEl) overlayEl.style.transition = '';
-      songDetail.close();
-    } else {
+      if (ended && (offset > ended.height * 0.25 || velocity > DISMISS_VELOCITY)) {
+        // Close from where the finger left it: the exit keyframes only define `to`, so the
+        // slide-out starts at the inline transform (and the scrim at its inline opacity).
+        if (contentEl) contentEl.style.transition = '';
+        if (overlayEl) overlayEl.style.transition = '';
+        songDetail.close();
+      } else {
+        settle(contentEl);
+        settle(overlayEl);
+      }
+    },
+    oncancel() {
+      drag = null;
       settle(contentEl);
       settle(overlayEl);
     }
-  }
-
-  function onDragCancel(event: PointerEvent) {
-    if (!drag || event.pointerId !== drag.pointerId) return;
-    const ended = drag;
-    drag = null;
-    listen(false);
-    if (!ended.active) return;
-    settle(contentEl);
-    settle(overlayEl);
-  }
+  };
 
   // The page behind a full-screen Now Playing leaves the accessibility tree (see inert-app.ts).
   $effect(() => (songDetail.isOpen ? holdAppInert() : undefined));
@@ -392,6 +316,7 @@
       <!-- Over a moving music video, a soft dark halo behind every piece of text keeps it
            readable; over the still, dimmed cover it is not needed. -->
       <div
+        use:dragDismiss={dismissDrag}
         class="relative z-10 flex h-full min-h-0 flex-col {videoShowing
           ? '[text-shadow:0_0_4px_rgb(0_0_0/0.6),0_1px_14px_rgb(0_0_0/0.5)]'
           : ''}"
@@ -407,7 +332,6 @@
             onClose={() => songDetail.close()}
             {onResetEnrichment}
             timelineHref={`/track/${r.song.id}`}
-            {onDragStart}
             onShareWithFriend={shareWithFriend}
             onAddToPlaylist={addToPlaylist}
             onReport={reportSong}

@@ -325,6 +325,7 @@
             <button
               type="button"
               data-queue-handle={pos}
+              data-drag-ignore
               class={cn(
                 'text-muted-foreground focus-visible:ring-ring grid size-11 shrink-0 touch-none place-items-center rounded-full select-none focus-visible:ring-2 focus-visible:outline-hidden',
                 dragging ? 'text-foreground cursor-grabbing' : 'cursor-grab'
