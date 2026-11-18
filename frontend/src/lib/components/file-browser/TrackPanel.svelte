@@ -73,7 +73,7 @@
    * and transport on the right, since the portrait stack cannot fit in 393pt of height.
    *
    * A browsed song (not the one playing) behaves as it always has: the transport's play queues
-   * the song's album, the scrubber is locked at 0, prev/next are off, lyrics don't track.
+   * the list it was opened from (`playFromList`), else the song's album, the scrubber is locked at 0, prev/next are off, lyrics don't track.
    */
   type Props = {
     album: AlbumSummary;
@@ -83,6 +83,8 @@
     requestedMode?: RequestedDetailMode;
     /** Changes on every open(), so a repeat request for the song on screen still applies. */
     requestSeq?: number;
+    /** Plays the list the song was opened from, from this song (see `DetailOpenOptions.play`). */
+    playFromList?: () => void;
     video: SongVideo;
     onClose: () => void;
     onResetEnrichment?: () => void;
@@ -103,6 +105,7 @@
     trackIndex,
     requestedMode,
     requestSeq = 0,
+    playFromList,
     video,
     onClose,
     onResetEnrichment,
@@ -386,6 +389,10 @@
   function handlePlayToggle() {
     if (isCurrentlyLoaded) {
       playerStore.togglePlay();
+      return;
+    }
+    if (playFromList) {
+      playFromList();
       return;
     }
     const queue = album.songs.map((s) => toPlayerSong(s, album.artist));

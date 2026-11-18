@@ -117,7 +117,7 @@
       return;
     }
     if (songDetail.isOpen && songDetail.target?.songId === song.id) songDetail.close();
-    else songDetail.open(song.id);
+    else songDetail.open(song.id, undefined, { play: () => playQueue(songs, index) });
   }
 
   type RowMenu = { openAt: (point: LongPressPoint) => void };
