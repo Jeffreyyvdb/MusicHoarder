@@ -279,6 +279,7 @@ jobs:
         if: steps.pre.outputs.configured == 'true'
 
       - name: Destroy Dokploy preview stack
+        id: destroy
         if: steps.pre.outputs.configured == 'true'
         env:
           DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
@@ -292,7 +293,7 @@ jobs:
       # with delete:packages; the default GITHUB_TOKEN can delete versions of packages owned by this
       # repo's owner. Never fails the job.
       - name: Prune pr-<n> GHCR image versions
-        if: steps.pre.outputs.configured == 'true'
+        if: steps.pre.outputs.configured == 'true' && steps.destroy.outputs.kept != 'true'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GHCR_CLEANUP_TOKEN || secrets.GITHUB_TOKEN }}
@@ -315,7 +316,7 @@ jobs:
           done
 
       - name: Comment teardown + unlabel PR
-        if: steps.pre.outputs.configured == 'true'
+        if: steps.pre.outputs.configured == 'true' && steps.destroy.outputs.kept != 'true'
         uses: actions/github-script@v9
         with:
           script: |

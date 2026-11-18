@@ -592,7 +592,14 @@ reap() {
 
 case "$CMD" in
   provision) provision ;;
-  destroy)   destroy || { rc=$?; (( rc == 10 )) && exit 0; exit "$rc"; } ;;
+  destroy)
+    # A preview kept because its PR is open again is not a failure, but the workflow's later steps
+    # (image pruning, the "torn down" comment) must not run for it.
+    destroy || {
+      rc=$?
+      (( rc == 10 )) || exit "$rc"
+      [[ -z "${GITHUB_OUTPUT:-}" ]] || echo "kept=true" >>"$GITHUB_OUTPUT"
+    } ;;
   reap)      reap ;;
   *) echo "Usage: PR=<n> $0 {provision|destroy} | $0 reap" >&2; exit 64 ;;
 esac
