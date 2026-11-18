@@ -9,10 +9,12 @@
 
 import { switchAccount } from '#lib/api-client.ts';
 import { APP_HOME } from '#lib/app-home.ts';
+import { clearWidgets } from '#lib/native/widgets.ts';
 
 export async function switchAccountAndReload(userId: string): Promise<void> {
   const switched = await switchAccount(userId);
   if (switched) {
+    await clearWidgets();
     location.assign(APP_HOME);
   } else {
     // The parked session died since the list was rendered; the server pruned it. Reload so the
