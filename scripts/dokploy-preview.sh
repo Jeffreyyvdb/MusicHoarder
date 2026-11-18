@@ -361,7 +361,7 @@ list_preview_resources() {
 # Removes a Docker network by name through Dokploy, which only removes networks it tracks: import it
 # first when it is not tracked yet. Docker refuses while anything is still attached to it.
 remove_network() {
-  local name="$1" sync tracked id found
+  local name="$1" pr="$2" sync tracked id found
   CURL_ERROR_LEVEL=notice api network.import "$(jq -n --arg n "$name" '{names:[$n]}')" >/dev/null || true
   # Untracked first, then tracked: a network only moves from untracked to tracked (an import running
   # beside this one), so one missing from both lists, read in this order, is gone from Docker.
@@ -374,6 +374,7 @@ remove_network() {
     echo "::warning::network ${name} could not be imported into Dokploy" >&2
     return 1
   fi
+  check_closed "$pr" || return $?
   CURL_ERROR_LEVEL=warning api network.remove "$(jq -n --arg id "$id" '{networkId:$id}')" >/dev/null
 }
 
@@ -392,11 +393,12 @@ purge_leftovers() {
     echo "::warning::${NAME} has a compose again (${live}); leaving its Docker resources alone." >&2
     return 10
   fi
-  # The last read before anything is removed, so a reopen during the inventory is caught too.
-  check_closed "$pr" || return $?
+  # Every removal below comes right after a read of the PR's state, however long the one before
+  # it took, so a PR reopened part-way keeps what is left.
   resources="$(awk -F'\t' -v pr="$pr" '$2 == pr' <<<"$all")"
   [[ -n "$resources" ]] || { echo "No Docker leftovers for ${NAME}."; return 0; }
   while IFS=$'\t' read -r kind rpr name ref; do
+    [[ "$kind" == network ]] || check_closed "$pr" || return $?
     case "$kind" in
       container)
         echo "Removing leftover container ${name}"
@@ -410,10 +412,13 @@ purge_leftovers() {
   local net i
   for net in "${networks[@]}"; do
     echo "Removing network ${net}"
+    local rc
     for i in $(seq 1 12); do
-      remove_network "$net" && continue 2
+      rc=0
+      remove_network "$net" "$pr" || rc=$?
+      (( rc == 0 )) && continue 2
+      (( rc == 10 )) && return 10
       sleep 10
-      check_closed "$pr" || return $?
     done
     echo "::error::network ${net} is still there two minutes after its stack was deleted." >&2
     failed=1
@@ -481,6 +486,7 @@ destroy() {
         fi
       else
         status=unknown
+        rowless=0
       fi
       [[ "$status" == running || "$status" == unknown ]] || break
       (( waited == 0 )) && echo "A deployment of '${NAME}' may still be running (${status}); waiting for it to end..."
