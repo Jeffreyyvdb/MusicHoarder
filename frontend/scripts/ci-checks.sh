@@ -11,8 +11,10 @@ cd "$(dirname "$0")/.."
 
 echo "Runner: $(nproc) cores, $(free -g | awk '/^Mem:/ { print $2 }') GB memory"
 
-# `check` and `test` each start with their own `svelte-kit sync`. Sync writes a file only when its
-# content changes, so after this one they write nothing and cannot read a half-written file.
+# Sync once before anything reads .svelte-kit/. `check`, `test` and `build` sync again on their own,
+# and on SvelteKit 3.2 every sync rewrites every route's $types.d.ts. svelte-check reads them in
+# its first seconds, before the build's syncs; a read that met a rewrite would be a loud missing-
+# `./$types` error, never a pass. vitest and oxlint do not read .svelte-kit/.
 bunx svelte-kit sync || exit 1
 
 logs=$(mktemp -d)
