@@ -32,7 +32,7 @@ run() {
   pids[$name]=$!
 }
 
-run lint bun run lint --concurrency auto
+run lint bun run lint --concurrency 4
 run check bun run check
 run test bun run test
 
