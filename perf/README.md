@@ -31,7 +31,9 @@ Chrome or Chromium binary.
 production) for the web-platform hardening — security headers and the report-only CSP with its
 report endpoint, the landing hero's loading, passkey autofill on the login field, focus outlines
 under forced colors, and, signed in as the demo account, one `<main>` and native progress bars on
-the app pages, with no CSP violations or script errors anywhere. It prints one PASS/FAIL line per
+the app pages, with no CSP violations or script errors anywhere. It also loads the tracks list and
+Now Playing with the hardware skin off and on, and fails when a control or a column head is there
+without the skin and gone with it (a skin changes look, never what is reachable). It prints one PASS/FAIL line per
 check and exits 1 when any fails. The PR preview workflow runs it after every preview deploy.
 
 ```bash

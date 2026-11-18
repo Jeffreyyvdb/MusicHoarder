@@ -2,7 +2,8 @@
 // put in place, in headless Chromium: the security headers, the report-only CSP and its report
 // endpoint, the landing hero's loading, the login field's passkey autofill, focus outlines under
 // forced colors, and — signed in as the demo account — one <main> and only native progress bars on
-// the app pages, with no CSP violations or script errors anywhere.
+// the app pages, with no CSP violations or script errors anywhere. It also checks that the hardware
+// skin leaves every control reachable (the tracks list and Now Playing, skin off against skin on).
 //
 //   node src/web/preview-checks.ts https://pr-123.preview.example.com
 //
@@ -224,6 +225,97 @@ for (const forcedColors of ['none', 'active'] as const) {
     }))
     check(`${path}: one <main>, no hand-made progress bars`, info.mains === 1 && info.handMadeBars === 0, JSON.stringify(info))
   }
+  // A skin changes look and feel, never what is reachable (frontend/src/lib/hardware/README.md,
+  // "The contract"). The stylesheet half of that is pinned by skin-contract.test.ts and the
+  // component half by lint; this is the rule itself, however a gap is made: everything a person
+  // can use with the skin off must still be there with it on. Compared are the controls (role and
+  // name) and the tracks table's column heads. Extend SKIN_SCENES when a page gets a skin section.
+  {
+    type Reachable = { controls: string[]; heads: string[] }
+    const reachable = (): Promise<Reachable> =>
+      page.evaluate(() => {
+        const shown = (el: Element) => {
+          if (el.closest('[aria-hidden="true"], [inert]')) return false
+          if (!el.checkVisibility({ opacityProperty: true, visibilityProperty: true })) return false
+          const box = el.getBoundingClientRect()
+          return box.width > 0 && box.height > 0
+        }
+        // Clocks move between two reads; everything else in a name is stable.
+        const fold = (text: string) => text.replace(/\s+/g, ' ').trim().toLowerCase().replace(/\d+:\d\d/g, '0:00')
+        const interactive =
+          'a[href], button, input, select, textarea, summary, [role="button"], [role="slider"], [role="tab"], [role="switch"], [role="checkbox"], [role="menuitem"], [tabindex]:not([tabindex="-1"])'
+        const controls = [...document.querySelectorAll(interactive)]
+          .filter(shown)
+          .map((el) => `${el.getAttribute('role') ?? el.tagName.toLowerCase()}:${fold(el.getAttribute('aria-label') ?? el.textContent ?? '')}`)
+        const heads = [...document.querySelectorAll('[data-mh-tracks-head] > *')]
+          .filter(shown)
+          .map((el) => fold(el.getAttribute('aria-label') ?? el.textContent ?? ''))
+          .filter(Boolean)
+        return { controls: [...new Set(controls)], heads }
+      })
+    // `ready` brings the scene up after the reload and returns once it is on screen.
+    const withSkin = async (on: boolean, ready: () => Promise<void>): Promise<Reachable> => {
+      await page.evaluate((value) => localStorage.setItem('mh:hardware', value), on ? 'on' : 'off')
+      await page.reload({ waitUntil: 'load' })
+      await page.waitForFunction(
+        (want) => (document.documentElement.dataset.mhSkin === 'hardware') === want &&
+          (!want || getComputedStyle(document.documentElement).getPropertyValue('--mh-desk') !== ''),
+        on,
+      )
+      await ready()
+      await page.waitForTimeout(500)
+      return reachable()
+    }
+    const tracksList = async () => {
+      await page.locator('[data-mh-tracks] :is([role="button"], [role="listitem"])').first().waitFor()
+    }
+    // Now Playing on a song that is looked at, not played: a demo library need not have audio, and
+    // the player is the same tree either way. Opened from the table (a row tap on a phone plays),
+    // then taken to the scene's size.
+    const nowPlaying = (width: number, height: number) => async () => {
+      await page.setViewportSize({ width: 1280, height: 900 })
+      await page.locator('[data-mh-tracks="wide"] > [role="button"]').first().press('Enter')
+      await page.locator('[data-mh-np="keys"]').first().waitFor()
+      await page.setViewportSize({ width, height })
+    }
+    // One /tracks scene per layout of the list: the phone list, then the table at each of its
+    // three container tiers (the sidebar takes about 270px of the window).
+    const SKIN_SCENES: { name: string; width: number; height: number; ready: () => Promise<void> }[] = [
+      { name: 'tracks, 700 wide', width: 700, height: 900, ready: tracksList },
+      { name: 'tracks, 1000 wide', width: 1000, height: 900, ready: tracksList },
+      { name: 'tracks, 1200 wide', width: 1200, height: 900, ready: tracksList },
+      { name: 'tracks, 1500 wide', width: 1500, height: 900, ready: tracksList },
+      { name: 'Now Playing, 1280×800', width: 1280, height: 800, ready: nowPlaying(1280, 800) },
+      { name: 'Now Playing, 390×844', width: 390, height: 844, ready: nowPlaying(390, 844) },
+    ]
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await page.goto(base + '/tracks', { waitUntil: 'networkidle' })
+    for (const scene of SKIN_SCENES) {
+      await page.setViewportSize({ width: scene.width, height: scene.height })
+      const result = await (async () => {
+        const off = await withSkin(false, scene.ready)
+        const on = await withSkin(true, scene.ready)
+        return {
+          controls: off.controls.filter((c) => !on.controls.includes(c)),
+          heads: off.heads.filter((h) => !on.heads.includes(h)),
+          counted: off.controls.length,
+        }
+      })().catch((e: unknown) => ({ error: e instanceof Error ? e.message.split('\n')[0] : String(e) }))
+      if ('error' in result) {
+        check(`skin keeps everything: ${scene.name}`, false, result.error)
+      } else {
+        const gone = [...result.controls, ...result.heads.map((h) => `column head "${h}"`)]
+        check(
+          `skin keeps everything: ${scene.name}`,
+          gone.length === 0 && result.counted > 0,
+          gone.length ? `missing with the hardware skin on: ${gone.slice(0, 12).join(' | ')}` : `${result.counted} controls`,
+        )
+      }
+    }
+    await page.evaluate(() => localStorage.removeItem('mh:hardware'))
+    await page.setViewportSize({ width: 1280, height: 900 })
+  }
+
   // Installed iOS apps have no browser Back gesture. Exercise the interactive page stack:
   // cancelling must keep the route; committing must reveal live content and remove all copies.
   await page.setViewportSize({ width: 393, height: 852 })
