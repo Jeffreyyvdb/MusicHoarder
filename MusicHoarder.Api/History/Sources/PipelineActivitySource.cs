@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
 using MusicHoarder.Api.Endpoints;
 using MusicHoarder.Api.Persistence;
@@ -19,47 +20,61 @@ public sealed class PipelineActivitySource(MusicHoarderDbContext db) : IActivity
         return summaries;
     }
 
+    /// <summary>
+    /// Whether a run belongs in History. A run still going, failed or cancelled always does. A finished
+    /// one only when it changed something a person can act on: new tracks, or tracks that need review
+    /// or failed. <c>NewlyBuilt</c> deliberately does not count, since Copied also rises when an
+    /// earlier re-tag or rebuild finishes and a new song already shows as a new track. Runs recorded
+    /// before the delta columns existed (null) only kept library-wide totals, so they are left out.
+    /// </summary>
+    private static readonly Expression<Func<IngestRun, bool>> ReportsAChange = r =>
+        r.Status == IngestRunStatus.Running
+        || r.Status == IngestRunStatus.Failed
+        || r.Status == IngestRunStatus.Cancelled
+        || r.NewTracks > 0 || r.NewReview > 0 || r.NewFailed > 0;
+
     private async Task<List<HistorySummary>> CollectRunsAsync(ActivityWindow window, CancellationToken ct)
     {
         var runs = await db.IngestRuns
             .AsNoTracking()
             .Where(r => r.StartedAtUtc >= window.FromUtc && r.StartedAtUtc <= window.ToUtc)
+            .Where(ReportsAChange)
             .OrderByDescending(r => r.StartedAtUtc)
             .Take(window.MaxRowsPerSource)
             .Select(r => new
             {
                 r.Id, r.StartedAtUtc, r.EndedAtUtc, r.Status, r.TriggerLabel,
-                r.TracksDiscovered, r.TracksProcessed, r.TracksFingerprinted, r.TracksEnriched,
-                r.TracksCopied, r.TracksReview, r.TracksFailed,
+                r.NewTracks, r.NewlyBuilt, r.NewReview, r.NewFailed,
             })
             .ToListAsync(ct);
 
         return runs.Select(r =>
         {
+            var newTracks = r.NewTracks ?? 0;
             var (kind, tint, headline) = r.Status switch
             {
                 IngestRunStatus.Running => (
                     "scan-running", ActivityTint.Info,
-                    $"Scanning the source library — {ActivityText.Plural(r.TracksDiscovered, "track")} so far"),
+                    newTracks > 0
+                        ? $"Scanning the source library, {ActivityText.Plural(newTracks, "new track")} so far"
+                        : "Scanning the source library"),
                 IngestRunStatus.Failed => (
                     "scan-failed", ActivityTint.Error,
                     "The scan failed"),
                 IngestRunStatus.Cancelled => (
                     "scan-cancelled", ActivityTint.Info,
-                    $"Scan cancelled after {ActivityText.Plural(r.TracksProcessed, "track")}"),
+                    "Scan cancelled"),
                 _ => (
                     "scan-completed", ActivityTint.Ok,
-                    r.TracksDiscovered > 0
-                        ? $"Scan found {ActivityText.Plural(r.TracksDiscovered, "new track")}"
-                        : "Scan found nothing new"),
+                    newTracks > 0
+                        ? $"Scan found {ActivityText.Plural(newTracks, "new track")}"
+                        : "Pipeline run finished"),
             };
 
             var parts = new List<string>();
-            if (r.TracksFingerprinted > 0) parts.Add($"{r.TracksFingerprinted} fingerprinted");
-            if (r.TracksEnriched > 0) parts.Add($"{r.TracksEnriched} identified");
-            if (r.TracksCopied > 0) parts.Add($"{r.TracksCopied} built");
-            if (r.TracksReview > 0) parts.Add($"{r.TracksReview} to review");
-            if (r.TracksFailed > 0) parts.Add($"{r.TracksFailed} failed");
+            if (r.NewlyBuilt > 0) parts.Add($"{r.NewlyBuilt} built");
+            if (r.NewReview > 0) parts.Add($"{r.NewReview} to review");
+            if (r.NewFailed > 0) parts.Add($"{r.NewFailed} failed");
             if (!string.IsNullOrWhiteSpace(r.TriggerLabel)) parts.Add($"triggered by {r.TriggerLabel}");
 
             return ActivityText.Summary(

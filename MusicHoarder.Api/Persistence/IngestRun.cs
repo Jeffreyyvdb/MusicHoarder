@@ -54,6 +54,16 @@ public class IngestRun
     public int TracksReview { get; set; }
     public int TracksFailed { get; set; }
 
+    /// <summary>
+    /// What this run changed, as a delta of the library-wide totals above: songs discovered, written
+    /// to the library, put in review and failed since the run opened. Null on runs recorded before
+    /// these columns existed, which only kept totals.
+    /// </summary>
+    public int? NewTracks { get; set; }
+    public int? NewlyBuilt { get; set; }
+    public int? NewReview { get; set; }
+    public int? NewFailed { get; set; }
+
     /// <summary>Files-per-second over the run's duration, computed at finalization.</summary>
     public double ThroughputPerSec { get; set; }
 

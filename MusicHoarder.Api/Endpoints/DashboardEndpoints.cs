@@ -589,7 +589,7 @@ public static class DashboardEndpoints
         var enrichmentRunning = enrichmentState is { IsComplete: false };
 
         var now = DateTime.UtcNow;
-        var activities = await PipelineSnapshot.ComputeRecentActivityAsync(active, 50, now);
+        var activities = await PipelineSnapshot.ComputeRecentActivityAsync(active, 50);
 
         var startedAt = scanState?.StartedAt ?? indexWindow?.NewestIndexed ?? now;
 
@@ -646,14 +646,7 @@ public static class DashboardEndpoints
                 enrichmentState.StartedAt,
                 enrichmentState.CompletedAt,
             } : null,
-            RecentActivity = activities.Select(a => new
-            {
-                a.Id,
-                a.Type,
-                a.Track,
-                a.Artist,
-                a.Time,
-            }),
+            RecentActivity = activities.Select(a => Jobs.RecentActivity.ToWire(a, now)),
         };
 
         return Results.Ok(overview);

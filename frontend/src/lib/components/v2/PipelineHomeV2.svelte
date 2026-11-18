@@ -44,6 +44,7 @@
   } from '#lib/api-client.ts';
   import { isBuiltSong } from '#lib/album-sections.ts';
   import { activityDot } from '#lib/activity-tone.ts';
+  import { activityLabel, activitySubline } from '#lib/pipeline/recent-activity.ts';
   import {
     pipelineOverlay,
     JOB_CONFIRM_COPY,
@@ -365,16 +366,6 @@
   let showAllActivity = $state(false);
   const allRecent = $derived<ApiOverviewActivity[]>(overview?.recentActivity ?? []);
   const recent = $derived(showAllActivity ? allRecent : allRecent.slice(0, RECENT_ROWS));
-
-  // Sentence-case verbs + one small dot per event type (activityDot: the tint for progress, the
-  // warning tone only for the actionable review state, red only for failures).
-  const ACTIVITY_VERB: Record<ApiOverviewActivity['type'], string> = {
-    discovered: 'Discovered',
-    copied: 'Added to library',
-    enriched: 'Matched',
-    review: 'Needs review',
-    failed: 'Failed'
-  };
 
   // ── just landed (the newest albums the server grouped) ──────────────────────
   const justLanded = $derived.by<AlbumSummary[]>(() => {
@@ -993,13 +984,13 @@
           {#if recent.length > 0}
             {#each recent as a (a.id)}
               <GroupedList.Row
-                label={ACTIVITY_VERB[a.type] ?? a.type}
-                sublabel={`${a.track}${a.artist ? ` · ${a.artist}` : ''}`}
+                label={activityLabel(a)}
+                sublabel={activitySubline(a)}
                 value={a.time}
               >
                 {#snippet leading()}
                   <span class="flex w-3 justify-center" aria-hidden="true">
-                    <span class={cn('size-2 rounded-full', activityDot(a.type))}></span>
+                    <span class={cn('size-2 rounded-full', activityDot(a.kind))}></span>
                   </span>
                 {/snippet}
               </GroupedList.Row>

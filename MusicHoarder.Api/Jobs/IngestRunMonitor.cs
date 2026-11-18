@@ -238,10 +238,18 @@ public class IngestRunMonitor(
         run.TracksReview = counts.Review;
         run.TracksFailed = counts.Failed;
 
+        if (_openCounts is { } opened)
+        {
+            run.NewTracks = counts.Discovered - opened.Discovered;
+            run.NewlyBuilt = counts.Copied - opened.Copied;
+            run.NewReview = counts.Review - opened.Review;
+            run.NewFailed = counts.Failed - opened.Failed;
+        }
+
         var now = DateTime.UtcNow;
-        var activity = await PipelineSnapshot.ComputeRecentActivityAsync(active, LogTailCap, now, ct);
+        var activity = await PipelineSnapshot.ComputeRecentActivityAsync(active, LogTailCap, ct);
         run.LogTailJson = JsonSerializer.Serialize(
-            activity.Select(a => new { a.Id, a.Type, a.Track, a.Artist, a.Time }),
+            activity.Select(a => RecentActivity.ToWire(a, now)),
             LogJsonOptions);
 
         if (finalize)

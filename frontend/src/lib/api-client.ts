@@ -38,12 +38,14 @@ export interface ApiStats {
   }
 }
 
-export interface ApiOverviewActivity {
+export type ApiOverviewActivity = {
   id: string
-  type: "discovered" | "copied" | "enriched" | "review" | "failed"
-  track: string
-  artist: string
+  kind: "added" | "matched" | "review" | "failed"
+  at: string
   time: string
+  subject:
+    | { type: "song"; songId: number; title: string; artist?: string | null }
+    | { type: "album"; album: string; artist?: string | null; count: number }
 }
 
 export interface ApiOverviewScan {

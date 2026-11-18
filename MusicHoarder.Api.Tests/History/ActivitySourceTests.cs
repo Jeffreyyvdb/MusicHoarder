@@ -370,21 +370,71 @@ public class ActivitySourceTests
     public async Task Pipeline_SummarisesAScanByWhatItGotThrough()
     {
         using var db = NewContext();
-        db.IngestRuns.Add(new IngestRun
-        {
-            Id = Guid.NewGuid(), OwnerUserId = Owner, SourcePath = "/src", DestinationPath = "/dest",
-            StartedAtUtc = Now.AddHours(-2), EndedAtUtc = Now.AddHours(-1), Status = IngestRunStatus.Completed,
-            TracksDiscovered = 24, TracksFingerprinted = 24, TracksEnriched = 20, TracksCopied = 18,
-            TracksReview = 4, TriggerLabel = "auto-scan",
-        });
+        db.IngestRuns.Add(NewRun(IngestRunStatus.Completed, newTracks: 24, newlyBuilt: 18, newReview: 4, label: "auto-scan",
+            totalDiscovered: 9000));
         db.SaveChanges();
 
         var entry = Assert.Single(await new PipelineActivitySource(db).CollectAsync(Window, default));
         Assert.Equal("scan-completed", entry.Kind);
         Assert.Contains("24 new tracks", entry.Headline);
+        Assert.DoesNotContain("9000", entry.Headline);
         Assert.Contains("18 built", entry.Detail);
+        Assert.Contains("4 to review", entry.Detail);
         Assert.Contains("auto-scan", entry.Detail);
     }
+
+    [Fact]
+    public async Task Pipeline_LeavesOutAQuietCompletedRun()
+    {
+        using var db = NewContext();
+        db.IngestRuns.Add(NewRun(IngestRunStatus.Completed, newTracks: 0, newlyBuilt: 40, newReview: 0, totalDiscovered: 9000));
+        db.SaveChanges();
+
+        Assert.Empty(await new PipelineActivitySource(db).CollectAsync(Window, default));
+    }
+
+    [Fact]
+    public async Task Pipeline_LeavesOutALegacyRunThatOnlyKeptTotals()
+    {
+        using var db = NewContext();
+        db.IngestRuns.Add(NewRun(IngestRunStatus.Completed, newTracks: null, newlyBuilt: null, newReview: null, totalDiscovered: 9000));
+        db.SaveChanges();
+
+        Assert.Empty(await new PipelineActivitySource(db).CollectAsync(Window, default));
+    }
+
+    [Fact]
+    public async Task Pipeline_KeepsARetryRunThatOnlyAddedReviews()
+    {
+        using var db = NewContext();
+        db.IngestRuns.Add(NewRun(IngestRunStatus.Completed, newTracks: 0, newlyBuilt: 0, newReview: 3));
+        db.SaveChanges();
+
+        var entry = Assert.Single(await new PipelineActivitySource(db).CollectAsync(Window, default));
+        Assert.Equal("Pipeline run finished", entry.Headline);
+        Assert.Contains("3 to review", entry.Detail);
+    }
+
+    [Fact]
+    public async Task Pipeline_KeepsAFailedRunEvenWhenNothingChanged()
+    {
+        using var db = NewContext();
+        db.IngestRuns.Add(NewRun(IngestRunStatus.Failed, newTracks: 0, newlyBuilt: 0, newReview: 0));
+        db.SaveChanges();
+
+        var entry = Assert.Single(await new PipelineActivitySource(db).CollectAsync(Window, default));
+        Assert.Equal("scan-failed", entry.Kind);
+    }
+
+    private static IngestRun NewRun(
+        IngestRunStatus status, int? newTracks, int? newlyBuilt, int? newReview, string? label = null,
+        int totalDiscovered = 0) => new()
+    {
+        Id = Guid.NewGuid(), OwnerUserId = Owner, SourcePath = "/src", DestinationPath = "/dest",
+        StartedAtUtc = Now.AddHours(-2), EndedAtUtc = Now.AddHours(-1), Status = status,
+        TracksDiscovered = totalDiscovered, TriggerLabel = label,
+        NewTracks = newTracks, NewlyBuilt = newlyBuilt, NewReview = newReview, NewFailed = newTracks is null ? null : 0,
+    };
 
     [Fact]
     public async Task Pipeline_ExplainsAnUpdateAndASettingsChangeFromSnapshots()

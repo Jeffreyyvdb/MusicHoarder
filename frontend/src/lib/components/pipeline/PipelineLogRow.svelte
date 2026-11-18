@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { ApiOverviewActivity } from '#lib/api-client.ts';
   import { activityTone } from '#lib/activity-tone.ts';
+  import { activityLabel, activitySubline } from '#lib/pipeline/recent-activity.ts';
   import { cn } from '#lib/utils.ts';
 
   type Props = {
@@ -10,33 +11,32 @@
   };
   const { activity, older = false }: Props = $props();
 
-  // Map backend activity type → design's "stage tag" abbreviation.
+  // Map the activity kind to the design's "stage tag" abbreviation.
   // Colour comes from the shared activityTone() so it matches PipelineHomeV2's
   // Recent activity — this is purely visual sugar, the underlying values
   // come from /overview. Mono stays here: a log tail is read column by column.
-  const TAG: Record<ApiOverviewActivity['type'], string> = {
-    discovered: 'scan',
-    enriched: 'meta',
-    copied: 'write',
+  const TAG: Record<ApiOverviewActivity['kind'], string> = {
+    added: 'write',
+    matched: 'meta',
     review: 'meta',
     failed: 'err'
   };
 
-  const t = $derived({ tag: TAG[activity.type] ?? TAG.discovered, tone: activityTone(activity.type) });
+  const t = $derived({ tag: TAG[activity.kind], tone: activityTone(activity.kind) });
   // Older rows recede by stepping down a text token, never by opacity: the log sits on the
   // grouped well at 11px, where even a 0.75 fade took the time column under 3:1 in light mode.
   // Failures and reviews keep their status tone at any age.
   const msgTone = $derived(
-    activity.type === 'failed' || activity.type === 'review'
+    activity.kind === 'failed' || activity.kind === 'review'
       ? t.tone
       : older
         ? 'text-muted-foreground-dim'
         : 'text-muted-foreground'
   );
   const subject = $derived(
-    activity.artist && activity.artist !== 'unknown'
-      ? `${activity.artist} — ${activity.track}`
-      : activity.track
+    activity.subject.type === 'album'
+      ? `${activityLabel(activity)} — ${activitySubline(activity)}`
+      : activitySubline(activity)
   );
 </script>
 
