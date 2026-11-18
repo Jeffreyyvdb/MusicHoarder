@@ -104,10 +104,11 @@
   }
   /** Plays `list` from `from`. Never pauses: every caller is labelled Play or Shuffle, or is a tap. */
   function playQueue(list: ApiSong[], from = 0, shuffle = false) {
+    if (!playlist) return;
     void playerStore.startQueue(
       list.map((s) => toPlayerSong(s, fallbackArtist(s))),
       from,
-      { shuffle }
+      { shuffle, source: { label: playlist.name, href: `/playlists/${id}` } }
     );
   }
   function activate(song: ApiSong, index: number) {

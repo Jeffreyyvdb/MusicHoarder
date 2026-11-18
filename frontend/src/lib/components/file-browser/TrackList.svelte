@@ -33,6 +33,7 @@
     type SortKey,
     type TrackListView
   } from '#lib/track-list-view.svelte.ts';
+  import type { PlaybackSource } from '#lib/player-snapshot.ts';
   import { playerStore } from '#lib/stores/player.svelte.ts';
   import { songsStore } from '#lib/stores/songs.svelte.ts';
   import { cn } from '#lib/utils.ts';
@@ -43,6 +44,7 @@
      * the "X of Y" subtitle while this component renders the rows. See track-list-view.svelte.ts.
      */
     view: TrackListView;
+    playbackSource: PlaybackSource;
     isLoading: boolean;
     selectedId?: number | null;
     /** A row click on desktop: the page toggles the song-detail overlay. */
@@ -63,6 +65,7 @@
   };
   const {
     view,
+    playbackSource,
     isLoading,
     selectedId = null,
     onSelect,
@@ -88,7 +91,8 @@
     const list = sorted;
     void playerStore.startQueue(
       list.map((s) => toPlayerSong(s, artistOf(s))),
-      list.findIndex((s) => s.id === target.id)
+      list.findIndex((s) => s.id === target.id),
+      { source: playbackSource }
     );
   }
 
@@ -97,7 +101,7 @@
     const list = sorted;
     const queue = list.map((s) => toPlayerSong(s, artistOf(s)));
     const index = list.findIndex((s) => s.id === target.id);
-    void playerStore.playSong(toPlayerSong(target, artistOf(target)), queue, index);
+    void playerStore.playSong(toPlayerSong(target, artistOf(target)), queue, index, playbackSource);
   }
 
   async function toggleLike(song: ApiSong) {

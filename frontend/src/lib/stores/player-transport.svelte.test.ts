@@ -173,6 +173,25 @@ describe('Media Session previoustrack', () => {
 });
 
 describe('startQueue', () => {
+  it('keeps the playback source while advancing and replaces it when another list starts', async () => {
+    const player = await freshStore();
+    const source = { label: 'Liked Songs', href: '/playlists/7' };
+    await player.startQueue(QUEUE, 0, { source });
+    expect(player.playbackSource).toEqual(source);
+
+    player.playNext();
+    await settle();
+    expect(player.currentSong?.id).toBe(2);
+    expect(player.playbackSource).toEqual(source);
+
+    const album = { label: 'Album', href: '/library?album=album' };
+    await player.startQueue(QUEUE, 1, { source: album });
+    expect(player.playbackSource).toEqual(album);
+
+    await player.startQueue(QUEUE, 1);
+    expect(player.playbackSource).toBeNull();
+  });
+
   it('plays the queue from the given index', async () => {
     const player = await freshStore();
     await player.startQueue(QUEUE, 1);

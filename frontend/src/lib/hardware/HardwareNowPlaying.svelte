@@ -81,7 +81,11 @@
     onPick={(i) => {
       // The whole queue from the loaded song on, not just the rows on screen, so nothing ahead of
       // the picked row is lost (what came before the loaded song is, as with any list pick).
-      if (loaded) void playerStore.startQueue([loaded, ...playerStore.upNext], i);
+      if (loaded) {
+        void playerStore.startQueue([loaded, ...playerStore.upNext], i, {
+          source: playerStore.playbackSource
+        });
+      }
     }}
   />
 </Hardware>
