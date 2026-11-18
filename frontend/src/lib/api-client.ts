@@ -3676,7 +3676,12 @@ export type WishlistItemStatus =
   | "Failed"
   | "NotFound"
 
-export type WishlistSourceType = "LikedSongs" | "Playlist" | "DeezerPlaylist" | "YouTubePlaylist"
+export type WishlistSourceType =
+  | "LikedSongs"
+  | "Playlist"
+  | "SpotifyArchivePlaylist"
+  | "DeezerPlaylist"
+  | "YouTubePlaylist"
 
 export interface WishlistItem {
   id: number
@@ -3866,6 +3871,8 @@ export async function subscribeToResolvedPlaylist(r: DiscoverResolveResult): Pro
       return addWishlistSource("DeezerPlaylist", { deezerPlaylistId: r.playlistId, autoSync: true })
     case "youtube":
       return addWishlistSource("YouTubePlaylist", { youTubePlaylistId: r.playlistId, autoSync: true })
+    case "spotifyArchive":
+      return addWishlistSource("SpotifyArchivePlaylist", { playlistId: r.playlistId, autoSync: true })
     default:
       return addWishlistSource("Playlist", { playlistId: r.playlistId, autoSync: true })
   }
@@ -3878,7 +3885,8 @@ export function playlistProviderLabel(provider: DiscoverResolveProvider): string
       return "Deezer"
     case "youtube":
       return "YouTube"
-    default:
+    case "spotify":
+    case "spotifyArchive":
       return "Spotify"
   }
 }
@@ -3965,23 +3973,19 @@ export async function importTrack(payload: ImportTrackPayload): Promise<ImportTr
   })
 }
 
-// ── Discover (editorial / chart playlists, sourced from Deezer) ────────────────
-// Spotify's API blocks editorial playlists for personal apps, so the browse/chart/search
-// catalog comes from Deezer. Subscribing routes through the existing wishlist source pipeline
-// (see addWishlistSource with type "DeezerPlaylist").
-
-export interface DiscoverGenre {
-  id: number
-  name: string
-  pictureUrl: string | null
-}
+// ── Discover (Spotify's own playlists, from the Spotify Playlist Archive) ─────
+// Spotify's API blocks editorial playlists for personal apps, so the browse and search catalog is the
+// public Spotify Playlist Archive (a daily snapshot). Subscribing routes through the existing wishlist
+// source pipeline (see addWishlistSource with type "SpotifyArchivePlaylist").
 
 export interface DiscoverPlaylistSummary {
   id: string
   title: string
   description: string | null
   coverUrl: string | null
-  trackCount: number
+  /** Null in the browse grid (the archive's index carries no count); the detail view has it. */
+  trackCount: number | null
+  followers: number
   creatorName: string | null
   /** True when the user already subscribes to this playlist (a wishlist source exists). */
   subscribed: boolean
@@ -3992,7 +3996,7 @@ export interface DiscoverPlaylistSummary {
 }
 
 export interface DiscoverTrack {
-  deezerTrackId: string
+  spotifyTrackId: string
   title: string
   artist: string
   album: string | null
@@ -4007,7 +4011,7 @@ export interface DiscoverPlaylistDetail {
   tracks: DiscoverTrack[]
 }
 
-export type DiscoverResolveProvider = "deezer" | "spotify" | "youtube"
+export type DiscoverResolveProvider = "deezer" | "spotify" | "spotifyArchive" | "youtube"
 
 export interface DiscoverResolveResult {
   provider: DiscoverResolveProvider
@@ -4019,15 +4023,10 @@ export interface DiscoverResolveResult {
   subscribed: boolean
 }
 
-export async function fetchDiscoverGenres(): Promise<{ genres: DiscoverGenre[] }> {
-  return requestJson<{ genres: DiscoverGenre[] }>("/api/discover/genres")
-}
-
 export async function fetchDiscoverPlaylists(
-  params: { genreId?: number; search?: string; limit?: number } = {}
+  params: { search?: string; limit?: number } = {}
 ): Promise<{ playlists: DiscoverPlaylistSummary[] }> {
   const query = new URLSearchParams()
-  if (params.genreId != null) query.set("genreId", String(params.genreId))
   if (params.search) query.set("search", params.search)
   if (params.limit != null) query.set("limit", String(params.limit))
   const qs = query.toString()

@@ -124,8 +124,9 @@ a mock-up. The image above follows your GitHub light or dark theme.</sub>
 
 ### Grow your library
 
-- **Discover playlists** *(optional)* — browse Deezer-backed editorial and chart playlists by genre
-  or search, or paste a Spotify/Deezer/YouTube playlist link, then subscribe so new tracks are
+- **Discover playlists** *(optional)* — browse Spotify's own playlists (Today's Top Hits, RapCaviar, ...)
+  from the public [Spotify Playlist Archive](https://github.com/mackorone/spotify-playlist-archive-2),
+  most followed first, or search them, or paste a Spotify/Deezer/YouTube playlist link, then subscribe so new tracks are
   wishlisted and (with downloads enabled) fetched automatically.
 - **Spotify sync** *(optional)* — connect a Spotify account (read-only) and browse your Liked Songs
   and playlists with every track's local-library match shown inline. Add any playlist (or your Liked
@@ -149,7 +150,7 @@ a mock-up. The image above follows your GitHub light or dark theme.</sub>
   `.m3u8` file in the destination library, in order, so Navidrome/Plex/Jellyfin auto-import it —
   without collecting it. (A collected playlist is already a playlist under Listen → Playlists.)
 
-![The Discover page — Deezer-backed editorial and chart playlists with genre filters, a search box, a paste-a-link button, and one-click subscribe](frontend/static/screenshots/discover.webp)
+![The Discover page — Spotify's editorial playlists from the playlist archive, a search box, a paste-a-link button, and one-click subscribe](frontend/static/screenshots/discover.webp)
 
 ### Share
 

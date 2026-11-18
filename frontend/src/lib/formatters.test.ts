@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   formatBytesShort,
+  formatCompactCount,
   formatDate,
   formatDateTime,
   formatFileSize,
@@ -86,5 +87,13 @@ describe('formatRelativeTime', () => {
 
   it('adds the year to a date from another year', () => {
     expect(formatRelativeTime('2025-09-03T12:00:00Z', now)).toMatch(/2025/);
+  });
+});
+
+describe('formatCompactCount', () => {
+  it('shortens large counts and leaves small ones whole', () => {
+    expect(formatCompactCount(33_574_029, 'en')).toBe('33.6M');
+    expect(formatCompactCount(94_618, 'en')).toBe('94.6K');
+    expect(formatCompactCount(950, 'en')).toBe('950');
   });
 });
