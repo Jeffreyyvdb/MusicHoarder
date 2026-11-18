@@ -6,6 +6,7 @@ import {
   type TrackLyricsResponse,
   type VerifyLyricsTimingResponse
 } from '#lib/api-client.ts';
+import { lyricsSourceLabel, parseLyricsOrigin, type LyricsOrigin } from '#lib/lyrics-source.ts';
 import type { LyricsProvenance, LyricsStatus, LyricsSyncStatus } from '#lib/types.ts';
 
 /**
@@ -75,6 +76,8 @@ export function createLyricsDoc(opts: {
   let verifiedProvenance = $state<LyricsProvenance | null>(null);
   let loadedSyncStatus = $state<LyricsSyncStatus | null>(null);
   let loadedSyncIssue = $state<string | null>(null);
+  let loadedOrigin = $state<LyricsOrigin>('lrclib');
+  let loadedGeniusSongId = $state<number | null>(null);
   // LRCLIB keeps gaining lyrics, so a track that had none (or only unsynced ones) when it was
   // enriched can have an LRC today. The background sweep picks that up on a multi-day backoff;
   // this is for when the user can already see the lyrics on lrclib.net. The endpoint only ever
@@ -107,7 +110,11 @@ export function createLyricsDoc(opts: {
     lyricsProvenance?: LyricsProvenance | null;
     lyricsSyncStatus?: LyricsSyncStatus | null;
     lyricsSyncIssue?: string | null;
+    lyricsOrigin?: string | null;
+    geniusSongId?: number | null;
   }) {
+    loadedOrigin = parseLyricsOrigin(data.lyricsOrigin);
+    loadedGeniusSongId = data.geniusSongId ?? null;
     loadedProvenance = data.lyricsProvenance ?? null;
     loadedSyncStatus = data.lyricsSyncStatus ?? null;
     loadedSyncIssue = data.lyricsSyncIssue ?? null;
@@ -147,6 +154,16 @@ export function createLyricsDoc(opts: {
     get syncIssue() {
       return loadedSyncIssue;
     },
+    /** Which service the loaded lyrics came from; LRCLIB until the lyrics response says otherwise. */
+    get origin() {
+      return loadedOrigin;
+    },
+    get geniusSongId() {
+      return loadedGeniusSongId;
+    },
+    get sourceLabel() {
+      return lyricsSourceLabel(loadedOrigin);
+    },
     get recheckState() {
       return recheckState;
     },
@@ -181,6 +198,8 @@ export function createLyricsDoc(opts: {
       verifiedProvenance = null;
       loadedSyncStatus = null;
       loadedSyncIssue = null;
+      loadedOrigin = 'lrclib';
+      loadedGeniusSongId = null;
       loadState = 'idle';
       recheckState = 'idle';
       verifyState = 'idle';

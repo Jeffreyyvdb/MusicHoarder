@@ -43,6 +43,7 @@
     formatReleaseDate
   } from '#lib/formatters.ts';
   import { lrclibWebUrl, lrclibWebSearchUrl } from '#lib/lrclib-url.ts';
+  import { lyricsSourceUrl, type LyricsOrigin } from '#lib/lyrics-source.ts';
   import { acoustIdSourceConnected, lrclibSourceConnected } from '#lib/source-connection.ts';
   import { cn } from '#lib/utils.ts';
   import { PROVENANCE_ICON, seedSublabel } from '#lib/provenance.ts';
@@ -72,6 +73,8 @@
     artistHref: string;
     albumHref: string;
     lyricsStatus: LyricsStatus;
+    lyricsOrigin?: LyricsOrigin;
+    geniusSongId?: number | null;
     /** "FLAC 1411" / "MP3 320" — the format row. */
     formatLabel: string;
     /** Follow a link out of the overlay (it closes first). */
@@ -90,6 +93,8 @@
     artistHref,
     albumHref,
     lyricsStatus,
+    lyricsOrigin = 'lrclib',
+    geniusSongId = null,
     formatLabel,
     onNavigate,
     onResetEnrichment,
@@ -495,6 +500,16 @@
       url: lrclibWebUrl(trackArtist, trackTitle),
       label: lrclibWebSearchUrl(trackArtist, trackTitle) ? 'lrclib.net/search/…' : undefined
     });
+
+    if (lyricsOrigin === 'genius') {
+      sources.push({
+        key: 'genius',
+        name: 'Genius (Lyrics)',
+        connected: true,
+        url: lyricsSourceUrl('genius', geniusSongId, trackArtist, trackTitle),
+        label: geniusSongId ? 'genius.com/songs/…' : undefined
+      });
+    }
 
     if (attemptByProvider.has('Tracker')) {
       sources.push({

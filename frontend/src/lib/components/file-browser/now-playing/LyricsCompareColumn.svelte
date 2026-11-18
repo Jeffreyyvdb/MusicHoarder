@@ -32,7 +32,7 @@
   }: Props = $props();
 
   const label = $derived(
-    source === 'lrclib' ? 'LRCLIB' : `AI · ${ai.transcription?.model ?? 'whisper'}`
+    source === 'lrclib' ? doc.sourceLabel : `AI · ${ai.transcription?.model ?? 'whisper'}`
   );
   const seek = $derived(
     isCurrentlyLoaded ? (timeMs: number) => playerStore.seek(timeMs / 1000) : undefined

@@ -31,10 +31,10 @@
   }: Props = $props();
 
   let side = $state<LyricsSource>('lrclib');
-  const items: { value: LyricsSource; label: string }[] = [
-    { value: 'lrclib', label: 'LRCLIB' },
+  const items = $derived<{ value: LyricsSource; label: string }[]>([
+    { value: 'lrclib', label: lrclibDoc.sourceLabel },
     { value: 'transcribed', label: 'AI' }
-  ];
+  ]);
 </script>
 
 <BottomSheet.Root

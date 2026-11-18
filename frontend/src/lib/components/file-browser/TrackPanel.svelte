@@ -49,7 +49,7 @@
   import { formatDuration, formatFileSize } from '#lib/formatters.ts';
   import { createAiLyrics } from '#lib/lyrics/ai-lyrics.svelte.ts';
   import { createLyricsDoc } from '#lib/lyrics/lyrics-doc.svelte.ts';
-  import { lrclibWebUrl } from '#lib/lrclib-url.ts';
+  import { lyricsSourceUrl } from '#lib/lyrics-source.ts';
   import { playerStore } from '#lib/stores/player.svelte.ts';
   import { playbackSync } from '#lib/stores/playback-sync.svelte.ts';
   import { songsStore } from '#lib/stores/songs.svelte.ts';
@@ -302,7 +302,9 @@
   const artistHref = $derived(`/library?artist=${encodeURIComponent(artistLabelForSong(song))}`);
   const albumHref = $derived(`/library?album=${encodeURIComponent(album.key)}`);
   const coverUrl = $derived(coverUrlForSong(song) ?? album.coverUrl ?? null);
-  const lrclibUrl = $derived(lrclibWebUrl(trackArtist, trackTitle));
+  const lrclibUrl = $derived(
+    lyricsSourceUrl(lrclibDoc.origin, lrclibDoc.geniusSongId, trackArtist, trackTitle)
+  );
 
   // Quality, three ways: the capsule between the times ("FLAC", "MP3 320" — lossless formats
   // don't need a bitrate), the Info row, and the lg meta line.
@@ -684,6 +686,8 @@
       {artistHref}
       {albumHref}
       lyricsStatus={ai.lyricsStatus}
+      lyricsOrigin={lrclibDoc.origin}
+      geniusSongId={lrclibDoc.geniusSongId}
       {formatLabel}
       onNavigate={onClose}
       {onResetEnrichment}

@@ -2384,6 +2384,10 @@ export interface TrackLyricsResponse {
   isInstrumental?: boolean | null
   synced?: string | null
   plain?: string | null
+  /** Which service the stored lyrics came from: "Lrclib" | "Genius". */
+  lyricsOrigin?: string | null
+  /** Genius's id for the lyrics' page, when `lyricsOrigin` is "Genius". */
+  geniusSongId?: number | null
   transcribedSynced?: string | null
   transcribedPlain?: string | null
   transcriptionStatus?: string | null

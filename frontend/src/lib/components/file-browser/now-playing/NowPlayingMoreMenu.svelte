@@ -229,7 +229,7 @@
                 void ai.setPreferred(v === 'transcribed' ? 'transcribed' : 'lrclib')}
             >
               <DropdownMenu.RadioItem value="lrclib" disabled={ai.preferSaving}>
-                Source: LRCLIB
+                Source: {lrclibDoc.sourceLabel}
               </DropdownMenu.RadioItem>
               <DropdownMenu.RadioItem value="transcribed" disabled={ai.preferSaving}>
                 Source: AI-synced
@@ -278,7 +278,7 @@
               {#snippet child({ props })}
                 <a {...props} href={lrclibUrl} target="_blank" rel="noopener noreferrer">
                   <ExternalLink />
-                  View on LRCLIB
+                  View on {lrclibDoc.sourceLabel}
                 </a>
               {/snippet}
             </DropdownMenu.Item>
