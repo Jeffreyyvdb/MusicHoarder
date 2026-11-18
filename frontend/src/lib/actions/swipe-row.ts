@@ -5,7 +5,7 @@ import { EASE_OUT, prefersReducedMotion } from '#lib/motion.ts';
  * `use:swipeRow` — swipe a list row sideways to run one action, the way Spotify adds a song to the
  * queue (swipe right) and iOS lists delete (swipe left).
  *
- * Touch and pen only; a mouse never swipes. The row's content follows the finger and a coloured
+ * Touch only; a mouse never swipes. The row's content follows the finger and a coloured
  * panel opens behind it on the side it came from, carrying the action's icon. Past the commit
  * distance the icon grows (and the haptic engine ticks where there is one); letting go there runs
  * `onswipe`. `leading` swipes spring back with a check in the panel, since the row stays where it
@@ -18,6 +18,11 @@ import { EASE_OUT, prefersReducedMotion } from '#lib/motion.ts';
  * drag scrolls the list as before and only a sideways one is ours, and a touch that starts in the
  * left-edge strip is left to the installed app's edge swipe back (`edgeSwipeBack`). It swallows the
  * click a swipe's lift would otherwise deliver, so a swipe never also plays the row.
+ *
+ * Touch events rather than pointer events, for the reason `edgeSwipeBack` gives: `pan-y` still lets
+ * iOS scroll a sideways swipe that drifts a little down, and once it does it cancels the pointer
+ * from under us, so the row snapped back halfway. A non-passive touchmove holds the list still
+ * from the moment the move reads as sideways.
  *
  * Nothing is added to the row until it is first swiped: lists build one of these per row.
  */
@@ -218,16 +223,33 @@ export function swipeRow(
     }, SETTLE_MS);
   }
 
-  function onPointerDown(e: PointerEvent) {
-    if (options.disabled || e.pointerType === 'mouse' || !e.isPrimary || gesture) return;
+  function track(touches: TouchList, id: number): Touch | null {
+    for (const t of touches) if (t.identifier === id) return t;
+    return null;
+  }
+
+  function cancel() {
+    const g = gesture;
+    gesture = null;
+    if (g?.decided) settle();
+  }
+
+  function onTouchStart(e: TouchEvent) {
+    if (gesture) {
+      // A second finger: a pinch or a scroll, not a swipe.
+      cancel();
+      return;
+    }
+    if (options.disabled || e.touches.length !== 1) return;
     if (settleTimer) return; // still settling from the last one
+    const touch = e.touches[0];
     // The installed app's edge swipe back owns a touch that starts at the left edge.
-    if (options.side === 'leading' && e.clientX <= EDGE) return;
+    if (options.side === 'leading' && touch.clientX <= EDGE) return;
     swallowClick = false;
     gesture = {
-      id: e.pointerId,
-      x0: e.clientX,
-      y0: e.clientY,
+      id: touch.identifier,
+      x0: touch.clientX,
+      y0: touch.clientY,
       decided: false,
       dx: 0,
       width: node.getBoundingClientRect().width,
@@ -235,26 +257,30 @@ export function swipeRow(
     };
   }
 
-  function onPointerMove(e: PointerEvent) {
+  function onTouchMove(e: TouchEvent) {
     const g = gesture;
-    if (!g || e.pointerId !== g.id) return;
-    const dx = e.clientX - g.x0;
-    const dy = e.clientY - g.y0;
+    if (!g) return;
+    const touch = track(e.changedTouches, g.id);
+    if (!touch) return;
+    const dx = touch.clientX - g.x0;
+    const dy = touch.clientY - g.y0;
     if (!g.decided) {
-      if (Math.hypot(dx, dy) < SLOP) return;
       // Ours only when it moves sideways, the right way, before it moves down.
-      if (Math.abs(dx) <= Math.abs(dy) || Math.sign(dx) !== sign()) {
+      const sideways = Math.sign(dx) === sign() && Math.abs(dx) > Math.abs(dy);
+      // iOS settles whether the whole touch may scroll on its first touchmove, so holding the list
+      // still before the gesture decides is only safe for a move that is unmistakably sideways: a
+      // vertical scroll whose first sample jitters a pixel the right way must still scroll.
+      const clearlySideways = dx * sign() >= 4 && Math.abs(dx) >= 2 * Math.abs(dy);
+      if (clearlySideways && e.cancelable) e.preventDefault();
+      if (Math.hypot(dx, dy) < SLOP) return;
+      if (!sideways) {
         gesture = null;
         return;
       }
       g.decided = true;
-      try {
-        node.setPointerCapture(g.id);
-      } catch {
-        // the pointer may already be gone
-      }
       dressPanel();
     }
+    if (e.cancelable) e.preventDefault();
     g.dx = dx;
     const travel = dx * sign();
     const armed = travel >= commitDistance(g.width);
@@ -266,14 +292,14 @@ export function swipeRow(
     setOffset(shown(travel, g.width) * sign(), '');
   }
 
-  function onPointerEnd(e: PointerEvent) {
+  function onTouchEnd(e: TouchEvent) {
     const g = gesture;
-    if (!g || e.pointerId !== g.id) return;
+    if (!g || !track(e.changedTouches, g.id)) return;
     gesture = null;
     if (!g.decided) return;
     swallowClick = true;
     armSwallowExpiry();
-    if (g.armed && e.type === 'pointerup') commit(g);
+    if (g.armed && e.type === 'touchend') commit(g);
     else settle();
   }
 
@@ -292,10 +318,10 @@ export function swipeRow(
     e.stopImmediatePropagation();
   }
 
-  node.addEventListener('pointerdown', onPointerDown);
-  node.addEventListener('pointermove', onPointerMove);
-  node.addEventListener('pointerup', onPointerEnd);
-  node.addEventListener('pointercancel', onPointerEnd);
+  node.addEventListener('touchstart', onTouchStart, { passive: true });
+  node.addEventListener('touchmove', onTouchMove, { passive: false });
+  node.addEventListener('touchend', onTouchEnd);
+  node.addEventListener('touchcancel', onTouchEnd);
   node.addEventListener('click', onClick, true);
   applyStyles();
 
@@ -303,7 +329,7 @@ export function swipeRow(
     update(next) {
       options = next;
       if (next.disabled) {
-        gesture = null;
+        cancel();
         restoreStyles();
       } else {
         applyStyles();
@@ -312,10 +338,10 @@ export function swipeRow(
     destroy() {
       if (settleTimer) clearTimeout(settleTimer);
       if (swallowTimer) clearTimeout(swallowTimer);
-      node.removeEventListener('pointerdown', onPointerDown);
-      node.removeEventListener('pointermove', onPointerMove);
-      node.removeEventListener('pointerup', onPointerEnd);
-      node.removeEventListener('pointercancel', onPointerEnd);
+      node.removeEventListener('touchstart', onTouchStart);
+      node.removeEventListener('touchmove', onTouchMove);
+      node.removeEventListener('touchend', onTouchEnd);
+      node.removeEventListener('touchcancel', onTouchEnd);
       node.removeEventListener('click', onClick, true);
       restoreStyles();
     }
