@@ -37,6 +37,7 @@
   import { playerStore } from '#lib/stores/player.svelte.ts';
   import { songsStore } from '#lib/stores/songs.svelte.ts';
   import { cn } from '#lib/utils.ts';
+  import { skinLook } from '#lib/hardware/hardware-mode.svelte.ts';
 
   type Props = {
     /**
@@ -148,7 +149,7 @@
     window.addEventListener(DYNAMIC_TYPE_CHANGE, onChange);
     return () => window.removeEventListener(DYNAMIC_TYPE_CHANGE, onChange);
   });
-  const rowH = $derived(compact ? Math.max(64, Math.round(64 * typeScale)) : 56);
+  const rowH = $derived(compact ? Math.max(64, Math.round(64 * typeScale)) : skinLook(56, 40));
   const OVERSCAN = 8;
 
   let scrollEl = $state<HTMLElement | null>(null);
@@ -370,7 +371,12 @@
               aria-setsize={sorted.length}
               aria-posinset={i + 1}
               use:longpress={{ onlongpress: (p) => openMenu(song.id, p) }}
-              use:swipeRow={{ side: 'leading', tone: 'primary', icon: ADD_TO_QUEUE_ICON, onswipe: () => queueSong(song) }}
+              use:swipeRow={{
+                side: 'leading',
+                tone: 'primary',
+                icon: ADD_TO_QUEUE_ICON,
+                onswipe: () => queueSong(song)
+              }}
               oncontextmenu={(e) => onRowContextMenu(e, song.id)}
               class={cn(
                 'has-[[data-row-main]:active]:bg-accent absolute inset-x-0 flex items-center pr-1 transition-colors duration-100',
@@ -387,7 +393,7 @@
                 data-row-main=""
                 onclick={() => (onActivate ?? onSelect)(song)}
                 aria-current={isLoaded ? 'true' : undefined}
-                class="focus-visible:ring-ring flex h-full min-w-0 flex-1 items-center gap-3 pl-4 text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset"
+                class="focus-visible:ring-ring flex h-full min-w-0 flex-1 items-center gap-3 pl-4 text-left focus-visible:ring-2 focus-visible:outline-hidden focus-visible:ring-inset"
               >
                 <span class="relative shrink-0">
                   <Cover
@@ -485,13 +491,13 @@
                 title={song.album ?? titleOf(song)}
                 coverUrl={rowCoverUrlForSong(song)}
                 fallbackUrl={rowCoverFallbackForSong(song)}
-                size={36}
+                size={skinLook(36, 28)}
                 corner={4}
                 caption={false}
               />
 
               <!-- title + sub -->
-              <div class="min-w-0">
+              <div class="min-w-0" data-mh-track-title>
                 <div class={cn('truncate text-[13px] font-medium', isLoaded && 'text-primary')}>
                   {#if isLoaded}<span class="sr-only">Now playing, </span>{/if}{titleOf(song)}
                 </div>

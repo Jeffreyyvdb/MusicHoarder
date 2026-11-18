@@ -69,8 +69,9 @@
     /**
      * Sets the picture in a housing — the hardware skin's MH-2 (#lib/hardware), a bezel with a
      * plate and a fullscreen key. The housing renders the picture as its screen and brings its own
-     * way into fullscreen, so the frame drops its inline button; whatever room the housing takes
-     * around the picture is measured and left out of the fit.
+     * way into fullscreen and shows the status line, so the frame drops its inline button and its
+     * caption; whatever room the housing takes around the picture is measured and left out of the
+     * fit.
      */
     housing?: Snippet<[VideoHousing]>;
     lyricsVisible?: boolean;
@@ -95,6 +96,7 @@
   let stageWidth = $state(0);
   let stageHeight = $state(0);
   let captionHeight = $state(0);
+  const shownCaption = $derived(housing ? undefined : caption);
   let ratio = $state(16 / 9);
   // The housing's own size around the picture (its plate, bezel and keys), measured: the picture is
   // fitted into the stage less that, so the whole device fits.
@@ -103,7 +105,7 @@
   let chromeHeight = $state(0);
   const fit = $derived.by(() => {
     const width = Math.max(0, stageWidth - chromeWidth);
-    const height = Math.max(0, stageHeight - (caption ? captionHeight : 0) - chromeHeight);
+    const height = Math.max(0, stageHeight - (shownCaption ? captionHeight : 0) - chromeHeight);
     if (width * height === 0) return { width: 0, height: 0 };
     return ratio >= width / height
       ? { width, height: Math.floor(width / ratio) }
@@ -409,9 +411,9 @@
   {:else}
     {@render picture()}
   {/if}
-  {#if caption && !videoFailed}
+  {#if shownCaption && !videoFailed}
     <div class="w-full shrink-0 pt-3" bind:offsetHeight={captionHeight}>
-      {@render caption()}
+      {@render shownCaption()}
     </div>
   {/if}
 </div>

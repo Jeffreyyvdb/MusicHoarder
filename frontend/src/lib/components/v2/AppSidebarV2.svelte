@@ -159,7 +159,7 @@
               <a {...props} href={isFriend ? APP_HOME : '/pipeline'}>
                 <!-- The one app mark: the same disc as the favicon, the Home Screen icon and the
                      sign-in, invite and error screens. -->
-                <BrandMark class="size-[30px]" />
+                <BrandMark class="size-[30px]" aria-hidden="true" data-mh-decor="brand" />
                 <div data-mh-brand="" class="grid min-w-0 flex-1 text-left leading-tight">
                   <span class="truncate text-sm font-semibold">MusicHoarder</span>
                   <span class="text-muted-foreground truncate text-[11px]">
@@ -208,7 +208,7 @@
             <a
               href={group.href}
               aria-current={headerActive ? 'page' : undefined}
-              class="focus-visible:ring-sidebar-ring flex min-h-6 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-left focus-visible:outline-hidden focus-visible:ring-2"
+              class="focus-visible:ring-sidebar-ring flex min-h-6 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-left focus-visible:ring-2 focus-visible:outline-hidden"
             >
               <!-- A section label in the macOS sidebar style (small, secondary), still a link to
                    the group's landing page. -->
@@ -254,7 +254,7 @@
               aria-label={`${isCollapsed ? 'Show' : 'Hide'} ${group.label}`}
               title={isCollapsed ? 'Show' : 'Hide'}
               class={cn(
-                'text-muted-foreground hover:text-foreground focus-visible:ring-sidebar-ring grid size-6 shrink-0 place-items-center rounded-md focus-visible:outline-hidden focus-visible:opacity-100 focus-visible:ring-2',
+                'text-muted-foreground hover:text-foreground focus-visible:ring-sidebar-ring grid size-6 shrink-0 place-items-center rounded-md focus-visible:opacity-100 focus-visible:ring-2 focus-visible:outline-hidden',
                 'absolute inset-y-0 right-0 my-auto pointer-coarse:static',
                 (!isCollapsed || accessory) &&
                   'opacity-0 group-hover/header:opacity-100 pointer-coarse:opacity-100'
@@ -286,11 +286,10 @@
                   'flex min-h-7 w-full items-center gap-2 rounded-md px-2 py-1 transition-colors',
                   'text-sidebar-foreground hover:bg-sidebar-accent',
                   'data-[active=true]:bg-sidebar-accent data-[active=true]:text-primary data-[active=true]:font-medium',
-                  'focus-visible:ring-sidebar-ring focus-visible:outline-hidden focus-visible:ring-2'
+                  'focus-visible:ring-sidebar-ring focus-visible:ring-2 focus-visible:outline-hidden'
                 )}
               >
                 <item.icon
-                  data-mh-nav-icon=""
                   class={cn(
                     'size-4 shrink-0',
                     active || live ? 'text-primary' : 'text-muted-foreground'
@@ -335,7 +334,7 @@
         {#if storage}
           <button
             type="button"
-            class="hover:bg-sidebar-accent focus-visible:ring-sidebar-ring -mx-1.5 flex items-center gap-2.5 rounded-md px-1.5 py-1 text-left transition-colors focus-visible:outline-hidden focus-visible:ring-2"
+            class="hover:bg-sidebar-accent focus-visible:ring-sidebar-ring -mx-1.5 flex items-center gap-2.5 rounded-md px-1.5 py-1 text-left transition-colors focus-visible:ring-2 focus-visible:outline-hidden"
             aria-label="Storage, {storage.label}. Show breakdown"
             title="Storage breakdown"
             onclick={() => (storageUsage.dialogOpen = true)}

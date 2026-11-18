@@ -4,58 +4,11 @@
 /* Spec Mono's faces live in fonts.css, shared with the app-wide skin. */
 @import './fonts.css';
 
-/* The skin's spectrum animates `height`, a layout property. While a song plays nothing may animate
-   one (CLAUDE.md, "The library is thousands of rows"), so the bars are full height and clipped
-   instead: a paint-only animation. Not `transform`: sixteen composited bars inside the screen's
-   isolated blend group made Safari paint the cover under them as a strip at the screen's top-left
-   for as long as the music played. */
-[data-skin='hardware'] [data-spectrum]:not(#_) i {
-  height: 100%;
-  clip-path: inset(80% 0 0 0);
-}
-[data-skin='hardware'] [data-spectrum][data-playing]:not(#_) i {
-  animation-name: mh-spectrum;
-}
-@keyframes mh-spectrum {
-  0% {
-    clip-path: inset(85% 0 0 0);
-  }
-  50% {
-    clip-path: inset(15% 0 0 0);
-  }
-  100% {
-    clip-path: inset(65% 0 0 0);
-  }
-}
 /* The screen's pixel grid, without a blend mode: multiplying black at 2.5% looks the same as laying
-   it over, and a blend group over a changing picture is the other half of that Safari bug. */
+   it over, and Safari mispaints a blend group over a changing picture. */
 [data-skin='hardware'] [data-device] [data-kit='display-screen']:not(#_)::before {
   mix-blend-mode: normal;
 }
-@media (prefers-reduced-motion: reduce) {
-  [data-skin='hardware'] [data-spectrum][data-playing]:not(#_) i {
-    animation: none;
-  }
-}
-
-/* A cover that failed to load, or a song without one: a printed placeholder on the screen. */
-[data-skin='hardware'] [data-mh-noart] {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  background: #1b1b1a;
-  color: #f2f2ee;
-  font: 300 13px/1.2 var(--mono, 'Spec Mono', monospace);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
-/* The cover is an <img> laid over the art panel; the bars stay above it. */
-[data-skin='hardware'] [data-art] [data-spectrum] {
-  position: relative;
-}
-
 /* Inside the app the root is no desk: the skin paints its dotted paper behind everything, which
    reads as a grey slab on the app's background (and a bright one in dark mode). The device sits on
    the page itself, centred. */
@@ -65,19 +18,6 @@
   background: none;
 }
 
-/* A bigger screen than the palm-sized MP-1's 168px: the cover is the point of a music player, and
-   the LCD beside it (the screen's height less two cells) then has room for the artist line under
-   the title. Matches devices.css's specificity for the small Player and wins by coming later. */
-[data-device][aria-label='Player'] [data-player]:not(#_):not(#_) {
-  --screen: 196px;
-}
-
-/* The artist after a queue row's title; the cell is a flex box, so the gap is a margin. */
-[data-skin='hardware'] [data-mh-artist] {
-  margin-inline-start: 1ch;
-}
-
-/* The power LED, lit while the music plays: the app-wide skin's red (app-skin.css --mh-led). */
 [data-skin='hardware'] [data-device-power][data-on]:not(#_) {
   background: #ff3b10;
   box-shadow: 0 0 6px rgb(255 59 16 / 0.7);
@@ -105,8 +45,6 @@
   object-fit: contain;
 }
 
-/* Under the screen: the sync line on an LCD, taking the room, and the fullscreen key at the end
-   with its legend printed under it, like the MH-1's. */
 [data-skin='hardware'] [data-mh-video-controls] {
   display: flex;
   align-items: center;

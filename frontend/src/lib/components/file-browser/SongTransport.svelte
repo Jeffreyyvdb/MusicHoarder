@@ -1,5 +1,6 @@
 <script lang="ts">
   import { FastForward, Pause, Play, Rewind, Shuffle } from '@lucide/svelte';
+  import type { Snippet } from 'svelte';
   import { mediaAppearance } from '#lib/hardware/hardware-mode.svelte.ts';
   import { Button } from '#lib/components/ui/button/index.ts';
   import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
@@ -35,6 +36,7 @@
     media?: boolean;
     /** Show the Shuffle toggle (Now Playing; the share page has no queue to shuffle). */
     shuffle?: boolean;
+    layout?: Snippet<[scrubber: Snippet, times: Snippet, buttons: Snippet]>;
   };
   const {
     isActive,
@@ -45,7 +47,8 @@
     format = null,
     speedAlways = false,
     media = false,
-    shuffle = false
+    shuffle = false,
+    layout
   }: Props = $props();
 
   // Prev/next walk the active playback queue, so they only act while this track is the one loaded
@@ -95,7 +98,7 @@
           {...props}
           type="button"
           class={cn(
-            "text-caption-1 relative inline-flex h-5 items-center rounded-full px-2 font-semibold tabular-nums focus-visible:outline-hidden after:absolute after:-inset-x-3 after:top-0 after:-bottom-3 after:content-[''] focus-visible:ring-2 focus-visible:ring-ring",
+            "text-caption-1 focus-visible:ring-ring relative inline-flex h-5 items-center rounded-full px-2 font-semibold tabular-nums after:absolute after:-inset-x-3 after:top-0 after:-bottom-3 after:content-[''] focus-visible:ring-2 focus-visible:outline-hidden",
             playerStore.playbackRate === 1
               ? cn('bg-secondary', media ? 'text-foreground' : 'text-muted-foreground')
               : 'bg-primary/15 text-primary'
@@ -124,132 +127,147 @@
   </DropdownMenu.Root>
 {/snippet}
 
-<Scrubber {isActive} fallbackDuration={duration} />
-<div
-  class="text-caption-1 text-muted-foreground mt-1.5 grid grid-cols-[1fr_auto_1fr] items-center gap-2 font-medium tabular-nums"
->
-  <span>{formatTime(elapsed)}</span>
-  <span class="flex items-center justify-center gap-1.5">
-    {#if format}
-      <!-- Label-colour text on the capsule: over Now Playing's coloured wash the 72% secondary
-           tone on a 14% white fill lands near 4:1, short of what 12px text needs. -->
-      <span
-        class={cn(
-          'bg-secondary inline-flex h-5 items-center rounded-full px-2 font-semibold tracking-wide',
-          media ? 'text-foreground' : 'text-muted-foreground'
-        )}
-      >
-        {format}
-      </span>
-    {/if}
-    {#if showSpeed}
-      {@render speedMenu()}
-    {/if}
-  </span>
-  <span class="text-right">
-    <span aria-hidden="true">−{formatTime(remaining)}</span>
-    <span class="sr-only">{formatTime(remaining)} remaining</span>
-  </span>
-</div>
+{#snippet scrubber()}
+  <Scrubber {isActive} fallbackDuration={duration} />
+{/snippet}
 
-{#if minimal}
-  <div class="mt-1 flex items-center justify-center">
-    <Button
-      variant="ghost"
-      size="icon"
-      class={cn(transportGlyphClass, 'size-16')}
-      onclick={(e) => {
-        blurAfterPointerClick(e);
-        onPlayToggle();
-      }}
-      aria-label={isPlaying ? 'Pause' : 'Play'}
-    >
-      {#if isPlaying}
-        <Pause class="size-9" fill="currentColor" />
-      {:else}
-        <Play class="size-9 translate-x-0.5" fill="currentColor" />
+{#snippet times()}
+  <div
+    class="text-caption-1 text-muted-foreground mt-1.5 grid grid-cols-[1fr_auto_1fr] items-center gap-2 font-medium tabular-nums"
+  >
+    <span>{formatTime(elapsed)}</span>
+    <span data-mh-capsules class="flex items-center justify-center gap-1.5">
+      {#if format}
+        <!-- Label-colour text on the capsule: over Now Playing's coloured wash the 72% secondary
+           tone on a 14% white fill lands near 4:1, short of what 12px text needs. -->
+        <span
+          class={cn(
+            'bg-secondary inline-flex h-5 items-center rounded-full px-2 font-semibold tracking-wide',
+            media ? 'text-foreground' : 'text-muted-foreground'
+          )}
+        >
+          {format}
+        </span>
       {/if}
-    </Button>
+      {#if showSpeed}
+        {@render speedMenu()}
+      {/if}
+    </span>
+    <span class="text-right">
+      <span aria-hidden="true">−{formatTime(remaining)}</span>
+      <span class="sr-only">{formatTime(remaining)} remaining</span>
+    </span>
   </div>
-{:else}
-  <!-- Naked solid glyphs, no disc and no hover wash (a translucent circle reads as a smudge on
-       artwork); feedback is press-scale on the glyph itself. Evenly spread, like iOS. -->
-  <div class="mt-2 flex items-center justify-evenly">
-    {#if shuffle}
-      <!-- On: a dot under the glyph (Spotify's), so the state is not colour alone, and the green
-           Now Playing keeps for live state (the liked heart's): its --primary is white there, since
-           the brand green cannot hold contrast over every cover. -->
+{/snippet}
+
+{#snippet buttons()}
+  {#if minimal}
+    <div class="mt-1 flex items-center justify-center">
       <Button
         variant="ghost"
         size="icon"
-        class={cn(
-          transportGlyphClass,
-          'relative size-11 disabled:opacity-30',
-          shuffleOn &&
-            'text-[var(--np-liked,var(--primary))] hover:text-[var(--np-liked,var(--primary))]'
-        )}
+        class={cn(transportGlyphClass, 'size-16')}
         onclick={(e) => {
           blurAfterPointerClick(e);
-          playerStore.toggleShuffle();
+          onPlayToggle();
         }}
-        disabled={!canShuffle}
-        aria-label="Shuffle"
-        aria-pressed={shuffleOn}
-        title={shuffleOn ? 'Shuffle on' : 'Shuffle off'}
+        aria-label={isPlaying ? 'Pause' : 'Play'}
       >
-        <Shuffle class="size-6" />
-        {#if shuffleOn}
-          <span
-            aria-hidden="true"
-            class="absolute bottom-0.5 left-1/2 size-1 -translate-x-1/2 rounded-full bg-current"
-          ></span>
+        {#if isPlaying}
+          <Pause class="size-9" fill="currentColor" />
+        {:else}
+          <Play class="size-9 translate-x-0.5" fill="currentColor" />
         {/if}
       </Button>
-    {/if}
-    <Button
-      variant="ghost"
-      size="icon"
-      class={cn(transportGlyphClass, 'size-14 disabled:opacity-30')}
-      onclick={(e) => {
-        blurAfterPointerClick(e);
-        playerStore.playPrevious();
-      }}
-      disabled={!canGoPrevious}
-      aria-label="Previous track"
-    >
-      <Rewind class="size-8" fill="currentColor" />
-    </Button>
-    <Button
-      variant="ghost"
-      size="icon"
-      class={cn(transportGlyphClass, 'size-[72px]')}
-      onclick={(e) => {
-        blurAfterPointerClick(e);
-        onPlayToggle();
-      }}
-      aria-label={isPlaying ? 'Pause' : 'Play'}
-    >
-      {#if isPlaying}
-        <Pause class="size-11" fill="currentColor" />
-      {:else}
-        <Play class="size-11 translate-x-0.5" fill="currentColor" />
+    </div>
+  {:else}
+    <!-- Naked solid glyphs, no disc and no hover wash (a translucent circle reads as a smudge on
+       artwork); feedback is press-scale on the glyph itself. Evenly spread, like iOS. -->
+    <div class="mt-2 flex items-center justify-evenly">
+      {#if shuffle}
+        <!-- On: a dot under the glyph (Spotify's), so the state is not colour alone, and the green
+           Now Playing keeps for live state (the liked heart's): its --primary is white there, since
+           the brand green cannot hold contrast over every cover. -->
+        <Button
+          variant="ghost"
+          size="icon"
+          class={cn(
+            transportGlyphClass,
+            'relative size-11 disabled:opacity-30',
+            shuffleOn &&
+              'text-[var(--np-liked,var(--primary))] hover:text-[var(--np-liked,var(--primary))]'
+          )}
+          onclick={(e) => {
+            blurAfterPointerClick(e);
+            playerStore.toggleShuffle();
+          }}
+          disabled={!canShuffle}
+          aria-label="Shuffle"
+          aria-pressed={shuffleOn}
+          title={shuffleOn ? 'Shuffle on' : 'Shuffle off'}
+        >
+          <Shuffle class="size-6" />
+          {#if shuffleOn}
+            <span
+              aria-hidden="true"
+              class="absolute bottom-0.5 left-1/2 size-1 -translate-x-1/2 rounded-full bg-current"
+            ></span>
+          {/if}
+        </Button>
       {/if}
-    </Button>
-    <Button
-      variant="ghost"
-      size="icon"
-      class={cn(transportGlyphClass, 'size-14 disabled:opacity-30')}
-      onclick={(e) => {
-        blurAfterPointerClick(e);
-        playerStore.playNext();
-      }}
-      disabled={!canGoNext}
-      aria-label="Next track"
-    >
-      <FastForward class="size-8" fill="currentColor" />
-    </Button>
-    {#if shuffle}
-      <span class="size-11" aria-hidden="true"></span>
-    {/if}
-  </div>
+      <Button
+        variant="ghost"
+        size="icon"
+        class={cn(transportGlyphClass, 'size-14 disabled:opacity-30')}
+        onclick={(e) => {
+          blurAfterPointerClick(e);
+          playerStore.playPrevious();
+        }}
+        disabled={!canGoPrevious}
+        aria-label="Previous track"
+      >
+        <Rewind class="size-8" fill="currentColor" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        class={cn(transportGlyphClass, 'size-[72px]')}
+        onclick={(e) => {
+          blurAfterPointerClick(e);
+          onPlayToggle();
+        }}
+        aria-label={isPlaying ? 'Pause' : 'Play'}
+      >
+        {#if isPlaying}
+          <Pause class="size-11" fill="currentColor" />
+        {:else}
+          <Play class="size-11 translate-x-0.5" fill="currentColor" />
+        {/if}
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        class={cn(transportGlyphClass, 'size-14 disabled:opacity-30')}
+        onclick={(e) => {
+          blurAfterPointerClick(e);
+          playerStore.playNext();
+        }}
+        disabled={!canGoNext}
+        aria-label="Next track"
+      >
+        <FastForward class="size-8" fill="currentColor" />
+      </Button>
+      {#if shuffle}
+        <span class="size-11" aria-hidden="true" data-mh-decor="transport-spacer"></span>
+      {/if}
+    </div>
+  {/if}
+{/snippet}
+
+{#if layout}
+  {@render layout(scrubber, times, buttons)}
+{:else}
+  {@render scrubber()}
+  {@render times()}
+  {@render buttons()}
 {/if}

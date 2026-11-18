@@ -101,6 +101,26 @@ function buildConfig(off) {
         files: SOURCES,
         excludeFiles: ['src/lib/stores/**', ...TESTS],
         rules: { 'local/no-song-scan': 'error', 'local/sideways-scroller': 'error' }
+      },
+      {
+        files: SOURCES,
+        excludeFiles: [
+          'src/lib/hardware/**',
+          'src/routes/+layout.svelte',
+          'src/lib/components/v2/AccountPanel.svelte',
+          'src/lib/components/CommandPalette.svelte'
+        ],
+        rules: {
+          'eslint/no-restricted-imports': [
+            'error',
+            {
+              patterns: [
+                { group: ['**/hardware-mode.svelte*'], importNames: ['hardwareMode'] },
+                { group: ['**/hardware/behaviors/active*'], importNames: ['skinActive'] }
+              ]
+            }
+          ]
+        }
       }
     ]
   };

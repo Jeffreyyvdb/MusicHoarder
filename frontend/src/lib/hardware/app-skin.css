@@ -21,19 +21,18 @@
  *   labels   small spaced capitals in grey, printed on the body: titles, headings, column heads
  *   LED      a red dot before a device name; red text plus a dash at each end marks the selection
  *
- * What it leaves out is part of the look: the nav icons, chip icons, the tracks table's size,
- * match and source columns, the cover wash behind Now Playing.
- *
  * Dark mode is a graphite body with black screens. Text tokens keep the app's WCAG floor; each
  * contrast is noted next to it.
  *
  * The app's elements are found by `data-slot` (shadcn primitives, plus `filter-chip`), Button's
  * `data-variant`, and a few `data-mh-*` hooks in the shell: `data-mh-nav-item` / `-nav-heading` /
- * `-nav-icon` / `-brand` (AppSidebarV2), `data-mh-topbar`, `data-mh-banner`, `data-mh-navbar`
+ * `-brand` (AppSidebarV2), `data-mh-topbar`, `data-mh-banner`, `data-mh-navbar`
  * (PageToolbarV2), `data-mh-tracks` / `-tracks-head` (TrackList), `data-mh-mini` /
  * `-transport` (MiniPlayer), `data-mh-tabbar` / `-tabbar-search` / `-tab-badge` (BottomNavV2),
- * `data-mh-desk` / `-tv-on` (Now Playing), `data-mh-crt` (VideoBackdrop) and `data-mh-lcd`, plus
- * `data-lyric-state` on Now Playing's lyric lines (LyricsPanel).
+ * `data-mh-desk` / `-tv-on` (Now Playing), `data-mh-np` (TrackPanel's parts: body, screen, readout,
+ * keys, modes, volume), `data-mh-crt` (VideoBackdrop), `data-mh-lcd`, `data-mh-decor` (decoration,
+ * wherever a component marks it), plus `data-lyric-state` on Now Playing's lyric lines
+ * (LyricsPanel).
  */
 
 @import './fonts.css';
@@ -315,9 +314,7 @@
   background-color: var(--background);
 }
 
-/* The sidebar, printed: no icons, a device name with its LED, groups as small labels, the page you
-   are on in red after a dash. */
-:root[data-mh-skin='hardware'] [data-slot='sidebar-header'] svg {
+:root[data-mh-skin='hardware'] [data-mh-decor='brand'] {
   display: none;
 }
 :root[data-mh-skin='hardware'] [data-mh-brand] {
@@ -360,13 +357,8 @@
   margin-top: 6px;
   background: transparent;
 }
-:root[data-mh-skin='hardware'] [data-mh-nav-icon] {
-  display: none;
-}
 :root[data-mh-skin='hardware'] [data-mh-nav-item] {
-  position: relative;
   min-height: 26px;
-  padding-left: 26px;
   border-radius: 6px;
   background: transparent;
   color: var(--muted-foreground);
@@ -386,11 +378,6 @@
   background: transparent;
   color: var(--primary);
   font-weight: 700;
-}
-:root[data-mh-skin='hardware'] [data-mh-nav-item][data-active]::before {
-  content: '—';
-  position: absolute;
-  left: 6px;
 }
 /* The storage meter: an LED bar graph. */
 :root[data-mh-skin='hardware'] [data-slot='sidebar-footer'] {
@@ -554,9 +541,6 @@
   border-radius: 8px;
   font-size: 11px;
 }
-:root[data-mh-skin='hardware'] [data-slot='filter-chip'] > svg {
-  display: none;
-}
 :root[data-mh-skin='hardware'] [data-slot='filter-chip']::before {
   content: '';
   position: static;
@@ -614,7 +598,8 @@
     [data-mh-tracks-head],
     [data-mh-lcd-list],
     [data-mh-lcd-head],
-    [data-mh-readout]
+    [data-mh-readout],
+    [data-mh-np='readout']
   ) {
   --foreground: var(--mh-lcd-ink);
   --card-foreground: var(--mh-lcd-ink);
@@ -696,48 +681,12 @@
 :root[data-mh-skin='hardware'] [data-mh-tracks='wide'] > [aria-current='true']::after {
   right: -10px;
 }
-/* Fewer columns: no size, match or source. The cells are, in order: # · cover ·
-   title · artist · album · year · format · size · match · source · like · time · menu (TrackList's
-   GRID, which this re-declares per container width); keep the two in step. */
-:root[data-mh-skin='hardware']
-  :is([data-mh-tracks-head], [data-mh-tracks='wide'] > [role='button'])
-  > :is(:nth-child(8), :nth-child(9), :nth-child(10)) {
-  display: none;
+:root[data-mh-skin='hardware'] [data-mh-tracks='wide'] > [role='button'] > .mh-cover {
+  justify-self: center;
 }
-:root[data-mh-skin='hardware']
-  :is([data-mh-tracks-head], [data-mh-tracks='wide'] > [role='button']) {
-  grid-template-columns: 40px 40px minmax(0, 1fr) 28px 52px 32px;
-}
-@container (min-width: 36rem) {
-  :root[data-mh-skin='hardware']
-    :is([data-mh-tracks-head], [data-mh-tracks='wide'] > [role='button']) {
-    grid-template-columns: 40px 40px minmax(0, 1.5fr) minmax(0, 1fr) 56px 28px 52px 32px;
-  }
-  /* The artist has its own column from here, so the title's second line goes unless it carries
-     a Review badge or a shared-by badge (which has a title): the title is then one line. */
-  :root[data-mh-skin='hardware']
-    [data-mh-tracks='wide']
-    > [role='button']
-    > :nth-child(3)
-    > :last-child:not(:has([data-slot='badge'], [title])) {
-    display: none;
-  }
-}
-@container (min-width: 48rem) {
-  :root[data-mh-skin='hardware']
-    :is([data-mh-tracks-head], [data-mh-tracks='wide'] > [role='button']) {
-    grid-template-columns:
-      44px 44px minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr) 52px 64px 28px
-      52px 32px;
-  }
-  /* The format column stays narrow, so the bitrate TrackList adds from 64rem stays out. */
-  :root[data-mh-skin='hardware']
-    [data-mh-tracks='wide']
-    > [role='button']
-    > :nth-child(7)
-    > :not(:first-child) {
-    display: none;
-  }
+:root[data-mh-skin='hardware'] [data-mh-tracks='wide'] [data-mh-track-title] > * {
+  margin-top: 0;
+  line-height: 1.3;
 }
 /* On a phone the list is one LCD under the header, the art kept small in its bezel. */
 :root[data-mh-skin='hardware'] [data-mh-tracks='compact'] {
@@ -1014,12 +963,423 @@
 
 /* ── Now Playing: on the desk, not over a cover wash (SongDetailHost drops its media appearance) ─ */
 
+:root[data-mh-skin='hardware'] [data-mh-decor='backdrop'] {
+  display: none;
+}
+
 :root[data-mh-skin='hardware'] .mh-np[data-mh-desk] {
   --np-secondary: var(--muted-foreground);
   --np-fill: var(--secondary);
   --np-liked: var(--primary);
   /* The body colour, which is also what theme-color paints the status bar. */
   background-color: var(--background);
+}
+
+@media (min-width: 1024px) {
+  :root[data-mh-skin='hardware'] [data-mh-np-layout='solo'] {
+    grid-template-columns: max(300px, min(100%, 640px, (100svh - 190px) * 0.72));
+  }
+
+  :root[data-mh-skin='hardware'] [data-mh-np-layout='split'] {
+    grid-template-columns: max(300px, min(38vw, 640px, (100svh - 190px) * 0.72)) minmax(0, 1fr);
+  }
+
+  :root[data-mh-skin='hardware'] [data-mh-np='body'] {
+    --mh-np-chrome: 520px;
+    padding: 16px 20px 20px;
+    border-radius: 26px;
+    background: var(--mh-body);
+    box-shadow: var(--mh-body-shadow);
+  }
+}
+:root[data-mh-skin='hardware'] [data-mh-np='screen']::before {
+  content: 'MH-1  Player';
+  display: block;
+  margin-bottom: 10px;
+  padding-left: 17px;
+  background: radial-gradient(circle at 4px 50%, var(--mh-led-off) 0 3.5px, transparent 4px);
+  color: var(--muted-foreground);
+  font-size: 10.5px;
+  line-height: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  white-space: pre;
+}
+:root[data-mh-skin='hardware'] [data-mh-np='body'][data-playing] [data-mh-np='screen']::before {
+  background: radial-gradient(
+    circle at 4px 50%,
+    var(--mh-led) 0 3.5px,
+    rgb(255 59 16 / 0.3) 4px,
+    transparent 7px
+  );
+}
+@media (orientation: landscape) and (max-height: 500px) {
+  :root[data-mh-skin='hardware'] [data-mh-np='screen']::before {
+    display: none;
+  }
+}
+
+:root[data-mh-skin='hardware'] [data-mh-np='readout'] {
+  --np-liked: var(--mh-lcd-red);
+  margin-top: 14px;
+  padding: 8px 6px 8px 12px;
+  border-radius: 10px;
+  background: var(--mh-lcd);
+  box-shadow:
+    inset 0 1px 3px rgb(0 0 0 / 0.25),
+    inset 0 0 0 1px rgb(0 0 0 / 0.15),
+    0 1px 0 rgb(255 255 255 / 0.7);
+}
+:root[data-mh-skin='hardware'].dark [data-mh-np='readout'],
+:root[data-mh-skin='hardware'] .mh-np[data-mh-tv-on] [data-mh-np='readout'] {
+  box-shadow:
+    inset 0 1px 3px rgb(0 0 0 / 0.8),
+    inset 0 0 0 1px rgb(0 0 0 / 0.9),
+    0 1px 0 rgb(255 255 255 / 0.04);
+}
+:root[data-mh-skin='hardware'] [data-mh-np='readout'] h2 {
+  font-size: calc(16px * var(--mh-dt, 1));
+  line-height: 1.4;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+:root[data-mh-skin='hardware'] [data-mh-np='readout'] p {
+  font-size: calc(12px * var(--mh-dt, 1));
+}
+
+:root[data-mh-skin='hardware'] [data-mh-np='keys'] {
+  --np-liked: #ff8a5c;
+}
+:root[data-mh-skin='hardware']
+  :is([data-mh-np='keys'], [data-mh-np='volume'])
+  [role='slider']
+  > div:first-child {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--mh-groove);
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.5);
+}
+:root[data-mh-skin='hardware']
+  :is([data-mh-np='keys'], [data-mh-np='volume'])
+  [role='slider']
+  > div:first-child
+  > div {
+  border-radius: 0;
+  background: var(--mh-led);
+}
+:root[data-mh-skin='hardware']
+  :is([data-mh-np='keys'], [data-mh-console-scrub])
+  > [role='slider']
+  > div:last-child {
+  display: block;
+  width: 14px;
+  height: 22px;
+  border-radius: 4px;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 4px, rgb(0 0 0 / 0.14) 4px 5px) center / 9px 12px
+      no-repeat,
+    linear-gradient(180deg, #fefefd, #e2e1db);
+  box-shadow:
+    inset 0 1px 0 #fff,
+    0 0 0 1px rgb(0 0 0 / 0.18),
+    0 2px 3px rgb(0 0 0 / 0.3);
+  opacity: 1;
+}
+:root[data-mh-skin='hardware'] [data-mh-np='keys'] > [role='slider'] + div {
+  margin-top: 10px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+:root[data-mh-skin='hardware'] [data-mh-np='keys'] [data-mh-capsules] > * {
+  border-radius: 3px;
+  background: var(--mh-lcd);
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.15);
+  color: var(--mh-lcd-ink);
+  text-transform: uppercase;
+}
+:root[data-mh-skin='hardware'] [data-mh-np='keys'] [data-mh-capsules] > button {
+  color: var(--mh-lcd-red);
+}
+:root[data-mh-skin='hardware'] [data-mh-np='keys'] [data-slot='button'] {
+  height: 46px;
+  border-radius: 10px;
+  background: var(--mh-key-black);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.12),
+    0 3px 0 #000,
+    0 5px 9px rgb(0 0 0 / 0.25);
+  color: #f3f2ee;
+  scale: 1;
+  transition:
+    transform 70ms cubic-bezier(0.3, 0, 0.2, 1),
+    box-shadow 70ms cubic-bezier(0.3, 0, 0.2, 1);
+}
+:root[data-mh-skin='hardware'] [data-mh-np='keys'] [data-slot='button'][aria-pressed='true'] {
+  color: var(--np-liked);
+}
+:root[data-mh-skin='hardware'] [data-mh-np='keys'] [data-slot='button']:active:not(:disabled) {
+  transform: translateY(3px);
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.6);
+}
+:root[data-mh-skin='hardware'] [data-mh-np='keys'] [data-slot='button'] > svg {
+  width: 20px;
+  height: 20px;
+}
+
+:root[data-mh-skin='hardware'] [data-mh-console] {
+  --console-ink: #242420;
+  --console-dim: #5c5c54;
+  --console-lcd: linear-gradient(#b5b5ad, #d0d0c7);
+  --np-liked: #a93215;
+  width: min(100%, 640px);
+  margin-inline: auto;
+  padding: clamp(12px, 3vw, 22px);
+  border-radius: 15px;
+  background: linear-gradient(150deg, #f7f7f2, #e8e8e2);
+  box-shadow:
+    inset 0 1px #fff,
+    0 7px 24px rgb(0 0 0 / 0.22);
+  color: var(--console-ink);
+}
+
+:root[data-mh-skin='hardware'] [data-mh-console-plate] {
+  margin-bottom: 12px;
+  color: var(--console-dim);
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+:root[data-mh-skin='hardware'] [data-mh-console-plate]::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-inline-end: 6px;
+  border-radius: 50%;
+  background: #bdbdb2;
+}
+
+:root[data-mh-skin='hardware'] [data-mh-console-plate][data-playing]::before {
+  background: var(--mh-led);
+  box-shadow: 0 0 6px var(--mh-led);
+}
+
+:root[data-mh-skin='hardware'] [data-mh-console] [data-mh-np='keys'] {
+  display: grid;
+  grid-template:
+    'art readout' auto
+    'art rocker' auto
+    'art like' 1fr
+    'scrub scrub' auto
+    / minmax(0, 1.28fr) minmax(0, 1fr);
+  gap: 6px;
+}
+
+:root[data-mh-skin='hardware'] [data-mh-console-art] {
+  grid-area: art;
+  align-self: start;
+}
+
+:root[data-mh-skin='hardware'] [data-mh-console] [data-mh-np='readout'] {
+  grid-area: readout;
+  min-width: 0;
+  margin: 0;
+  padding: 8px;
+  background: var(--console-lcd);
+  color: var(--console-ink);
+  box-shadow:
+    inset 0 1px 5px rgb(0 0 0 / 0.32),
+    0 1px #fff;
+}
+
+:root[data-mh-skin='hardware'] [data-mh-console] [data-mh-np='readout'] :is(p, a) {
+  color: var(--console-dim);
+}
+
+:root[data-mh-skin='hardware'] [data-mh-console] [data-mh-np='readout'] h2 {
+  margin-top: 3px;
+  font-size: calc(12px * var(--mh-dt, 1));
+}
+
+:root[data-mh-skin='hardware'] [data-mh-console] [data-mh-console-meta] {
+  font-size: calc(9px * var(--mh-dt, 1));
+}
+
+:root[data-mh-skin='hardware'] [data-mh-console-clock] {
+  font-size: calc(17px * var(--mh-dt, 1));
+  line-height: 1.2;
+}
+
+:root[data-mh-skin='hardware'] [data-mh-console-rocker] {
+  grid-area: rocker;
+  border-radius: 10px;
+  background: var(--mh-key-black);
+  box-shadow:
+    inset 0 1px 1px rgb(255 255 255 / 0.22),
+    0 3px 0 #141412;
+}
+
+:root[data-mh-skin='hardware'] [data-mh-console-rocker] > div {
+  margin: 0;
+}
+
+:root[data-mh-skin='hardware'] [data-mh-console-rocker] [data-slot='button'] {
+  width: 25%;
+  height: 36px;
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: none;
+}
+
+:root[data-mh-skin='hardware']
+  [data-mh-console-rocker]
+  [data-slot='button']
+  + [data-slot='button'] {
+  border-inline-start: 1px solid rgb(0 0 0 / 0.45);
+}
+
+:root[data-mh-skin='hardware'] [data-mh-console-rocker] [data-slot='button'] > svg {
+  width: 16px;
+  height: 16px;
+}
+
+:root[data-mh-skin='hardware'] [data-mh-console-rocker] [data-mh-decor='transport-spacer'] {
+  display: none;
+}
+
+:root[data-mh-skin='hardware'] [data-mh-console-like] {
+  grid-area: like;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  justify-items: start;
+  gap: 2px 8px;
+  align-self: start;
+  padding-top: 3px;
+}
+
+:root[data-mh-skin='hardware'] [data-mh-console-like] > small {
+  grid-column: 1;
+  justify-self: center;
+  color: var(--console-dim);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+:root[data-mh-skin='hardware'] [data-mh-console-like] [data-mh-np='volume'] {
+  grid-column: 2;
+  grid-row: 1;
+  width: 100%;
+}
+
+:root[data-mh-skin='hardware'] [data-mh-console-scrub] {
+  grid-area: scrub;
+  margin-top: 8px;
+}
+
+:root[data-mh-skin='hardware'] [data-mh-console-scrub] [role='slider']::before {
+  position: absolute;
+  inset: auto 0 -6px;
+  height: 4px;
+  background: repeating-linear-gradient(90deg, #5c5c54 0 1px, transparent 1px 5%);
+  content: '';
+}
+
+:root[data-mh-skin='hardware'] [data-mh-console-scrub] [role='slider'] > div:last-child {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: linear-gradient(#fff, #e4e4da);
+}
+
+:root[data-mh-skin='hardware'] [data-mh-console-scrub] > div:not([role]) {
+  margin-top: 9px;
+  color: var(--console-dim);
+}
+
+:root[data-mh-skin='hardware'] [data-mh-console-queue] {
+  margin-top: 10px;
+  padding: 5px 8px;
+  border-radius: 10px;
+  background: var(--console-lcd);
+  box-shadow:
+    inset 0 1px 5px rgb(0 0 0 / 0.32),
+    0 1px #fff;
+  font-size: 11px;
+}
+
+:root[data-mh-skin='hardware'] [data-mh-console-queue] > div,
+:root[data-mh-skin='hardware'] [data-mh-console-queue] :is(li[aria-current], button) {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 28px;
+  padding-inline: 4px;
+  text-align: start;
+}
+
+:root[data-mh-skin='hardware'] [data-mh-console-queue] > div {
+  border-bottom: 1px dashed #88887d;
+  color: var(--console-dim);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+:root[data-mh-skin='hardware'] [data-mh-console-queue] span:nth-child(2) {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+:root[data-mh-skin='hardware'] [data-mh-console-queue] li[aria-current] {
+  border-radius: 4px;
+  background: rgb(0 0 0 / 0.08);
+  font-weight: 700;
+}
+
+:root[data-mh-skin='hardware'] [data-mh-console-queue] button:is(:hover, :focus-visible) {
+  background: rgb(0 0 0 / 0.1);
+}
+
+:root[data-mh-skin='hardware'] [data-mh-console-queue] small {
+  color: var(--console-dim);
+  font-size: inherit;
+}
+
+:root[data-mh-skin='hardware'] [data-mh-np='modes'] > :first-child button {
+  width: 48px;
+  border-radius: 10px;
+  background: var(--mh-key);
+  box-shadow: var(--mh-key-shadow);
+  color: var(--foreground);
+  transition:
+    transform 70ms cubic-bezier(0.3, 0, 0.2, 1),
+    box-shadow 70ms cubic-bezier(0.3, 0, 0.2, 1);
+}
+:root[data-mh-skin='hardware'] [data-mh-np='modes'] > :first-child button > span {
+  background: transparent;
+}
+:root[data-mh-skin='hardware'] [data-mh-np='modes'] > :first-child button svg {
+  width: 18px;
+  height: 18px;
+}
+:root[data-mh-skin='hardware']
+  [data-mh-np='modes']
+  > :first-child
+  button:is([aria-pressed='true'], [aria-current='true'], .text-primary, :active) {
+  transform: translateY(2px);
+  box-shadow: var(--mh-key-down);
+  color: var(--mh-key-red-ink);
+}
+:root[data-mh-skin='hardware'] [data-mh-np='modes'] {
+  margin-top: 14px;
 }
 
 /* The wider monospace face needs a smaller reading size than the default theater headings.
@@ -1145,7 +1505,7 @@
 /* ── The album page: the cover on its screen, the name printed, the tracks on an LCD ───────────── */
 
 /* No wash of the cover's colours behind the hero: the body is the body. */
-:root[data-mh-skin='hardware'] [data-mh-wash] {
+:root[data-mh-skin='hardware'] [data-mh-decor='wash'] {
   display: none;
 }
 :root[data-mh-skin='hardware'] h2[data-mh-hero-title] {
@@ -1253,6 +1613,7 @@
     [data-mh-tracks] [data-row-main],
     [data-mh-lcd-list] [role='button'],
     [data-mh-lcd-list] a,
+    [data-mh-np] :is(a, button, [role='slider']),
     .mh-chrome a,
     .mh-chrome button
   ):focus-visible {
@@ -1260,10 +1621,7 @@
   outline-offset: 2px;
 }
 :root[data-mh-skin='hardware']
-  :is(
-    [data-slot='input-group'],
-    [data-slot='search-field']
-  ):has(:focus-visible),
+  :is([data-slot='input-group'], [data-slot='search-field']):has(:focus-visible),
 :root[data-mh-skin='hardware']
   :is(input[data-slot='input'], textarea[data-slot='textarea']):focus-visible {
   outline: 2px solid var(--ring);

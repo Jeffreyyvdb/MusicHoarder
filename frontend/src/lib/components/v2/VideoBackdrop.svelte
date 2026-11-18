@@ -33,7 +33,6 @@
     dimAlpha,
     video,
     blurred = false,
-    desk = false,
     showing = $bindable(false)
   }: {
     songId: number;
@@ -43,8 +42,6 @@
     video: SongVideo;
     /** Video mode is up: soften the clip into a glow behind the watch view. */
     blurred?: boolean;
-    /** The hardware skin's desk: no cover wash under the clip, which plays as a CRT. */
-    desk?: boolean;
     /** Out: the video is up (the overlay adds a text halo for legibility over moving pictures). */
     showing?: boolean;
   } = $props();
@@ -57,9 +54,6 @@
   let videoFailed = $state(false);
   let videoLoadRetries = 0; // non-reactive: only read inside the onerror handler
 
-  // Apple asks that motion have a system-level off switch; a full-bleed autoplaying video behind
-  // the lyrics is exactly that motion, so Reduce Motion falls back to the static ambient artwork
-  // underneath (or, on the hardware skin's desk, the bare desk) rather than only slowing it down.
   const reduceMotion = new MediaQuery('(prefers-reduced-motion: reduce)');
 
   const isCurrentSong = $derived(playerStore.currentSong?.id === songId);
@@ -161,27 +155,27 @@
 
 <!-- A <video> paints nothing until its first frame is decoded, so the cover wash and the dim stay
      mounted under it; without them that window would show the overlay's own black. -->
-{#if !desk}
-  {#if ambientUrl}
-    <img
-      src={ambientUrl}
-      alt=""
-      aria-hidden="true"
-      draggable="false"
-      class="pointer-events-none absolute inset-0 size-full scale-150 object-cover blur-[64px] saturate-150"
-    />
-  {/if}
-  <div
-    class="np-dim pointer-events-none absolute inset-0"
-    style="--np-dim: {dimAlpha}"
+{#if ambientUrl}
+  <img
+    src={ambientUrl}
+    alt=""
     aria-hidden="true"
-  ></div>
+    data-mh-decor="backdrop"
+    draggable="false"
+    class="pointer-events-none absolute inset-0 size-full scale-150 object-cover blur-[64px] saturate-150"
+  />
 {/if}
+<div
+  class="np-dim pointer-events-none absolute inset-0"
+  style="--np-dim: {dimAlpha}"
+  aria-hidden="true"
+  data-mh-decor="backdrop"
+></div>
 {#if showVideo}
   <!-- Decorative, always-muted backdrop; the player's audio element is the actual sound.
        Cross-fades in over the ambient art once the first frame is decoded. -->
   <div
-    data-mh-crt={desk || undefined}
+    data-mh-crt=""
     data-ready={videoReady || undefined}
     class={cn(
       'mh-crossfade pointer-events-none absolute inset-0 overflow-hidden transition-opacity duration-500',

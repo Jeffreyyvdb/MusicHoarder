@@ -11,14 +11,17 @@
   import ReportDownloadSheet from '#lib/components/v2/ReportDownloadSheet.svelte';
   import VideoBackdrop from '#lib/components/v2/VideoBackdrop.svelte';
   import { SongVideo } from '#lib/components/file-browser/now-playing/song-video.svelte.ts';
-  import { coverDimAlpha, DIM_UNKNOWN } from '#lib/components/file-browser/now-playing/cover-dim.ts';
+  import {
+    coverDimAlpha,
+    DIM_UNKNOWN
+  } from '#lib/components/file-browser/now-playing/cover-dim.ts';
   import { coverUrlForSong, coverThumbUrl } from '#lib/api-client.ts';
   import { songDetail } from '#lib/stores/song-detail.svelte.ts';
   import { songsStore } from '#lib/stores/songs.svelte.ts';
   import { playerStore } from '#lib/stores/player.svelte.ts';
   import { themeSurface } from '#lib/stores/theme-surface.svelte.ts';
   import { isAdmin } from '#lib/auth/capabilities.ts';
-  import { hardwareMode } from '#lib/hardware/hardware-mode.svelte.ts';
+  import { mediaAppearance, skinLook } from '#lib/hardware/hardware-mode.svelte.ts';
   import { DISMISS_VELOCITY, EASE_PRESENT, prefersReducedMotion } from '#lib/motion.ts';
   import { keepOpenForToasts } from '#lib/components/ui/sonner/index.ts';
   import { dragDismiss, type DragDismissHandlers } from '#lib/actions/drag-dismiss.ts';
@@ -36,9 +39,7 @@
   });
   const r = $derived(songDetail.resolved ?? (songDetail.isOpen ? null : departing));
 
-  // Under the hardware skin (an easter egg, #lib/hardware) Now Playing has no media appearance: it
-  // sits on the skin's desk in the app's own theme, with no cover wash behind it.
-  const desk = $derived(hardwareMode.enabled);
+  const surface = $derived(skinLook('bg-black', 'bg-background'));
 
   // Ambient backdrop: a large, heavily-blurred fill of the track's cover. Own-cover URLs get a
   // modest size (the blur hides detail); external URLs pass through unchanged.
@@ -96,8 +97,7 @@
   // The status bar follows the media appearance (black) while this is up. The claim is a token,
   // released when the overlay closes or this unmounts.
   $effect(() => (songDetail.isOpen ? themeSurface.claimMedia() : undefined));
-  const tvOn = $derived(desk && videoShowing);
-  $effect(() => (songDetail.isOpen && tvOn ? themeSurface.claimTv() : undefined));
+  $effect(() => (songDetail.isOpen && videoShowing ? themeSurface.claimTv() : undefined));
 
   // Follow playback: when a new song starts while the panel is showing the song
   // that was playing, re-target the panel to it (manual play or queue
@@ -262,7 +262,7 @@
   <DialogPrimitive.Portal>
     <DialogPrimitive.Overlay
       bind:ref={overlayEl}
-      class={['mh-np-scrim fixed inset-0 z-[60]', desk ? 'bg-background' : 'bg-black']}
+      class={['mh-np-scrim fixed inset-0 z-[60]', surface]}
     />
     <!-- `dark` makes the overlay's tokens the dark set whatever the app theme (the media
          appearance); `mh-np` re-points a few of them to Now Playing's vibrancy tokens (below).
@@ -271,11 +271,12 @@
          padding box. -->
     <DialogPrimitive.Content
       bind:ref={contentEl}
-      data-mh-desk={desk || undefined}
-      data-mh-tv-on={tvOn || undefined}
+      data-mh-desk={skinLook(undefined, '')}
+      data-mh-tv-on={videoShowing || undefined}
       class={[
         'mh-np text-foreground fixed inset-0 z-[60] flex flex-col overflow-hidden pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] focus-visible:outline-hidden',
-        desk ? 'bg-background' : 'dark bg-black'
+        mediaAppearance(),
+        surface
       ]}
       style="--mh-content-pad: 0px"
       onInteractOutside={keepOpenForToasts}
@@ -286,18 +287,20 @@
           {ambientUrl}
           {dimAlpha}
           {video}
-          {desk}
           blurred={videoWatching}
           bind:showing={videoShowing}
         />
-      {:else if ambientUrl && !desk}
+      {:else if ambientUrl}
         <img
           src={ambientUrl}
           alt=""
           aria-hidden="true"
+          data-mh-decor="backdrop"
           class="pointer-events-none absolute inset-0 size-full scale-150 object-cover blur-[64px] saturate-150"
         />
         <div
+          aria-hidden="true"
+          data-mh-decor="backdrop"
           class="pointer-events-none absolute inset-0"
           style="background: rgb(0 0 0 / {dimAlpha})"
         ></div>

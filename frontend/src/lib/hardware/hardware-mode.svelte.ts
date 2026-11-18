@@ -14,6 +14,7 @@
  * page-wide haptics and sounds check that attribute before they do anything
  * (behaviors/active.ts).
  */
+import type { Snippet } from 'svelte';
 import { isNativeShell } from '#lib/native/shell.ts';
 import { ensureSkinStylesheet } from './skin-stylesheet.ts';
 
@@ -142,13 +143,21 @@ function apply(): void {
   }
 }
 
+export function skinLook<T extends string | number | undefined>(plain: T, skinned: T): T {
+  return enabled ? skinned : plain;
+}
+
+export function skinHousing<A extends unknown[]>(frame: Snippet<A>): Snippet<A> | undefined {
+  return enabled ? frame : undefined;
+}
+
 /**
  * The class that gives a surface Now Playing's media appearance (forced dark), for the sheets and
  * menus opened from it: `'dark'`, or nothing under the skin, where Now Playing sits on the skin's
  * desk in the app's own theme (SongDetailHost). Reactive: read it in markup.
  */
 export function mediaAppearance(): 'dark' | undefined {
-  return enabled ? undefined : 'dark';
+  return skinLook('dark', undefined);
 }
 
 export const hardwareMode = {
@@ -202,8 +211,6 @@ export const hardwareMode = {
   setSounds(on: boolean): void {
     sounds = on;
     // Through the module, which stores it too and keeps its own copy in step.
-    void import('./behaviors/sound.ts')
-      .then((m) => m.setSoundEnabled(on))
-      .catch(() => {});
+    void import('./behaviors/sound.ts').then((m) => m.setSoundEnabled(on)).catch(() => {});
   }
 };

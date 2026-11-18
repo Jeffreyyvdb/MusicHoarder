@@ -52,6 +52,7 @@
     "oxfmt": "0.79.0",
     "oxlint": "1.94.0",
     "oxlint-tsgolint": "7.0.2007",
+    "postcss": "^8.5.32",
     "semantic-release": "^25.0.9",
     "svelte": "^5.57.3",
     "svelte-check": "^4.7.8",
