@@ -9,6 +9,16 @@
 # Usage:
 #   PR=123 ... ./scripts/dokploy-preview.sh provision
 #   PR=123 ... ./scripts/dokploy-preview.sh destroy
+#   ...        ./scripts/dokploy-preview.sh reap      (DRY_RUN=1 lists what it would remove)
+#
+# What a preview leaves on the host: Dokploy names everything after the compose's appName,
+# mh-pr-<n>-<suffix>. Its containers are mh-pr-<n>-<suffix>-<service>-1, its volumes
+# mh-pr-<n>-<suffix>_<volume>, and, because the stack is an isolated deployment, a bridge network
+# named mh-pr-<n>-<suffix> that Dokploy creates with `docker network create` outside compose.
+# compose.delete never removes that network (it only disconnects Traefik and runs `compose down`,
+# which leaves external networks alone), and every bridge takes a /16 or /20 from Docker's default
+# address pools, of which there are about 30. So destroy removes the leftovers by name as well, and
+# reap does the same for every PR that is no longer open.
 #
 # The Dokploy REST API mirrors its tRPC routes at https://<host>/api/<router>.<proc> with an
 # x-api-key header — mutations are POST with a JSON body, read queries (e.g. project.all) are GET.
@@ -20,7 +30,7 @@
 #   DOKPLOY_API_KEY                 x-api-key
 #   DOKPLOY_PREVIEW_ENVIRONMENT_ID  environment the preview composes live in (a dedicated
 #                                   "previews" environment/project — never the prod environment)
-#   PR                              pull request number
+#   PR                              pull request number (provision and destroy)
 #   PREVIEW_BASE_DOMAIN             e.g. preview.musichoarder.app (PR host = pr-<n>.<this>; also the
 #                                   WebAuthn relying-party id, shared across all pr-<n> subdomains)
 #   API_IMAGE, FRONTEND_IMAGE       full ghcr image refs incl. :pr-<n> tag  (provision only)
@@ -34,6 +44,7 @@
 #                                   row. Empty → passkey seed skipped (magic-link still works).
 #   PREVIEW_SOURCE_DIR   default /srv/mh-preview/sample-source  (shared, read-only sample library)
 #   PREVIEW_MAX_STACKS   default 5  (skip provisioning if this many pr-* composes already exist)
+# Required env (reap): GH_TOKEN and GITHUB_REPOSITORY, to ask GitHub which PRs are still open.
 #   PREVIEW_SPOTIFY_CLIENT_ID / PREVIEW_SPOTIFY_CLIENT_SECRET   Spotify app creds so the preview can complete the
 #                                   OAuth token exchange. Empty → Spotify connect disabled in the preview.
 #   PREVIEW_SPOTIFY_OAUTH_RELAY_URL  the single registered relay URL (https://<prod-frontend>/api/spotify/relay),
@@ -54,7 +65,8 @@ CMD="${1:-}"
 : "${DOKPLOY_URL:?DOKPLOY_URL is required}"
 : "${DOKPLOY_API_KEY:?DOKPLOY_API_KEY is required}"
 : "${DOKPLOY_PREVIEW_ENVIRONMENT_ID:?DOKPLOY_PREVIEW_ENVIRONMENT_ID is required}"
-: "${PR:?PR is required}"
+: "${PR:=}"
+[[ "$CMD" == reap || "$PR" =~ ^[0-9]+$ ]] || { echo "PR is required (a pull request number)" >&2; exit 64; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"  # robust regardless of caller CWD
 BASE="${DOKPLOY_URL%/}"
@@ -298,39 +310,169 @@ EOF
   fi
 }
 
-destroy() {
-  local compose_id
-  compose_id="$(get project.all | find_compose_id)"
-  if [[ -z "$compose_id" ]]; then
-    echo "No preview compose named '${NAME}' found — nothing to destroy."
-    return 0
-  fi
-  echo "Deleting compose '${NAME}' (${compose_id}) and its volumes..."
-  # compose.delete stops the stack and removes its volumes before it answers, which takes longer
-  # than the proxy in front of Dokploy waits: the proxy answers 520 at ~30s while the delete
-  # carries on and completes. So the reply alone proves nothing either way — the compose being
-  # gone from project.all is what counts.
-  if CURL_ERROR_LEVEL=warning api compose.delete "$(jq -n --arg id "$compose_id" '{composeId:$id, deleteVolumes:true}')" >/dev/null; then
-    echo "Preview '${NAME}' destroyed."
-    return 0
-  fi
-  echo "compose.delete gave no clean answer; checking whether '${NAME}' is gone..."
-  local i projects
-  for i in $(seq 1 24); do
-    sleep 10
-    # A failed read prints nothing, which must not pass for "gone".
-    projects="$(get project.all)" || continue
-    if [[ -z "$(find_compose_id <<<"$projects")" ]]; then
-      echo "Preview '${NAME}' destroyed."
-      return 0
-    fi
+# Every preview resource on the host, one tab-separated line each: <kind> <pr> <name> <ref>, where
+# kind is container, volume or network, and ref is what removing it takes (a container id, the
+# volume name, or the network name). Matching is anchored on the appName shape, so nothing that is
+# not a preview (production, other projects) can match, and mh-pr-69- never matches mh-pr-699-.
+list_preview_resources() {
+  # Each read is checked by hand: callers run this where `set -e` is off (inside `||`), and a failed
+  # read that came back empty would otherwise look like "nothing left". The payloads go to jq as
+  # files, since a host's volume list can outgrow a command-line argument.
+  local dir rc=0
+  dir="$(mktemp -d)"
+  { get docker.getContainers >"$dir/c" &&
+    get dockerVolume.getVolumes >"$dir/v" &&
+    # Docker networks Dokploy has not imported yet (the isolated ones never are), and the ones it has.
+    get network.networksToSync >"$dir/u" &&
+    get network.all >"$dir/t" &&
+    jq -rn --slurpfile c "$dir/c" --slurpfile v "$dir/v" --slurpfile u "$dir/u" --slurpfile t "$dir/t" '
+      def rows($f): ($f[0] | (.data? // .)) // [];
+      def pr: capture("^mh-pr-(?<pr>[0-9]+)-").pr;
+      ( rows($c)[] | (.name // "") as $n | select($n | test("^mh-pr-[0-9]+-[a-z0-9]+-"))
+          | ["container", ($n | pr), $n, .containerId] ),
+      ( rows($v)[] | (.Name // "") as $n | select($n | test("^mh-pr-[0-9]+-[a-z0-9]+_"))
+          | ["volume", ($n | pr), $n, $n] ),
+      ( ((rows($u).importable // [])[].name // ""), (rows($t)[].name // "")
+          | select(test("^mh-pr-[0-9]+-[a-z0-9]+(_[a-zA-Z0-9_.-]+)?$"))
+          | ["network", pr, ., .] )
+      | @tsv' | sort -u; } || rc=1
+  rm -rf "$dir"
+  return "$rc"
+}
+
+# Removes a Docker network by name through Dokploy, which only removes networks it tracks: import it
+# first when it is not tracked yet. Docker refuses while anything is still attached to it.
+remove_network() {
+  local name="$1" id
+  CURL_ERROR_LEVEL=notice api network.import "$(jq -n --arg n "$name" '{names:[$n]}')" >/dev/null || true
+  id="$(get network.all | jq -r --arg n "$name" '[(.data? // .)[] | select(.name == $n) | .networkId] | first // empty')"
+  [[ -n "$id" ]] || { echo "::warning::network ${name} could not be imported into Dokploy" >&2; return 1; }
+  CURL_ERROR_LEVEL=warning api network.remove "$(jq -n --arg id "$id" '{networkId:$id}')" >/dev/null
+}
+
+# Removes what a preview left behind after its compose is gone: containers first, then volumes,
+# then the network they were attached to. A network that still has endpoints (a compose.delete
+# that is still stopping the stack) is retried for two minutes before giving up.
+purge_leftovers() {
+  local pr="$1" all resources kind rpr name ref failed=0 networks=()
+  all="$(list_preview_resources)" || return 1
+  resources="$(awk -F'\t' -v pr="$pr" '$2 == pr' <<<"$all")"
+  [[ -n "$resources" ]] || { echo "No Docker leftovers for ${NAME}."; return 0; }
+  while IFS=$'\t' read -r kind rpr name ref; do
+    case "$kind" in
+      container)
+        echo "Removing leftover container ${name}"
+        CURL_ERROR_LEVEL=warning api docker.removeContainer "$(jq -n --arg id "$ref" '{containerId:$id}')" >/dev/null || failed=1 ;;
+      volume)
+        echo "Removing leftover volume ${name}"
+        CURL_ERROR_LEVEL=warning api dockerVolume.removeVolume "$(jq -n --arg v "$ref" '{volumeName:$v}')" >/dev/null || failed=1 ;;
+      network) networks+=("$name") ;;
+    esac
+  done <<<"$resources"
+  local net i
+  for net in "${networks[@]}"; do
+    echo "Removing network ${net}"
+    for i in $(seq 1 12); do
+      remove_network "$net" && continue 2
+      sleep 10
+    done
+    echo "::error::network ${net} is still there two minutes after its stack was deleted." >&2
+    failed=1
   done
-  echo "::error::Preview '${NAME}' (${compose_id}) still exists 4 minutes after compose.delete." >&2
-  return 1
+  return "$failed"
+}
+
+destroy() {
+  local projects compose_id gone=1
+  projects="$(get project.all)" || return 1
+  compose_id="$(find_compose_id <<<"$projects")"
+  if [[ -z "$compose_id" ]]; then
+    echo "No preview compose named '${NAME}' found."
+  else
+    # A PR closed mid-deploy cancels the workflow run, not Dokploy's deployment. Deleting while it
+    # still runs `compose up` would let the stack come back after the delete, so let it end first.
+    local status waited=0
+    while status="$(latest_deployment "$compose_id" | jq -r '.status // empty')" &&
+          [[ "$status" == running ]] && (( waited < 600 )); do
+      (( waited == 0 )) && echo "A deployment of '${NAME}' is still running; waiting for it to end..."
+      sleep 15
+      waited=$((waited + 15))
+    done
+    echo "Deleting compose '${NAME}' (${compose_id}) and its volumes..."
+    # compose.delete stops the stack and removes its volumes before it answers, which takes longer
+    # than the proxy in front of Dokploy waits: the proxy answers 520 at ~30s while the delete
+    # carries on and completes. So the reply alone proves nothing either way — the compose being
+    # gone from project.all is what counts.
+    if ! CURL_ERROR_LEVEL=warning api compose.delete "$(jq -n --arg id "$compose_id" '{composeId:$id, deleteVolumes:true}')" >/dev/null; then
+      echo "compose.delete gave no clean answer; checking whether '${NAME}' is gone..."
+      local i
+      gone=0
+      for i in $(seq 1 24); do
+        sleep 10
+        # A failed read prints nothing, which must not pass for "gone".
+        projects="$(get project.all)" || continue
+        if [[ -z "$(find_compose_id <<<"$projects")" ]]; then gone=1; break; fi
+      done
+      if (( ! gone )); then
+        echo "::error::Preview '${NAME}' (${compose_id}) still exists 4 minutes after compose.delete." >&2
+        return 1
+      fi
+    fi
+    echo "Compose '${NAME}' deleted."
+  fi
+  # Also when there was no compose: a delete that failed half-way, or one made before this cleanup
+  # existed, leaves the network (and maybe containers and volumes) with nothing pointing at them.
+  purge_leftovers "$PR" || return 1
+  echo "Preview '${NAME}' destroyed."
+}
+
+# Destroys every preview whose PR is not open: composes in the previews environment, and Docker
+# leftovers on the host that no compose owns any more. With DRY_RUN=1 it only prints the plan.
+reap() {
+  : "${GH_TOKEN:?GH_TOKEN is required}"
+  : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
+  local open composes resources prs pr state failed=0
+  # One list call, and a failed call stops the sweep: an error must never read as "not open".
+  open="$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --limit 1000 --json number --jq '.[].number')"
+  local projects
+  projects="$(get project.all)"
+  composes="$(jq -r --arg env "$DOKPLOY_PREVIEW_ENVIRONMENT_ID" '
+    (.data? // .)[].environments[] | select(.environmentId == $env) | .compose[]?
+    | .name | select(test("^pr-[0-9]+$")) | ltrimstr("pr-")' <<<"$projects")"
+  resources="$(list_preview_resources)"
+
+  echo "Preview resources on the host:"
+  printf 'KIND\tPR\tNAME\n%s\n' "$(cut -f1-3 <<<"$resources")" | column -t -s$'\t'
+  prs="$( { printf '%s\n' "$composes"; cut -f2 <<<"$resources"; } | grep -E '^[0-9]+$' | sort -nu || true)"
+  if [[ -z "$prs" ]]; then
+    echo "No previews found — nothing to reap."
+    return 0
+  fi
+
+  echo
+  for pr in $prs; do
+    if grep -qx "$pr" <<<"$open"; then
+      echo "PR #${pr}: OPEN — keeping."
+      continue
+    fi
+    state="$(gh pr view "$pr" --repo "$GITHUB_REPOSITORY" --json state -q .state 2>/dev/null || echo "not found")"
+    if [[ "${DRY_RUN:-}" == 1 ]]; then
+      echo "PR #${pr}: ${state} — would destroy."
+      continue
+    fi
+    echo "PR #${pr}: ${state} — destroying."
+    # One failure must not stop the sweep; the next run retries what is left.
+    ( PR="$pr" NAME="pr-${pr}" APP_NAME="mh-pr-${pr}"; destroy ) \
+      || { echo "::warning::could not fully destroy the preview of #${pr}; the next run retries." >&2; failed=1; }
+    # Drop the stale "preview" label if the close-event teardown missed it. Best-effort.
+    gh pr edit "$pr" --repo "$GITHUB_REPOSITORY" --remove-label preview >/dev/null 2>&1 || true
+  done
+  return "$failed"
 }
 
 case "$CMD" in
   provision) provision ;;
   destroy)   destroy ;;
-  *) echo "Usage: PR=<n> $0 {provision|destroy}" >&2; exit 64 ;;
+  reap)      reap ;;
+  *) echo "Usage: PR=<n> $0 {provision|destroy} | $0 reap" >&2; exit 64 ;;
 esac

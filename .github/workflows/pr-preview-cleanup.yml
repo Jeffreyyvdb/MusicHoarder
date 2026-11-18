@@ -1,15 +1,28 @@
 # Safety-net reaper for orphaned PR preview stacks.
 #
-# The pr-preview.yml `teardown` job normally deletes a preview when its PR closes. If that event is
-# ever missed (workflow disabled, transient Dokploy error, manual compose created), this daily job
-# enumerates pr-<n> composes in the previews environment and destroys any whose PR is no longer
-# open. Also runnable on demand.
+# The pr-preview.yml `teardown` job normally deletes a preview when its PR closes. If that is ever
+# missed (workflow disabled, transient Dokploy error, a delete that failed half-way, a deploy that
+# Dokploy finished after the teardown), this job removes every preview whose PR is no longer open:
+# the pr-<n> compose in the previews environment, and the containers, volumes and isolated network
+# named mh-pr-<n>-* left on the host. The network matters most: Dokploy never removes it, and the
+# host runs out of Docker address pools after about 30 of them, which stops every new preview.
+# See `reap` in scripts/dokploy-preview.sh.
 name: PR preview cleanup (Dokploy)
 
 on:
   schedule:
-    - cron: "17 4 * * *" # daily, 04:17 UTC
+    - cron: "17 */6 * * *" # every 6 hours
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Only list the previews and what would be removed"
+        type: boolean
+        default: true
+
+# Never two sweeps at once; a teardown running beside one is harmless (every step is idempotent).
+concurrency:
+  group: pr-preview-cleanup
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -19,6 +32,7 @@ jobs:
   reap:
     name: Reap closed-PR previews
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7.0.1
 
@@ -28,39 +42,12 @@ jobs:
           DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
           DOKPLOY_PREVIEW_ENVIRONMENT_ID: ${{ secrets.DOKPLOY_PREVIEW_ENVIRONMENT_ID }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # A scheduled run has no inputs and always removes; a manual run lists unless told not to.
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '1' || '' }}
         run: |
           set -euo pipefail
           if [ -z "${DOKPLOY_URL}" ] || [ -z "${DOKPLOY_API_KEY}" ] || [ -z "${DOKPLOY_PREVIEW_ENVIRONMENT_ID}" ]; then
             echo "::notice::Dokploy preview secrets not set — nothing to reap."
             exit 0
           fi
-          base="${DOKPLOY_URL%/}"
-          names=$(curl -fsS --max-time 60 \
-            -H "x-api-key: ${DOKPLOY_API_KEY}" \
-            "${base}/api/project.all" \
-            | jq -r --arg env "$DOKPLOY_PREVIEW_ENVIRONMENT_ID" '
-                (.data? // .)[].environments[] | select(.environmentId == $env)
-                | .compose[]? | select(.name | startswith("pr-")) | .name')
-
-          if [ -z "${names}" ]; then
-            echo "No pr-* preview composes found — nothing to reap."
-            exit 0
-          fi
-
-          while IFS= read -r name; do
-            [ -n "$name" ] || continue
-            pr="${name#pr-}"
-            state=$(gh pr view "$pr" --repo "$GITHUB_REPOSITORY" --json state -q .state 2>/dev/null || echo "MISSING")
-            if [ "$state" = "OPEN" ]; then
-              echo "PR #${pr} still open — keeping ${name}."
-            else
-              echo "PR #${pr} state=${state} — destroying ${name}."
-              # Don't let one transient destroy failure abort the whole sweep — log and move on;
-              # the still-orphaned stack gets retried on the next daily run.
-              PR="$pr" ./scripts/dokploy-preview.sh destroy \
-                || echo "::warning::failed to destroy ${name}; will retry on the next run."
-              # Drop the stale "preview" label if the close-event teardown missed it. Best-effort.
-              gh pr edit "$pr" --repo "$GITHUB_REPOSITORY" --remove-label preview 2>/dev/null \
-                || echo "::notice::no preview label to remove from #${pr}."
-            fi
-          done <<< "$names"
+          ./scripts/dokploy-preview.sh reap
