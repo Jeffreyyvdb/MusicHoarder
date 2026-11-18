@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -199,6 +200,36 @@ public class MusicVideoCandidateCacheTests
 
         _clock.Now = Now.AddDays(1).AddMinutes(1);
         await Prefetch(db).RunAsync(default);
+        Assert.Equal(2, _downloader.SuggestCalls.Count);
+    }
+
+    [Fact]
+    public async Task A_retry_in_the_background_service_replaces_the_failed_set_and_is_not_searched_again()
+    {
+        var dbOptions = new DbContextOptionsBuilder<MusicHoarderDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString("N")).Options;
+        MusicHoarderDbContext BackgroundScope() =>
+            new(dbOptions, new HttpContextCurrentUserAccessor(new HttpContextAccessor()));
+        await using var unfiltered = new MusicHoarderDbContext(dbOptions);
+        await SeedUsersAsync(unfiltered);
+        unfiltered.Songs.Add(Song(1));
+        await unfiltered.SaveChangesAsync();
+
+        var answers = _downloader.OnSuggest;
+        _downloader.OnSuggest = _ => throw new InvalidOperationException("YouTube said no");
+        await using (var db = BackgroundScope())
+            Assert.Equal(0, await Prefetch(db).RunAsync(default));
+
+        _downloader.OnSuggest = answers;
+        _clock.Now = Now.AddDays(1).AddMinutes(1);
+        await using (var db = BackgroundScope())
+            Assert.Equal(1, await Prefetch(db).RunAsync(default));
+
+        var set = Assert.Single(await unfiltered.SongVideoCandidateSets.AsNoTracking().ToListAsync());
+        Assert.Null(set.Error);
+
+        await using (var db = BackgroundScope())
+            Assert.Equal(0, await Prefetch(db).RunAsync(default));
         Assert.Equal(2, _downloader.SuggestCalls.Count);
     }
 
