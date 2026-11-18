@@ -450,3 +450,8 @@ steps are required after a new image is deployed.
   from the [SPEC-01](https://github.com/shuding/spec-01) kit (MIT), ported to Svelte on Vercel's
   [UI SDK](https://ui-sdk.dev). It also ships IBM Plex Mono (OFL 1.1) and IBM Carbon icon paths
   (Apache-2.0); each licence sits beside the files it covers.
+- **Discover's playlists** come from [mackorone](https://github.com/mackorone)'s
+  [Spotify Playlist Archive](https://spotifyplaylistarchive.com/)
+  ([spotify-playlist-archive](https://github.com/mackorone/spotify-playlist-archive) and
+  [spotify-playlist-archive-2](https://github.com/mackorone/spotify-playlist-archive-2), MIT), which
+  snapshots Spotify's own playlists daily. MusicHoarder reads its published files; it ships none of them.

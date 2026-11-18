@@ -625,7 +625,13 @@
           {/each}
         </div>
         <p class="text-footnote text-muted-foreground px-4 pb-4 md:px-7">
-          Spotify's own playlists, from the public Spotify Playlist Archive, snapshotted daily.
+          Spotify's own playlists, snapshotted daily by mackorone's
+          <a
+            href="https://spotifyplaylistarchive.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="text-primary underline-offset-2 hover:underline">Spotify Playlist Archive</a
+          >.
         </p>
       {/if}
     </ScrollArea>
