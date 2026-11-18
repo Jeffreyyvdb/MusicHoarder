@@ -622,6 +622,7 @@ public sealed class AlbumSplitHealer(
             if (!persist)
                 continue;
 
+            song.AlbumIdentityHealedAtUtc = now;
             logger.LogInformation(
                 "Restored the album artist of song {SongId} on {Album}: {Previous} came from a canonical album of a different album; back to {RestoredTo}",
                 song.Id, song.Album, previous, restoreTo);
