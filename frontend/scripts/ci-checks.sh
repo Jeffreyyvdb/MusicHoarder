@@ -1,12 +1,8 @@
 #!/usr/bin/env bash
 # The frontend's lint, type check and unit tests, side by side, for CI (ci.yml, release.yml).
 #
-# A GitHub runner has 4 cores. One after another these took ~2.5 minutes on about one of them:
-# svelte-check is single-threaded, and so is ESLint unless told otherwise (its typed parsing of
-# .svelte files is most of that time). Here ESLint gets one worker thread per core and svelte-check
-# and vitest run beside it: the job went from 138-191s to ~85s. (ESLint's `--concurrency auto`
-# takes half the cores; lint then ran its last minute on two of four and took 117s. Each worker
-# builds its own TypeScript program, ~1.3 GB, which a 16 GB runner holds but a busy laptop may not.)
+# Side by side they take as long as the slowest of them (the tests, then svelte-check, which is
+# single-threaded) instead of their sum. Lint is oxlint, which already uses every core.
 # Each log is printed whole once its command ends, so outputs never interleave, and the step fails
 # if any of the three does.
 set -uo pipefail
@@ -35,7 +31,7 @@ run() {
   pids[$name]=$!
 }
 
-run lint bun run lint --concurrency "$(nproc)"
+run lint bun run lint
 run check bun run check
 run test bun run test
 

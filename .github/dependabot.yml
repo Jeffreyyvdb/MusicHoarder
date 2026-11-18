@@ -40,14 +40,12 @@ updates:
     # TypeScript 7 is the native (Go) port: `require('typescript')` now
     # resolves to a stub exporting only { version, versionMajorMinor }, and
     # the classic compiler API lives behind unfinished `typescript/unstable/*`
-    # entrypoints. Every type-aware tool we run breaks on it —
-    # @typescript-eslint/typescript-estree dies at import time reading
-    # `ts.Extension.Cjs` off that stub ("Cannot read properties of undefined
-    # (reading 'Cjs')", PR #348), and its peer range is `<6.1.0`, so no
-    # released typescript-eslint accepts TS 7 at all. svelte-check /
-    # svelte2tsx are in the same boat. Hold at 6.x (SvelteKit 3's minimum, still the JS compiler) until typescript-eslint
-    # ships a TS 7-compatible major and svelte-check follows; then drop this
-    # entry and take the bump deliberately.
+    # entrypoints. svelte-check / svelte2tsx read the compiler API through
+    # `require('typescript')` and break on it (typescript-eslint did too,
+    # PR #348, before oxlint replaced it; oxlint-tsgolint ships its own Go
+    # compiler and does not read this package). Hold at 6.x (SvelteKit 3's
+    # minimum, still the JS compiler) until svelte-check supports TS 7; then
+    # drop this entry and take the bump deliberately.
     ignore:
       - dependency-name: '@sveltejs/adapter-node'
         versions: ['5.5.5']
