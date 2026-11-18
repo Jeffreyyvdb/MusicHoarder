@@ -2,24 +2,37 @@
 # The frontend's lint, type check, unit tests and production build, side by side, for CI
 # (ci.yml, release.yml). The build is here so a PR that breaks it fails before the weekly release.
 #
-# Side by side they take as long as the slowest of them (the tests, then svelte-check, which is
-# single-threaded) instead of their sum. Lint is oxlint, which already uses every core.
-# Each log is printed whole once its command ends, so outputs never interleave, and the step fails
-# if any of them does.
+# Side by side they take about as long as the slowest of them instead of their sum. Lint is
+# oxlint, which already uses every core. Each log is printed whole once its command ends, so
+# outputs never interleave, and the step fails if any of them does.
+#
+# Only one process may write .svelte-kit/ at a time. `svelte-kit sync` rewrites its generated
+# files on every run (SvelteKit 3.2 rewrites every route's $types.d.ts), and a sync or a type
+# check that reads a file another sync is halfway through writing fails with "Unexpected end of
+# JSON input" or a missing ./$types: a red that depends on timing. So this script syncs once, runs
+# lint, check and test from their package.json commands with their own sync taken out, and starts
+# the build, whose Vite plugin syncs on its own, only after lint and check (the two that read the
+# generated types) have finished.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
 echo "Runner: $(nproc) cores, $(free -g | awk '/^Mem:/ { print $2 }') GB memory"
 
-# Sync once before anything reads .svelte-kit/. `check`, `test` and `build` sync again on their own,
-# and on SvelteKit 3.2 every sync rewrites every route's $types.d.ts. svelte-check reads them in
-# its first seconds, before the build's syncs; a read that met a rewrite would be a loud missing-
-# `./$types` error, never a pass. vitest and oxlint do not read .svelte-kit/.
 bunx svelte-kit sync || exit 1
+
+# A package.json script with its `svelte-kit sync` steps removed.
+without_sync() {
+  bun -e '
+    const script = require("./package.json").scripts[process.argv[1]];
+    const command = script.replaceAll("svelte-kit sync && ", "");
+    if (command.includes("svelte-kit sync")) throw new Error(`cannot take the sync out of: ${script}`);
+    console.log(command);
+  ' "$1"
+}
 
 logs=$(mktemp -d)
 names=(lint check test build)
-declare -A pids
+declare -A pids status
 
 run() {
   local name=$1
@@ -27,21 +40,30 @@ run() {
   (
     start=$SECONDS
     "$@" >"$logs/$name.log" 2>&1
-    status=$?
-    echo "$name: exit $status after $((SECONDS - start))s" >"$logs/$name.summary"
-    exit "$status"
+    code=$?
+    echo "$name: exit $code after $((SECONDS - start))s" >"$logs/$name.summary"
+    exit "$code"
   ) &
   pids[$name]=$!
 }
 
-run lint bun run lint
-run check bun run check
-run test bun run test
+for name in lint check test; do
+  command=$(without_sync "$name") || exit 1
+  run "$name" env PATH="$PWD/node_modules/.bin:$PATH" bash -c "$command"
+done
+for name in lint check; do
+  wait "${pids[$name]}"
+  status[$name]=$?
+done
 run build bun run build
+for name in test build; do
+  wait "${pids[$name]}"
+  status[$name]=$?
+done
 
 failed=()
 for name in "${names[@]}"; do
-  if wait "${pids[$name]}"; then
+  if ((status[$name] == 0)); then
     echo "::group::$(cat "$logs/$name.summary")"
     cat "$logs/$name.log"
     echo "::endgroup::"
