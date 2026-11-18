@@ -239,9 +239,9 @@ public class IngestRunMonitor(
         run.TracksFailed = counts.Failed;
 
         var now = DateTime.UtcNow;
-        var activity = await PipelineSnapshot.ComputeRecentActivityAsync(active, LogTailCap, now, ct);
+        var activity = await PipelineSnapshot.ComputeRecentActivityAsync(active, LogTailCap, ct);
         run.LogTailJson = JsonSerializer.Serialize(
-            activity.Select(a => new { a.Id, a.Type, a.Track, a.Artist, a.Time }),
+            activity.Select(a => RecentActivity.ToWire(a, now)),
             LogJsonOptions);
 
         if (finalize)

@@ -13,14 +13,6 @@ public record PipelineCounts(
     int Review,
     int Failed);
 
-public record PipelineActivity(
-    string Id,
-    string Type,
-    string Track,
-    string Artist,
-    string Time,
-    DateTime ActivityAt);
-
 /// <summary>
 /// Shared pipeline aggregate queries. Callers pass an already-scoped <c>IQueryable</c> of active
 /// (non-deleted) songs — the dashboard passes the user-filtered <c>db.Songs</c>, the run monitor
@@ -58,74 +50,47 @@ public static class PipelineSnapshot
             Failed: failedCount);
     }
 
-    public static async Task<List<PipelineActivity>> ComputeRecentActivityAsync(
+    /// <summary>Rows read per source stamp before deriving; far more than the few dozen events shown.</summary>
+    private const int CandidateCap = 200;
+
+    private static readonly System.Linq.Expressions.Expression<Func<SongMetadata, RecentActivityFacts>> ToFacts =
+        s => new RecentActivityFacts(
+            s.Id, s.Title, s.Artist, s.AlbumArtist, s.Album, s.FileName,
+            s.AcquiredAtUtc, s.IndexedAtUtc, s.EnrichedAtUtc, s.EnrichmentLastAttemptedAtUtc,
+            s.LibraryBuiltAtUtc, s.LibraryBuildLastAttemptedAtUtc,
+            s.EnrichmentStatus, s.LibraryBuildStatus,
+            s.DestinationPath != null,
+            s.DestinationPath != null || s.PreviousDestinationPath != null);
+
+    public static async Task<IReadOnlyList<RecentActivityEvent>> ComputeRecentActivityAsync(
         IQueryable<SongMetadata> active,
         int take,
-        DateTime now,
         CancellationToken ct = default)
     {
-        var recentSongs = await active
-            .OrderByDescending(s => s.LibraryBuiltAtUtc ?? s.EnrichedAtUtc ?? s.EnrichmentLastAttemptedAtUtc ?? s.IndexedAtUtc)
-            .Take(take)
-            .Select(s => new
-            {
-                s.Id,
-                s.FileName,
-                s.Artist,
-                s.IndexedAtUtc,
-                s.EnrichedAtUtc,
-                s.EnrichmentLastAttemptedAtUtc,
-                s.LibraryBuiltAtUtc,
-                s.LibraryBuildLastAttemptedAtUtc,
-                s.EnrichmentStatus,
-                s.LibraryBuildStatus,
-            })
-            .ToListAsync(ct);
+        var failed = await active
+            .Where(s => s.EnrichmentStatus == EnrichmentStatus.Failed || s.LibraryBuildStatus == LibraryBuildStatus.Failed)
+            .OrderByDescending(s => s.EnrichedAtUtc ?? s.EnrichmentLastAttemptedAtUtc ?? s.LibraryBuildLastAttemptedAtUtc ?? s.IndexedAtUtc)
+            .Take(CandidateCap).Select(ToFacts).ToListAsync(ct);
 
-        return recentSongs.Select(s =>
-        {
-            string type;
-            DateTime activityAt;
-            if (s.LibraryBuildStatus is LibraryBuildStatus.Copied or LibraryBuildStatus.Tagged or LibraryBuildStatus.Done
-                && s.LibraryBuiltAtUtc.HasValue)
-            {
-                type = "copied";
-                activityAt = s.LibraryBuiltAtUtc.Value;
-            }
-            else if (s.EnrichmentStatus == EnrichmentStatus.Failed || s.LibraryBuildStatus == LibraryBuildStatus.Failed)
-            {
-                type = "failed";
-                activityAt = s.EnrichedAtUtc ?? s.LibraryBuildLastAttemptedAtUtc ?? s.IndexedAtUtc;
-            }
-            else if (s.EnrichmentStatus == EnrichmentStatus.NeedsReview)
-            {
-                type = "review";
-                activityAt = s.EnrichedAtUtc ?? s.EnrichmentLastAttemptedAtUtc ?? s.IndexedAtUtc;
-            }
-            else if (s.EnrichmentStatus == EnrichmentStatus.Matched && s.EnrichedAtUtc.HasValue)
-            {
-                type = "enriched";
-                activityAt = s.EnrichedAtUtc.Value;
-            }
-            else
-            {
-                type = "discovered";
-                activityAt = s.IndexedAtUtc;
-            }
+        var review = await active
+            .Where(s => s.EnrichmentStatus == EnrichmentStatus.NeedsReview)
+            .OrderByDescending(s => s.EnrichedAtUtc ?? s.EnrichmentLastAttemptedAtUtc ?? s.IndexedAtUtc)
+            .Take(CandidateCap).Select(ToFacts).ToListAsync(ct);
 
-            var diff = now - activityAt;
-            var timeAgo = diff.TotalMinutes < 1 ? "just now"
-                : diff.TotalMinutes < 60 ? $"{(int)diff.TotalMinutes} min ago"
-                : diff.TotalHours < 24 ? $"{(int)diff.TotalHours} hr ago"
-                : $"{(int)diff.TotalDays} day{(diff.TotalDays >= 2 ? "s" : "")} ago";
+        var inLibrary = await active
+            .Where(s => s.DestinationPath != null)
+            .OrderByDescending(s => s.AcquiredAtUtc ?? s.IndexedAtUtc)
+            .Take(CandidateCap).Select(ToFacts).ToListAsync(ct);
 
-            return new PipelineActivity(
-                Id: $"act-{s.Id}",
-                Type: type,
-                Track: s.FileName ?? "Unknown",
-                Artist: s.Artist ?? "Unknown",
-                Time: timeAgo,
-                ActivityAt: activityAt);
-        }).OrderByDescending(a => a.ActivityAt).ToList();
+        var matched = await active
+            .Where(s => s.EnrichmentStatus == EnrichmentStatus.Matched
+                && s.DestinationPath == null && s.PreviousDestinationPath == null && s.EnrichedAtUtc != null)
+            .OrderByDescending(s => s.EnrichedAtUtc)
+            .Take(CandidateCap).Select(ToFacts).ToListAsync(ct);
+
+        var candidates = failed.Concat(review).Concat(inLibrary).Concat(matched)
+            .GroupBy(f => f.Id).Select(g => g.First());
+
+        return RecentActivity.Derive(candidates, take);
     }
 }
