@@ -289,10 +289,6 @@
   const showDevices = $derived(playbackSync.enabled);
   // The art rests at full size for a browsed song (nothing is paused — it just isn't playing).
   const artPlaying = $derived(!isCurrentlyLoaded || playerStore.isPlaying);
-  // The hardware skin (an easter egg, #lib/hardware): the loaded song's art, title and transport
-  // become the MH-1 device. Not for a song that is only being looked at, nor while the music plays
-  // on another device — the device's keys act on the music here.
-  const hardware = $derived(hardwareMode.enabled && isCurrentlyLoaded && !elsewhere);
 
   const trackTitle = $derived((song.title ?? song.fileName).trim() || song.fileName);
   const trackArtist = $derived((song.artist ?? album.artist).trim() || album.artist);
@@ -593,16 +589,6 @@
   {/if}
 {/snippet}
 
-<!-- Loaded on demand: the device's stylesheet is the vendored SPEC-01 skin, which nobody without
-     the easter egg should download. -->
-{#snippet hardwareDevice(maxRows: number)}
-  {#await import('#lib/hardware/HardwareNowPlaying.svelte') then { default: HardwareNowPlaying }}
-    <HardwareNowPlaying {maxRows} />
-  {:catch}
-    {@render transport()}
-  {/await}
-{/snippet}
-
 <!-- At lg the meta line above the scrubber already reads "FLAC 1411 · 3:06 · …", so the format
      capsule would say it twice; only the speed capsule (when not 1×) stays under the bar there. -->
 {#snippet transport()}
@@ -629,8 +615,8 @@
 {/snippet}
 
 <!-- Under the hardware skin the clip plays on the MH-2, a monitor that carries the status line on
-     its LCD. Loaded on demand like the MH-1 (same stylesheet). Unlike the MH-1 it is not tied to
-     the loaded song: its one key is fullscreen, which works for a browsed song too. -->
+     its LCD. Loaded on demand: its stylesheet is the vendored SPEC-01 kit, which nobody without
+     the easter egg should download. -->
 {#snippet videoHousing(housing: VideoHousing)}
   {#await import('#lib/hardware/HardwareVideo.svelte') then { default: HardwareVideo }}
     <HardwareVideo {housing} status={videoLine} />
@@ -739,7 +725,10 @@
   </div>
 {/snippet}
 
-<!-- A window wide enough for two columns is not dragged down, as on an iPad's full screen. -->
+<!-- A window wide enough for two columns is not dragged down, as on an iPad's full screen.
+     The `data-mh-np` attributes (body, screen, readout, keys, modes, volume) name the parts of the
+     player for a skin's stylesheet, in all three layouts; they style nothing by themselves. A skin
+     dresses these elements and never gets a tree of its own (#lib/hardware/README.md). -->
 <div class="flex h-full max-h-full min-h-0 flex-col" data-drag-ignore={wide.current || undefined}>
   {#if wide.current}
     <!-- lg: close and ⋯ in a bar; art, title and transport on the left; the mode on the right. -->
@@ -761,33 +750,36 @@
           class="min-h-0 flex-1 [&>[data-slot=scroll-area-viewport]>*]:flex [&>[data-slot=scroll-area-viewport]>*]:flex-col"
           viewportClass="px-12 pt-6 pb-8"
         >
-          <div class="my-auto flex w-full flex-col">
-            {#if hardware}
-              {@render hardwareDevice(6)}
-              <div class="mt-4">{@render bottomRow()}</div>
-            {:else}
+          <div
+            class="my-auto flex w-full flex-col"
+            data-mh-np="body"
+            data-playing={isCurrentlyPlaying || undefined}
+          >
             <!-- The art gives way first on a short window (the transport, title and volume below it
                  need ~430px), and never shrinks under 200px. -->
-            <NowPlayingArt
-              artist={trackArtist}
-              title={album.title}
-              {coverUrl}
-              size={400}
-              corner={12}
-              playing={artPlaying}
-              class="mx-auto w-full max-w-[min(100%,46vh,max(200px,calc(100svh-460px)))]"
-            />
-            <div class="mt-6">{@render titleBlock()}</div>
-            {#if metaLine}
-              <p class="text-footnote text-muted-foreground mt-1.5 tabular-nums">{metaLine}</p>
-            {/if}
-            <div class="mt-5">{@render transport()}</div>
-            <div class="mt-2">{@render bottomRow()}</div>
+            <div data-mh-np="screen">
+              <NowPlayingArt
+                artist={trackArtist}
+                title={album.title}
+                {coverUrl}
+                size={400}
+                corner={12}
+                playing={artPlaying}
+                class="mx-auto w-full max-w-[min(100%,46vh,max(200px,calc(100svh-460px)))]"
+              />
+            </div>
+            <div class="mt-6" data-mh-np="readout">
+              {@render titleBlock()}
+              {#if metaLine}
+                <p class="text-footnote text-muted-foreground mt-1.5 tabular-nums">{metaLine}</p>
+              {/if}
+            </div>
+            <div class="mt-5" data-mh-np="keys">{@render transport()}</div>
+            <div class="mt-2" data-mh-np="modes">{@render bottomRow()}</div>
             {#if !elsewhere}
-              <div class="mt-4 hidden pointer-fine:block">
+              <div class="mt-4 hidden pointer-fine:block" data-mh-np="volume">
                 <VolumeControl />
               </div>
-            {/if}
             {/if}
           </div>
         </ScrollArea>
@@ -799,7 +791,11 @@
   {:else if sideways.current}
     <!-- A phone on its side: the middle on the left, the title block and the transport on the
          right. Same top bar, same modes. -->
-    <div class="flex h-full min-h-0 w-full flex-col">
+    <div
+      class="flex h-full min-h-0 w-full flex-col"
+      data-mh-np="body"
+      data-playing={isCurrentlyPlaying || undefined}
+    >
       {@render topBar()}
       <div class="flex min-h-0 flex-1 gap-6 pr-6 pl-4">
         <div class="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -808,15 +804,17 @@
               class="flex min-h-0 flex-1 touch-none items-center justify-center pb-3 select-none"
               data-drag-handle
             >
-              <NowPlayingArt
-                artist={trackArtist}
-                title={album.title}
-                {coverUrl}
-                size={360}
-                corner={12}
-                playing={artPlaying}
-                class="w-[min(100%,calc(100svh-120px))]"
-              />
+              <div class="w-[min(100%,calc(100svh-120px))]" data-mh-np="screen">
+                <NowPlayingArt
+                  artist={trackArtist}
+                  title={album.title}
+                  {coverUrl}
+                  size={360}
+                  corner={12}
+                  playing={artPlaying}
+                  class="w-full"
+                />
+              </div>
             </div>
           {/if}
           {@render modeContent()}
@@ -825,30 +823,24 @@
         <div class="no-scrollbar flex w-[min(360px,46%)] shrink-0 flex-col overflow-y-auto pb-2">
           <div class="my-auto">
             {#if content === 'player'}
-              <div class="mb-3">{@render titleBlock()}</div>
+              <div class="mb-3" data-mh-np="readout">{@render titleBlock()}</div>
             {/if}
-            {@render transport()}
-            <div class="mt-1">{@render bottomRow()}</div>
+            <div data-mh-np="keys">{@render transport()}</div>
+            <div class="mt-1" data-mh-np="modes">{@render bottomRow()}</div>
           </div>
         </div>
       </div>
     </div>
   {:else}
-    <div class="mx-auto flex h-full min-h-0 w-full max-w-xl flex-col">
+    <div
+      class="mx-auto flex h-full min-h-0 w-full max-w-xl flex-col"
+      data-mh-np="body"
+      data-playing={isCurrentlyPlaying || undefined}
+    >
       {@render topBar()}
 
       <div class="flex min-h-0 flex-1 flex-col">
-        {#if content === 'player' && hardware}
-          <!-- The device, set on the dark media surface like a player on a desk. It takes its own
-               drags (the fader, the knob), so it does not pull Now Playing down, and its queue
-               scrolls if a short phone needs it. -->
-          <div
-            class="flex min-h-0 flex-1 flex-col justify-center overflow-y-auto px-4 py-2"
-            data-drag-ignore
-          >
-            {@render hardwareDevice(4)}
-          </div>
-        {:else if content === 'player'}
+        {#if content === 'player'}
           <!-- The artwork and title, where a mouse can drag Now Playing down too. -->
           <div
             class="flex min-h-0 flex-1 touch-none flex-col justify-center px-8 select-none"
@@ -857,16 +849,18 @@
             <div
               class="mx-auto flex w-full max-w-[min(100%,40svh,329px)] flex-col md:max-w-[min(100%,40svh,440px)]"
             >
-              <NowPlayingArt
-                artist={trackArtist}
-                title={album.title}
-                {coverUrl}
-                size={360}
-                corner={12}
-                playing={artPlaying}
-                class="w-full"
-              />
-              <div class="mt-7">{@render titleBlock()}</div>
+              <div data-mh-np="screen">
+                <NowPlayingArt
+                  artist={trackArtist}
+                  title={album.title}
+                  {coverUrl}
+                  size={360}
+                  corner={12}
+                  playing={artPlaying}
+                  class="w-full"
+                />
+              </div>
+              <div class="mt-7" data-mh-np="readout">{@render titleBlock()}</div>
             </div>
           </div>
         {/if}
@@ -874,15 +868,12 @@
       </div>
 
       <footer class="shrink-0 px-7 pt-3 pb-2">
-        <!-- Under the hardware skin the device on the player page carries the transport. -->
-        {#if !(hardware && content === 'player')}
-          {@render transport()}
-        {/if}
-        <div class="mt-1">{@render bottomRow()}</div>
+        <div data-mh-np="keys">{@render transport()}</div>
+        <div class="mt-1" data-mh-np="modes">{@render bottomRow()}</div>
         <!-- md–lg with a mouse (a narrow desktop window, an iPad with a trackpad): Now Playing hides
              the mini player that holds the volume, so it needs its own here too. -->
-        {#if !elsewhere && !(hardware && content === 'player')}
-          <div class="mt-3 hidden md:pointer-fine:block">
+        {#if !elsewhere}
+          <div class="mt-3 hidden md:pointer-fine:block" data-mh-np="volume">
             <VolumeControl />
           </div>
         {/if}
