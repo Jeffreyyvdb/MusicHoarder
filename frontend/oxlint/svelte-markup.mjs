@@ -53,7 +53,9 @@ if (import.meta.main) {
   const args = process.argv.slice(2);
   const files = args.some((arg) => arg.endsWith('.svelte'))
     ? args
-    : readdirSync(args[0] ?? 'src', { recursive: true }).map((file) => join(args[0] ?? 'src', file));
+    : readdirSync(args[0] ?? 'src', { recursive: true }).map((file) =>
+        join(args[0] ?? 'src', file)
+      );
   const problems = files
     .filter((path) => path.endsWith('.svelte') && !IGNORED.test(relative('.', path)))
     .sort()

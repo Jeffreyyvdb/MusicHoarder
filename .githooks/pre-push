@@ -6,12 +6,21 @@ set -euo pipefail
 
 root=$(git rev-parse --show-toplevel)
 zero=0000000000000000000000000000000000000000
+head=$(git rev-parse HEAD)
 changed=()
 while read -r _ local_sha _ remote_sha; do
   [[ $local_sha == "$zero" ]] && continue # deleting a branch
+  # The checks read the working tree, so they only speak for a push of what is checked out.
+  if [[ $local_sha != "$head" ]]; then
+    echo "pre-push: not checking ${local_sha:0:8}, which is not the checked-out commit; CI will" >&2
+    continue
+  fi
   if [[ $remote_sha == "$zero" ]]; then
     # A new branch: compare with where it left main.
-    base=$(git merge-base "$local_sha" origin/main 2>/dev/null) || continue
+    base=$(git merge-base "$local_sha" origin/main 2>/dev/null) || {
+      echo "pre-push: no origin/main to compare a new branch with; skipping (git fetch origin)" >&2
+      continue
+    }
   else
     base=$remote_sha
   fi
@@ -32,13 +41,16 @@ mapfile -t code < <(printf '%s\n' "${frontend[@]}" | grep -E '\.(ts|js|mjs|svelt
 mapfile -t svelte < <(printf '%s\n' "${code[@]}" | grep -E '\.svelte$' || true)
 
 failed=0
+if ! git diff --quiet HEAD -- "${frontend[@]}"; then
+  echo "pre-push: some of these files have uncommitted changes; checking the working tree copies" >&2
+fi
 # tsrs (the TypeScript 7 compiler in Rust) checks every .ts file in under a second. It reads a
 # .svelte import as the `*.svelte` wildcard module, so it cannot see named exports from
 # <script module>: drop exactly that error. Components themselves are typed by svelte-check in
 # CI (`bun run check`), which is too slow for a hook.
 typecheck() {
   local out
-  out=$(node_modules/.bin/tsrs --noEmit -p tsconfig.json --pretty false || true)
+  out=$(node_modules/.bin/tsrs --noEmit -p tsconfig.json --pretty false 2>&1 || true)
   out=$(grep -vF "error TS2614: Module '\"*.svelte\"'" <<<"$out" || true)
   [[ -z $out ]] || { echo "$out"; return 1; }
 }
@@ -55,12 +67,10 @@ step() {
 mapfile -t formatted < <(printf '%s\n' "${frontend[@]}" | grep -E '\.(ts|js|mjs|svelte|json|css|html|md|yml|yaml)$' || true)
 ((${#formatted[@]})) && step format node_modules/.bin/oxfmt --check "${formatted[@]}"
 if ((${#code[@]})); then
+  # Lint and typecheck read .svelte-kit/ (the tsconfig it extends, each route's ./$types).
+  node_modules/.bin/svelte-kit sync >/dev/null
   step lint node_modules/.bin/oxlint "${code[@]}"
   ((${#svelte[@]})) && step lint-markup bun oxlint/svelte-markup.mjs "${svelte[@]}"
-  # tsrs (the TypeScript 7 compiler in Rust) checks every .ts file in under a second. It reads a
-  # .svelte import as the `*.svelte` wildcard module, so it cannot see named exports from
-  # <script module>: drop exactly that error. Components themselves are typed by svelte-check
-  # in CI (`bun run check`), which is too slow for a hook.
   step typecheck typecheck
 fi
 
