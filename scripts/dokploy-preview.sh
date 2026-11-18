@@ -346,7 +346,16 @@ remove_network() {
   local name="$1" id
   CURL_ERROR_LEVEL=notice api network.import "$(jq -n --arg n "$name" '{names:[$n]}')" >/dev/null || true
   id="$(get network.all | jq -r --arg n "$name" '[(.data? // .)[] | select(.name == $n) | .networkId] | first // empty')"
-  [[ -n "$id" ]] || { echo "::warning::network ${name} could not be imported into Dokploy" >&2; return 1; }
+  if [[ -z "$id" ]]; then
+    # Not tracked and not importable means Docker no longer has it: a teardown running beside the
+    # sweep removed it first.
+    local sync found
+    sync="$(get network.networksToSync)" || return 1
+    found="$(jq -r --arg n "$name" '((.data? // .).importable // []) | any(.name == $n)' <<<"$sync")" || return 1
+    [[ "$found" == false ]] && { echo "Network ${name} is already gone."; return 0; }
+    echo "::warning::network ${name} could not be imported into Dokploy" >&2
+    return 1
+  fi
   CURL_ERROR_LEVEL=warning api network.remove "$(jq -n --arg id "$id" '{networkId:$id}')" >/dev/null
 }
 
@@ -385,19 +394,24 @@ purge_leftovers() {
 destroy() {
   local projects compose_id gone=1
   projects="$(get project.all)" || return 1
-  compose_id="$(find_compose_id <<<"$projects")"
+  compose_id="$(find_compose_id <<<"$projects")" || return 1
   if [[ -z "$compose_id" ]]; then
     echo "No preview compose named '${NAME}' found."
   else
     # A PR closed mid-deploy cancels the workflow run, not Dokploy's deployment. Deleting while it
     # still runs `compose up` would let the stack come back after the delete, so let it end first.
+    # A failed read counts as still running.
     local status waited=0
-    while status="$(latest_deployment "$compose_id" | jq -r '.status // empty')" &&
-          [[ "$status" == running ]] && (( waited < 600 )); do
-      (( waited == 0 )) && echo "A deployment of '${NAME}' is still running; waiting for it to end..."
+    while (( waited < 600 )); do
+      status="$(latest_deployment "$compose_id" | jq -r '.status // empty')" || status=unknown
+      [[ "$status" == running || "$status" == unknown ]] || break
+      (( waited == 0 )) && echo "A deployment of '${NAME}' may still be running (${status}); waiting for it to end..."
       sleep 15
       waited=$((waited + 15))
     done
+    if (( waited >= 600 )); then
+      echo "::warning::'${NAME}' still shows a running deployment after 10 minutes; deleting anyway. Anything it brings back afterwards is removed by the next cleanup run, which needs no compose." >&2
+    fi
     echo "Deleting compose '${NAME}' (${compose_id}) and its volumes..."
     # compose.delete stops the stack and removes its volumes before it answers, which takes longer
     # than the proxy in front of Dokploy waits: the proxy answers 520 at ~30s while the delete
@@ -405,13 +419,13 @@ destroy() {
     # gone from project.all is what counts.
     if ! CURL_ERROR_LEVEL=warning api compose.delete "$(jq -n --arg id "$compose_id" '{composeId:$id, deleteVolumes:true}')" >/dev/null; then
       echo "compose.delete gave no clean answer; checking whether '${NAME}' is gone..."
-      local i
+      local i left
       gone=0
       for i in $(seq 1 24); do
         sleep 10
-        # A failed read prints nothing, which must not pass for "gone".
-        projects="$(get project.all)" || continue
-        if [[ -z "$(find_compose_id <<<"$projects")" ]]; then gone=1; break; fi
+        # A failed or unreadable read prints nothing, which must not pass for "gone".
+        projects="$(get project.all)" && left="$(find_compose_id <<<"$projects")" || continue
+        if [[ -z "$left" ]]; then gone=1; break; fi
       done
       if (( ! gone )); then
         echo "::error::Preview '${NAME}' (${compose_id}) still exists 4 minutes after compose.delete." >&2
@@ -431,9 +445,7 @@ destroy() {
 reap() {
   : "${GH_TOKEN:?GH_TOKEN is required}"
   : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
-  local open composes resources prs pr state failed=0
-  # One list call, and a failed call stops the sweep: an error must never read as "not open".
-  open="$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --limit 1000 --json number --jq '.[].number')"
+  local composes resources prs pr state failed=0
   local projects
   projects="$(get project.all)"
   composes="$(jq -r --arg env "$DOKPLOY_PREVIEW_ENVIRONMENT_ID" '
@@ -451,11 +463,14 @@ reap() {
 
   echo
   for pr in $prs; do
-    if grep -qx "$pr" <<<"$open"; then
-      echo "PR #${pr}: OPEN — keeping."
-      continue
-    fi
-    state="$(gh pr view "$pr" --repo "$GITHUB_REPOSITORY" --json state -q .state 2>/dev/null || echo "not found")"
+    # Asked per PR, right before acting on it, so a PR reopened during the sweep is kept. Only a
+    # definite CLOSED or MERGED destroys; an error or a PR GitHub does not know keeps the preview.
+    state="$(gh pr view "$pr" --repo "$GITHUB_REPOSITORY" --json state -q .state 2>/dev/null)" || state=UNKNOWN
+    case "$state" in
+      CLOSED|MERGED) ;;
+      OPEN) echo "PR #${pr}: OPEN — keeping."; continue ;;
+      *) echo "::warning::PR #${pr}: state ${state:-UNKNOWN} — keeping its preview; remove it by hand if the PR is gone." >&2; continue ;;
+    esac
     if [[ "${DRY_RUN:-}" == 1 ]]; then
       echo "PR #${pr}: ${state} — would destroy."
       continue
