@@ -70,23 +70,12 @@ internal static class ComposeFileExtensions
         api.PullPolicy = null;
         frontend.PullPolicy = null;
 
-        // The Aspire dashboard service carries a top-level `restart: always`, which `docker stack
-        // deploy` rejects the same way ("Additional property restart is not allowed"). Swap it for a
-        // swarm restart_policy. Guarded in case the dashboard is disabled (WithProperties).
-        if (file.Services.TryGetValue("compose-dashboard", out var dashboard))
-        {
-            dashboard.Restart = null;
-            dashboard.WithStopFirstUpdate();
-        }
-
         // Nothing in this stack may publish a host port. Aspire emits target-only `ports:` entries
         // (`- "8001"`), and swarm turns each of those into an auto-assigned ingress port in the
         // 30000+ range on EVERY host interface. Docker-published ports bypass ufw and sit outside
-        // Cloudflare, so the api, the frontend and the Aspire dashboard were all reachable straight
-        // from the internet on <host-ip>:3000x. Traefik reaches the services over the overlay network
-        // (Dokploy's injected labels carry the container port), so `expose:` is all routing needs.
-        // The dashboard has no Traefik route: reach it over an SSH tunnel, or give it a Dokploy
-        // domain behind access control.
+        // Cloudflare, so the services were reachable straight from the internet on <host-ip>:3000x.
+        // Traefik reaches them over the overlay network (Dokploy's injected labels carry the
+        // container port), so `expose:` is all routing needs.
         foreach (var service in file.Services.Values)
         {
             service.WithoutPublishedPorts();
@@ -103,6 +92,8 @@ internal static class ComposeFileExtensions
             network.Driver = "overlay";
             network.Attachable = true;
         }
+
+        file.ExportTelemetryToHostCollector(api, frontend);
 
         file.PersistDataProtectionKeys(api);
         MountMusicLibrary(api);
@@ -175,6 +166,44 @@ internal static class ComposeFileExtensions
     }
 
     /// <summary>
+    /// The musichoarder.app host runs an OpenTelemetry Collector beside the stack (storing into Loki,
+    /// Tempo and Prometheus), so prod exports to it while OTEL_EXPORTER_OTLP_ENDPOINT is unset. Another
+    /// endpoint replaces it, and an empty one turns export off.
+    /// The collector's stack owns the external <c>observability</c> overlay network, so it must be
+    /// deployed first: <c>docker stack deploy</c> refuses a stack whose external network does not exist.
+    /// </summary>
+    private static void ExportTelemetryToHostCollector(this ComposeFile file, Service api, Service frontend)
+    {
+        const string network = "observability";
+        file.Networks[network] = new Network { Name = network, External = true };
+        api.Networks.Add(network);
+        frontend.Networks.Add(network);
+
+        ConfigureTelemetryExport(api, frontend, defaultEndpoint: "http://otel-collector:4317");
+    }
+
+    /// <summary>
+    /// Telemetry is opt-in and not tied to a backend: the api and the frontend export OTLP only when
+    /// OTEL_EXPORTER_OTLP_ENDPOINT is set, and then to any OTLP receiver. The standard protocol and
+    /// headers variables pass through for receivers that take only HTTP or need an auth header.
+    /// </summary>
+    private static void ConfigureTelemetryExport(Service api, Service frontend, string defaultEndpoint = "")
+    {
+        // `-`, not `:-`: an endpoint set to empty must stay empty (off), not fall back to the default.
+        var endpoint = $"${{OTEL_EXPORTER_OTLP_ENDPOINT-{defaultEndpoint}}}";
+
+        api.Environment["OTEL_EXPORTER_OTLP_ENDPOINT"] = endpoint;
+        api.Environment["OTEL_EXPORTER_OTLP_PROTOCOL"] = "${OTEL_EXPORTER_OTLP_PROTOCOL:-grpc}";
+        api.Environment["OTEL_EXPORTER_OTLP_HEADERS"] = "${OTEL_EXPORTER_OTLP_HEADERS:-}";
+        api.Environment["OTEL_SERVICE_NAME"] = "api";
+
+        frontend.Environment["OTEL_EXPORTER_OTLP_ENDPOINT"] = endpoint;
+        frontend.Environment["OTEL_EXPORTER_OTLP_PROTOCOL"] = "${OTEL_EXPORTER_OTLP_PROTOCOL:-grpc}";
+        frontend.Environment["OTEL_EXPORTER_OTLP_HEADERS"] = "${OTEL_EXPORTER_OTLP_HEADERS:-}";
+        frontend.Environment["OTEL_SERVICE_NAME"] = "frontend";
+    }
+
+    /// <summary>
     /// Per-PR preview shape: plain <c>docker compose up</c> via scripts/dokploy-preview.sh. Shares the
     /// swarm build's app/env contract but keeps an orchestrator-appropriate plain-compose shape —
     /// <c>restart</c>/<c>pull_policy: always</c> instead of swarm <c>deploy:</c> blocks, the destination
@@ -192,6 +221,7 @@ internal static class ComposeFileExtensions
         file.PersistDataProtectionKeys(api);
         file.ConfigureWishlistDownloads(api);
         ApplyProviderEnvDefaults(api);
+        ConfigureTelemetryExport(api, frontend);
 
         // Music library: read-only source bind at the deploy-provided path; destination is a managed
         // named volume so Dokploy's compose.delete(deleteVolumes:true) reaps the per-PR build on teardown.
@@ -280,6 +310,7 @@ internal static class ComposeFileExtensions
         file.ConfigureWishlistDownloads(api);
         file.MountSyncedSource(api);
         ApplyProviderEnvDefaults(api);
+        ConfigureTelemetryExport(api, frontend);
 
         // Prebuilt images pulled from GHCR, pinned by MUSICHOARDER_VERSION (defaults to :latest). The
         // build-from-source override (docker-compose.build.yml) layers `build:` on these same services.

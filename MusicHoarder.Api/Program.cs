@@ -9,6 +9,7 @@ using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Persistence.Interceptors;
 using MusicHoarder.ServiceDefaults;
+using OpenTelemetry.Logs;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -30,6 +31,10 @@ var minThreads = Math.Max(
 ThreadPool.SetMinThreads(minThreads, minThreads);
 
 builder.AddServiceDefaults();
+
+// The console sender prints live sign-in and invite links. They stay on the console, where the
+// owner of an instance without email delivery reads them, and never reach a telemetry backend.
+builder.Logging.AddFilter<OpenTelemetryLoggerProvider>(typeof(ConsoleMagicLinkSender).FullName, LogLevel.None);
 
 builder.Services.AddMusicHoarderServices();
 

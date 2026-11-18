@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 
@@ -26,6 +27,9 @@ public sealed partial class RequestIdMiddleware(RequestDelegate next, ILogger<Re
     {
         var id = Resolve(context.Request.Headers[HeaderName].ToString());
         context.Response.Headers[HeaderName] = id;
+        // Exported logs carry no scopes, so the id rides on the request's span: a Looping report
+        // finds its trace by it, and the trace finds its logs.
+        Activity.Current?.SetTag("request.id", id);
         // A message-template scope, not a dictionary: the simple console formatter prints a scope
         // with ToString(), which for a dictionary is only its type name.
         using (logger.BeginScope("rid:{" + ScopeKey + "}", id))
