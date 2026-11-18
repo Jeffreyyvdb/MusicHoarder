@@ -4001,7 +4001,6 @@ export interface DiscoverTrack {
   artist: string
   album: string | null
   durationMs: number | null
-  coverUrl: string | null
   inLibrary: boolean
   inWishlist: boolean
 }

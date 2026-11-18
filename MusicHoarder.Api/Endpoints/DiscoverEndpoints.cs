@@ -95,7 +95,6 @@ public static class DiscoverEndpoints
                     ArchiveFormat.ArtistCredit(t.Artists),
                     t.Album,
                     t.DurationMs == 0 ? null : t.DurationMs,
-                    CoverUrl: null,
                     IsInLibrary(libraryKeys, t),
                     wishlisted.Contains(t.SpotifyTrackId))).ToList();
 
@@ -318,7 +317,6 @@ public sealed record DiscoverTrackDto(
     string Artist,
     string? Album,
     int? DurationMs,
-    string? CoverUrl,
     bool InLibrary,
     bool InWishlist);
 

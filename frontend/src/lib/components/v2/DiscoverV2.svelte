@@ -20,7 +20,6 @@
     AlertCircle,
     Plus,
     CircleCheck,
-    Music,
     Gift
   } from '@lucide/svelte';
   import {
@@ -484,23 +483,12 @@
           </div>
         {:else}
           <ul class="md:px-3" aria-label="Songs">
-            {#each detail.tracks as track (track.spotifyTrackId)}
+            {#each detail.tracks as track, i (`${i}:${track.spotifyTrackId}`)}
               <li class="md:hover:bg-accent flex items-center gap-3 pl-4 md:rounded-md">
-                <div class="bg-muted size-11 shrink-0 overflow-hidden rounded-sm md:size-10">
-                  {#if track.coverUrl}
-                    <img
-                      src={track.coverUrl}
-                      alt=""
-                      loading="lazy"
-                      class="size-full object-cover"
-                      crossorigin="anonymous"
-                    />
-                  {:else}
-                    <div class="flex size-full items-center justify-center">
-                      <Music class="text-muted-foreground size-4" aria-hidden="true" />
-                    </div>
-                  {/if}
-                </div>
+                <span
+                  class="text-subheadline text-muted-foreground w-7 shrink-0 text-right tabular-nums md:text-xs"
+                  >{i + 1}</span
+                >
                 <!-- The hairline starts at the text, like a UITableView inset separator. -->
                 <div
                   class="after:bg-separator relative flex min-h-14 min-w-0 flex-1 items-center gap-3 self-stretch py-2 pr-4 after:absolute after:inset-x-0 after:bottom-0 after:h-(--hairline) md:after:hidden"

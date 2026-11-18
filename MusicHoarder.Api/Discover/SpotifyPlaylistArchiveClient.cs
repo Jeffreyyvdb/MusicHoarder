@@ -54,22 +54,14 @@ public sealed class SpotifyPlaylistArchiveClient(
         if (cache.TryGetValue(cacheKey, out IReadOnlyList<ArchivedTrack>? cached) && cached is not null)
             return new ArchivedPlaylistTracks(playlist, cached);
 
-        // The source that lists the playlist first, then the others newest first: a repo that stopped
-        // updating can still hold a playlist the live one dropped, and the reverse.
-        var candidates = new[] { playlist.SourceBaseUrl }
-            .Concat(Sources().AsEnumerable().Reverse())
-            .Distinct(StringComparer.Ordinal);
+        // Only the source whose snapshot the catalog holds: an older repo's copy can be months stale, and a
+        // subscription would wishlist tracks that left the playlist long ago and record them as current.
+        var tracks = await TryFetchTracksAsync(playlist.SourceBaseUrl, playlist.Id, ct);
+        if (tracks is null)
+            return null;
 
-        foreach (var baseUrl in candidates)
-        {
-            var tracks = await TryFetchTracksAsync(baseUrl, playlist.Id, ct);
-            if (tracks is null) continue;
-
-            cache.Set(cacheKey, tracks, CacheTtl());
-            return new ArchivedPlaylistTracks(playlist, tracks);
-        }
-
-        return null;
+        cache.Set(cacheKey, tracks, CacheTtl());
+        return new ArchivedPlaylistTracks(playlist, tracks);
     }
 
     public async Task<string?> GetCoverUrlAsync(string playlistId, CancellationToken ct)

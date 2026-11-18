@@ -136,18 +136,29 @@ public class SpotifyPlaylistArchiveClientTests
     }
 
     [Fact]
-    public async Task GetTracks_ReadsFromTheSourceThatListsThePlaylist_AndFallsBackToAnotherWhenItFails()
+    public async Task GetTracks_ReadsOnlyTheSourceWhoseSnapshotTheCatalogHolds()
+    {
+        var stub = new Stub()
+            .Metadata(Old, Metadata((IdA, "A", 1)))
+            .Metadata(New, Metadata((IdA, "A", 1)))
+            .Tracks(New, IdA, TracksFile("From new"))
+            .Tracks(Old, IdA, TracksFile("From old"));
+
+        var result = await CreateClient(stub, Old, New).GetTracksAsync(IdA, default);
+
+        Assert.Equal("From new", Assert.Single(result!.Tracks).Title);
+    }
+
+    [Fact]
+    public async Task GetTracks_DoesNotFallBackToAnOlderSourcesStaleCopy()
     {
         var stub = new Stub()
             .Metadata(Old, Metadata((IdA, "A", 1)))
             .Metadata(New, Metadata((IdA, "A", 1)))
             .Tracks(Old, IdA, TracksFile("From old"));
 
-        var result = await CreateClient(stub, Old, New).GetTracksAsync(IdA, default);
-
-        Assert.Equal("From old", Assert.Single(result!.Tracks).Title);
-        Assert.Equal(New, result.Playlist.SourceBaseUrl);
-        Assert.Contains($"{New}/playlists/pretty/{IdA}.json", stub.Requests);
+        Assert.Null(await CreateClient(stub, Old, New).GetTracksAsync(IdA, default));
+        Assert.DoesNotContain($"{Old}/playlists/pretty/{IdA}.json", stub.Requests);
     }
 
     [Fact]
