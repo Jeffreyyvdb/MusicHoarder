@@ -285,6 +285,7 @@ jobs:
           DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
           DOKPLOY_PREVIEW_ENVIRONMENT_ID: ${{ secrets.DOKPLOY_PREVIEW_ENVIRONMENT_ID }}
           PR: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
         run: ./scripts/dokploy-preview.sh destroy
 
       # Best-effort: drop the pr-<n> image versions so they don't accumulate in GHCR. Needs a token

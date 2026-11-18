@@ -44,7 +44,7 @@
 #                                   row. Empty → passkey seed skipped (magic-link still works).
 #   PREVIEW_SOURCE_DIR   default /srv/mh-preview/sample-source  (shared, read-only sample library)
 #   PREVIEW_MAX_STACKS   default 5  (skip provisioning if this many pr-* composes already exist)
-# Required env (reap): GH_TOKEN and GITHUB_REPOSITORY, to ask GitHub which PRs are still open.
+# Required env (destroy, reap): GH_TOKEN and GITHUB_REPOSITORY, to ask GitHub whether a PR is open.
 #   PREVIEW_SPOTIFY_CLIENT_ID / PREVIEW_SPOTIFY_CLIENT_SECRET   Spotify app creds so the preview can complete the
 #                                   OAuth token exchange. Empty → Spotify connect disabled in the preview.
 #   PREVIEW_SPOTIFY_OAUTH_RELAY_URL  the single registered relay URL (https://<prod-frontend>/api/spotify/relay),
@@ -109,7 +109,7 @@ api() {
 get() {
   local body
   body="$(_curl "$1")" || return 1
-  [[ -n "$body" ]] || { echo "::${CURL_ERROR_LEVEL:-error}::Dokploy $1 answered with an empty body" >&2; return 1; }
+  [[ "$body" =~ [^[:space:]] ]] || { echo "::${CURL_ERROR_LEVEL:-error}::Dokploy $1 answered with an empty body" >&2; return 1; }
   printf '%s\n' "$body"
 }
 
@@ -299,8 +299,13 @@ EOF
     || echo "::notice::domain.create returned non-2xx (likely already exists) — continuing."
 
   # The newest deployment before this one, so the wait below can tell ours apart from it.
-  local before
-  before="$(latest_deployment "$compose_id" | jq -r '.deploymentId // empty' || true)"
+  # A failed read must not pass for "no deployment yet", or the previous one would count as ours.
+  local before i
+  for i in 1 2 3; do
+    before="$(latest_deployment "$compose_id" | jq -r '.deploymentId // empty')" && break
+    (( i < 3 )) || { echo "::error::Could not read the deployments of '${NAME}' before deploying." >&2; return 1; }
+    sleep 5
+  done
 
   echo "Deploying..."
   api compose.deploy "$(jq -n --arg id "$compose_id" '{composeId:$id}')" >/dev/null
@@ -406,8 +411,15 @@ purge_leftovers() {
   return "$failed"
 }
 
+# The PR's state on GitHub right now: OPEN, CLOSED, MERGED, or UNKNOWN when it cannot be read.
+pr_state() {
+  gh pr view "$1" --repo "$GITHUB_REPOSITORY" --json state -q .state 2>/dev/null || echo UNKNOWN
+}
+
 destroy() {
-  local projects compose_id gone=1
+  : "${GH_TOKEN:?GH_TOKEN is required}"
+  : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
+  local projects compose_id state gone=1
   projects="$(get project.all)" || return 1
   compose_id="$(find_compose_id <<<"$projects")" || return 1
   if [[ -z "$compose_id" ]]; then
@@ -432,6 +444,13 @@ destroy() {
     if (( waited >= 600 )); then
       echo "::warning::'${NAME}' still shows a running deployment after 10 minutes; deleting anyway. Anything it brings back afterwards is removed by the next cleanup run, which needs no compose." >&2
     fi
+    # Asked again after the wait: a PR reopened meanwhile redeploys this same compose.
+    state="$(pr_state "$PR")"
+    case "$state" in
+      CLOSED|MERGED) ;;
+      OPEN) echo "PR #${PR} is open again; keeping its preview."; return 0 ;;
+      *) echo "::warning::Could not read the state of PR #${PR}; keeping its preview." >&2; return 1 ;;
+    esac
     echo "Deleting compose '${NAME}' (${compose_id}) and its volumes..."
     # compose.delete stops the stack and removes its volumes before it answers, which takes longer
     # than the proxy in front of Dokploy waits: the proxy answers 520 at ~30s while the delete
@@ -485,7 +504,7 @@ reap() {
   for pr in $prs; do
     # Asked per PR, right before acting on it, so a PR reopened during the sweep is kept. Only a
     # definite CLOSED or MERGED destroys; an error or a PR GitHub does not know keeps the preview.
-    state="$(gh pr view "$pr" --repo "$GITHUB_REPOSITORY" --json state -q .state 2>/dev/null)" || state=UNKNOWN
+    state="$(pr_state "$pr")"
     case "$state" in
       CLOSED|MERGED) ;;
       OPEN) echo "PR #${pr}: OPEN — keeping."; continue ;;
