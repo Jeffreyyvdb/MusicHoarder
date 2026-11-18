@@ -331,6 +331,7 @@
             trackIndex={r.index}
             requestedMode={songDetail.target?.mode}
             requestSeq={songDetail.target?.seq ?? 0}
+            playFromList={songDetail.target?.play}
             {video}
             onClose={() => songDetail.close()}
             {onResetEnrichment}

@@ -25,12 +25,18 @@ export interface DetailOpenOptions {
    * player opens on the artwork.
    */
   mode?: DetailMode;
+  /**
+   * Plays the list the song was opened from (a playlist, the Tracks list), starting at that song,
+   * as the list's own tap would. Without it, Play on a browsed song plays the song's album.
+   */
+  play?: () => void;
 }
 
 interface DetailTarget {
   songId: number;
   albumKey?: string;
   mode?: DetailMode;
+  play?: () => void;
   /**
    * Bumped on every open(), so re-opening the song that is already showing with a new mode is
    * still a new request the panel applies, rather than a no-op it cannot tell apart.
@@ -62,7 +68,7 @@ const resolved = $derived.by(() => {
 
 function open(songId: number, albumKey?: string, options?: DetailOpenOptions): void {
   seq += 1;
-  target = { songId, albumKey, mode: options?.mode, seq };
+  target = { songId, albumKey, mode: options?.mode, play: options?.play, seq };
   isOpen = true;
   songsStore.ensureLoaded();
   songsStore.ensureDetailAlbums();

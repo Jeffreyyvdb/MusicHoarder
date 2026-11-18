@@ -453,21 +453,24 @@
   // Highlighted row follows the open panel (the store is the source of truth).
   const tracksSelectedId = $derived(songDetail.isOpen ? (songDetail.target?.songId ?? null) : null);
 
-  /** A desktop row click: toggle the detail overlay for that song. */
-  function selectTrack(song: ApiSong) {
+  /** The visible list from `song`, what a row's tap plays. */
+  function playListFrom(song: ApiSong) {
+    const list = listView.sorted;
+    playQueue(
+      list,
+      list.findIndex((s) => s.id === song.id)
+    );
+  }
+
+  /** A desktop row click: toggle the detail overlay for that song, whose Play then plays `play`. */
+  function selectTrack(song: ApiSong, play: () => void = () => playListFrom(song)) {
     if (songDetail.isOpen && songDetail.target?.songId === song.id) songDetail.close();
-    else songDetail.open(song.id, openAlbum?.key);
+    else songDetail.open(song.id, openAlbum?.key, { play });
   }
 
   /** A phone row tap (the tap rule, track-list-view.svelte.ts): play the visible list from that row, or open the loaded song. */
   function activateListTrack(song: ApiSong) {
-    activateTrack(song.id, () => {
-      const list = listView.sorted;
-      playQueue(
-        list,
-        list.findIndex((s) => s.id === song.id)
-      );
-    });
+    activateTrack(song.id, () => playListFrom(song));
   }
 
   // ── hrefs (keep deep-linkable, reuse the v1 ?album= / ?artist= contract) ─────
@@ -581,7 +584,7 @@
   function activateArtistSong(song: ApiSong, index: number, list: ApiSong[] = artistSongs) {
     const play = () => playQueue(list, index);
     if (compact) activateTrack(song.id, play);
-    else selectTrack(song);
+    else selectTrack(song, play);
   }
 
   // ── the artist page's Spotify half: Popular, what you liked, the discography, Follow ──
