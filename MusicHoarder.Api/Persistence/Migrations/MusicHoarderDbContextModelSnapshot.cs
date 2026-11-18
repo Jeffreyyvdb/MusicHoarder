@@ -1865,6 +1865,9 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<string>("Fingerprint")
                         .HasColumnType("text");
 
+                    b.Property<int?>("GeniusSongId")
+                        .HasColumnType("integer");
+
                     b.Property<string>("Genre")
                         .HasColumnType("text");
 
@@ -1948,6 +1951,9 @@ namespace MusicHoarder.Api.Persistence.Migrations
 
                     b.Property<DateTime?>("LyricsNextRecheckAfterUtc")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("LyricsOrigin")
+                        .HasColumnType("integer");
 
                     b.Property<int>("LyricsStatus")
                         .HasColumnType("integer");

@@ -629,6 +629,14 @@ public class MusicEnricherOptions
     public int LyricsBeforeBuildWaitMinutes { get; set; } = 5;
 
     /// <summary>
+    /// Ask Genius for lyrics when LRCLIB has none for a song (never when LRCLIB has any, or knows the
+    /// track is instrumental). Genius's lyrics are read from its public song pages, plain text only, so
+    /// they are never synced. Genius sits behind Cloudflare and may refuse a datacenter address; a
+    /// refusal leaves the song exactly as LRCLIB's answer left it. Set false to use LRCLIB alone. Default on.
+    /// </summary>
+    public bool EnableGeniusLyrics { get; set; } = true;
+
+    /// <summary>
     /// The inline LRCLIB fetch only fires on the enrichment run that flips a song to <c>Matched</c>, so a
     /// song whose fetch was interrupted (shutdown/cancellation) — or that matched before a lyrics-matching
     /// fix shipped — is stranded at <see cref="LyricsStatus.NotFetched"/> with nothing to retry it. This

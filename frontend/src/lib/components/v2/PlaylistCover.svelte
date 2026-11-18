@@ -44,7 +44,10 @@
 
 {#if !imageUrl && tiles.length === 4}
   <div
-    class={cn('mh-cover grid shrink-0 grid-cols-2 overflow-hidden shadow-sm', className)}
+    class={cn(
+      'mh-cover relative isolate grid shrink-0 grid-cols-2 overflow-hidden shadow-sm',
+      className
+    )}
     style="width: {size}px; height: {size}px; border-radius: {corner}px;"
     aria-hidden="true"
   >

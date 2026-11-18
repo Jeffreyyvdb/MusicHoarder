@@ -533,6 +533,23 @@ public static class ServiceCollectionExtensions
             return new LrcLibService(httpClient, logger);
         });
 
+        services.AddSingleton<IGeniusLyricsService>(sp =>
+        {
+            var httpClient = new HttpClient
+            {
+                BaseAddress = new Uri("https://genius.com/"),
+                Timeout = TimeSpan.FromSeconds(15),
+                DefaultRequestHeaders =
+                {
+                    { "User-Agent", "MusicHoarder/1.0 (+https://github.com/Jeffreyyvdb/MusicHoarder)" }
+                }
+            };
+            return new GeniusLyricsService(
+                httpClient,
+                sp.GetRequiredService<IOptions<MusicEnricherOptions>>(),
+                sp.GetRequiredService<ILogger<GeniusLyricsService>>());
+        });
+
         // Experimental AI lyrics transcription (OpenAI-compatible /audio/transcriptions). Infinite
         // HttpClient timeout — the service bounds each call itself via LyricsTranscriptionOptions.TimeoutSeconds.
         // The aligner calls OpenRouter (same creds as QualityGrading) with its own fast LlmModel + reasoning off.

@@ -861,7 +861,8 @@
     0 2px 5px rgb(0 0 0 / 0.18);
 }
 /* The bezel and the glass paint over the picture (Cover is its own stacking context; the image
-   sits at z-3). */
+   sits at z-3). Every .mh-cover must be `relative isolate` like Cover: on a static one the bezel
+   covers the nearest positioned ancestor instead, such as the page's scroller. */
 :root[data-mh-skin='hardware'] .mh-cover::after {
   content: '';
   position: absolute;
@@ -975,6 +976,14 @@
 }
 
 @media (min-width: 1024px) {
+  :root[data-mh-skin='hardware'] [data-mh-np-layout='solo'] {
+    grid-template-columns: max(300px, min(100%, 640px, (100svh - 190px) * 0.72));
+  }
+
+  :root[data-mh-skin='hardware'] [data-mh-np-layout='split'] {
+    grid-template-columns: max(300px, min(38vw, 640px, (100svh - 190px) * 0.72)) minmax(0, 1fr);
+  }
+
   :root[data-mh-skin='hardware'] [data-mh-np='body'] {
     --mh-np-chrome: 520px;
     padding: 16px 20px 20px;
@@ -1383,10 +1392,7 @@
   outline-offset: 2px;
 }
 :root[data-mh-skin='hardware']
-  :is(
-    [data-slot='input-group'],
-    [data-slot='search-field']
-  ):has(:focus-visible),
+  :is([data-slot='input-group'], [data-slot='search-field']):has(:focus-visible),
 :root[data-mh-skin='hardware']
   :is(input[data-slot='input'], textarea[data-slot='textarea']):focus-visible {
   outline: 2px solid var(--ring);

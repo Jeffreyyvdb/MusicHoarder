@@ -902,7 +902,7 @@
               type="button"
               data-mh-readout=""
               onclick={() => (infoOpen = true)}
-              class="bg-secondary hover:bg-secondary-hover text-subheadline focus-visible:ring-ring mt-3 flex min-h-11 w-full max-w-full items-center gap-2 rounded-xl px-3 text-left focus-visible:outline-hidden focus-visible:ring-2 md:w-auto md:max-w-[min(100%,28rem)] md:text-sm"
+              class="bg-secondary hover:bg-secondary-hover text-subheadline focus-visible:ring-ring mt-3 flex min-h-11 w-full max-w-full items-center gap-2 rounded-xl px-3 text-left focus-visible:ring-2 focus-visible:outline-hidden md:w-auto md:max-w-[min(100%,28rem)] md:text-sm"
             >
               <span
                 aria-hidden="true"
@@ -944,7 +944,7 @@
                 ? `How it got here: ${provenance.summary}`
                 : undefined}
               class={cn(
-                'bg-secondary hover:bg-secondary-hover text-subheadline focus-visible:ring-ring disabled:hover:bg-secondary flex min-h-11 w-full max-w-full items-center gap-2 rounded-xl px-3 text-left focus-visible:outline-hidden focus-visible:ring-2 md:w-auto md:max-w-[min(100%,28rem)] md:text-sm',
+                'bg-secondary hover:bg-secondary-hover text-subheadline focus-visible:ring-ring disabled:hover:bg-secondary flex min-h-11 w-full max-w-full items-center gap-2 rounded-xl px-3 text-left focus-visible:ring-2 focus-visible:outline-hidden md:w-auto md:max-w-[min(100%,28rem)] md:text-sm',
                 isOwner ? 'mt-2' : 'mt-3'
               )}
             >
@@ -987,7 +987,12 @@
             {@const needsReview = mapEnrichmentStatus(song.enrichmentStatus) === 'needsreview'}
             <li
               use:longpress={{ onlongpress: (p) => menus[song.id]?.openAt(p) }}
-              use:swipeRow={{ side: 'leading', tone: 'primary', icon: ADD_TO_QUEUE_ICON, onswipe: () => queueSong(song) }}
+              use:swipeRow={{
+                side: 'leading',
+                tone: 'primary',
+                icon: ADD_TO_QUEUE_ICON,
+                onswipe: () => queueSong(song)
+              }}
               oncontextmenu={(e) => onRowContextMenu(e, song.id)}
               class={cn(
                 'has-[[data-row-main]:active]:bg-accent relative flex min-h-12 items-center pr-1 transition-colors duration-100',
@@ -1000,7 +1005,7 @@
                 data-row-main=""
                 onclick={() => onRowClick(song)}
                 aria-current={isLoaded ? 'true' : undefined}
-                class="focus-visible:ring-ring flex min-h-12 min-w-0 flex-1 items-center gap-3 py-2 pl-4 text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset"
+                class="focus-visible:ring-ring flex min-h-12 min-w-0 flex-1 items-center gap-3 py-2 pl-4 text-left focus-visible:ring-2 focus-visible:outline-hidden focus-visible:ring-inset"
               >
                 <span
                   class="text-body text-muted-foreground grid w-8 shrink-0 place-items-center tabular-nums"

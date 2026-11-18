@@ -36,7 +36,7 @@ export function runLaunchAction(action: LaunchAction, deps: LaunchDeps): () => v
   // open and the person picks a song.
   const startedAt = Date.now();
   // A local wait on the player's own state, not a poll of the server.
-  // eslint-disable-next-line no-restricted-syntax
+  // eslint-disable-next-line local/no-bare-poll
   const timer = setInterval(() => {
     if (deps.loadedSongId() != null) {
       clearInterval(timer);

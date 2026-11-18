@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import postcss, { type AtRule, type Container, type Rule } from 'postcss';
+import { parse, type Container, type Rule } from 'postcss';
 import { describe, expect, it } from 'vitest';
 
 const HIDES: Record<string, RegExp> = {
@@ -83,7 +83,12 @@ function selectorsOf(rule: Rule): string[] {
 
 function inKeyframes(rule: Rule): boolean {
   const parent = rule.parent;
-  return parent?.type === 'atrule' && /keyframes$/.test((parent as AtRule).name);
+  return (
+    parent?.type === 'atrule' &&
+    'name' in parent &&
+    typeof parent.name === 'string' &&
+    parent.name.endsWith('keyframes')
+  );
 }
 
 function oneLine(text: string): string {
@@ -92,7 +97,7 @@ function oneLine(text: string): string {
 
 function violations(css: string, file: string, lineOffset = 0): string[] {
   const found: string[] = [];
-  postcss.parse(css).walkRules((rule) => {
+  parse(css).walkRules((rule) => {
     if (inKeyframes(rule)) return;
     const selectors = selectorsOf(rule);
     rule.each((node) => {

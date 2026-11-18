@@ -11,7 +11,10 @@
   import ReportDownloadSheet from '#lib/components/v2/ReportDownloadSheet.svelte';
   import VideoBackdrop from '#lib/components/v2/VideoBackdrop.svelte';
   import { SongVideo } from '#lib/components/file-browser/now-playing/song-video.svelte.ts';
-  import { coverDimAlpha, DIM_UNKNOWN } from '#lib/components/file-browser/now-playing/cover-dim.ts';
+  import {
+    coverDimAlpha,
+    DIM_UNKNOWN
+  } from '#lib/components/file-browser/now-playing/cover-dim.ts';
   import { coverUrlForSong, coverThumbUrl } from '#lib/api-client.ts';
   import { songDetail } from '#lib/stores/song-detail.svelte.ts';
   import { songsStore } from '#lib/stores/songs.svelte.ts';

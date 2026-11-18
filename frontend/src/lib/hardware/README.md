@@ -33,12 +33,12 @@ was gone under the skin. Three checks keep it that way, one per way a gap can be
   the tracks table's columns (`TrackList`'s `GRID` is the only definition of the table, and a skin
   that needs room changes type or spacing), and when a `skinLook` value would hide something
   (`hidden`, `sr-only`, `invisible`, `0`).
-- **Components do not read the flag** (ESLint, `no-restricted-imports`). `hardwareMode` and
+- **Components do not read the flag** (Oxlint, `no-restricted-imports`). `hardwareMode` and
   `skinActive` may be imported in this folder, and `hardwareMode` by the three places that switch
   the skin (the root layout, the account menu, the command palette). Everything else asks for a look value:
   `skinLook(plain, skinned)` returns a class, an attribute value or a size (TrackList's row height,
   Now Playing's surface), `mediaAppearance()` is the class for Now Playing's media appearance (its overlay and the menus
-  opened from it), and `skinHousing(frame)` hands a component a snippet that draws *around*
+  opened from it), and `skinHousing(frame)` hands a component a snippet that draws _around_
   content it still renders. These checks stop the usual ways; a determined bypass (a dynamic
   import, `data-mh-skin` read off `<html>`) is what the comparison below is for.
 - **The deployed page is compared with itself** (`perf/src/web/preview-checks.ts`, on every PR
@@ -96,7 +96,7 @@ with its dim. Everything else is restyled, never hidden.
   the ink reads over the picture, and the `theme-surface` store's `tv` claim turns `theme-color`
   to the skin's dark body. TrackList's desktop rows are 40px instead of 56px.
 - `HardwareVideo.svelte` — the MH-2: the bezel, plate, sync LCD and fullscreen key around Video
-  mode's picture. It is a *housing* for `VideoWatchTab` (its `housing` prop), which keeps the
+  mode's picture. It is a _housing_ for `VideoWatchTab` (its `housing` prop), which keeps the
   picture, its sync and fullscreen, renders the frame as the bezel's `display-screen`, and fits the
   picture into the stage less whatever the housing measures around it. A housing is the one shape
   skin markup may take: it wraps a snippet the component owns, and is handed nothing to re-render.

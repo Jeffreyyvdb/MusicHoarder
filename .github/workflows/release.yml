@@ -165,15 +165,12 @@ jobs:
           echo "ok=true" >> "$GITHUB_OUTPUT"
 
       # Gate the release on a green build of both deployables.
-      - name: Frontend check / lint / build
+      - name: Frontend lint / check / test / build
         if: inputs.android_version == ''
         working-directory: frontend
         run: |
           bun install --frozen-lockfile
-          bun run check
-          bun run lint
-          bun run test
-          bun run build
+          scripts/ci-checks.sh
 
       - name: API tests
         if: inputs.android_version == ''

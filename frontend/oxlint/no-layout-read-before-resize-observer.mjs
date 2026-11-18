@@ -109,8 +109,7 @@ function functionReadsLayout(sourceCode, fn, keys, depth, seen) {
   return reads;
 }
 
-/** @type {import('eslint').Rule.RuleModule} */
-export default {
+export const noLayoutReadBeforeResizeObserver = {
   meta: {
     type: 'problem',
     docs: {

@@ -211,8 +211,6 @@ export const hardwareMode = {
   setSounds(on: boolean): void {
     sounds = on;
     // Through the module, which stores it too and keeps its own copy in step.
-    void import('./behaviors/sound.ts')
-      .then((m) => m.setSoundEnabled(on))
-      .catch(() => {});
+    void import('./behaviors/sound.ts').then((m) => m.setSoundEnabled(on)).catch(() => {});
   }
 };

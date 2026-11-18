@@ -423,6 +423,8 @@ public sealed class SyncIngestService(
 
         song.PlainLyrics = payload.PlainLyrics;
         song.SyncedLyrics = payload.SyncedLyrics;
+        song.LyricsOrigin = payload.LyricsOrigin;
+        song.GeniusSongId = payload.LyricsOrigin == LyricsOrigin.Genius ? payload.GeniusSongId : null;
         song.IsInstrumental = payload.IsInstrumental;
         song.LyricsStatus = payload.LyricsStatus;
 

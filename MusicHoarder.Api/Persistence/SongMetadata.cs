@@ -381,6 +381,13 @@ public class SongMetadata
 
     public string? PlainLyrics { get; set; }
     public string? SyncedLyrics { get; set; }
+
+    /// <summary>Which service the stored <see cref="PlainLyrics"/>/<see cref="SyncedLyrics"/> came from.</summary>
+    public LyricsOrigin LyricsOrigin { get; set; } = LyricsOrigin.Lrclib;
+
+    /// <summary>Genius's id for the page the lyrics were read from; set only while <see cref="LyricsOrigin"/> is Genius.</summary>
+    public int? GeniusSongId { get; set; }
+
     public bool? IsInstrumental { get; set; }
     public LyricsStatus LyricsStatus { get; set; } = LyricsStatus.NotFetched;
 
@@ -1134,9 +1141,12 @@ public class SongMetadata
         && !string.IsNullOrWhiteSpace(Artist);
 
     public void ApplyLyricsResult(
-        string? syncedLyrics, string? plainLyrics, bool instrumental, int? lrclibId = null, double? lrclibDuration = null)
+        string? syncedLyrics, string? plainLyrics, bool instrumental, int? lrclibId = null, double? lrclibDuration = null,
+        LyricsOrigin origin = LyricsOrigin.Lrclib, int? geniusSongId = null)
     {
         IsInstrumental = instrumental;
+        LyricsOrigin = origin;
+        GeniusSongId = origin == LyricsOrigin.Genius ? geniusSongId : null;
         if (lrclibId is not null) LrclibId = lrclibId.Value.ToString();
         if (lrclibDuration is > 0) LrclibDurationSeconds = lrclibDuration;
         // New text means any earlier timing verdict (and any offset we applied to the old text) is void.
@@ -1167,6 +1177,8 @@ public class SongMetadata
         LyricsStatus = LyricsStatus.NotFound;
         SyncedLyrics = null;
         PlainLyrics = null;
+        LyricsOrigin = LyricsOrigin.Lrclib;
+        GeniusSongId = null;
     }
 
     public void MarkLyricsFailed()
@@ -1230,7 +1242,8 @@ public class SongMetadata
     /// Anything that would leave the song unchanged returns false so the caller skips the re-tag.
     /// </summary>
     public bool TryApplyLyricsUpgrade(
-        string? syncedLyrics, string? plainLyrics, bool instrumental, int? lrclibId = null, double? lrclibDuration = null)
+        string? syncedLyrics, string? plainLyrics, bool instrumental, int? lrclibId = null, double? lrclibDuration = null,
+        LyricsOrigin origin = LyricsOrigin.Lrclib, int? geniusSongId = null)
     {
         // Already the best outcome LRCLIB can give us — nothing to upgrade.
         if (!string.IsNullOrWhiteSpace(SyncedLyrics))
@@ -1244,7 +1257,7 @@ public class SongMetadata
             if (hasPlain)
                 return false;
 
-            ApplyLyricsResult(null, null, true, lrclibId, lrclibDuration);
+            ApplyLyricsResult(null, null, true, lrclibId, lrclibDuration, origin, geniusSongId);
             return true;
         }
 
@@ -1253,8 +1266,8 @@ public class SongMetadata
         if (!gainedSynced && !gainedPlain)
             return false;
 
-        // Keep the plain lyrics we already have if this response carried only the synced form.
-        ApplyLyricsResult(syncedLyrics, plainLyrics ?? PlainLyrics, false, lrclibId, lrclibDuration);
+        var plainFromSameSource = origin == LyricsOrigin ? PlainLyrics : null;
+        ApplyLyricsResult(syncedLyrics, plainLyrics ?? plainFromSameSource, false, lrclibId, lrclibDuration, origin, geniusSongId);
         return true;
     }
 
@@ -1265,6 +1278,8 @@ public class SongMetadata
         PlainLyrics = null;
         IsInstrumental = null;
         LrclibId = null;
+        LyricsOrigin = LyricsOrigin.Lrclib;
+        GeniusSongId = null;
         // Back to NotFetched means the backfill sweep fetches immediately, so the re-check backoff
         // starts from scratch rather than inheriting the old song's cooldown.
         LyricsLastAttemptedAtUtc = null;
@@ -1446,6 +1461,13 @@ public enum TranscriptionStatus
     Pending = 1,
     Completed = 2,
     Failed = 3,
+}
+
+/// <summary>Where a song's stored lyrics were fetched from. DB contract — never renumber.</summary>
+public enum LyricsOrigin
+{
+    Lrclib = 0,
+    Genius = 1,
 }
 
 public enum PreferredLyricsSource

@@ -909,6 +909,241 @@ public class ArtistDuplicateServiceTests
         Assert.Equal("Anuel AA", (await db.Songs.SingleAsync()).AlbumArtist);
     }
 
+    // --- Credit evidence: which names the library shows to be several artists ---
+
+    [Fact]
+    public async Task Detect_PhantomDelimiterSegments_AreNeverClusteredAsArtists()
+    {
+        // An old capturing split wrote "feat." into ARTISTS as if it were an artist. Two of them
+        // spelled differently must not surface as a spelling cluster.
+        await using var db = NewContext();
+        db.Songs.AddRange(
+            Song("/a/1.mp3", artist: "Kanye West feat. Kid Cudi", artists: "Kanye West; feat.; Kid Cudi"),
+            Song("/a/2.mp3", artist: "Drake feat. Future", artists: "Drake; Feat.; Future"));
+        await db.SaveChangesAsync();
+
+        var report = await Service(db).DetectAsync(Owner);
+
+        Assert.Empty(report.Clusters);
+    }
+
+    [Fact]
+    public async Task Detect_PlaceholderSpellings_AreNeverClustered()
+    {
+        await using var db = NewContext();
+        db.Songs.AddRange(
+            Song("/a/1.mp3", artist: "Unknown Artist", artists: "Unknown Artist"),
+            Song("/a/2.mp3", artist: "UNKNOWN ARTIST", artists: "UNKNOWN ARTIST"));
+        await db.SaveChangesAsync();
+
+        var report = await Service(db).DetectAsync(Owner);
+
+        Assert.Empty(report.Clusters);
+    }
+
+    [Fact]
+    public async Task Detect_JoinProvenOnlyByDiscreteLists_IsACombinedCreditNotASpelling()
+    {
+        // Spanish "y" is no joiner the splitter knows: only the rows' own lists say this is two
+        // artists, so its two spellings must not cluster, and the lists name the parts.
+        await using var db = NewContext();
+        db.Songs.AddRange(
+            Song("/a/1.mp3", artist: "Anuel AA y Ozuna", albumArtist: "Anuel AA y Ozuna", artists: "Anuel AA; Ozuna"),
+            Song("/a/2.mp3", artist: "Anuel AA y Ozuna", albumArtist: "Anuel AA y Ozuna", artists: "Anuel AA; Ozuna"),
+            Song("/a/3.mp3", artist: "Anuel AA Y Ozuna", albumArtist: "Anuel AA Y Ozuna", artists: "Anuel AA; Ozuna"));
+        await db.SaveChangesAsync();
+
+        var report = await Service(db).DetectAsync(Owner);
+
+        Assert.Empty(report.Clusters);
+        var credit = Assert.Single(report.CombinedCredits);
+        Assert.Equal("Anuel AA y Ozuna", credit.Credit);
+        Assert.Equal(["Anuel AA", "Ozuna"], credit.Parts);
+        Assert.Equal(3, credit.SongCount);
+        Assert.Equal(3, credit.AlbumArtistSongCount);
+    }
+
+    [Fact]
+    public async Task Detect_APhantomDelimiterSegment_StillLetsTheListProveTheJoin()
+    {
+        await using var db = NewContext();
+        db.Songs.Add(Song("/a/1.mp3", artist: "Anuel AA y Ozuna", albumArtist: "Anuel AA y Ozuna",
+            artists: "Anuel AA; feat.; Ozuna"));
+        await db.SaveChangesAsync();
+
+        var report = await Service(db).DetectAsync(Owner);
+
+        var credit = Assert.Single(report.CombinedCredits);
+        Assert.Equal(["Anuel AA", "Ozuna"], credit.Parts);
+    }
+
+    [Fact]
+    public async Task Detect_TheMostCommonProvingList_NamesTheParts()
+    {
+        await using var db = NewContext();
+        db.Songs.AddRange(
+            Song("/a/1.mp3", artist: "Hef met Jayh", albumArtist: "Hef met Jayh", artists: "HEF; Jayh"),
+            Song("/a/2.mp3", artist: "Hef met Jayh", albumArtist: "Hef met Jayh", artists: "Hef; Jayh"),
+            Song("/a/3.mp3", artist: "Hef met Jayh", albumArtist: "Hef met Jayh", artists: "Hef; Jayh"));
+        await db.SaveChangesAsync();
+
+        var report = await Service(db).DetectAsync(Owner);
+
+        var credit = Assert.Single(report.CombinedCredits);
+        Assert.Equal(["Hef", "Jayh"], credit.Parts);
+    }
+
+    [Fact]
+    public async Task Detect_TagOnlyAmbiguousJoin_SpellingsAreNeverClustered()
+    {
+        await using var db = NewContext();
+        db.Songs.AddRange(
+            Song("/a/1.mp3", artist: "2Pac + Outlawz"),
+            Song("/a/2.mp3", artist: "2PAC + OUTLAWZ"),
+            Song("/a/3.mp3", artist: "2Pac", artists: "2Pac"),
+            Song("/a/4.mp3", artist: "Outlawz", artists: "Outlawz"));
+        await db.SaveChangesAsync();
+
+        var report = await Service(db).DetectAsync(Owner);
+
+        Assert.Empty(report.Clusters);
+        var credit = Assert.Single(report.CombinedCredits);
+        Assert.Equal(2, credit.SongCount);
+    }
+
+    [Fact]
+    public async Task Detect_AmpersandCredit_IsOfferedOnlyWhenEveryPartStandsAlone()
+    {
+        await using var db = NewContext();
+        db.Songs.AddRange(
+            Song("/a/1.mp3", artist: "JAY-Z & Kanye West"),
+            Song("/a/2.mp3", artist: "JAY-Z", artists: "JAY-Z"));
+        await db.SaveChangesAsync();
+
+        var report = await Service(db).DetectAsync(Owner);
+
+        Assert.Empty(report.CombinedCredits);
+    }
+
+    [Fact]
+    public async Task Detect_CreditOnlyCombinedCredit_MovesNoAlbumArtist()
+    {
+        await using var db = NewContext();
+        db.Songs.AddRange(
+            Song("/a/1.mp3", artist: "JAY-Z & Kanye West"),
+            Song("/a/2.mp3", artist: "JAY-Z", artists: "JAY-Z"),
+            Song("/a/3.mp3", artist: "Kanye West", artists: "Kanye West"));
+        await db.SaveChangesAsync();
+
+        var report = await Service(db).DetectAsync(Owner);
+
+        var credit = Assert.Single(report.CombinedCredits);
+        Assert.Equal((1, 0), (credit.SongCount, credit.AlbumArtistSongCount));
+    }
+
+    [Fact]
+    public async Task Detect_AmbiguousJoinParts_MustBeArtistsByTheirOwnName()
+    {
+        // "The Machine (live)" search-keys as "the machine", but it is not an artist called "the
+        // Machine": a qualified name never vouches for a bare part.
+        await using var db = NewContext();
+        db.Songs.AddRange(
+            Song("/a/1.mp3", artist: "Florence + the Machine"),
+            Song("/a/2.mp3", artist: "Florence", artists: "Florence"),
+            Song("/a/3.mp3", artist: "The Machine (live)", artists: "The Machine (live)"));
+        await db.SaveChangesAsync();
+
+        var report = await Service(db).DetectAsync(Owner);
+
+        Assert.Empty(report.CombinedCredits);
+    }
+
+    [Fact]
+    public async Task Merge_RefusesAFeaturingCanonical_EvenWhenTheLibraryKnowsNeitherArtist()
+    {
+        await using var db = NewContext();
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => Service(db).MergeAsync(Owner, "Nobody feat. Someone", ["Nobody"]));
+    }
+
+    [Fact]
+    public async Task SplitCredit_AnAlbumArtistOnlyRow_MovesItsAlbumArtist_WithoutBackfillingItsArtists()
+    {
+        await using var db = NewContext();
+        db.Songs.AddRange(
+            Song("/a/1.mp3", artist: "Hef met Jayh", albumArtist: "Hef met Jayh", artists: "Hef; Jayh"),
+            Song("/a/2.mp3", artist: "Hef", albumArtist: "Hef met Jayh"));
+        await db.SaveChangesAsync();
+
+        var result = await Service(db).SplitCreditAsync(Owner, "Hef met Jayh");
+
+        Assert.Equal(2, result.SongsUpdated);
+        var song = await db.Songs.SingleAsync(s => s.SourcePath == "/a/2.mp3");
+        Assert.Equal(("Hef", null), (song.AlbumArtist, song.Artists));
+    }
+
+    [Fact]
+    public async Task SplitCredit_ARowsOwnList_SpellsTheLead()
+    {
+        await using var db = NewContext();
+        db.Songs.Add(Song("/a/1.mp3", artist: "JAY-Z & Kanye West", albumArtist: "JAY-Z & Kanye West",
+            artists: "Jay-Z; Kanye West"));
+        await db.SaveChangesAsync();
+
+        await Service(db).SplitCreditAsync(Owner, "JAY-Z & Kanye West");
+
+        Assert.Equal("Jay-Z", (await db.Songs.SingleAsync()).AlbumArtist);
+    }
+
+    [Fact]
+    public async Task SplitCredit_KeepsAnAlbumArtistIdTheLeadAlsoCarries()
+    {
+        // Not provably a guest's: the id is aligned with the lead somewhere too.
+        await using var db = NewContext();
+        db.Songs.AddRange(
+            Song("/a/1.mp3", artist: "2Pac + Outlawz", albumArtist: "2Pac + Outlawz", albumArtistMbid: "mbid-shared"),
+            Song("/a/2.mp3", artist: "2Pac", artists: "2Pac", artistMbids: "mbid-shared"),
+            Song("/a/3.mp3", artist: "Outlawz", artists: "Outlawz", artistMbids: "mbid-shared"));
+        await db.SaveChangesAsync();
+
+        await Service(db).SplitCreditAsync(Owner, "2Pac + Outlawz");
+
+        var song = await db.Songs.SingleAsync(s => s.SourcePath == "/a/1.mp3");
+        Assert.Equal(("2Pac", "mbid-shared"), (song.AlbumArtist, song.AlbumArtistMusicBrainzId));
+    }
+
+    [Fact]
+    public async Task SplitCredit_DropsAGuestsId_AlignedAtAnyPositionOfAList()
+    {
+        await using var db = NewContext();
+        db.Songs.AddRange(
+            Song("/a/1.mp3", artist: "2Pac + Outlawz", albumArtist: "2Pac + Outlawz", albumArtistMbid: "mbid-outlawz"),
+            Song("/a/2.mp3", artist: "2Pac", artists: "2Pac; Outlawz", artistMbids: "mbid-2pac; mbid-outlawz"));
+        await db.SaveChangesAsync();
+
+        await Service(db).SplitCreditAsync(Owner, "2Pac + Outlawz");
+
+        var song = await db.Songs.SingleAsync(s => s.SourcePath == "/a/1.mp3");
+        Assert.Equal(("2Pac", null), (song.AlbumArtist, song.AlbumArtistMusicBrainzId));
+    }
+
+    [Fact]
+    public async Task SplitCredit_DropsAGuestsId_StoredWithSurroundingSpaces()
+    {
+        await using var db = NewContext();
+        db.Songs.AddRange(
+            Song("/a/1.mp3", artist: "2Pac + Outlawz", albumArtist: "2Pac + Outlawz", albumArtistMbid: " mbid-outlawz "),
+            Song("/a/2.mp3", artist: "2Pac", artists: "2Pac", artistMbids: "mbid-2pac"),
+            Song("/a/3.mp3", artist: "Outlawz", artists: "Outlawz", artistMbids: "mbid-outlawz"));
+        await db.SaveChangesAsync();
+
+        await Service(db).SplitCreditAsync(Owner, "2Pac + Outlawz");
+
+        var song = await db.Songs.SingleAsync(s => s.SourcePath == "/a/1.mp3");
+        Assert.Equal(("2Pac", null), (song.AlbumArtist, song.AlbumArtistMusicBrainzId));
+    }
+
     // --- Oscillation regression: heal must not undo a merge ---
 
     [Fact]

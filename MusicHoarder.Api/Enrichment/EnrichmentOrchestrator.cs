@@ -48,6 +48,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IEnumerable<IEnrichmentProvider> _providers;
     private readonly ILrcLibService _lrcLibService;
+    private readonly IGeniusLyricsService _geniusLyricsService;
     private readonly IOptions<MusicEnricherOptions> _options;
     private readonly IRuntimeSettingsService _runtimeSettings;
     private readonly ILogger<EnrichmentOrchestrator> _logger;
@@ -58,6 +59,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         IServiceScopeFactory scopeFactory,
         IEnumerable<IEnrichmentProvider> providers,
         ILrcLibService lrcLibService,
+        IGeniusLyricsService geniusLyricsService,
         IOptions<MusicEnricherOptions> options,
         IRuntimeSettingsService runtimeSettings,
         ILogger<EnrichmentOrchestrator> logger)
@@ -65,6 +67,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         _scopeFactory = scopeFactory;
         _providers = providers;
         _lrcLibService = lrcLibService;
+        _geniusLyricsService = geniusLyricsService;
         _options = options;
         _runtimeSettings = runtimeSettings;
         _logger = logger;
@@ -591,6 +594,19 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         }
     }
 
+    private async Task<LyricsResult?> FetchFromSourcesAsync(SongMetadata song, bool songHasNoLyrics, CancellationToken ct)
+    {
+        var lrcLib = await _lrcLibService.FetchLyricsAsync(song, ct);
+        var lrcLibHasAnswer = lrcLib is not null
+            && (lrcLib.IsInstrumental
+                || !string.IsNullOrWhiteSpace(lrcLib.SyncedLyrics)
+                || !string.IsNullOrWhiteSpace(lrcLib.PlainLyrics));
+        if (lrcLibHasAnswer || !songHasNoLyrics || !_options.Value.EnableGeniusLyrics)
+            return lrcLib;
+
+        return await _geniusLyricsService.FetchLyricsAsync(song, ct) ?? lrcLib;
+    }
+
     private async Task FetchLyricsForSongAsync(SongMetadata song, MusicHoarderDbContext dbContext, CancellationToken ct)
     {
         if (!song.IsReadyForLyricsFetch)
@@ -602,7 +618,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
 
         try
         {
-            var result = await _lrcLibService.FetchLyricsAsync(song, ct);
+            var result = await FetchFromSourcesAsync(song, songHasNoLyrics: true, ct);
 
             if (result is null)
             {
@@ -616,7 +632,9 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
             }
             else
             {
-                song.ApplyLyricsResult(result.SyncedLyrics, result.PlainLyrics, false, result.LrclibId, result.DurationSeconds);
+                song.ApplyLyricsResult(
+                    result.SyncedLyrics, result.PlainLyrics, false, result.LrclibId, result.DurationSeconds,
+                    result.Origin, result.GeniusSongId);
                 ApplyFreeTimingCheck(song);
                 var kind = result.SyncedLyrics is not null ? "synced" : "plain";
                 _logger.LogInformation("Lyrics: fetched ({Kind}) for {Track} (SongId={SongId})", kind, song.TrackLabel, song.Id);
@@ -661,11 +679,13 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
 
         try
         {
-            var result = await _lrcLibService.FetchLyricsAsync(song, ct);
+            var songHasNoLyrics = string.IsNullOrWhiteSpace(song.SyncedLyrics) && string.IsNullOrWhiteSpace(song.PlainLyrics);
+            var result = await FetchFromSourcesAsync(song, songHasNoLyrics, ct);
 
             improved = result is not null
                 && song.TryApplyLyricsUpgrade(
-                    result.SyncedLyrics, result.PlainLyrics, result.IsInstrumental, result.LrclibId, result.DurationSeconds);
+                    result.SyncedLyrics, result.PlainLyrics, result.IsInstrumental, result.LrclibId, result.DurationSeconds,
+                    result.Origin, result.GeniusSongId);
 
             if (improved)
             {

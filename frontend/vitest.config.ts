@@ -16,6 +16,13 @@ export default defineConfig({
   plugins: [svelte()],
   test: {
     environment: 'node',
-    include: ['src/**/*.{test,spec}.ts', 'eslint/**/*.test.ts']
+    include: ['src/**/*.{test,spec}.ts', 'oxlint/**/*.test.ts'],
+    // Files share a worker's module cache instead of each loading the app again, which
+    // src/test-setup.ts makes safe by resetting modules and stubs around every file. Files and
+    // the tests in them run in a random order, so a test that leans on another's leftovers
+    // fails early; the seed is printed, and `--sequence.seed=<n>` replays an order.
+    isolate: false,
+    setupFiles: ['src/test-setup.ts'],
+    sequence: { shuffle: true }
   }
 });

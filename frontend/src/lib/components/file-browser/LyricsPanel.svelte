@@ -563,7 +563,7 @@
           rel="noopener noreferrer"
           class="text-primary relative inline-flex items-center gap-1 after:absolute after:-inset-x-2 after:-inset-y-3 pointer-fine:hover:underline"
         >
-          LRCLIB
+          {doc.sourceLabel}
           <ExternalLink class="size-3" />
         </a>
       </div>

@@ -49,7 +49,7 @@
   import { formatDuration, formatFileSize } from '#lib/formatters.ts';
   import { createAiLyrics } from '#lib/lyrics/ai-lyrics.svelte.ts';
   import { createLyricsDoc } from '#lib/lyrics/lyrics-doc.svelte.ts';
-  import { lrclibWebUrl } from '#lib/lrclib-url.ts';
+  import { lyricsSourceUrl } from '#lib/lyrics-source.ts';
   import { playerStore } from '#lib/stores/player.svelte.ts';
   import { playbackSync } from '#lib/stores/playback-sync.svelte.ts';
   import { songsStore } from '#lib/stores/songs.svelte.ts';
@@ -65,7 +65,8 @@
    * bottom (it used to move between tabs, and scroll away on the lyrics tab). Compact (below lg)
    * is the iPhone layout: grabber, ⌄ and ⋯ at the top, the middle, then the scrubber, times,
    * transport and the Lyrics · AirPlay · Video · Info row. lg is two columns: art, title and the
-   * transport on the left; lyrics (by default), info, video or the compare split on the right. A
+   * transport on the left; lyrics, else the video, info or the compare split on the right — and
+   * with neither lyrics nor a video the right column goes and the player grows into the middle. A
    * phone on its side (short and landscape) splits the same way: the middle on the left, the title
    * and transport on the right, since the portrait stack cannot fit in 393pt of height.
    *
@@ -203,11 +204,26 @@
     }
   });
 
+  // The video's answer arrives after each song change; until it does, the last one stands, so
+  // following playback through songs that all have one does not flash the lone player between them.
+  let videoByDefault = $state(false);
+  $effect(() => {
+    if (video.settled) videoByDefault = video.playable;
+  });
+
   // What the middle (compact) / right column (lg) shows. At lg the art is always on the left, so
-  // "player" means the song's lyrics there — or its info when it has none, as before.
+  // "player" means the song's lyrics there, else its video. Info is only ever asked for: a song
+  // with neither keeps the player alone, centred and larger (`playerOnly`).
   const content = $derived<DetailMode>(
-    wide.current && mode === 'player' ? (ai.hasLyrics ? 'lyrics' : 'info') : mode
+    wide.current && mode === 'player'
+      ? ai.hasLyrics
+        ? 'lyrics'
+        : videoByDefault
+          ? 'video'
+          : 'player'
+      : mode
   );
+  const playerOnly = $derived(wide.current && content === 'player');
 
   // Behind the watch view the backdrop plays the same clip; sharp, it reads as the video twice.
   $effect(() => {
@@ -217,12 +233,10 @@
     watching = false;
   });
 
-  // Compact: each mode button toggles, and releasing it goes back to the artwork. At lg the art
-  // never leaves the left column, so the row just picks what the right column shows; pressing the
-  // current one does nothing (it is marked current, not pressed — see modeButton).
+  // Each mode button toggles, and releasing it goes back to the artwork — at lg, to what the right
+  // column shows by default, so releasing the default itself changes nothing.
   function toggleMode(target: DetailMode) {
-    if (wide.current) mode = target;
-    else mode = content === target ? 'player' : target;
+    mode = content === target ? 'player' : target;
   }
 
   function showLyrics() {
@@ -298,7 +312,9 @@
   const artistHref = $derived(`/library?artist=${encodeURIComponent(artistLabelForSong(song))}`);
   const albumHref = $derived(`/library?album=${encodeURIComponent(album.key)}`);
   const coverUrl = $derived(coverUrlForSong(song) ?? album.coverUrl ?? null);
-  const lrclibUrl = $derived(lrclibWebUrl(trackArtist, trackTitle));
+  const lrclibUrl = $derived(
+    lyricsSourceUrl(lrclibDoc.origin, lrclibDoc.geniusSongId, trackArtist, trackTitle)
+  );
 
   // Quality, three ways: the capsule between the times ("FLAC", "MP3 320" — lossless formats
   // don't need a bitrate), the Info row, and the lg meta line.
@@ -451,14 +467,14 @@
         <a
           href={artistHref}
           onclick={onClose}
-          class="focus-visible:ring-ring pointer-fine:hover:text-foreground relative rounded-sm focus-visible:outline-hidden after:absolute after:inset-x-0 after:-inset-y-3 focus-visible:ring-2 pointer-fine:hover:underline"
+          class="focus-visible:ring-ring pointer-fine:hover:text-foreground relative rounded-sm after:absolute after:inset-x-0 after:-inset-y-3 focus-visible:ring-2 focus-visible:outline-hidden pointer-fine:hover:underline"
           >{trackArtist}</a
         >
         <span aria-hidden="true"> — </span>
         <a
           href={albumHref}
           onclick={onClose}
-          class="focus-visible:ring-ring pointer-fine:hover:text-foreground relative rounded-sm focus-visible:outline-hidden after:absolute after:inset-x-0 after:-inset-y-3 focus-visible:ring-2 pointer-fine:hover:underline"
+          class="focus-visible:ring-ring pointer-fine:hover:text-foreground relative rounded-sm after:absolute after:inset-x-0 after:-inset-y-3 focus-visible:ring-2 focus-visible:outline-hidden pointer-fine:hover:underline"
           >{album.title}</a
         >
       </p>
@@ -472,7 +488,7 @@
       {#if aiProvenance}
         <button
           type="button"
-          class="focus-visible:ring-ring relative rounded-full focus-visible:outline-hidden after:absolute after:inset-x-0 after:-inset-y-3 focus-visible:ring-2"
+          class="focus-visible:ring-ring relative rounded-full after:absolute after:inset-x-0 after:-inset-y-3 focus-visible:ring-2 focus-visible:outline-hidden"
           aria-expanded={aiDetailOpen}
           onclick={() => (aiDetailOpen = !aiDetailOpen)}
         >
@@ -487,14 +503,14 @@
 {/snippet}
 
 <!-- Compact: a toggle (aria-pressed) — release it to go back to the artwork. lg: it picks what the
-     right column shows, so the one showing is marked current rather than pressed (there is no
-     "released" state to go to). -->
+     right column shows, so the one showing is marked current rather than pressed (releasing the
+     default view has nowhere else to go). -->
 {#snippet modeButton(target: DetailMode, label: string, Icon: Component<{ class?: string }>)}
   {@const active = content === target}
   <button
     type="button"
     class={cn(
-      'focus-visible:ring-ring flex size-11 items-center justify-center rounded-full transition-colors focus-visible:outline-hidden focus-visible:ring-2',
+      'focus-visible:ring-ring flex size-11 items-center justify-center rounded-full transition-colors focus-visible:ring-2 focus-visible:outline-hidden',
       active ? 'text-foreground' : 'text-muted-foreground pointer-fine:hover:text-foreground'
     )}
     aria-pressed={wide.current ? undefined : active}
@@ -523,7 +539,7 @@
     {#if playerStore.airPlayAvailable && isCurrentlyLoaded}
       <button
         type="button"
-        class="text-muted-foreground focus-visible:ring-ring flex size-11 items-center justify-center rounded-full focus-visible:outline-hidden focus-visible:ring-2"
+        class="text-muted-foreground focus-visible:ring-ring flex size-11 items-center justify-center rounded-full focus-visible:ring-2 focus-visible:outline-hidden"
         aria-label="AirPlay"
         title="AirPlay"
         onclick={() => playerStore.showAirPlayPicker()}
@@ -538,7 +554,7 @@
             {...props}
             type="button"
             class={cn(
-              'focus-visible:ring-ring flex size-11 items-center justify-center rounded-full transition-colors focus-visible:outline-hidden focus-visible:ring-2',
+              'focus-visible:ring-ring flex size-11 items-center justify-center rounded-full transition-colors focus-visible:ring-2 focus-visible:outline-hidden',
               elsewhere
                 ? 'text-primary'
                 : 'text-muted-foreground pointer-fine:hover:text-foreground'
@@ -576,7 +592,7 @@
           {...props}
           type="button"
           class={cn(
-            'text-footnote focus-visible:ring-ring mx-auto flex h-8 max-w-full items-center gap-1.5 rounded-full px-3 focus-visible:outline-hidden focus-visible:ring-2',
+            'text-footnote focus-visible:ring-ring mx-auto flex h-8 max-w-full items-center gap-1.5 rounded-full px-3 focus-visible:ring-2 focus-visible:outline-hidden',
             playbackSync.isRemote ? 'text-primary' : 'text-muted-foreground'
           )}
           aria-label={`${deviceLine}. Choose a device`}
@@ -669,6 +685,8 @@
       {artistHref}
       {albumHref}
       lyricsStatus={ai.lyricsStatus}
+      lyricsOrigin={lrclibDoc.origin}
+      geniusSongId={lrclibDoc.geniusSongId}
       {formatLabel}
       onNavigate={onClose}
       {onResetEnrichment}
@@ -688,7 +706,7 @@
       type="button"
       tabindex="-1"
       aria-hidden="true"
-      class="np-grabber relative mx-auto flex h-3 w-24 justify-center transition-opacity duration-200 focus-visible:outline-hidden after:absolute after:inset-x-0 after:-top-4 after:-bottom-4"
+      class="np-grabber relative mx-auto flex h-3 w-24 justify-center transition-opacity duration-200 after:absolute after:inset-x-0 after:-top-4 after:-bottom-4 focus-visible:outline-hidden"
       onclick={onClose}
     >
       <span class="bg-foreground/35 mt-1.5 block h-[5px] w-9 rounded-full"></span>
@@ -698,7 +716,7 @@
       {#if mode !== 'player'}
         <button
           type="button"
-          class="focus-visible:ring-ring relative z-10 flex min-w-0 flex-1 items-center gap-3 rounded-lg py-1 text-left focus-visible:outline-hidden focus-visible:ring-2"
+          class="focus-visible:ring-ring relative z-10 flex min-w-0 flex-1 items-center gap-3 rounded-lg py-1 text-left focus-visible:ring-2 focus-visible:outline-hidden"
           aria-label={`${trackTitle} by ${trackArtist}. Show the artwork`}
           onclick={() => (mode = 'player')}
         >
@@ -733,7 +751,13 @@
       {@render moreMenu()}
     </header>
     <div
-      class="grid min-h-0 flex-1 grid-cols-[minmax(300px,380px)_minmax(0,1fr)] gap-12 px-12 pb-8 xl:grid-cols-[400px_minmax(0,1fr)] xl:gap-16"
+      class={cn(
+        'grid min-h-0 flex-1 gap-12 px-12 pb-8 xl:gap-16',
+        playerOnly
+          ? 'grid-cols-[minmax(0,560px)] justify-center'
+          : 'grid-cols-[minmax(300px,380px)_minmax(0,1fr)] xl:grid-cols-[400px_minmax(0,1fr)]'
+      )}
+      data-mh-np-layout={playerOnly ? 'solo' : 'split'}
     >
       <!-- The column scrolls only when the window is too short even for the smaller art. Its box
            reaches 48px past the column on either side and down into the grid's bottom padding —
@@ -761,7 +785,12 @@
                 size={400}
                 corner={12}
                 playing={artPlaying}
-                class="mx-auto w-full max-w-[min(100%,46vh,max(200px,calc(100svh-var(--mh-np-chrome,460px))))]"
+                class={cn(
+                  'mx-auto w-full',
+                  playerOnly
+                    ? 'max-w-[min(100%,56vh,max(200px,calc(100svh-var(--mh-np-chrome,460px))))]'
+                    : 'max-w-[min(100%,46vh,max(200px,calc(100svh-var(--mh-np-chrome,460px))))]'
+                )}
               />
             </div>
             <div class="mt-6" data-mh-np="readout">
@@ -780,7 +809,7 @@
           </div>
         </ScrollArea>
       </aside>
-      <div class="flex min-h-0 flex-col pt-2">
+      <div class={cn('flex min-h-0 flex-col pt-2', playerOnly && 'hidden')}>
         {@render modeContent()}
       </div>
     </div>
