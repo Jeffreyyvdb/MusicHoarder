@@ -26,13 +26,31 @@ public sealed class SpotifyPlaylistArchiveClient(
     private readonly SemaphoreSlim catalogGate = new(1, 1);
     private readonly SemaphoreSlim coverGate = new(6, 6);
 
-    private sealed record CatalogEntry(IReadOnlyDictionary<string, ArchivedPlaylist>? Playlists);
+    /// <summary>The repos read when <see cref="MusicEnricherOptions.SpotifyPlaylistArchiveSources"/> is empty, oldest first.</summary>
+    public static readonly string[] DefaultSources =
+    [
+        "https://raw.githubusercontent.com/mackorone/spotify-playlist-archive/main",
+        "https://raw.githubusercontent.com/mackorone/spotify-playlist-archive-2/main",
+    ];
+
+    /// <param name="NewestFailedSource">
+    /// Index (in <see cref="Sources"/>) of the newest source that could not be read this time, or -1. A
+    /// playlist an older source supplied may have a fresher copy there, so its tracklist is not trusted.
+    /// </param>
+    private sealed record CatalogEntry(IReadOnlyDictionary<string, ArchivedPlaylist>? Playlists, int NewestFailedSource);
+
+    private abstract record SourceRead
+    {
+        public sealed record Read(IReadOnlyList<ArchivedPlaylist> Playlists) : SourceRead;
+        public sealed record Gone : SourceRead;
+        public sealed record Failed : SourceRead;
+    }
 
     private sealed record CoverEntry(string? Url);
 
     public async Task<IReadOnlyList<ArchivedPlaylist>?> BrowseAsync(string? search, int limit, CancellationToken ct)
     {
-        var catalog = await LoadCatalogAsync(ct);
+        var catalog = (await LoadCatalogAsync(ct)).Playlists;
         return catalog is null ? null : ArchiveFormat.Search(catalog.Values, search, limit);
     }
 
@@ -40,14 +58,19 @@ public sealed class SpotifyPlaylistArchiveClient(
     {
         if (!ArchiveFormat.IsSpotifyId(playlistId))
             return null;
-        var catalog = await LoadCatalogAsync(ct);
+        var catalog = (await LoadCatalogAsync(ct)).Playlists;
         return catalog is not null && catalog.TryGetValue(playlistId, out var playlist) ? playlist : null;
     }
 
     public async Task<ArchivedPlaylistTracks?> GetTracksAsync(string playlistId, CancellationToken ct)
     {
-        var playlist = await FindAsync(playlistId, ct);
-        if (playlist is null)
+        if (!ArchiveFormat.IsSpotifyId(playlistId))
+            return null;
+        var entry = await LoadCatalogAsync(ct);
+        if (entry.Playlists is null || !entry.Playlists.TryGetValue(playlistId, out var playlist))
+            return null;
+        // A subscription would wishlist the stale copy's tracks and record them as the playlist's current list.
+        if (Array.IndexOf(Sources(), playlist.SourceBaseUrl) < entry.NewestFailedSource)
             return null;
 
         var cacheKey = $"spotify_archive:tracks:{playlist.Id}:{playlist.SnapshotId}";
@@ -128,35 +151,34 @@ public sealed class SpotifyPlaylistArchiveClient(
         }
     }
 
-    private async Task<IReadOnlyDictionary<string, ArchivedPlaylist>?> LoadCatalogAsync(CancellationToken ct)
+    private async Task<CatalogEntry> LoadCatalogAsync(CancellationToken ct)
     {
         if (cache.TryGetValue(CatalogKey, out CatalogEntry? cached) && cached is not null)
-            return cached.Playlists;
+            return cached;
 
         await catalogGate.WaitAsync(ct);
         try
         {
             if (cache.TryGetValue(CatalogKey, out cached) && cached is not null)
-                return cached.Playlists;
+                return cached;
 
+            var sources = Sources();
             var parsed = new List<IReadOnlyList<ArchivedPlaylist>>();
-            var failed = 0;
-            foreach (var baseUrl in Sources())
+            var newestFailed = -1;
+            for (var i = 0; i < sources.Length; i++)
             {
-                var source = await TryFetchMetadataAsync(baseUrl, ct);
-                if (source is null) failed++;
-                else parsed.Add(source);
+                switch (await TryFetchMetadataAsync(sources[i], ct))
+                {
+                    case SourceRead.Read read: parsed.Add(read.Playlists); break;
+                    case SourceRead.Failed: newestFailed = i; break;
+                }
             }
 
-            if (parsed.Count == 0)
-            {
-                cache.Set(CatalogKey, new CatalogEntry(null), FailureRetryAfter);
-                return null;
-            }
-
-            var catalog = ArchiveFormat.Merge(parsed);
-            cache.Set(CatalogKey, new CatalogEntry(catalog), failed == 0 ? CacheTtl() : FailureRetryAfter);
-            return catalog;
+            var entry = parsed.Count == 0 && newestFailed >= 0
+                ? new CatalogEntry(null, newestFailed)
+                : new CatalogEntry(ArchiveFormat.Merge(parsed), newestFailed);
+            cache.Set(CatalogKey, entry, newestFailed >= 0 ? FailureRetryAfter : CacheTtl());
+            return entry;
         }
         finally
         {
@@ -164,25 +186,32 @@ public sealed class SpotifyPlaylistArchiveClient(
         }
     }
 
-    private async Task<IReadOnlyList<ArchivedPlaylist>?> TryFetchMetadataAsync(string baseUrl, CancellationToken ct)
+    private async Task<SourceRead> TryFetchMetadataAsync(string baseUrl, CancellationToken ct)
     {
         try
         {
             using var response = await http.GetAsync($"{baseUrl}/playlists/metadata/metadata-full.json.br", ct);
+            // A repo that was deleted or renamed answers 404 for good: it holds nothing, which is not a failure
+            // worth retrying every minute.
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                logger.LogWarning("Spotify playlist archive source {Source} has no metadata file (404); skipping it", baseUrl);
+                return new SourceRead.Gone();
+            }
             response.EnsureSuccessStatusCode();
             await using var compressed = await response.Content.ReadAsStreamAsync(ct);
             await using var json = new BrotliStream(compressed, CompressionMode.Decompress);
-            return ArchiveFormat.ParseMetadata(json, baseUrl);
+            return new SourceRead.Read(ArchiveFormat.ParseMetadata(json, baseUrl));
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or InvalidDataException or TaskCanceledException && !ct.IsCancellationRequested)
         {
             logger.LogWarning(ex, "Could not read the Spotify playlist archive source {Source}", baseUrl);
-            return null;
+            return new SourceRead.Failed();
         }
     }
 
     private string[] Sources() =>
-        options.Value.SpotifyPlaylistArchiveSources
+        (options.Value.SpotifyPlaylistArchiveSources is { Length: > 0 } configured ? configured : DefaultSources)
             .Where(s => !string.IsNullOrWhiteSpace(s))
             .Select(s => s.Trim().TrimEnd('/'))
             .Distinct(StringComparer.Ordinal)

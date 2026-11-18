@@ -150,7 +150,7 @@ a mock-up. The image above follows your GitHub light or dark theme.</sub>
   `.m3u8` file in the destination library, in order, so Navidrome/Plex/Jellyfin auto-import it —
   without collecting it. (A collected playlist is already a playlist under Listen → Playlists.)
 
-![The Discover page — Spotify's editorial playlists from the playlist archive, a search box, a paste-a-link button, and one-click subscribe](frontend/static/screenshots/discover.webp)
+![The Discover page — Deezer-backed editorial and chart playlists with genre filters, a search box, a paste-a-link button, and one-click subscribe](frontend/static/screenshots/discover.webp)
 
 ### Share
 

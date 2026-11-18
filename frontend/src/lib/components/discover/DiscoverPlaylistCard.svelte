@@ -46,7 +46,7 @@
     <div class="mt-1.5 min-w-0">
       <h3 class="text-subheadline truncate font-medium md:text-sm">{playlist.title}</h3>
       <p class="text-footnote text-muted-foreground truncate md:text-xs">
-        {formatCompactCount(playlist.followers)} followers{playlist.trackCount != null
+        {formatCompactCount(playlist.followers)} follower{playlist.followers === 1 ? '' : 's'}{playlist.trackCount != null
           ? ` · ${playlist.trackCount.toLocaleString()} track${playlist.trackCount === 1 ? '' : 's'}`
           : ''}
       </p>

@@ -313,7 +313,7 @@
 
   // What the header says about a playlist: who made it, how many follow it, and its length once known.
   function playlistStats(p: DiscoverPlaylistSummary): string {
-    const parts = [p.creatorName ?? 'Spotify', `${formatCompactCount(p.followers)} followers`];
+    const parts = [p.creatorName ?? 'Spotify', `${formatCompactCount(p.followers)} follower${p.followers === 1 ? '' : 's'}`];
     if (p.trackCount != null) parts.push(`${p.trackCount.toLocaleString()} song${p.trackCount === 1 ? '' : 's'}`);
     return parts.join(' · ');
   }

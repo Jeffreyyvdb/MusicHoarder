@@ -24,6 +24,8 @@ public static class DiscoverEndpoints
     /// <summary>The <c>provider</c> a resolved link answers with when the playlist came from the archive.</summary>
     public const string ArchiveProvider = "spotifyArchive";
 
+    private static readonly TimeSpan GridCoverDeadline = TimeSpan.FromSeconds(2);
+
     public static IEndpointRouteBuilder MapDiscoverEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/discover").WithTags("Discover");
@@ -43,7 +45,7 @@ public static class DiscoverEndpoints
                     return ArchiveUnavailable();
 
                 var subs = await LoadArchiveSubscriptionsAsync(db, playlists.Select(p => p.Id).ToList(), ct);
-                var covers = await Task.WhenAll(playlists.Select(p => archive.GetCoverUrlAsync(p.Id, ct)));
+                var covers = await CoversWithinAsync(archive, playlists, GridCoverDeadline);
                 var dtos = playlists.Select((p, i) => ToSummaryDto(p, covers[i], trackCount: null, subs)).ToList();
                 return Results.Ok(new { playlists = dtos });
             })
@@ -193,7 +195,22 @@ public static class DiscoverEndpoints
         return keys;
     }
 
-    /// <summary>The caller's archived-Spotify-playlist subscriptions keyed by playlist id (query-filter scoped to the caller).</summary>
+    /// <summary>
+    /// The grid's covers, as many as arrive before <paramref name="deadline"/>; the rest are null this time.
+    /// The lookups run without the request's token so a late one still lands in the cover cache for the next load.
+    /// </summary>
+    private static async Task<string?[]> CoversWithinAsync(
+        ISpotifyPlaylistArchive archive, IReadOnlyList<ArchivedPlaylist> playlists, TimeSpan deadline)
+    {
+        var lookups = playlists.Select(p => archive.GetCoverUrlAsync(p.Id, CancellationToken.None)).ToArray();
+        await Task.WhenAny(Task.WhenAll(lookups), Task.Delay(deadline));
+        return lookups.Select(t => t.IsCompletedSuccessfully ? t.Result : null).ToArray();
+    }
+
+    /// <summary>
+    /// The caller's subscriptions to these Spotify playlists, keyed by playlist id (query-filter scoped to the
+    /// caller). One subscribed through the live Spotify API counts too, so the grid never offers a second one.
+    /// </summary>
     private static async Task<Dictionary<string, (int SourceId, bool AutoSync)>> LoadArchiveSubscriptionsAsync(
         MusicHoarderDbContext db, IReadOnlyList<string> playlistIds, CancellationToken ct)
     {
@@ -202,7 +219,7 @@ public static class DiscoverEndpoints
 
         var rows = await db.WishlistSources
             .AsNoTracking()
-            .Where(s => s.SourceType == WishlistSourceType.SpotifyArchivePlaylist
+            .Where(s => (s.SourceType == WishlistSourceType.SpotifyArchivePlaylist || s.SourceType == WishlistSourceType.Playlist)
                 && s.SpotifyPlaylistId != null
                 && playlistIds.Contains(s.SpotifyPlaylistId))
             .Select(s => new { s.SpotifyPlaylistId, s.Id, s.AutoSync })
@@ -237,14 +254,21 @@ public static class DiscoverEndpoints
 
         var archived = await archive.GetTracksAsync(playlistId, ct);
         if (archived is null)
-            return Results.UnprocessableEntity(new
-            {
-                error = "spotify_editorial_blocked",
-                message = "Spotify does not let this app read that playlist, and it is not in the Spotify Playlist Archive. Search for it on the Discover page instead.",
-            });
+            return live is null
+                ? Results.UnprocessableEntity(new
+                {
+                    error = "spotify_unavailable",
+                    message = "Spotify could not be asked about that playlist (connect Spotify, or try again shortly), and it is not in the Spotify Playlist Archive.",
+                })
+                : Results.UnprocessableEntity(new
+                {
+                    error = "spotify_editorial_blocked",
+                    message = "Spotify does not let this app read that playlist, and it is not in the Spotify Playlist Archive. Search for it on the Discover page instead.",
+                });
 
         var archiveSubscribed = await db.WishlistSources
-            .AnyAsync(s => s.SourceType == WishlistSourceType.SpotifyArchivePlaylist && s.SpotifyPlaylistId == archived.Playlist.Id, ct);
+            .AnyAsync(s => (s.SourceType == WishlistSourceType.SpotifyArchivePlaylist || s.SourceType == WishlistSourceType.Playlist)
+                && s.SpotifyPlaylistId == archived.Playlist.Id, ct);
         return Results.Ok(new ResolvePlaylistResponse(
             ArchiveProvider, archived.Playlist.Id, archived.Playlist.Name,
             await archive.GetCoverUrlAsync(archived.Playlist.Id, ct), archived.Tracks.Count, archiveSubscribed));
@@ -258,7 +282,8 @@ public static class DiscoverEndpoints
         {
             return await spotifyApi.GetPlaylistAsync(playlistId, ct);
         }
-        catch (Exception ex) when (ex is SpotifyNotConnectedException or SpotifyRateLimitException or HttpRequestException)
+        catch (Exception ex) when (ex is SpotifyNotConnectedException or SpotifyRateLimitException or HttpRequestException
+            or TaskCanceledException && !ct.IsCancellationRequested)
         {
             logger.LogInformation(ex, "Spotify could not be asked about playlist {PlaylistId}; trying the archive", playlistId);
             return null;

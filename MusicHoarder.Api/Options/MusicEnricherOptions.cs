@@ -253,14 +253,11 @@ public class MusicEnricherOptions
     /// <summary>
     /// Base URLs of the Spotify Playlist Archive repos the Discover page reads, oldest first: a later
     /// entry overrides an earlier one for the same playlist, and a playlist only an older repo lists
-    /// still shows. A future repo is one more entry
-    /// (<c>MusicEnricher__SpotifyPlaylistArchiveSources__2=https://raw.githubusercontent.com/…/main</c>).
+    /// still shows. Empty reads mackorone's two repos (<c>spotify-playlist-archive</c>, then
+    /// <c>spotify-playlist-archive-2</c>). Setting it replaces them, so list every repo to read, for
+    /// example a third one as <c>MusicEnricher__SpotifyPlaylistArchiveSources__2</c> beside <c>__0</c> and <c>__1</c>.
     /// </summary>
-    public string[] SpotifyPlaylistArchiveSources { get; set; } =
-    [
-        "https://raw.githubusercontent.com/mackorone/spotify-playlist-archive/main",
-        "https://raw.githubusercontent.com/mackorone/spotify-playlist-archive-2/main",
-    ];
+    public string[] SpotifyPlaylistArchiveSources { get; set; } = [];
 
     /// <summary>How long the merged archive catalog and archived tracklists stay in memory. The archive updates daily.</summary>
     [Range(1, 1440)]

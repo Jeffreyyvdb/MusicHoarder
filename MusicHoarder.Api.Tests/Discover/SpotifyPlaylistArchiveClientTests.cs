@@ -45,6 +45,13 @@ public class SpotifyPlaylistArchiveClientTests
             return this;
         }
 
+        public Stub FailMetadata(string baseUrl)
+        {
+            Routes[$"{baseUrl}/playlists/metadata/metadata-full.json.br"] =
+                () => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
+            return this;
+        }
+
         public Stub Tracks(string baseUrl, string id, string json)
         {
             Routes[$"{baseUrl}/playlists/pretty/{id}.json"] =
@@ -88,7 +95,7 @@ public class SpotifyPlaylistArchiveClientTests
     [Fact]
     public async Task Browse_AFailingSourceIsSkipped_AndTheOthersStillMerge()
     {
-        var stub = new Stub().Metadata(Old, Metadata((IdB, "Only old", 5)));
+        var stub = new Stub().Metadata(Old, Metadata((IdB, "Only old", 5))).FailMetadata(New);
 
         var playlists = await CreateClient(stub, Old, New).BrowseAsync(null, 10, default);
 
@@ -98,7 +105,7 @@ public class SpotifyPlaylistArchiveClientTests
     [Fact]
     public async Task Browse_EverySourceFailing_IsNull_AndIsNotRetriedWithinTheMinute()
     {
-        var stub = new Stub();
+        var stub = new Stub().FailMetadata(Old).FailMetadata(New);
         var client = CreateClient(stub, Old, New);
 
         Assert.Null(await client.BrowseAsync(null, 10, default));
@@ -162,6 +169,35 @@ public class SpotifyPlaylistArchiveClientTests
     }
 
     [Fact]
+    public async Task GetTracks_WhenANewerSourceFailedToLoad_DoesNotServeTheOlderSourcesCopy()
+    {
+        var stub = new Stub()
+            .Metadata(Old, Metadata((IdA, "A", 1)))
+            .FailMetadata(New)
+            .Tracks(Old, IdA, TracksFile("From old"));
+        var client = CreateClient(stub, Old, New);
+
+        Assert.NotNull(await client.FindAsync(IdA, default));
+        Assert.Null(await client.GetTracksAsync(IdA, default));
+    }
+
+    [Fact]
+    public async Task ARepoThatIsGone_IsSkipped_AndTheCatalogIsKeptForItsFullLifetime()
+    {
+        var stub = new Stub()
+            .Metadata(New, Metadata((IdA, "A", 1)))
+            .Tracks(New, IdA, TracksFile("From new"));
+        var client = CreateClient(stub, Old, New);
+
+        Assert.Equal("From new", Assert.Single((await client.GetTracksAsync(IdA, default))!.Tracks).Title);
+        var metadataReads = stub.Requests.Count(r => r.EndsWith(".json.br"));
+        await client.BrowseAsync("a", 10, default);
+
+        Assert.Equal(2, metadataReads);
+        Assert.Equal(metadataReads, stub.Requests.Count(r => r.EndsWith(".json.br")));
+    }
+
+    [Fact]
     public async Task GetCover_ReadsTheOEmbedThumbnail_AndIsNullWhenItFails()
     {
         var stub = new Stub();
@@ -174,20 +210,34 @@ public class SpotifyPlaylistArchiveClientTests
     }
 
     [Fact]
-    public void ANewSourceAppendsToTheDefaultsWhenConfiguredByIndex()
+    public async Task ConfiguredSources_ReplaceTheBuiltInRepos()
     {
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["MusicEnricher:SpotifyPlaylistArchiveSources:2"] = "https://example.test/archive-3",
+                ["MusicEnricher:SpotifyPlaylistArchiveSources:0"] = New,
             })
             .Build();
         var options = new MusicEnricherOptions { SourceDirectory = "/s", DestinationDirectory = "/d" };
-
         config.GetSection("MusicEnricher").Bind(options);
+        var stub = new Stub().Metadata(New, Metadata((IdA, "A", 1)));
+        var client = new SpotifyPlaylistArchiveClient(new HttpClient(stub), new MemoryCache(new MemoryCacheOptions()),
+            Microsoft.Extensions.Options.Options.Create(options), NullLogger<SpotifyPlaylistArchiveClient>.Instance);
 
-        Assert.Equal(3, options.SpotifyPlaylistArchiveSources.Length);
-        Assert.Equal("https://example.test/archive-3", options.SpotifyPlaylistArchiveSources[^1]);
-        Assert.Contains("spotify-playlist-archive-2", options.SpotifyPlaylistArchiveSources[1]);
+        await client.BrowseAsync(null, 10, default);
+
+        Assert.Equal([$"{New}/playlists/metadata/metadata-full.json.br"], stub.Requests);
+    }
+
+    [Fact]
+    public async Task NoConfiguredSources_ReadsBothBuiltInRepos_OldestFirst()
+    {
+        var stub = new Stub();
+
+        await CreateClient(stub).BrowseAsync(null, 10, default);
+
+        Assert.Equal(
+            SpotifyPlaylistArchiveClient.DefaultSources.Select(s => $"{s}/playlists/metadata/metadata-full.json.br"),
+            stub.Requests);
     }
 }

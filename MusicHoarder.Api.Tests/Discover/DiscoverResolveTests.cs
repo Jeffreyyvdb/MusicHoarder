@@ -88,4 +88,28 @@ public class DiscoverResolveTests
         Assert.Equal(422, ((IStatusCodeHttpResult)result).StatusCode);
         Assert.Equal("spotify_editorial_blocked", Get<string>(Value(result), "error"));
     }
+
+    [Fact]
+    public async Task SpotifyUnreachable_AndNotArchived_SaysToConnectSpotify_NotThatItIsBlocked()
+    {
+        await using var db = NewContext();
+
+        var result = await DiscoverEndpoints.ResolveSpotifyAsync(
+            Id, new Spotify(null, new SpotifyNotConnectedException()), new FakeSpotifyPlaylistArchive(), db, NullLogger.Instance, default);
+
+        Assert.Equal(422, ((IStatusCodeHttpResult)result).StatusCode);
+        Assert.Equal("spotify_unavailable", Get<string>(Value(result), "error"));
+    }
+
+    [Fact]
+    public async Task ASpotifyTimeout_FallsThroughToTheArchive()
+    {
+        await using var db = NewContext();
+        var archive = new FakeSpotifyPlaylistArchive().With(FakeSpotifyPlaylistArchive.Playlist(Id));
+
+        var result = await DiscoverEndpoints.ResolveSpotifyAsync(
+            Id, new Spotify(null, new TaskCanceledException()), archive, db, NullLogger.Instance, default);
+
+        Assert.Equal("spotifyArchive", Get<string>(Value(result), "Provider"));
+    }
 }
