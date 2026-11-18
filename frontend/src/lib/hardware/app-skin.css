@@ -686,48 +686,19 @@
 :root[data-mh-skin='hardware'] [data-mh-tracks='wide'] > [aria-current='true']::after {
   right: -10px;
 }
-/* Fewer columns: no covers, and no size, match or source. The cells are, in order: # · cover ·
-   title · artist · album · year · format · size · match · source · like · time · menu (TrackList's
-   GRID, which this re-declares per container width); keep the two in step. */
-:root[data-mh-skin='hardware']
-  :is([data-mh-tracks-head], [data-mh-tracks='wide'] > [role='button'])
-  > :is(:nth-child(2), :nth-child(8), :nth-child(9), :nth-child(10)) {
-  display: none;
+/* The table keeps every column TrackList gives it (its GRID is the only definition). The skin's
+   rows are 40px, so the cover sits smaller in its bezel; Cover sizes itself inline, hence the
+   !important. */
+:root[data-mh-skin='hardware'] [data-mh-tracks='wide'] > [role='button'] > .mh-cover {
+  width: 28px !important;
+  height: 28px !important;
+  justify-self: center;
 }
-:root[data-mh-skin='hardware']
-  :is([data-mh-tracks-head], [data-mh-tracks='wide'] > [role='button']) {
-  grid-template-columns: 40px minmax(0, 1fr) 28px 52px 32px;
-}
-@container (min-width: 36rem) {
-  :root[data-mh-skin='hardware']
-    :is([data-mh-tracks-head], [data-mh-tracks='wide'] > [role='button']) {
-    grid-template-columns: 40px minmax(0, 1.5fr) minmax(0, 1fr) 56px 28px 52px 32px;
-  }
-  /* The artist has its own column from here, so the title's second line goes unless it carries
-     a Review badge or a shared-by badge (which has a title): the title is then one line. */
-  :root[data-mh-skin='hardware']
-    [data-mh-tracks='wide']
-    > [role='button']
-    > :nth-child(3)
-    > :last-child:not(:has([data-slot='badge'], [title])) {
-    display: none;
-  }
-}
-@container (min-width: 48rem) {
-  :root[data-mh-skin='hardware']
-    :is([data-mh-tracks-head], [data-mh-tracks='wide'] > [role='button']) {
-    grid-template-columns:
-      44px minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr) 52px 64px 28px 52px
-      32px;
-  }
-  /* The format column stays narrow, so the bitrate TrackList adds from 64rem stays out. */
-  :root[data-mh-skin='hardware']
-    [data-mh-tracks='wide']
-    > [role='button']
-    > :nth-child(7)
-    > :not(:first-child) {
-    display: none;
-  }
+/* A title and the line under it (a Review badge, the artist while it has no column) both fit the
+   40px row. */
+:root[data-mh-skin='hardware'] [data-mh-tracks='wide'] > [role='button'] > div:nth-child(3) > * {
+  margin-top: 0;
+  line-height: 1.3;
 }
 /* On a phone the list is one LCD under the header, the art kept small in its bezel. */
 :root[data-mh-skin='hardware'] [data-mh-tracks='compact'] {
