@@ -85,8 +85,6 @@
     onResetEnrichment?: () => void;
     /** Link to the standalone /track/[id] provenance timeline (Enrichment's "View timeline"). */
     timelineHref?: string;
-    /** Pointer-down on a drag-to-dismiss zone (the top bar, the artwork). */
-    onDragStart?: (event: PointerEvent) => void;
     /** "Share with a friend…": the host closes this overlay and opens the album grant dialog. */
     onShareWithFriend?: () => void;
     /** "Add to playlist…": the host opens the sheet over this overlay. */
@@ -106,7 +104,6 @@
     onClose,
     onResetEnrichment,
     timelineHref,
-    onDragStart,
     onShareWithFriend,
     onAddToPlaylist,
     onReport,
@@ -695,10 +692,11 @@
   </div>
 {/snippet}
 
-<!-- Compact top bar, a drag-to-dismiss zone: the grabber (a tap closes too), ⌄, and the ⋯ menu.
+<!-- Compact top bar, where a mouse can drag Now Playing down (a touch can anywhere): the grabber
+     (a tap closes too), ⌄, and the ⋯ menu.
      Outside the artwork the song is condensed into the bar — tap it to go back to the art. -->
 {#snippet topBar()}
-  <div class="shrink-0 touch-none select-none" role="presentation" onpointerdown={onDragStart}>
+  <div class="shrink-0 touch-none select-none" data-drag-handle>
     <!-- 12pt tall with a 44pt hit strip (16pt above and below). It fades while a sheet is up
          over Now Playing, so two grabbers never stack (see the style block). -->
     <button
@@ -741,7 +739,8 @@
   </div>
 {/snippet}
 
-<div class="flex h-full max-h-full min-h-0 flex-col">
+<!-- A window wide enough for two columns is not dragged down, as on an iPad's full screen. -->
+<div class="flex h-full max-h-full min-h-0 flex-col" data-drag-ignore={wide.current || undefined}>
   {#if wide.current}
     <!-- lg: close and ⋯ in a bar; art, title and transport on the left; the mode on the right. -->
     <header class="flex shrink-0 items-center justify-between px-5 pt-3 pb-1">
@@ -807,8 +806,7 @@
           {#if content === 'player'}
             <div
               class="flex min-h-0 flex-1 touch-none items-center justify-center pb-3 select-none"
-              role="presentation"
-              onpointerdown={onDragStart}
+              data-drag-handle
             >
               <NowPlayingArt
                 artist={trackArtist}
@@ -841,18 +839,20 @@
 
       <div class="flex min-h-0 flex-1 flex-col">
         {#if content === 'player' && hardware}
-          <!-- The device, set on the dark media surface like a player on a desk. The top bar stays
-               the drag-to-dismiss zone: the device takes its own drags (the fader, the knob), and
-               its queue scrolls if a short phone needs it. -->
-          <div class="flex min-h-0 flex-1 flex-col justify-center overflow-y-auto px-4 py-2">
+          <!-- The device, set on the dark media surface like a player on a desk. It takes its own
+               drags (the fader, the knob), so it does not pull Now Playing down, and its queue
+               scrolls if a short phone needs it. -->
+          <div
+            class="flex min-h-0 flex-1 flex-col justify-center overflow-y-auto px-4 py-2"
+            data-drag-ignore
+          >
             {@render hardwareDevice(4)}
           </div>
         {:else if content === 'player'}
-          <!-- The artwork and title — also a drag-to-dismiss zone, as in Apple Music. -->
+          <!-- The artwork and title, where a mouse can drag Now Playing down too. -->
           <div
             class="flex min-h-0 flex-1 touch-none flex-col justify-center px-8 select-none"
-            role="presentation"
-            onpointerdown={onDragStart}
+            data-drag-handle
           >
             <div
               class="mx-auto flex w-full max-w-[min(100%,40svh,329px)] flex-col md:max-w-[min(100%,40svh,440px)]"

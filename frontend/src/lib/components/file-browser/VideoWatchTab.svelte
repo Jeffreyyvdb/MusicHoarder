@@ -397,6 +397,7 @@
     bind:this={frameEl}
     data-kit={housing && !expanded ? 'display-screen' : undefined}
     data-mh-video-frame={housing ? '' : undefined}
+    data-drag-ignore={expanded || undefined}
     class={cn(
       'group dark relative overflow-hidden bg-black',
       expanded
