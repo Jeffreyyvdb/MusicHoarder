@@ -1200,6 +1200,9 @@
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
+:root[data-mh-skin='hardware'] [data-slot='search-field']:has(:focus-visible) {
+  outline-offset: -2px;
+}
 /* Rows sit inside a clipped LCD: their ring goes inside the row, or the first row's top is cut. */
 :root[data-mh-skin='hardware'] [data-mh-tracks] :is([role='button'], [data-row-main]):focus-visible,
 :root[data-mh-skin='hardware'] [data-mh-lcd-list] [role='button']:focus-visible {
