@@ -1,9 +1,8 @@
 import { NodeSDK } from '@opentelemetry/sdk-node';
-import { BatchSpanProcessor } from '@opentelemetry/sdk-trace';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { createAddHookMessageChannel } from 'import-in-the-middle';
 import { register } from 'node:module';
-import { redactQueryValues, traceExporterFromEnv } from '#lib/server/telemetry.ts';
+import { batchExportFromEnv, redactUrls } from '#lib/server/telemetry.ts';
 
 // SvelteKit guarantees this file runs before any app code, so we can register
 // the import hook before any instrumented module is loaded.
@@ -15,10 +14,7 @@ register('import-in-the-middle/hook.mjs', import.meta.url, registerOptions);
 if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
   const sdk = new NodeSDK({
     serviceName: process.env.OTEL_SERVICE_NAME ?? 'frontend',
-    spanProcessors: [
-      redactQueryValues,
-      new BatchSpanProcessor({ exporter: traceExporterFromEnv() })
-    ],
+    spanProcessors: [redactUrls, batchExportFromEnv()],
     instrumentations: [getNodeAutoInstrumentations()]
   });
   sdk.start();

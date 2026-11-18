@@ -5,6 +5,7 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using OpenTelemetry;
+using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 
@@ -49,8 +50,13 @@ public static class Extensions
         builder.Logging.AddOpenTelemetry(logging =>
         {
             logging.IncludeFormattedMessage = true;
-            logging.IncludeScopes = true;
+            // Off: ASP.NET's request scope carries the raw request path, which can hold an invite or
+            // share token. A log record still links to its request through its trace id.
+            logging.IncludeScopes = false;
         });
+        // Its "Request starting/finished" lines print the raw URL; each request's span already
+        // records it, redacted. The console keeps them.
+        builder.Logging.AddFilter<OpenTelemetryLoggerProvider>("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.None);
 
         builder.Services.AddOpenTelemetry()
             .WithMetrics(metrics =>
@@ -67,11 +73,20 @@ public static class Extensions
             {
                 tracing.AddSource(builder.Environment.ApplicationName)
                     .AddAspNetCoreInstrumentation(tracing =>
+                    {
                         // Exclude health check requests from tracing
                         tracing.Filter = context =>
                             !context.Request.Path.StartsWithSegments(HealthEndpointPath)
-                            && !context.Request.Path.StartsWithSegments(AlivenessEndpointPath)
-                    )
+                            && !context.Request.Path.StartsWithSegments(AlivenessEndpointPath);
+                        // A route parameter named `token` is a credential (an invite, a share link),
+                        // so the span keeps the path without it. Query values are already redacted.
+                        tracing.EnrichWithHttpResponse = (activity, response) =>
+                        {
+                            var request = response.HttpContext.Request;
+                            if (request.RouteValues["token"] is string { Length: > 0 } token)
+                                activity.SetTag("url.path", request.Path.Value?.Replace(token, "REDACTED"));
+                        };
+                    })
                     // Uncomment the following line to enable gRPC instrumentation (requires the OpenTelemetry.Instrumentation.GrpcNetClient package)
                     //.AddGrpcClientInstrumentation()
                     .AddHttpClientInstrumentation();

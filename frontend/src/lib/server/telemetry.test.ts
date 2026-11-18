@@ -6,7 +6,7 @@ import {
 } from '@opentelemetry/sdk-trace';
 import { OTLPTraceExporter as GrpcTraceExporter } from '@opentelemetry/exporter-trace-otlp-grpc';
 import { OTLPTraceExporter as ProtobufTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto';
-import { redactQueryValues, traceExporterFromEnv } from './telemetry.ts';
+import { redactUrls, traceExporterFromEnv } from './telemetry.ts';
 
 async function exportedAttributes(
   attributes: Record<string, string>,
@@ -14,7 +14,7 @@ async function exportedAttributes(
 ) {
   const exporter = new InMemorySpanExporter();
   const provider = new TracerProvider({
-    spanProcessors: [redactQueryValues, new SimpleSpanProcessor({ exporter })]
+    spanProcessors: [redactUrls, new SimpleSpanProcessor({ exporter })]
   });
   const span = provider.getTracer('test').startSpan('request', { attributes });
   for (const [name, value] of Object.entries(later)) span.setAttribute(name, value);
@@ -23,7 +23,7 @@ async function exportedAttributes(
   return exporter.getFinishedSpans()[0].attributes;
 }
 
-describe('redactQueryValues', () => {
+describe('redactUrls', () => {
   it('drops a sign-in token from the URL SvelteKit records', async () => {
     const attributes = await exportedAttributes({
       'http.url': 'https://example.test/auth/callback?client=app&token=secret-token#top'
@@ -44,6 +44,28 @@ describe('redactQueryValues', () => {
       'url.full': 'http://api:8080/songs?ids=REDACTED',
       'http.target': '/x?token=REDACTED'
     });
+  });
+
+  it('drops invite and share tokens from paths, on the page and on its call to the API', async () => {
+    const attributes = await exportedAttributes({
+      'http.url': 'https://example.test/invite/invite-token',
+      'url.path': '/invite/invite-token/accept',
+      'url.full': 'http://api:8080/api/share/share-token/songs/3/stream?format=wav',
+      'http.target': '/api/chat/share-links/share-token'
+    });
+    expect(attributes).toMatchObject({
+      'http.url': 'https://example.test/invite/REDACTED',
+      'url.path': '/invite/REDACTED/accept',
+      'url.full': 'http://api:8080/api/share/REDACTED/songs/3/stream?format=REDACTED',
+      'http.target': '/api/chat/share-links/REDACTED'
+    });
+  });
+
+  it('keeps routes that only look like token paths', async () => {
+    const paths = ['/api/invite/accept', '/api/shares/12/stats', '/share-target', '/shared'];
+    for (const path of paths) {
+      expect((await exportedAttributes({ 'url.path': path }))['url.path']).toBe(path);
+    }
   });
 
   it('leaves a URL without a query as it was', async () => {
