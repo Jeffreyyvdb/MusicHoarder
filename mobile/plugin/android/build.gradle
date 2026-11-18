@@ -43,4 +43,7 @@ dependencies {
     implementation "androidx.media3:media3-session:$media3Version"
     implementation "androidx.media3:media3-datasource-okhttp:$media3Version"
     implementation "androidx.annotation:annotation-experimental:1.5.1"
+    // The widget codec and store are plain Java; android.jar's org.json only stubs under JUnit.
+    testImplementation "junit:junit:${project.hasProperty('junitVersion') ? rootProject.ext.junitVersion : '4.13.2'}"
+    testImplementation 'org.json:json:20240303'
 }

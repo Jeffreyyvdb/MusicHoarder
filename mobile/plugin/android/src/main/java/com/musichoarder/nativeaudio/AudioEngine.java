@@ -3,7 +3,6 @@ package com.musichoarder.nativeaudio;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
-import android.webkit.CookieManager;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.OptIn;
@@ -11,6 +10,7 @@ import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
 import androidx.media3.common.ForwardingPlayer;
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.common.util.UnstableApi;
@@ -23,9 +23,7 @@ import com.getcapacitor.JSObject;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import okhttp3.Interceptor;
 import okhttp3.OkHttpClient;
-import okhttp3.Request;
 
 /**
  * The player behind the web app's transport: the Android twin of the iOS plugin's AudioEngine, and
@@ -53,6 +51,7 @@ final class AudioEngine implements Player.Listener {
     private final Player sessionPlayer;
     private final DataSource.Factory dataSourceFactory;
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private final WidgetPublisher widgets;
 
     @Nullable
     private Listener listener;
@@ -73,23 +72,14 @@ final class AudioEngine implements Player.Listener {
     private final Runnable tick = new Runnable() {
         @Override
         public void run() {
-            emitState();
+            // The position only: the widgets are redrawn on changes, never on the clock.
+            if (loaded) emit("state", state());
             if (player.isPlaying()) handler.postDelayed(this, TICK_MS);
         }
     };
 
     AudioEngine(Context context) {
-        // Streams and covers are authorised by the web view's session cookie. A network
-        // interceptor runs on every hop, so a redirect to another host is sent that host's
-        // cookies (none), never the session.
-        Interceptor cookies = chain -> {
-            Request request = chain.request();
-            String cookie = CookieManager.getInstance().getCookie(request.url().toString());
-            Request.Builder builder = request.newBuilder().removeHeader("Cookie");
-            if (cookie != null && !cookie.isEmpty()) builder.header("Cookie", cookie);
-            return chain.proceed(builder.build());
-        };
-        OkHttpClient client = new OkHttpClient.Builder().addNetworkInterceptor(cookies).build();
+        OkHttpClient client = AuthorisedHttp.client();
         dataSourceFactory = new OkHttpDataSource.Factory(client);
 
         player = new ExoPlayer.Builder(context)
@@ -104,6 +94,9 @@ final class AudioEngine implements Player.Listener {
             .build();
         player.addListener(this);
         sessionPlayer = new SessionPlayer(player);
+        // A new engine holds nothing: whatever the widget says a previous one was doing is over.
+        widgets = WidgetPublisher.get(context);
+        widgets.demote();
     }
 
     /** The player as the media session sees it: its commands go to the page first. */
@@ -129,6 +122,7 @@ final class AudioEngine implements Player.Listener {
     }
 
     void release() {
+        widgets.demote();
         handler.removeCallbacksAndMessages(null);
         player.removeListener(this);
         player.release();
@@ -247,6 +241,8 @@ final class AudioEngine implements Player.Listener {
         trail.clear();
         pendingRemotes.clear();
         handler.removeCallbacks(tick);
+        // The last track stays on the widget, but nothing here can act on a press any more.
+        widgets.demote();
         player.stop();
         player.clearMediaItems();
     }
@@ -342,6 +338,11 @@ final class AudioEngine implements Player.Listener {
     }
 
     @Override
+    public void onMediaMetadataChanged(@NonNull MediaMetadata mediaMetadata) {
+        if (loaded) publishWidgets();
+    }
+
+    @Override
     public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
         emitState();
     }
@@ -361,7 +362,48 @@ final class AudioEngine implements Player.Listener {
     }
 
     private void emitState() {
-        if (loaded) emit("state", state());
+        if (!loaded) return;
+        emit("state", state());
+        publishWidgets();
+    }
+
+    /** What the widgets show: the player's own view of the track, so a song it moved to by itself shows too. */
+    private void publishWidgets() {
+        MediaItem item = player.getCurrentMediaItem();
+        if (item == null) return;
+        MediaMetadata metadata = item.mediaMetadata;
+        boolean playing =
+            player.getPlayWhenReady() &&
+            player.getPlaybackSuppressionReason() == Player.PLAYBACK_SUPPRESSION_REASON_NONE &&
+            player.getPlaybackState() != Player.STATE_ENDED;
+        long duration = player.getDuration();
+        // Next and previous are always offered, as on the notification: the page can supply a track the queue lacks.
+        WidgetSnapshot.Transport transport = new WidgetSnapshot.Transport(
+            playing,
+            Math.max(0, player.getCurrentPosition()) / 1000.0,
+            duration == C.TIME_UNSET || duration <= 0 ? 0 : duration / 1000.0,
+            player.getPlaybackParameters().speed,
+            System.currentTimeMillis(),
+            true,
+            true
+        );
+        widgets.publish(
+            String.valueOf(metadata.title == null ? "" : metadata.title),
+            String.valueOf(metadata.artist == null ? "" : metadata.artist),
+            String.valueOf(metadata.albumTitle == null ? "" : metadata.albumTitle),
+            metadata.artworkUri == null ? null : metadata.artworkUri.toString(),
+            transport
+        );
+    }
+
+    /**
+     * A press on a widget button, the same path as a notification press: the page first, this
+     * player after a moment. False when nothing is loaded to press on.
+     */
+    boolean widgetCommand(String command) {
+        if (!loaded) return false;
+        remote(command, Double.NaN);
+        return true;
     }
 
     // The notification, the lock screen, headsets

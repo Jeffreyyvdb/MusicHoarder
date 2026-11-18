@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/mh_np_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/mh_widget_background"
+    android:clipToOutline="true"
+    android:padding="12dp">
+
+    <ImageView
+        android:id="@+id/mh_np_cover"
+        android:layout_width="56dp"
+        android:layout_height="56dp"
+        android:layout_alignParentTop="true"
+        android:layout_alignParentStart="true"
+        android:contentDescription="@string/mh_widget_cover"
+        android:scaleType="centerCrop"
+        android:src="@drawable/mh_widget_cover_placeholder" />
+
+    <ImageView
+        android:id="@+id/mh_np_icon"
+        android:layout_width="20dp"
+        android:layout_height="20dp"
+        android:layout_alignParentTop="true"
+        android:layout_alignParentEnd="true"
+        android:importantForAccessibility="no"
+        android:scaleType="fitCenter" />
+
+    <ImageButton
+        android:id="@+id/mh_np_play"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:layout_alignParentBottom="true"
+        android:layout_alignParentEnd="true"
+        android:background="@drawable/mh_widget_button"
+        android:contentDescription="@string/mh_widget_play"
+        android:padding="10dp"
+        android:scaleType="fitCenter"
+        android:src="@drawable/mh_widget_ic_play" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:layout_toStartOf="@id/mh_np_play"
+        android:layout_marginEnd="8dp"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/mh_np_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="@string/mh_widget_nothing_playing"
+            android:textColor="@color/mh_widget_text"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/mh_np_artist"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="@string/mh_widget_open_app"
+            android:textColor="@color/mh_widget_text_secondary"
+            android:textSize="12sp" />
+    </LinearLayout>
+</RelativeLayout>
