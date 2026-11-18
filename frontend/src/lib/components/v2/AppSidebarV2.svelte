@@ -290,7 +290,6 @@
                 )}
               >
                 <item.icon
-                  data-mh-nav-icon=""
                   class={cn(
                     'size-4 shrink-0',
                     active || live ? 'text-primary' : 'text-muted-foreground'

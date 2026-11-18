@@ -4,8 +4,8 @@ MusicHoarder redesigned as a [SPEC-01](https://github.com/shuding/spec-01) / Tee
 style instrument, not a recoloured app: the sidebar and the page are two molded devices on a paper
 desk, every list is data on a grey LCD (a black screen in dark mode), buttons are keycaps on a lip
 (white, one red primary, black for the transport), names are printed in small spaced capitals with
-a red LED, and the selection is red between two dashes. Some detail goes on purpose: the nav and
-chip icons, the tracks table's covers and its size, match and source columns, the cover wash on the
+a red LED, and the selection is red between two dashes. Some detail goes on purpose: the chip
+icons, the tracks table's covers and its size, match and source columns, the cover wash on the
 album page and behind Now Playing. Now Playing becomes the MH-1, a device built from SPEC-01's
 components on Vercel's [UI SDK](https://ui-sdk.dev), sitting on the same desk, and its Video mode
 plays the clip on the MH-2, a monitor beside it. A music video still plays behind Now Playing, as an

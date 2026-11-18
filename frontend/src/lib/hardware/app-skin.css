@@ -29,7 +29,7 @@
  *
  * The app's elements are found by `data-slot` (shadcn primitives, plus `filter-chip`), Button's
  * `data-variant`, and a few `data-mh-*` hooks in the shell: `data-mh-nav-item` / `-nav-heading` /
- * `-nav-icon` / `-brand` (AppSidebarV2), `data-mh-topbar`, `data-mh-banner`, `data-mh-navbar`
+ * `-brand` (AppSidebarV2), `data-mh-topbar`, `data-mh-banner`, `data-mh-navbar`
  * (PageToolbarV2), `data-mh-tracks` / `-tracks-head` (TrackList), `data-mh-mini` /
  * `-transport` (MiniPlayer), `data-mh-tabbar` / `-tabbar-search` / `-tab-badge` (BottomNavV2),
  * `data-mh-desk` / `-tv-on` (Now Playing), `data-mh-crt` (VideoBackdrop) and `data-mh-lcd`, plus
@@ -315,8 +315,8 @@
   background-color: var(--background);
 }
 
-/* The sidebar, printed: no icons, a device name with its LED, groups as small labels, the page you
-   are on in red after a dash. */
+/* The sidebar, printed: a device name with its LED, groups as small labels, the page you are on in
+   red. The nav icons stay, by the owner's choice; the brand's logo gives way to the LED. */
 :root[data-mh-skin='hardware'] [data-slot='sidebar-header'] svg {
   display: none;
 }
@@ -360,13 +360,8 @@
   margin-top: 6px;
   background: transparent;
 }
-:root[data-mh-skin='hardware'] [data-mh-nav-icon] {
-  display: none;
-}
 :root[data-mh-skin='hardware'] [data-mh-nav-item] {
-  position: relative;
   min-height: 26px;
-  padding-left: 26px;
   border-radius: 6px;
   background: transparent;
   color: var(--muted-foreground);
@@ -386,11 +381,6 @@
   background: transparent;
   color: var(--primary);
   font-weight: 700;
-}
-:root[data-mh-skin='hardware'] [data-mh-nav-item][data-active]::before {
-  content: '—';
-  position: absolute;
-  left: 6px;
 }
 /* The storage meter: an LED bar graph. */
 :root[data-mh-skin='hardware'] [data-slot='sidebar-footer'] {
