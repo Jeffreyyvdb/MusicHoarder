@@ -11,7 +11,6 @@ on:
 
 permissions:
   contents: read
-  actions: read # the budget step reads its own job's start time
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -27,6 +26,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
+      - uses: ./.github/actions/budget
 
       - name: Check Aspire compose drift
         run: bash scripts/check-aspire-compose-drift.sh
@@ -39,6 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
+      - uses: ./.github/actions/budget
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
@@ -74,6 +75,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
+      - uses: ./.github/actions/budget
 
       - uses: oven-sh/setup-bun@v2
         with:
