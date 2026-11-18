@@ -580,6 +580,8 @@ public static class SongsEndpoints
                 Synced = song.DisplaySyncedLyrics,
                 Plain = song.DisplayPlainLyrics,
                 IsInstrumental = song.IsInstrumental == true,
+                LyricsOrigin = song.LyricsOrigin.ToString(),
+                song.GeniusSongId,
                 // A guest sees the same AI label the owner does — the disclosure is about the words on the
                 // screen, so it must not depend on who is reading them.
                 LyricsProvenance = song.LyricsProvenance.ToString(),
@@ -598,6 +600,8 @@ public static class SongsEndpoints
             song.IsInstrumental,
             Synced = song.SyncedLyrics,
             Plain = song.PlainLyrics,
+            LyricsOrigin = song.LyricsOrigin.ToString(),
+            song.GeniusSongId,
             TranscribedSynced = song.TranscribedSyncedLyrics,
             TranscribedPlain = song.TranscribedPlainLyrics,
             TranscriptionStatus = song.TranscriptionStatus.ToString(),

@@ -10,12 +10,16 @@ namespace MusicHoarder.Api.Enrichment;
 /// disagreement with our own duration is the cheapest and most decisive sign the LRC was timed against a
 /// different recording of the song (see <see cref="LyricsTimingValidator"/>).
 /// </param>
+/// <param name="Origin">Which service produced the text. A Genius result carries no LRCLIB id or duration.</param>
+/// <param name="GeniusSongId">Genius's id for the page the plain text was read from; set only for a Genius result.</param>
 public record LyricsResult(
     string? SyncedLyrics,
     string? PlainLyrics,
     bool IsInstrumental,
     int? LrclibId = null,
-    double? DurationSeconds = null);
+    double? DurationSeconds = null,
+    LyricsOrigin Origin = LyricsOrigin.Lrclib,
+    int? GeniusSongId = null);
 
 public interface ILrcLibService
 {
