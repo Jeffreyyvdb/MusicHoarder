@@ -9,7 +9,7 @@
     MonitorPlay,
     MonitorSpeaker
   } from '@lucide/svelte';
-  import { untrack, type Component } from 'svelte';
+  import { untrack, type Component, type Snippet } from 'svelte';
   import { MediaQuery } from 'svelte/reactivity';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
@@ -457,7 +457,7 @@
      The links are one line of body text (a 20px inline box); an after: strip grows each to 44pt
      without moving anything, and the line's own padding (cancelled by a negative margin) keeps the
      strips inside its truncation clip. -->
-{#snippet titleBlock()}
+{#snippet titleBlock(withHeart = true)}
   <div class="flex min-w-0 items-center gap-2">
     <div class="min-w-0 flex-1">
       <h2 class={cn('text-title-2', largeType ? 'line-clamp-2' : 'truncate')} title={trackTitle}>
@@ -479,7 +479,7 @@
         >
       </p>
     </div>
-    {@render heart('lg')}
+    {#if withHeart}{@render heart('lg')}{/if}
   </div>
   {#if aiProvenance || song.sharedByUserId}
     <div class="mt-2 flex flex-wrap items-center gap-2">
@@ -607,16 +607,91 @@
 
 <!-- At lg the meta line above the scrubber already reads "FLAC 1411 · 3:06 · …", so the format
      capsule would say it twice; only the speed capsule (when not 1×) stays under the bar there. -->
-{#snippet transport()}
+{#snippet transport(layout?: Snippet<[Snippet, Snippet, Snippet]>)}
   <SongTransport
     isActive={isCurrentlyLoaded}
     isPlaying={isCurrentlyPlaying}
     fallbackDuration={song.durationSeconds ?? 0}
     onPlayToggle={handlePlayToggle}
     format={wide.current ? null : formatCapsule}
+    {layout}
     media
     shuffle
   />
+{/snippet}
+
+{#snippet coverArt(size: number, className: string, playing = artPlaying)}
+  <NowPlayingArt
+    artist={trackArtist}
+    title={album.title}
+    {coverUrl}
+    {size}
+    corner={12}
+    {playing}
+    class={className}
+  />
+{/snippet}
+
+{#snippet playerDevice(art: Snippet, volumeClass: string)}
+  {@const elapsed =
+    isCurrentlyLoaded && playerStore.currentTime > 0
+      ? formatDuration(playerStore.currentTime)
+      : '0:00'}
+  {@const upcoming =
+    isCurrentlyLoaded && queueAvailable ? playerStore.upNext.slice(0, wide.current ? 5 : 3) : []}
+  <section data-mh-console aria-label="MH-1 Player">
+    <div data-mh-console-plate data-playing={isCurrentlyPlaying || undefined} aria-hidden="true">
+      <strong>MH-1</strong> Player
+    </div>
+    {#snippet layout(scrubber: Snippet, times: Snippet, buttons: Snippet)}
+      <div data-mh-console-art>{@render art()}</div>
+      <div data-mh-np="readout">
+        {#if metaLine}<p data-mh-console-meta>{metaLine}</p>{/if}
+        {@render titleBlock(false)}
+        <span data-mh-console-clock aria-hidden="true">{elapsed}</span>
+      </div>
+      <div data-mh-console-rocker>{@render buttons()}</div>
+      <div data-mh-console-like>
+        {@render heart('lg')}
+        <small aria-hidden="true">Like</small>
+        {#if !elsewhere}
+          <div class={volumeClass} data-mh-np="volume">
+            <VolumeControl />
+          </div>
+        {/if}
+      </div>
+      <div data-mh-console-scrub data-drag-ignore>
+        {@render scrubber()}
+        {@render times()}
+      </div>
+    {/snippet}
+    <div data-mh-np="keys">{@render transport(layout)}</div>
+    {#if isCurrentlyLoaded}
+      <div data-mh-console-queue>
+        <div aria-hidden="true"><span>No</span><span>Title</span><span>Time</span></div>
+        <ol aria-label="Queue preview">
+          <li aria-current="true">
+            <span>01</span><span>{trackTitle}</span><span
+              >{formatDuration(song.durationSeconds)}</span
+            >
+          </li>
+          {#each upcoming as entry, index (`${entry.id}:${index}`)}
+            <li>
+              <button
+                type="button"
+                onclick={() => playerStore.skipToInQueue(index)}
+                aria-label={`Play ${entry.title} by ${entry.artist} now`}
+              >
+                <span>{String(index + 2).padStart(2, '0')}</span>
+                <span>{entry.title} <small>{entry.artist}</small></span>
+                <span>{formatDuration(songsStore.songsById.get(entry.id)?.durationSeconds)}</span>
+              </button>
+            </li>
+          {/each}
+        </ol>
+      </div>
+    {/if}
+  </section>
 {/snippet}
 
 {#snippet videoCaption()}
@@ -745,6 +820,7 @@
 <!-- A window wide enough for two columns is not dragged down, as on an iPad's full screen. -->
 <div class="flex h-full max-h-full min-h-0 flex-col" data-drag-ignore={wide.current || undefined}>
   {#if wide.current}
+    {@const mh1 = skinHousing(playerDevice)}
     <!-- lg: close and ⋯ in a bar; art, title and transport on the left; the mode on the right. -->
     <header class="flex shrink-0 items-center justify-between px-5 pt-3 pb-1">
       {@render closeButton()}
@@ -770,43 +846,46 @@
           class="min-h-0 flex-1 [&>[data-slot=scroll-area-viewport]>*]:flex [&>[data-slot=scroll-area-viewport]>*]:flex-col"
           viewportClass="px-12 pt-6 pb-8"
         >
-          <div
-            class="my-auto flex w-full flex-col"
-            data-mh-np="body"
-            data-playing={isCurrentlyPlaying || undefined}
-          >
-            <!-- The art gives way first on a short window (the transport, title and volume below it
-                 need ~430px), and never shrinks under 200px. -->
-            <div data-mh-np="screen">
-              <NowPlayingArt
-                artist={trackArtist}
-                title={album.title}
-                {coverUrl}
-                size={400}
-                corner={12}
-                playing={artPlaying}
-                class={cn(
-                  'mx-auto w-full',
-                  playerOnly
-                    ? 'max-w-[min(100%,56vh,max(200px,calc(100svh-var(--mh-np-chrome,460px))))]'
-                    : 'max-w-[min(100%,46vh,max(200px,calc(100svh-var(--mh-np-chrome,460px))))]'
-                )}
-              />
+          {#if mh1}
+            <div class="my-auto">
+              {#snippet art()}{@render coverArt(400, 'w-full', true)}{/snippet}
+              {@render mh1(art, 'hidden pointer-fine:block')}
+              <div class="mt-4" data-mh-np="modes">{@render bottomRow()}</div>
             </div>
-            <div class="mt-6" data-mh-np="readout">
-              {@render titleBlock()}
-              {#if metaLine}
-                <p class="text-footnote text-muted-foreground mt-1.5 tabular-nums">{metaLine}</p>
+          {:else}
+            <div
+              class="my-auto flex w-full flex-col"
+              data-mh-np="body"
+              data-playing={isCurrentlyPlaying || undefined}
+            >
+              <!-- The art gives way first on a short window (the transport, title and volume below it
+                 need ~430px), and never shrinks under 200px. -->
+              <div data-mh-np="screen">
+                {@render coverArt(
+                  400,
+                  cn(
+                    'mx-auto w-full',
+                    playerOnly
+                      ? 'max-w-[min(100%,56vh,max(200px,calc(100svh-var(--mh-np-chrome,460px))))]'
+                      : 'max-w-[min(100%,46vh,max(200px,calc(100svh-var(--mh-np-chrome,460px))))]'
+                  )
+                )}
+              </div>
+              <div class="mt-6" data-mh-np="readout">
+                {@render titleBlock()}
+                {#if metaLine}
+                  <p class="text-footnote text-muted-foreground mt-1.5 tabular-nums">{metaLine}</p>
+                {/if}
+              </div>
+              <div class="mt-5" data-mh-np="keys">{@render transport()}</div>
+              <div class="mt-2" data-mh-np="modes">{@render bottomRow()}</div>
+              {#if !elsewhere}
+                <div class="mt-4 hidden pointer-fine:block" data-mh-np="volume">
+                  <VolumeControl />
+                </div>
               {/if}
             </div>
-            <div class="mt-5" data-mh-np="keys">{@render transport()}</div>
-            <div class="mt-2" data-mh-np="modes">{@render bottomRow()}</div>
-            {#if !elsewhere}
-              <div class="mt-4 hidden pointer-fine:block" data-mh-np="volume">
-                <VolumeControl />
-              </div>
-            {/if}
-          </div>
+          {/if}
         </ScrollArea>
       </aside>
       <div class={cn('flex min-h-0 flex-col pt-2', playerOnly && 'hidden')}>
@@ -857,6 +936,7 @@
       </div>
     </div>
   {:else}
+    {@const device = content === 'player' ? skinHousing(playerDevice) : undefined}
     <div
       class="mx-auto flex h-full min-h-0 w-full max-w-xl flex-col"
       data-mh-np="body"
@@ -865,7 +945,14 @@
       {@render topBar()}
 
       <div class="flex min-h-0 flex-1 flex-col">
-        {#if content === 'player'}
+        {#if device}
+          <div class="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-3">
+            <div class="my-auto">
+              {#snippet art()}{@render coverArt(360, 'w-full', true)}{/snippet}
+              {@render device(art, 'hidden md:pointer-fine:block')}
+            </div>
+          </div>
+        {:else if content === 'player'}
           <!-- The artwork and title, where a mouse can drag Now Playing down too. -->
           <div
             class="flex min-h-0 flex-1 touch-none flex-col justify-center px-8 select-none"
@@ -875,15 +962,7 @@
               class="mx-auto flex w-full max-w-[min(100%,40svh,329px)] flex-col md:max-w-[min(100%,40svh,440px)]"
             >
               <div data-mh-np="screen">
-                <NowPlayingArt
-                  artist={trackArtist}
-                  title={album.title}
-                  {coverUrl}
-                  size={360}
-                  corner={12}
-                  playing={artPlaying}
-                  class="w-full"
-                />
+                {@render coverArt(360, 'w-full')}
               </div>
               <div class="mt-7" data-mh-np="readout">{@render titleBlock()}</div>
             </div>
@@ -893,11 +972,13 @@
       </div>
 
       <footer class="shrink-0 px-7 pt-3 pb-2">
-        <div data-mh-np="keys">{@render transport()}</div>
+        {#if !device}
+          <div data-mh-np="keys">{@render transport()}</div>
+        {/if}
         <div class="mt-1" data-mh-np="modes">{@render bottomRow()}</div>
         <!-- md–lg with a mouse (a narrow desktop window, an iPad with a trackpad): Now Playing hides
              the mini player that holds the volume, so it needs its own here too. -->
-        {#if !elsewhere}
+        {#if !elsewhere && !device}
           <div class="mt-3 hidden md:pointer-fine:block" data-mh-np="volume">
             <VolumeControl />
           </div>

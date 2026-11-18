@@ -25,6 +25,10 @@ of a surface: the first MH-1 was a component that re-implemented Now Playing, an
 list did not carry (Shuffle, playback speed, the artist and album links, the badges, the meta line)
 was gone under the skin. Three checks keep it that way, one per way a gap can be made.
 
+The MH-1 case places the shared art, title and transport in a compact grid, with a queue preview
+for a loaded track. The case depends on appearance and available space. A track playing or paused
+on another device keeps the case and the remote-device status.
+
 - **The stylesheet hides only decoration** (`skin-contract.test.ts`, in `bun run test`). It reads
   `app-skin.css`, `musichoarder.css` and any `<style>` block in this folder, and fails on a
   declaration that takes an element off the screen or out of reach (`display: none`, `visibility`,

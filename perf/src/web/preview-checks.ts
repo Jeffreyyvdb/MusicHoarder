@@ -256,6 +256,9 @@ for (const forcedColors of ['none', 'active'] as const) {
         on,
       )
       await ready()
+      if (on && await page.locator('[data-mh-np="keys"]').isVisible()) {
+        await page.getByRole('region', { name: 'MH-1 Player' }).waitFor({ timeout: 5000 })
+      }
       await page.waitForTimeout(500)
       const snapshot = await reachable()
       if (await pause.isVisible()) await pause.click()
@@ -313,6 +316,7 @@ for (const forcedColors of ['none', 'active'] as const) {
       { name: 'tracks, 1200 wide', width: 1200, height: 900, ready: tracksList },
       { name: 'tracks, 1500 wide', width: 1500, height: 900, ready: tracksList },
       { name: 'Now Playing, browsed, 1280×800', width: 1280, height: 800, ready: nowPlaying(1280, 800, false) },
+      { name: 'Now Playing, browsed, 390×844', width: 390, height: 844, ready: nowPlaying(390, 844, false) },
       { name: 'Now Playing, playing, 1280×800', width: 1280, height: 800, ready: nowPlaying(1280, 800, true) },
       { name: 'Now Playing, playing, 390×844', width: 390, height: 844, ready: nowPlaying(390, 844, true) },
     ]
