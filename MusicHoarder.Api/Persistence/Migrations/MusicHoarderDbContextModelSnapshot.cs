@@ -1788,6 +1788,9 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<string>("AlbumArtistSort")
                         .HasColumnType("text");
 
+                    b.Property<DateTime?>("AlbumIdentityHealedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("Artist")
                         .HasColumnType("text");
 
