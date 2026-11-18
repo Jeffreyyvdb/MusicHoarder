@@ -22,7 +22,7 @@ export type DetailMode = 'player' | 'lyrics' | 'video' | 'info' | 'queue';
 export interface DetailOpenOptions {
   /**
    * Open straight into this mode (a row menu's "Song info" asks for `info`). Without it the
-   * player picks its own default: lyrics when the song has any, else the artwork.
+   * player opens on the artwork.
    */
   mode?: DetailMode;
 }

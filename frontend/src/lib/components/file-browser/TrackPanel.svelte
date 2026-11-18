@@ -175,10 +175,9 @@
 
   // ── Mode ────────────────────────────────────────────────────────────────────
   let mode = $state<DetailMode>('player');
-  // The smart default (Apple Music's): lyrics when the song has any, else the artwork — unless the
-  // open() asked for a mode. Re-applied only on a NEW request (or a new song under it), through
-  // plain variables, so a manual switch on the same song is never clobbered (e.g. when lyrics
-  // arrive via SSE), while follow-playback re-targeting picks a sensible mode for the next song.
+  // The panel mounts on each open, so it starts on the artwork. A request that names a mode (a row
+  // menu's "Song info") switches to it. One that names none is the host following playback to the
+  // next song: the view the listener picked stays, except Lyrics for a song that has none.
   let appliedSeq: number | null = null;
   let appliedSongId: number | null = null;
   $effect(() => {
@@ -188,17 +187,8 @@
     const freshRequest = appliedSeq !== seq;
     appliedSeq = seq;
     appliedSongId = id;
-    // The Queue stays up while the music moves on under it (a row tapped in it plays that song):
-    // the host's follow-playback re-targets the panel with a request that names no mode.
-    const keepQueue = !(freshRequest && requestedMode) && untrack(() => mode) === 'queue';
-    mode =
-      freshRequest && requestedMode
-        ? requestedMode
-        : keepQueue
-          ? 'queue'
-          : ai.hasLyrics
-            ? 'lyrics'
-            : 'player';
+    if (freshRequest && requestedMode) mode = requestedMode;
+    else if (untrack(() => mode) === 'lyrics' && !ai.hasLyrics) mode = 'player';
   });
 
   // The Queue is the queue loaded on this device: offered while there is one, and left (back to the
