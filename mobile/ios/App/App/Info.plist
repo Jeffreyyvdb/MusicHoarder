@@ -39,6 +39,8 @@
 	<array>
 		<string>audio</string>
 	</array>
+	<key>MHAppGroup</key>
+	<string>$(MH_APP_GROUP)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

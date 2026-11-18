@@ -87,6 +87,10 @@ given, so it never collects anything from a user of the app. It sends a report (
 console errors, network calls, the account id) only when that person files one, to the maintainer's
 self-hosted inbox. If keys are ever handed to users, it becomes Diagnostics and needs declaring.
 
+The Home Screen widgets change no answer: they keep the last track, the "Last played" shelf and
+their covers on the device only, nothing of it leaves the phone, and it is wiped on sign-out and
+on a change of server.
+
 | Data type | Required? | Purposes | Comes from |
 | --- | --- | --- | --- |
 | Name | optional | app functionality, account management | the account; shown in Chats |

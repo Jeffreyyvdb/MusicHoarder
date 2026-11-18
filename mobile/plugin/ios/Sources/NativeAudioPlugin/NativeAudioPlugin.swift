@@ -3,6 +3,7 @@ import Capacitor
 import Foundation
 import UIKit
 import WebKit
+import WidgetBridge
 
 /// The bridge between the web player and `AudioEngine`. The web side is
 /// `frontend/src/lib/native/native-audio.ts`; the two are one protocol and change together.
@@ -34,14 +35,22 @@ public class NativeAudioPlugin: CAPPlugin, CAPBridgedPlugin, AudioEngineDelegate
             let engine = AudioEngine()
             engine.delegate = self
             self.engine = engine
+            // A Home Screen widget's buttons reach the engine through here: their intent lives in
+            // the app target, which cannot see this package's types.
+            WidgetCommandRouter.shared.player = { [weak engine] command, done in
+                guard let engine else { return done(false) }
+                engine.widgetCommand(command, done: done)
+            }
         }
         // Another server was chosen: the app builds a new web view, whose plugin starts its own
         // engine. This one must let go of the audio and the lock screen first.
         NotificationCenter.default.addObserver(
             forName: ShellServerPlugin.changedNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            self?.engine?.shutdown()
-            self?.engine = nil
+            guard let self, let engine = self.engine else { return }
+            engine.shutdown()
+            self.engine = nil
+            WidgetCommandRouter.shared.player = nil
         }
     }
 
