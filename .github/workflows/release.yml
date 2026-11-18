@@ -170,9 +170,7 @@ jobs:
         working-directory: frontend
         run: |
           bun install --frozen-lockfile
-          bun run check
-          bun run lint
-          bun run test
+          scripts/ci-checks.sh
           bun run build
 
       - name: API tests
