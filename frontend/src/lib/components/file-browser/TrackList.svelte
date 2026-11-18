@@ -36,7 +36,6 @@
   import { playerStore } from '#lib/stores/player.svelte.ts';
   import { songsStore } from '#lib/stores/songs.svelte.ts';
   import { cn } from '#lib/utils.ts';
-  import { hardwareMode } from '#lib/hardware/hardware-mode.svelte.ts';
 
   type Props = {
     /**
@@ -145,11 +144,7 @@
     window.addEventListener(DYNAMIC_TYPE_CHANGE, onChange);
     return () => window.removeEventListener(DYNAMIC_TYPE_CHANGE, onChange);
   });
-  // The hardware skin (an easter egg, #lib/hardware) sets the desktop table as a screen of tight
-  // lines, without the art that sets the 56px row.
-  const rowH = $derived(
-    compact ? Math.max(64, Math.round(64 * typeScale)) : hardwareMode.enabled ? 40 : 56
-  );
+  const rowH = $derived(compact ? Math.max(64, Math.round(64 * typeScale)) : 56);
   const OVERSCAN = 8;
 
   let scrollEl = $state<HTMLElement | null>(null);
