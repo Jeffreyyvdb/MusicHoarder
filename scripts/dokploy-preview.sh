@@ -467,13 +467,24 @@ destroy() {
     sleep 5
     # A compose marked running with no running deployment row for two minutes is a leftover of a
     # Dokploy restart mid-deploy (a real deployment writes its row within seconds), not a deployment.
-    local latest status waited=0 rowless=0
+    # Likewise a deployment row still running 30 minutes after it started: provision gives a
+    # deployment 20, so this one ended without Dokploy managing to record it.
+    local latest status age waited=0 rowless=0
     while (( waited < 600 )); do
       if latest="$(latest_deployment "$compose_id")" && projects="$(get project.all)"; then
         [[ -n "$latest" ]] || latest='{"status":"none"}'
         status="$(jq -r '.status // "unknown"' <<<"$latest")" || status=unknown
+        if [[ "$status" == running ]]; then
+          age="$(jq -r '(.startedAt // .createdAt // "") | sub("\\.[0-9]+Z$"; "Z")
+            | try (now - fromdateiso8601 | floor) catch -1' <<<"$latest")" || age=-1
+          if (( age >= 1800 )); then
+            echo "The running deployment of '${NAME}' started $((age / 60)) minutes ago; treating it as stale."
+            break
+          fi
+        fi
         if [[ "$status" != running && "$status" != unknown ]]; then
           status="$(compose_status "$compose_id" <<<"$projects")" || status=unknown
+          [[ "$status" != unknown ]] || rowless=0
           if [[ "$status" == running ]]; then
             rowless=$((rowless + 15))
             if (( rowless > 120 )); then
