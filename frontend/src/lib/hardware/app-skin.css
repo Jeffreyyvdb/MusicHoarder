@@ -21,8 +21,11 @@
  *   labels   small spaced capitals in grey, printed on the body: titles, headings, column heads
  *   LED      a red dot before a device name; red text plus a dash at each end marks the selection
  *
- * What it leaves out is part of the look: the nav icons, chip icons, the tracks table's covers and
- * its size, match and source columns, the cover wash behind Now Playing.
+ * A skin changes look and feel, never what is reachable (./README.md, "The contract"). Nothing
+ * here may take content off the screen: a rule that hides must name a pseudo-element or an element
+ * its component marked `aria-hidden="true" data-mh-decor` (the album wash, the sidebar logo, the
+ * blurred cover behind Now Playing), and the tracks table keeps TrackList's columns. Restyle
+ * instead. ./skin-contract.test.ts fails otherwise.
  *
  * Dark mode is a graphite body with black screens. Text tokens keep the app's WCAG floor; each
  * contrast is noted next to it.
@@ -32,8 +35,10 @@
  * `-brand` (AppSidebarV2), `data-mh-topbar`, `data-mh-banner`, `data-mh-navbar`
  * (PageToolbarV2), `data-mh-tracks` / `-tracks-head` (TrackList), `data-mh-mini` /
  * `-transport` (MiniPlayer), `data-mh-tabbar` / `-tabbar-search` / `-tab-badge` (BottomNavV2),
- * `data-mh-desk` / `-tv-on` (Now Playing), `data-mh-crt` (VideoBackdrop) and `data-mh-lcd`, plus
- * `data-lyric-state` on Now Playing's lyric lines (LyricsPanel).
+ * `data-mh-desk` / `-tv-on` (Now Playing), `data-mh-np` (TrackPanel's parts: body, screen, readout,
+ * keys, modes, volume), `data-mh-crt` (VideoBackdrop), `data-mh-lcd`, `data-mh-decor` (decoration,
+ * wherever a component marks it), plus `data-lyric-state` on Now Playing's lyric lines
+ * (LyricsPanel).
  */
 
 @import './fonts.css';
