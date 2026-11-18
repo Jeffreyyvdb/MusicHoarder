@@ -167,7 +167,8 @@ internal static class ComposeFileExtensions
 
     /// <summary>
     /// The musichoarder.app host runs an OpenTelemetry Collector beside the stack (storing into Loki,
-    /// Tempo and Prometheus), so prod exports to it unless OTEL_EXPORTER_OTLP_ENDPOINT says otherwise.
+    /// Tempo and Prometheus), so prod exports to it while OTEL_EXPORTER_OTLP_ENDPOINT is unset. Another
+    /// endpoint replaces it, and an empty one turns export off.
     /// The collector's stack owns the external <c>observability</c> overlay network, so it must be
     /// deployed first: <c>docker stack deploy</c> refuses a stack whose external network does not exist.
     /// </summary>
@@ -188,7 +189,8 @@ internal static class ComposeFileExtensions
     /// </summary>
     private static void ConfigureTelemetryExport(Service api, Service frontend, string defaultEndpoint = "")
     {
-        var endpoint = $"${{OTEL_EXPORTER_OTLP_ENDPOINT:-{defaultEndpoint}}}";
+        // `-`, not `:-`: an endpoint set to empty must stay empty (off), not fall back to the default.
+        var endpoint = $"${{OTEL_EXPORTER_OTLP_ENDPOINT-{defaultEndpoint}}}";
 
         api.Environment["OTEL_EXPORTER_OTLP_ENDPOINT"] = endpoint;
         api.Environment["OTEL_EXPORTER_OTLP_PROTOCOL"] = "${OTEL_EXPORTER_OTLP_PROTOCOL:-grpc}";
