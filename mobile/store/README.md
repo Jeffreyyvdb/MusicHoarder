@@ -91,6 +91,12 @@ The Home Screen widgets change no answer: they keep the last track, the "Last pl
 their covers on the device only, nothing of it leaves the phone, and it is wiped on sign-out and
 on a change of server.
 
+Server telemetry changes no answer either: the instance's logs, request traces and metrics are
+stored for seven days in a Loki, Tempo and Prometheus that run on the same host, and the logs also
+stay in the host's system journal until newer logs push them out (a few months at the current
+volume). None of it goes to a third party, and it holds only data already declared (account ids,
+sign-in email addresses).
+
 | Data type | Required? | Purposes | Comes from |
 | --- | --- | --- | --- |
 | Name | optional | app functionality, account management | the account; shown in Chats |
