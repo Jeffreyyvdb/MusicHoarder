@@ -4,7 +4,6 @@ using MusicHoarder.Api.Metadata;
 
 namespace MusicHoarder.Api.Enrichment;
 
-/// <summary>One result of Genius's song search.</summary>
 public sealed record GeniusHit(
     int Id,
     string Title,
@@ -39,7 +38,6 @@ public static class GeniusHitMatcher
             && VersionQualifier.Compare(expectedVersion, VersionQualifier.Detect(hit.Title)));
     }
 
-    // The normalizer drops "(feat. X)" and bracketed qualifiers, so "Title (feat. X)" meets Genius's "TITLE".
     private static bool SameTitle(string ours, string theirs, double threshold)
     {
         var left = TitleNormalizer.NormalizeForSearch(ours);

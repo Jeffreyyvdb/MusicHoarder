@@ -594,15 +594,14 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         }
     }
 
-    /// <summary>LRCLIB first; Genius only when LRCLIB gave no text and did not call the track instrumental.</summary>
-    private async Task<LyricsResult?> FetchFromSourcesAsync(SongMetadata song, bool askGenius, CancellationToken ct)
+    private async Task<LyricsResult?> FetchFromSourcesAsync(SongMetadata song, bool songHasNoLyrics, CancellationToken ct)
     {
         var lrcLib = await _lrcLibService.FetchLyricsAsync(song, ct);
         var lrcLibHasAnswer = lrcLib is not null
             && (lrcLib.IsInstrumental
                 || !string.IsNullOrWhiteSpace(lrcLib.SyncedLyrics)
                 || !string.IsNullOrWhiteSpace(lrcLib.PlainLyrics));
-        if (lrcLibHasAnswer || !askGenius || !_options.Value.EnableGeniusLyrics)
+        if (lrcLibHasAnswer || !songHasNoLyrics || !_options.Value.EnableGeniusLyrics)
             return lrcLib;
 
         return await _geniusLyricsService.FetchLyricsAsync(song, ct) ?? lrcLib;
@@ -619,7 +618,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
 
         try
         {
-            var result = await FetchFromSourcesAsync(song, askGenius: true, ct);
+            var result = await FetchFromSourcesAsync(song, songHasNoLyrics: true, ct);
 
             if (result is null)
             {
@@ -680,10 +679,8 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
 
         try
         {
-            // Genius is a first-lyrics source only: it must never stand in for LRCLIB on a song that
-            // already has text, since it can only ever offer the same unsynced words.
-            var hasNoLyrics = string.IsNullOrWhiteSpace(song.SyncedLyrics) && string.IsNullOrWhiteSpace(song.PlainLyrics);
-            var result = await FetchFromSourcesAsync(song, askGenius: hasNoLyrics, ct);
+            var songHasNoLyrics = string.IsNullOrWhiteSpace(song.SyncedLyrics) && string.IsNullOrWhiteSpace(song.PlainLyrics);
+            var result = await FetchFromSourcesAsync(song, songHasNoLyrics, ct);
 
             improved = result is not null
                 && song.TryApplyLyricsUpgrade(

@@ -8,8 +8,7 @@ namespace MusicHoarder.Api.Enrichment;
 /// Reads the lyrics out of a Genius song page. The words sit in one or more
 /// <c>data-lyrics-container="true"</c> blocks, lines separated by <c>&lt;br&gt;</c>, with the page's own
 /// header (contributors, "… Lyrics") in an element marked <c>data-exclude-from-selection</c>. Section
-/// labels such as <c>[Chorus: A, B]</c> are dropped: they are not sung, and the lyrics aligner treats
-/// the stored plain text as the words to find in the audio.
+/// labels such as <c>[Chorus: A, B]</c> are dropped.
 /// </summary>
 public static partial class GeniusLyricsParser
 {

@@ -382,11 +382,7 @@ public class SongMetadata
     public string? PlainLyrics { get; set; }
     public string? SyncedLyrics { get; set; }
 
-    /// <summary>
-    /// Which service the stored <see cref="PlainLyrics"/>/<see cref="SyncedLyrics"/> came from. Display
-    /// only (intentionally absent from <c>RebuildOnMetadataChangeInterceptor.TagRelevantProperties</c>):
-    /// the text itself is what re-tags a file.
-    /// </summary>
+    /// <summary>Which service the stored <see cref="PlainLyrics"/>/<see cref="SyncedLyrics"/> came from.</summary>
     public LyricsOrigin LyricsOrigin { get; set; } = LyricsOrigin.Lrclib;
 
     /// <summary>Genius's id for the page the lyrics were read from; set only while <see cref="LyricsOrigin"/> is Genius.</summary>
@@ -1270,10 +1266,8 @@ public class SongMetadata
         if (!gainedSynced && !gainedPlain)
             return false;
 
-        // Keep the plain lyrics we already have if this response carried only the synced form, but only
-        // from the same service: Genius's words under an LRCLIB label would credit the wrong source.
-        var keptPlain = origin == LyricsOrigin ? PlainLyrics : null;
-        ApplyLyricsResult(syncedLyrics, plainLyrics ?? keptPlain, false, lrclibId, lrclibDuration, origin, geniusSongId);
+        var plainFromSameSource = origin == LyricsOrigin ? PlainLyrics : null;
+        ApplyLyricsResult(syncedLyrics, plainLyrics ?? plainFromSameSource, false, lrclibId, lrclibDuration, origin, geniusSongId);
         return true;
     }
 

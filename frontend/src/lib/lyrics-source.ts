@@ -1,6 +1,5 @@
 import { lrclibWebUrl } from "#lib/lrclib-url.ts"
 
-/** Which service the stored lyrics were fetched from. */
 export type LyricsOrigin = "lrclib" | "genius"
 
 const GENIUS_ORIGIN = "https://genius.com"
@@ -16,7 +15,7 @@ export function lyricsSourceLabel(origin: LyricsOrigin): string {
 
 /**
  * Where to read the stored lyrics at their source. Genius's `/songs/{id}` redirects to the song's page;
- * without an id (it should always have one) the link falls back to LRCLIB's search.
+ * without an id the link falls back to LRCLIB's search.
  */
 export function lyricsSourceUrl(
   origin: LyricsOrigin,

@@ -11,7 +11,6 @@ public interface IGeniusLyricsService
 {
     /// <summary>
     /// Plain lyrics for the song, or null when Genius has no confident match or could not be reached.
-    /// Both come back as null on purpose: an unreachable Genius says nothing about the song.
     /// </summary>
     Task<LyricsResult?> FetchLyricsAsync(SongMetadata song, CancellationToken ct = default);
 }

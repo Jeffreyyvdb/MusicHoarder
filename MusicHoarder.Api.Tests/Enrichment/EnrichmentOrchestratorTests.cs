@@ -1013,7 +1013,6 @@ public class EnrichmentOrchestratorTests
         Assert.Equal(LyricsOrigin.Lrclib, updated.LyricsOrigin);
     }
 
-
     [Fact]
     public async Task ProcessSong_MatchPreservesExistingArtist_WhenMatchArtistIsBlank()
     {
