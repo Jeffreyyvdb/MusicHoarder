@@ -1256,6 +1256,18 @@ namespace MusicHoarder.Api.Persistence.Migrations
                     b.Property<string>("LogTailJson")
                         .HasColumnType("text");
 
+                    b.Property<int?>("NewFailed")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("NewReview")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("NewTracks")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("NewlyBuilt")
+                        .HasColumnType("integer");
+
                     b.Property<Guid>("OwnerUserId")
                         .HasColumnType("uuid");
 

@@ -113,6 +113,45 @@ public class IngestRunMonitorTests
     }
 
     [Fact]
+    public async Task Records_what_the_run_changed_not_the_library_totals()
+    {
+        var options = NewDbOptions();
+        await using (var seed = new MusicHoarderDbContext(options))
+        {
+            seed.Songs.AddRange(
+                OwnerSong("/src/old1.mp3", EnrichmentStatus.Matched, LibraryBuildStatus.Done),
+                OwnerSong("/src/old2.mp3", EnrichmentStatus.NeedsReview, LibraryBuildStatus.Pending),
+                OwnerSong("/src/old3.mp3", EnrichmentStatus.Failed, LibraryBuildStatus.Pending));
+            await seed.SaveChangesAsync();
+        }
+
+        var jobManager = new JobManager();
+        var monitor = NewMonitor(options, jobManager);
+
+        jobManager.TryStartJob(JobType.Scan, out var jobId, out _);
+        await monitor.TickAsync(CancellationToken.None);
+
+        await using (var seed = new MusicHoarderDbContext(options))
+        {
+            seed.Songs.AddRange(
+                OwnerSong("/src/new1.mp3", EnrichmentStatus.Matched, LibraryBuildStatus.Done),
+                OwnerSong("/src/new2.mp3", EnrichmentStatus.NeedsReview, LibraryBuildStatus.Pending));
+            await seed.SaveChangesAsync();
+        }
+
+        jobManager.SignalComplete(JobType.Scan, jobId);
+        await monitor.TickAsync(CancellationToken.None);
+
+        await using var db = new MusicHoarderDbContext(options);
+        var run = await db.IngestRuns.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal(5, run.TracksDiscovered);
+        Assert.Equal(2, run.NewTracks);
+        Assert.Equal(1, run.NewlyBuilt);
+        Assert.Equal(1, run.NewReview);
+        Assert.Equal(0, run.NewFailed);
+    }
+
+    [Fact]
     public async Task Discards_a_completed_run_that_changed_nothing()
     {
         // The periodic source re-scan finding no new files is the common case; persisting it would
