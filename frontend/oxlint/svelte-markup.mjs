@@ -1,7 +1,7 @@
 // local/sideways-scroller for the markup of .svelte files, which oxlint's JS plugins never see
 // (they get the <script> blocks only, and cannot report outside them). Checks the same strings
 // the rule does there: attribute text, and string and template literals in markup expressions.
-// Usage: bun oxlint/svelte-markup.mjs [dir]   (default: src)
+// Usage: bun oxlint/svelte-markup.mjs [dir | file.svelte...]   (default: src)
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { parse } from 'svelte/compiler';
@@ -50,9 +50,11 @@ export function checkSvelteMarkup(path, source) {
 }
 
 if (import.meta.main) {
-  const root = process.argv[2] ?? 'src';
-  const problems = readdirSync(root, { recursive: true })
-    .map((file) => join(root, file))
+  const args = process.argv.slice(2);
+  const files = args.some((arg) => arg.endsWith('.svelte'))
+    ? args
+    : readdirSync(args[0] ?? 'src', { recursive: true }).map((file) => join(args[0] ?? 'src', file));
+  const problems = files
     .filter((path) => path.endsWith('.svelte') && !IGNORED.test(relative('.', path)))
     .sort()
     .flatMap((path) => checkSvelteMarkup(path, readFileSync(path, 'utf8')));

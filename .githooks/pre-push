@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Format, lint and typecheck the frontend files this push changes, in a few seconds, so the
+# common failures show up before CI. CI still runs everything; this only fails earlier.
+# Installed by `bun install` in frontend/ (the `prepare` script sets core.hooksPath).
+set -euo pipefail
+
+root=$(git rev-parse --show-toplevel)
+zero=0000000000000000000000000000000000000000
+changed=()
+while read -r _ local_sha _ remote_sha; do
+  [[ $local_sha == "$zero" ]] && continue # deleting a branch
+  if [[ $remote_sha == "$zero" ]]; then
+    # A new branch: compare with where it left main.
+    base=$(git merge-base "$local_sha" origin/main 2>/dev/null) || continue
+  else
+    base=$remote_sha
+  fi
+  mapfile -t -O "${#changed[@]}" changed < <(
+    git diff --name-only --diff-filter=ACMR "$base" "$local_sha" -- 'frontend/*'
+  )
+done
+
+frontend=()
+for file in "${changed[@]}"; do
+  [[ -f $root/$file ]] && frontend+=("${file#frontend/}")
+done
+((${#frontend[@]})) || exit 0
+
+cd "$root/frontend"
+[[ -x node_modules/.bin/oxfmt ]] || { echo "pre-push: run 'bun install' in frontend/ first" >&2; exit 1; }
+mapfile -t code < <(printf '%s\n' "${frontend[@]}" | grep -E '\.(ts|js|mjs|svelte)$' || true)
+mapfile -t svelte < <(printf '%s\n' "${code[@]}" | grep -E '\.svelte$' || true)
+
+failed=0
+# tsrs (the TypeScript 7 compiler in Rust) checks every .ts file in under a second. It reads a
+# .svelte import as the `*.svelte` wildcard module, so it cannot see named exports from
+# <script module>: drop exactly that error. Components themselves are typed by svelte-check in
+# CI (`bun run check`), which is too slow for a hook.
+typecheck() {
+  local out
+  out=$(node_modules/.bin/tsrs --noEmit -p tsconfig.json --pretty false || true)
+  out=$(grep -vF "error TS2614: Module '\"*.svelte\"'" <<<"$out" || true)
+  [[ -z $out ]] || { echo "$out"; return 1; }
+}
+step() {
+  local name=$1; shift
+  local start=$EPOCHREALTIME
+  if ! "$@"; then
+    echo "pre-push: $name failed" >&2
+    failed=1
+  fi
+  printf 'pre-push: %s %.1fs\n' "$name" "$(awk "BEGIN { print $EPOCHREALTIME - $start }")" >&2
+}
+
+mapfile -t formatted < <(printf '%s\n' "${frontend[@]}" | grep -E '\.(ts|js|mjs|svelte|json|css|html|md|yml|yaml)$' || true)
+((${#formatted[@]})) && step format node_modules/.bin/oxfmt --check "${formatted[@]}"
+if ((${#code[@]})); then
+  step lint node_modules/.bin/oxlint "${code[@]}"
+  ((${#svelte[@]})) && step lint-markup bun oxlint/svelte-markup.mjs "${svelte[@]}"
+  # tsrs (the TypeScript 7 compiler in Rust) checks every .ts file in under a second. It reads a
+  # .svelte import as the `*.svelte` wildcard module, so it cannot see named exports from
+  # <script module>: drop exactly that error. Components themselves are typed by svelte-check
+  # in CI (`bun run check`), which is too slow for a hook.
+  step typecheck typecheck
+fi
+
+if ((failed)); then
+  echo "pre-push: fix the above (bun run format formats), or push with --no-verify to let CI judge" >&2
+  exit 1
+fi
