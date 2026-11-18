@@ -142,22 +142,10 @@ function apply(): void {
   }
 }
 
-/**
- * A look value that differs under the skin: a class, an attribute, a size. This and
- * {@link mediaAppearance} are all a component outside `#lib/hardware` may ask the skin (ESLint
- * keeps `hardwareMode` itself in here and in the settings that switch it). A skin changes how the
- * app looks, never what it offers, so the answer is a string or a number and not a flag to branch
- * on. Reactive: read it in markup or a `$derived`.
- */
 export function skinLook<T extends string | number | undefined>(plain: T, skinned: T): T {
   return enabled ? skinned : plain;
 }
 
-/**
- * A housing while the skin is on: a frame the skin draws *around* content a component still
- * renders itself (VideoWatchTab's `housing`: the MH-2 around the picture). The component hands
- * the frame its content as a snippet, so a housing can dress it and cannot replace it.
- */
 export function skinHousing<Frame>(frame: Frame): Frame | undefined {
   return enabled ? frame : undefined;
 }

@@ -1,12 +1,4 @@
 <script lang="ts">
-  // Now Playing's Video mode under the hardware skin: the MH-2, a monitor beside the MH-1 player. The
-  // clip is its screen, set in the kit's bezel; under it the sync line sits on a gray LCD next to a
-  // fullscreen key, and the plate's LED is lit while the clip plays. A housing for VideoWatchTab,
-  // which still owns the picture (its sync, its taps, fullscreen) and fits it so the whole device
-  // fits. TrackPanel loads this lazily: it is the one thing that needs the vendored kit.
-  //
-  // Hand-built rather than a Device: Device zooms itself down to fit a narrow page, and the picture
-  // is already fitted — a zoomed ancestor would also scale the fullscreen overlay inside it.
   import type { VideoHousing } from '#lib/components/file-browser/VideoWatchTab.svelte';
   import Hardware from './Hardware.svelte';
   import ButtonGroup from './ButtonGroup.svelte';

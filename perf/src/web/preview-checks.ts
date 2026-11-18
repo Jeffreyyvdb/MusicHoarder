@@ -2,8 +2,7 @@
 // put in place, in headless Chromium: the security headers, the report-only CSP and its report
 // endpoint, the landing hero's loading, the login field's passkey autofill, focus outlines under
 // forced colors, and — signed in as the demo account — one <main> and only native progress bars on
-// the app pages, with no CSP violations or script errors anywhere. It also checks that the hardware
-// skin leaves every control reachable (the tracks list and Now Playing, skin off against skin on).
+// the app pages, with no CSP violations or script errors anywhere.
 //
 //   node src/web/preview-checks.ts https://pr-123.preview.example.com
 //
@@ -225,11 +224,6 @@ for (const forcedColors of ['none', 'active'] as const) {
     }))
     check(`${path}: one <main>, no hand-made progress bars`, info.mains === 1 && info.handMadeBars === 0, JSON.stringify(info))
   }
-  // A skin changes look and feel, never what is reachable (frontend/src/lib/hardware/README.md,
-  // "The contract"). The stylesheet half of that is pinned by skin-contract.test.ts and the
-  // component half by lint; this is the rule itself, however a gap is made: everything a person
-  // can use with the skin off must still be there with it on. Compared are the controls (role and
-  // name) and the tracks table's column heads. Extend SKIN_SCENES when a page gets a skin section.
   {
     type Reachable = { controls: string[]; heads: string[] }
     const reachable = (): Promise<Reachable> =>
@@ -240,7 +234,6 @@ for (const forcedColors of ['none', 'active'] as const) {
           const box = el.getBoundingClientRect()
           return box.width > 0 && box.height > 0
         }
-        // Clocks move between two reads; everything else in a name is stable.
         const fold = (text: string) => text.replace(/\s+/g, ' ').trim().toLowerCase().replace(/\d+:\d\d/g, '0:00')
         const interactive =
           'a[href], button, input, select, textarea, summary, [role="button"], [role="slider"], [role="tab"], [role="switch"], [role="checkbox"], [role="menuitem"], [tabindex]:not([tabindex="-1"])'
@@ -253,7 +246,6 @@ for (const forcedColors of ['none', 'active'] as const) {
           .filter(Boolean)
         return { controls: [...new Set(controls)], heads }
       })
-    // `ready` brings the scene up after the reload and returns once it is on screen.
     const withSkin = async (on: boolean, ready: () => Promise<void>): Promise<Reachable> => {
       await page.evaluate((value) => localStorage.setItem('mh:hardware', value), on ? 'on' : 'off')
       await page.reload({ waitUntil: 'load' })
@@ -269,17 +261,12 @@ for (const forcedColors of ['none', 'active'] as const) {
     const tracksList = async () => {
       await page.locator('[data-mh-tracks] :is([role="button"], [role="listitem"])').first().waitFor()
     }
-    // Now Playing on a song that is looked at, not played: a demo library need not have audio, and
-    // the player is the same tree either way. Opened from the table (a row tap on a phone plays),
-    // then taken to the scene's size.
     const nowPlaying = (width: number, height: number) => async () => {
       await page.setViewportSize({ width: 1280, height: 900 })
       await page.locator('[data-mh-tracks="wide"] > [role="button"]').first().press('Enter')
       await page.locator('[data-mh-np="keys"]').first().waitFor()
       await page.setViewportSize({ width, height })
     }
-    // One /tracks scene per layout of the list: the phone list, then the table at each of its
-    // three container tiers (the sidebar takes about 270px of the window).
     const SKIN_SCENES: { name: string; width: number; height: number; ready: () => Promise<void> }[] = [
       { name: 'tracks, 700 wide', width: 700, height: 900, ready: tracksList },
       { name: 'tracks, 1000 wide', width: 1000, height: 900, ready: tracksList },

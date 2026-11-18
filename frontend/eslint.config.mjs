@@ -125,10 +125,6 @@ export default ts.config(
     }
   },
   {
-    // A skin changes how the app looks, never what it offers. A component that could read the
-    // flag could render something else under the skin, which is how Now Playing once lost its
-    // Shuffle and its links. So the flag stays inside the skin and the three places that switch
-    // it; everything else gets look values (skinLook, mediaAppearance) and housings (skinHousing).
     files: ['src/**/*.ts', 'src/**/*.svelte'],
     ignores: [
       'src/lib/hardware/**',

@@ -36,9 +36,6 @@
   });
   const r = $derived(songDetail.resolved ?? (songDetail.isOpen ? null : departing));
 
-  // The media appearance (forced dark, on black) is a look, and a skin may have another: the
-  // hardware skin (an easter egg, #lib/hardware) sets Now Playing on its desk in the app's own
-  // theme, and its stylesheet drops the cover wash, which is marked as decoration below.
   const surface = $derived(skinLook('bg-black', 'bg-background'));
 
   // Ambient backdrop: a large, heavily-blurred fill of the track's cover. Own-cover URLs get a

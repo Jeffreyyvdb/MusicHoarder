@@ -21,12 +21,6 @@
  *   labels   small spaced capitals in grey, printed on the body: titles, headings, column heads
  *   LED      a red dot before a device name; red text plus a dash at each end marks the selection
  *
- * A skin changes look and feel, never what is reachable (./README.md, "The contract"). Nothing
- * here may take content off the screen: a rule that hides must name a pseudo-element or an element
- * its component marked `aria-hidden="true" data-mh-decor` (the album wash, the sidebar logo, the
- * blurred cover behind Now Playing), and the tracks table keeps TrackList's columns. Restyle
- * instead. ./skin-contract.test.ts fails otherwise.
- *
  * Dark mode is a graphite body with black screens. Text tokens keep the app's WCAG floor; each
  * contrast is noted next to it.
  *
@@ -320,9 +314,6 @@
   background-color: var(--background);
 }
 
-/* The sidebar, printed: a device name with its LED, groups as small labels, the page you are on in
-   red. The nav icons stay; the brand's logo, which is decoration beside its name, gives way to the
-   LED. */
 :root[data-mh-skin='hardware'] [data-mh-decor='brand'] {
   display: none;
 }
@@ -690,16 +681,11 @@
 :root[data-mh-skin='hardware'] [data-mh-tracks='wide'] > [aria-current='true']::after {
   right: -10px;
 }
-/* The table keeps every column TrackList gives it (its GRID is the only definition). The skin's
-   rows are 40px, so the cover sits smaller in its bezel; Cover sizes itself inline, hence the
-   !important. */
 :root[data-mh-skin='hardware'] [data-mh-tracks='wide'] > [role='button'] > .mh-cover {
   width: 28px !important;
   height: 28px !important;
   justify-self: center;
 }
-/* A title and the line under it (a Review badge, the artist while it has no column) both fit the
-   40px row. */
 :root[data-mh-skin='hardware'] [data-mh-tracks='wide'] > [role='button'] > div:nth-child(3) > * {
   margin-top: 0;
   line-height: 1.3;
@@ -978,7 +964,6 @@
 
 /* ── Now Playing: on the desk, not over a cover wash (SongDetailHost drops its media appearance) ─ */
 
-/* The blurred cover and its dim are decoration (their components say so): the desk has neither. */
 :root[data-mh-skin='hardware'] [data-mh-decor='backdrop'] {
   display: none;
 }
@@ -991,13 +976,6 @@
   background-color: var(--background);
 }
 
-/* ── Now Playing: the MH-1 ───────────────────────────────────────────────────────────────────── */
-
-/* The MH-1 is not a component. It is Now Playing's own elements (TrackPanel's `data-mh-np` parts)
-   dressed as a device, so whatever Now Playing has, the MH-1 has: the cover is its screen under a
-   printed plate, the title block its LCD, the transport black keys with the scrubber as a fader,
-   the modes a row of white keys. At lg, where the player is a column beside the lyrics, the parts
-   sit in a molded case; on a phone the page is already the body. */
 @media (min-width: 1024px) {
   :root[data-mh-skin='hardware'] [data-mh-np='body'] {
     padding: 16px 20px 20px;
@@ -1005,13 +983,10 @@
     background: var(--mh-body);
     box-shadow: var(--mh-body-shadow);
   }
-  /* The case and its plate take about 60px that the plain column gives the cover, so the cover
-     gives way that much sooner on a short window. */
   :root[data-mh-skin='hardware'] [data-mh-np='screen'] > div {
     max-width: min(100%, 46vh, max(200px, calc(100svh - 520px)));
   }
 }
-/* The plate, with its LED: lit while this song plays. */
 :root[data-mh-skin='hardware'] [data-mh-np='screen']::before {
   content: 'MH-1  Player';
   display: block;
@@ -1034,15 +1009,12 @@
     transparent 7px
   );
 }
-/* A phone on its side sizes the cover by the screen's height, which has no line to spare. */
 @media (orientation: landscape) and (max-height: 500px) {
   :root[data-mh-skin='hardware'] [data-mh-np='screen']::before {
     display: none;
   }
 }
 
-/* The readout: title, artist and album, the badges and the meta line, on an LCD. Links stay links.
-   Now Playing's own liked and secondary tones are re-pointed, since they were resolved on the body. */
 :root[data-mh-skin='hardware'] [data-mh-np='readout'] {
   --np-liked: var(--mh-lcd-red);
   margin-top: 14px;
@@ -1072,8 +1044,6 @@
   font-size: calc(12px * var(--mh-dt, 1));
 }
 
-/* The keys: the scrubber is a fader in a groove, the times and capsules LCD print, and the
-   transport black keycaps. */
 :root[data-mh-skin='hardware'] [data-mh-np='keys'] {
   --np-liked: #ff8a5c;
 }
@@ -1094,7 +1064,6 @@
   border-radius: 0;
   background: var(--mh-led);
 }
-/* The scrubber's thumb (a mouse only, as in the plain app) is the fader's cap, always up. */
 :root[data-mh-skin='hardware'] [data-mh-np='keys'] [role='slider'] > div:last-child {
   width: 14px;
   height: 22px;
@@ -1114,7 +1083,6 @@
   font-size: 11px;
   letter-spacing: 0.06em;
 }
-/* The format and speed capsules: tags on a strip of LCD. */
 :root[data-mh-skin='hardware'] [data-mh-np='keys'] > [role='slider'] + div > :nth-child(2) > * {
   border-radius: 3px;
   background: var(--mh-lcd);
@@ -1122,7 +1090,6 @@
   color: var(--mh-lcd-ink);
   text-transform: uppercase;
 }
-/* The speed capsule only shows off 1×, so it is always the lit one. */
 :root[data-mh-skin='hardware']
   [data-mh-np='keys']
   > [role='slider']
@@ -1157,8 +1124,6 @@
   height: 20px;
 }
 
-/* The modes (Lyrics, AirPlay, Devices, Video, Info, Queue): white keys, the one showing held down
-   with its legend in red. 44pt tall, like the buttons they dress. */
 :root[data-mh-skin='hardware'] [data-mh-np='modes'] > :first-child button {
   width: 48px;
   border-radius: 10px;

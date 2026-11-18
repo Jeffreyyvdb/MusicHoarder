@@ -54,9 +54,6 @@
   let videoFailed = $state(false);
   let videoLoadRetries = 0; // non-reactive: only read inside the onerror handler
 
-  // Apple asks that motion have a system-level off switch; a full-bleed autoplaying video behind
-  // the lyrics is exactly that motion, so Reduce Motion falls back to the static ambient artwork
-  // underneath rather than only slowing it down.
   const reduceMotion = new MediaQuery('(prefers-reduced-motion: reduce)');
 
   const isCurrentSong = $derived(playerStore.currentSong?.id === songId);
@@ -157,9 +154,7 @@
 </script>
 
 <!-- A <video> paints nothing until its first frame is decoded, so the cover wash and the dim stay
-     mounted under it; without them that window would show the overlay's own black. Both are
-     decoration, and say so: a skin may drop them (the hardware skin's desk has no wash, and plays
-     the clip as a CRT through `data-mh-crt`). -->
+     mounted under it; without them that window would show the overlay's own black. -->
 {#if ambientUrl}
   <img
     src={ambientUrl}

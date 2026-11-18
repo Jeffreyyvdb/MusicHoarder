@@ -4,14 +4,6 @@ import { fileURLToPath } from 'node:url';
 import postcss, { type AtRule, type Container, type Rule } from 'postcss';
 import { describe, expect, it } from 'vitest';
 
-/**
- * A skin changes look and feel, never what is reachable. This is the stylesheet half of that rule
- * (README.md, "The contract"): the skin's CSS may take an element off the screen only when it is a
- * pseudo-element, the skin's own kit markup, or an element its component marked as decoration
- * (`aria-hidden="true" data-mh-decor`), and it never re-declares the tracks table's columns.
- */
-
-/** Property → the values that remove a box, or what is in it, from the screen. */
 const HIDES: Record<string, RegExp> = {
   display: /^none$/,
   visibility: /^(hidden|collapse)$/,
@@ -22,7 +14,6 @@ const HIDES: Record<string, RegExp> = {
   height: /^0([a-z%]+)?$/,
   'max-width': /^0([a-z%]+)?$/,
   'max-height': /^0([a-z%]+)?$/,
-  // Not the negative insets that let an LCD's shadow out on three sides.
   'clip-path': /inset\(\s*(50|100)%/
 };
 
@@ -31,7 +22,6 @@ const GRID = new Set(['grid', 'grid-template', 'grid-template-columns']);
 const RULE =
   'A skin may hide only pseudo-elements and elements marked aria-hidden data-mh-decor. Restyle it; if it is decoration, mark it aria-hidden="true" data-mh-decor in its component.';
 
-/** Split on `separator` wherever it is outside brackets, parentheses and strings. */
 function splitTopLevel(text: string, separator: RegExp): string[] {
   const parts: string[] = [];
   let depth = 0;
@@ -54,12 +44,10 @@ function splitTopLevel(text: string, separator: RegExp): string[] {
   return parts.map((part) => part.trim()).filter(Boolean);
 }
 
-/** The compound a selector styles: its last one. */
 function subjectOf(selector: string): string {
   return splitTopLevel(selector, /[\s>+~]/).at(-1) ?? '';
 }
 
-/** A compound without the arguments of its functional pseudo-classes: `a:not([x])` → `a:not()`. */
 function withoutArguments(compound: string): string {
   let out = '';
   let depth = 0;
@@ -71,20 +59,16 @@ function withoutArguments(compound: string): string {
   return out;
 }
 
-/** May the skin take this selector's subject off the screen? */
 function mayHide(selector: string): boolean {
   const subject = subjectOf(selector);
   const bare = withoutArguments(subject);
   if (/::[\w-]+|:(before|after)\b/.test(bare)) return true;
   if (/\[data-mh-decor\b/.test(bare)) return true;
-  // The device's own markup (`./skin`'s kit, and the housings built from it).
   if (/\[data-(kit|device)\b/.test(bare)) return true;
-  // `:is(a, b)` alone hides whatever each of its arguments names.
   const list = /^:(?:is|where)\((.*)\)$/s.exec(subject);
   return list !== null && splitTopLevel(list[1], /,/).every(mayHide);
 }
 
-/** A rule's selectors with CSS nesting written out, so each one names its real subject. */
 function selectorsOf(rule: Rule): string[] {
   let parent = rule.parent as Container | undefined;
   while (parent && parent.type === 'atrule') parent = parent.parent as Container | undefined;
@@ -103,7 +87,6 @@ function oneLine(text: string): string {
   return text.replace(/\s+/g, ' ');
 }
 
-/** Every way `css` breaks the contract, one message each. `lineOffset` places a `<style>` block. */
 function violations(css: string, file: string, lineOffset = 0): string[] {
   const found: string[] = [];
   postcss.parse(css).walkRules((rule) => {
@@ -145,7 +128,6 @@ function svelteFiles(dir: string): string[] {
   });
 }
 
-/** The skin's own stylesheets. `./skin` is SPEC-01's, verbatim, and only reaches kit markup. */
 function skinViolations(): string[] {
   const sheets = ['app-skin.css', 'musichoarder.css'].flatMap((name) =>
     violations(readFileSync(join(here, name), 'utf8'), name)
@@ -163,7 +145,6 @@ function skinViolations(): string[] {
   return [...sheets, ...styleBlocks];
 }
 
-/** Every opening tag in a Svelte file that carries `data-mh-decor`, with its line. */
 function decorTags(source: string): { tag: string; line: number }[] {
   const tags: { tag: string; line: number }[] = [];
   for (const match of source.matchAll(/<[a-zA-Z][\w.:-]*/g)) {

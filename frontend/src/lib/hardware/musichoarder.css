@@ -18,7 +18,6 @@
   background: none;
 }
 
-/* The power LED, lit while the clip plays: the app-wide skin's red (app-skin.css --mh-led). */
 [data-skin='hardware'] [data-device-power][data-on]:not(#_) {
   background: #ff3b10;
   box-shadow: 0 0 6px rgb(255 59 16 / 0.7);
@@ -46,8 +45,6 @@
   object-fit: contain;
 }
 
-/* Under the screen: the sync line on an LCD, taking the room, and the fullscreen key at the end
-   with its legend printed under it. */
 [data-skin='hardware'] [data-mh-video-controls] {
   display: flex;
   align-items: center;

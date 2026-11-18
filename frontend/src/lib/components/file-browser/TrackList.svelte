@@ -145,8 +145,6 @@
     window.addEventListener(DYNAMIC_TYPE_CHANGE, onChange);
     return () => window.removeEventListener(DYNAMIC_TYPE_CHANGE, onChange);
   });
-  // The hardware skin (an easter egg, #lib/hardware) sets the desktop table as a screen of tight
-  // lines; the cover shrinks to fit the shorter row.
   const rowH = $derived(
     compact ? Math.max(64, Math.round(64 * typeScale)) : skinLook(56, 40)
   );

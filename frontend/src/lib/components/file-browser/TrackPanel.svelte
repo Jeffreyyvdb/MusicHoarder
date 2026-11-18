@@ -614,9 +614,6 @@
   </p>
 {/snippet}
 
-<!-- Under the hardware skin the clip plays on the MH-2, a monitor that carries the status line on
-     its LCD (so the caption under the picture would say it twice). Loaded on demand: its
-     stylesheet is the vendored SPEC-01 kit, which nobody without the easter egg should download. -->
 {#snippet videoHousing(housing: VideoHousing)}
   {#await import('#lib/hardware/HardwareVideo.svelte') then { default: HardwareVideo }}
     <HardwareVideo {housing} status={videoLine} />
@@ -726,10 +723,7 @@
   </div>
 {/snippet}
 
-<!-- A window wide enough for two columns is not dragged down, as on an iPad's full screen.
-     The `data-mh-np` attributes (body, screen, readout, keys, modes, volume) name the parts of the
-     player for a skin's stylesheet, in all three layouts; they style nothing by themselves. A skin
-     dresses these elements and never gets a tree of its own (#lib/hardware/README.md). -->
+<!-- A window wide enough for two columns is not dragged down, as on an iPad's full screen. -->
 <div class="flex h-full max-h-full min-h-0 flex-col" data-drag-ignore={wide.current || undefined}>
   {#if wide.current}
     <!-- lg: close and ⋯ in a bar; art, title and transport on the left; the mode on the right. -->
