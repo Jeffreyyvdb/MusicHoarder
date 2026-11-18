@@ -109,6 +109,13 @@
       "sourceType": "github",
       "computedHash": "3e169b77921692101a11b3195a756159f4136ce5f721a7a58e51cf1837d39943"
     },
+    "ui-sdk": {
+      "source": "vercel-labs/ui",
+      "commit": "ab55044caee66cc8228fa7ed3525088a1b7b5af7",
+      "sourceType": "github",
+      "skillPath": "packages/core/skills/ui-sdk/SKILL.md",
+      "computedHash": "9a60caf01da3d47beedf627bf1505d922dccc93b04f294c6aa64edf01c46b3ba"
+    },
     "vercel-react-best-practices": {
       "source": "vercel-labs/agent-skills",
       "sourceType": "github",
