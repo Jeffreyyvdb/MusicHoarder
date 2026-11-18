@@ -1,24 +1,4 @@
 services:
-  compose-dashboard:
-    image: "mcr.microsoft.com/dotnet/nightly/aspire-dashboard:13.6"
-    expose:
-      - "18889"
-      - "18890"
-      - "18888"
-    networks:
-      - "aspire"
-    deploy:
-      replicas: 1
-      mode: "replicated"
-      update_config:
-        parallelism: 1
-        delay: "5s"
-        failure_action: "rollback"
-        monitor: "60s"
-        order: "stop-first"
-      restart_policy:
-        condition: "any"
-        delay: "5s"
   postgres:
     image: "docker.io/library/postgres:17.6"
     environment:
@@ -87,7 +67,7 @@ services:
       StreamingFlac__SidecarUrl: "${SPOTIFLAC_SIDECAR_URL:-}"
       Frontend__PublicBaseUrl: "${FRONTEND_PUBLIC_BASE_URL}"
       Spotify__OAuthRelayUrl: "${FRONTEND_PUBLIC_BASE_URL}/api/spotify/relay"
-      OTEL_EXPORTER_OTLP_ENDPOINT: "http://compose-dashboard:18889"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
       OTEL_EXPORTER_OTLP_PROTOCOL: "grpc"
       OTEL_SERVICE_NAME: "api"
       MusicEnricher__EnableWishlistDownloads: "${ENABLE_WISHLIST_DOWNLOADS:-false}"
@@ -138,6 +118,7 @@ services:
         source: "musichoarder-synced-source"
     networks:
       - "aspire"
+      - "observability"
     deploy:
       replicas: 1
       mode: "replicated"
@@ -179,7 +160,7 @@ services:
       WEBMCP_ORIGIN_TRIAL_TOKEN: "${WEBMCP_ORIGIN_TRIAL_TOKEN}"
       HOST: "0.0.0.0"
       HOSTNAME: "0.0.0.0"
-      OTEL_EXPORTER_OTLP_ENDPOINT: "http://compose-dashboard:18889"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
       OTEL_EXPORTER_OTLP_PROTOCOL: "grpc"
       OTEL_SERVICE_NAME: "frontend"
     expose:
@@ -187,6 +168,7 @@ services:
       - "8001"
     networks:
       - "aspire"
+      - "observability"
     deploy:
       replicas: 1
       mode: "replicated"
@@ -249,6 +231,8 @@ networks:
   aspire:
     driver: "overlay"
     attachable: true
+  observability:
+    external: true
 volumes:
   musichoarder-volume:
     driver: "local"

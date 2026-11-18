@@ -47,6 +47,7 @@ declared_keys="$(
 # Keys a per-target shaper intentionally adds or drops, so they're skipped where they don't belong:
 PREVIEW_ONLY="MusicEnricher__AutoStartPipeline Spotify__WishlistSyncIntervalMinutes WebAuthn__RpId Auth__OwnerSeedCredentialJson"  # ConfigureForPreview only
 SELFHOST_ONLY="Spotify__OAuthRedirectBaseUrl PUID PGID"                                                                                   # ConfigureForSelfHost only
+SWARM_ONLY="OTEL_EXPORTER_OTLP_ENDPOINT OTEL_EXPORTER_OTLP_PROTOCOL OTEL_SERVICE_NAME"                                               # ConfigureForSwarm only (host OTel Collector)
 SELFHOST_DROPS="MusicEnricher__DemoMediaDirectory Spotify__OAuthRelayUrl Spotify__OAuthStateSigningKey SPOTIFY_OAUTH_STATE_SIGNING_KEY SPOTIFY_RETURN_ORIGIN_ALLOWLIST"  # relay/demo keys self-host removes (api + frontend)
 
 # present_in <compose-file> <key>  → 0 if the generated compose maps the key (`      Key: "..."`).
@@ -71,8 +72,8 @@ check_generated() {
 }
 
 check_generated "$PROD_COMPOSE"    "aspire-output (swarm/prod)"        "$PREVIEW_ONLY $SELFHOST_ONLY"
-check_generated "$PREVIEW_COMPOSE" "aspire-output-preview (preview)"   "$SELFHOST_ONLY"
-check_generated "$SELFHOST_COMPOSE" "docker-compose.yml (self-host)"   "$PREVIEW_ONLY $SELFHOST_DROPS"
+check_generated "$PREVIEW_COMPOSE" "aspire-output-preview (preview)"   "$SELFHOST_ONLY $SWARM_ONLY"
+check_generated "$SELFHOST_COMPOSE" "docker-compose.yml (self-host)"   "$PREVIEW_ONLY $SELFHOST_DROPS $SWARM_ONLY"
 
 if [ "$fail" -ne 0 ]; then
   exit 1

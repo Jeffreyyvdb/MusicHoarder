@@ -70,23 +70,12 @@ internal static class ComposeFileExtensions
         api.PullPolicy = null;
         frontend.PullPolicy = null;
 
-        // The Aspire dashboard service carries a top-level `restart: always`, which `docker stack
-        // deploy` rejects the same way ("Additional property restart is not allowed"). Swap it for a
-        // swarm restart_policy. Guarded in case the dashboard is disabled (WithProperties).
-        if (file.Services.TryGetValue("compose-dashboard", out var dashboard))
-        {
-            dashboard.Restart = null;
-            dashboard.WithStopFirstUpdate();
-        }
-
         // Nothing in this stack may publish a host port. Aspire emits target-only `ports:` entries
         // (`- "8001"`), and swarm turns each of those into an auto-assigned ingress port in the
         // 30000+ range on EVERY host interface. Docker-published ports bypass ufw and sit outside
-        // Cloudflare, so the api, the frontend and the Aspire dashboard were all reachable straight
-        // from the internet on <host-ip>:3000x. Traefik reaches the services over the overlay network
-        // (Dokploy's injected labels carry the container port), so `expose:` is all routing needs.
-        // The dashboard has no Traefik route: reach it over an SSH tunnel, or give it a Dokploy
-        // domain behind access control.
+        // Cloudflare, so the services were reachable straight from the internet on <host-ip>:3000x.
+        // Traefik reaches them over the overlay network (Dokploy's injected labels carry the
+        // container port), so `expose:` is all routing needs.
         foreach (var service in file.Services.Values)
         {
             service.WithoutPublishedPorts();
@@ -103,6 +92,8 @@ internal static class ComposeFileExtensions
             network.Driver = "overlay";
             network.Attachable = true;
         }
+
+        file.ExportTelemetryToHostCollector(api, frontend);
 
         file.PersistDataProtectionKeys(api);
         MountMusicLibrary(api);
@@ -172,6 +163,29 @@ internal static class ComposeFileExtensions
         // depends_on — this only affects the Aspire/Dokploy stack.)
         api.DependsOn.Clear();
         frontend.DependsOn.Clear();
+    }
+
+    /// <summary>
+    /// Sends the api's and the frontend's OTLP logs, traces and metrics to the OpenTelemetry Collector
+    /// that runs beside the stack on the musichoarder.app host, which stores them in Loki, Tempo and
+    /// Prometheus. The collector's stack owns the external <c>observability</c> overlay network, so it
+    /// must be deployed first: <c>docker stack deploy</c> refuses a stack whose external network does
+    /// not exist. While the collector is down the exporters drop telemetry and the app runs on.
+    /// </summary>
+    private static void ExportTelemetryToHostCollector(this ComposeFile file, Service api, Service frontend)
+    {
+        const string network = "observability";
+        file.Networks[network] = new Network { Name = network, External = true };
+
+        api.Networks.Add(network);
+        api.Environment["OTEL_EXPORTER_OTLP_ENDPOINT"] = "http://otel-collector:4317";
+        api.Environment["OTEL_EXPORTER_OTLP_PROTOCOL"] = "grpc";
+        api.Environment["OTEL_SERVICE_NAME"] = "api";
+
+        frontend.Networks.Add(network);
+        frontend.Environment["OTEL_EXPORTER_OTLP_ENDPOINT"] = "http://otel-collector:4317";
+        frontend.Environment["OTEL_EXPORTER_OTLP_PROTOCOL"] = "grpc";
+        frontend.Environment["OTEL_SERVICE_NAME"] = "frontend";
     }
 
     /// <summary>
