@@ -11,7 +11,7 @@ public class MusicBrainzRecordingLookupTests
     [Fact]
     public async Task LookupByRecordingId_MapsDescriptiveMetadata()
     {
-        // A recording lookup carrying the fields the expanded inc= now requests: genres, label-info
+        // A recording payload carrying every descriptive field the mapper reads: genres, label-info
         // (label + catalog-number), release barcode, release-group first-release-date, and artist
         // sort-names.
         var handler = new StubHandler("""
@@ -89,7 +89,38 @@ public class MusicBrainzRecordingLookupTests
         Assert.Equal("Beatles, The", rec.AlbumArtistSort); // primary credit's sort-name
     }
 
-    private static MusicBrainzWebService CreateService(StubHandler handler)
+    [Fact]
+    public async Task LookupByIsrc_ResolvesTheRecording_ThenLooksItUpWithItsReleases()
+    {
+        // The isrc resource answers 400 to any inc it does not know (release-groups, genres, labels)
+        // and leaves releases out even when asked, so the release data comes from a recording lookup.
+        var handler = new RoutingHandler(new()
+        {
+            ["/ws/2/isrc/USXXX0000001?fmt=json"] = """
+                { "isrc": "USXXX0000001", "recordings": [ { "id": "rec-1", "title": "N.Y. State of Mind" }, { "id": "rec-2" } ] }
+                """,
+            ["/ws/2/recording/rec-1?inc=artist-credits+releases+release-groups+media+isrcs+genres&fmt=json"] = """
+                {
+                  "id": "rec-1",
+                  "title": "N.Y. State of Mind",
+                  "artist-credit": [ { "name": "Nas", "joinphrase": "", "artist": { "id": "a1", "name": "Nas" } } ],
+                  "releases": [ { "id": "rel-1", "title": "Illmatic", "date": "1994-04-19",
+                    "release-group": { "id": "rg-1", "primary-type": "Album" } } ]
+                }
+                """,
+        });
+
+        var rec = await CreateService(handler).LookupByIsrcAsync(" us-xxx-00-00001 ");
+
+        Assert.NotNull(rec);
+        Assert.Equal("rel-1", rec!.ReleaseId);
+        Assert.Equal("Illmatic", rec.ReleaseTitle);
+        Assert.Equal("rg-1", rec.ReleaseGroupId);
+        Assert.Equal("USXXX0000001", rec.Isrc);
+        Assert.Equal(2, rec.CandidateCount);
+    }
+
+    private static MusicBrainzWebService CreateService(HttpMessageHandler handler)
     {
         var httpClient = new HttpClient(handler)
         {
@@ -110,5 +141,16 @@ public class MusicBrainzRecordingLookupTests
             {
                 Content = new StringContent(json, Encoding.UTF8, "application/json"),
             });
+    }
+
+    private sealed class RoutingHandler(Dictionary<string, string> bodiesByPathAndQuery) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            => Task.FromResult(bodiesByPathAndQuery.TryGetValue(request.RequestUri!.PathAndQuery, out var json)
+                ? new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json"),
+                }
+                : new HttpResponseMessage(HttpStatusCode.BadRequest));
     }
 }
