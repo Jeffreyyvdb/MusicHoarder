@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { holdAppInert } from '#lib/actions/inert-app.ts';
+  import { holdAppHidden, holdAppInert } from '#lib/actions/inert-app.ts';
   import { tick, untrack } from 'svelte';
   import { Dialog as DialogPrimitive } from 'bits-ui';
   import { Loader2 } from '@lucide/svelte';
@@ -285,6 +285,10 @@
   };
 
   // The page behind a full-screen Now Playing leaves the accessibility tree (see inert-app.ts).
+  // `inert` waits for the rise (see `covering`); until then, and through the fall, `aria-hidden`
+  // keeps a screen reader from walking into the page behind.
+  const hideApp = $derived(songDetail.isOpen || covering);
+  $effect(() => (hideApp ? holdAppHidden() : undefined));
   $effect(() => (covering ? holdAppInert() : undefined));
 
   // A fresh open starts from a clean element (a drag-dismiss leaves its inline transform behind).

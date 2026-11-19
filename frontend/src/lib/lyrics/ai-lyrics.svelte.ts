@@ -9,6 +9,7 @@ import {
   type TranscribeLyricsResponse,
   type TranslateLyricsResponse
 } from '#lib/api-client.ts';
+import { isRefusal } from '#lib/refusal.ts';
 import { toast } from 'svelte-sonner';
 import { computeLyricsProvenance } from '#lib/lyrics/provenance.ts';
 import type { LyricsProvenance, LyricsStatus } from '#lib/types.ts';
@@ -132,6 +133,9 @@ export function createAiLyrics(opts: {
   let preferSaving = $state(false);
   // Plain (non-reactive) guard so re-syncing on song change can't loop the caller's effect.
   let loadedForSongId: number | null = null;
+  // Bumped by every write of the AI lyrics from an action, so a load that was already in flight
+  // (older than that write) does not put the previous state back. Plain, not $state.
+  let edits = 0;
 
   let translation = $state<AiTranslation | null>(null);
   let lyricsView = $state<LyricsViewMode>('original');
@@ -279,6 +283,7 @@ export function createAiLyrics(opts: {
   /** Stage 1 — transcribe/re-sync the audio and reflect the server's (possibly promoted) default. */
   async function runTranscribe() {
     const r = await api.transcribeSongLyrics(song.id);
+    edits += 1;
     transcription = {
       synced: r.synced ?? undefined,
       plain: r.plain ?? undefined,
@@ -299,6 +304,7 @@ export function createAiLyrics(opts: {
   /** Stage 2 — pronunciation + English translation of whatever stage 1 left on screen. */
   async function runTranslate() {
     const r = await api.translateSongLyrics(song.id);
+    edits += 1;
     translation = {
       romanizedSynced: r.romanizedSynced ?? undefined,
       romanizedPlain: r.romanizedPlain ?? undefined,
@@ -475,12 +481,20 @@ export function createAiLyrics(opts: {
       };
       const last = api.lastFetchedTrackLyrics?.(id);
       if (last) apply(last);
+      const editsBefore = edits;
+      // Dropped when the song changed, or an action wrote newer lyrics, while it was in flight.
+      const stillWanted = () => loadedForSongId === id && edits === editsBefore;
       api
         .fetchTrackLyrics(id)
         .then((d) => {
-          if (loadedForSongId === id) apply(d); // else navigated away while in flight
+          if (stillWanted()) apply(d);
         })
-        .catch(() => {});
+        .catch((err: unknown) => {
+          if (!stillWanted() || !isRefusal(err)) return;
+          transcription = null;
+          translation = null;
+          translationStale = false;
+        });
     },
 
     /**
@@ -541,6 +555,7 @@ export function createAiLyrics(opts: {
       preferSaving = true;
       try {
         const r = await api.setPreferredLyricsSource(song.id, source);
+        edits += 1;
         // The flip changed which lyrics are displayed — regenerate a now-stale translation so the
         // stacked pronunciation/translation always matches what's on screen. (False also syncs:
         // flipping back to the source the translation was generated from makes it fresh again.)

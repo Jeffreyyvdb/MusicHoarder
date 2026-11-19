@@ -32,3 +32,25 @@ export function holdAppInert(): () => void {
     if (holds === 0) root()?.removeAttribute('inert');
   };
 }
+
+let hidden = 0;
+
+/**
+ * `aria-hidden` on the app root: the assistive-technology half of `inert`, for the moments an
+ * overlay is up but `inert` would cost too much. `inert` changes the computed style of every
+ * element in the app, so setting it while Now Playing slides in drops the slide's frames;
+ * `aria-hidden` matches no style rule and costs nothing. Counted like `holdAppInert`.
+ */
+export function holdAppHidden(): () => void {
+  const el = root();
+  if (!el) return () => {};
+  hidden += 1;
+  el.setAttribute('aria-hidden', 'true');
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    hidden = Math.max(0, hidden - 1);
+    if (hidden === 0) root()?.removeAttribute('aria-hidden');
+  };
+}

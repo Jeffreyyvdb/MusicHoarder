@@ -7,6 +7,7 @@ import {
   type TrackLyricsResponse,
   type VerifyLyricsTimingResponse
 } from '#lib/api-client.ts';
+import { isRefusal } from '#lib/refusal.ts';
 import { lyricsSourceLabel, parseLyricsOrigin, type LyricsOrigin } from '#lib/lyrics-source.ts';
 import type { LyricsProvenance, LyricsStatus, LyricsSyncStatus } from '#lib/types.ts';
 
@@ -236,8 +237,13 @@ export function createLyricsDoc(opts: {
           apply(data);
           loadState = 'idle';
         })
-        .catch(() => {
-          if (syncedForKey === key && !last) loadState = 'error';
+        .catch((err: unknown) => {
+          if (syncedForKey !== key) return;
+          // A remembered answer covers a network blip, never a refusal (gone, or access revoked).
+          if (last && !isRefusal(err)) return;
+          loadedSynced = undefined;
+          loadedPlain = undefined;
+          loadState = 'error';
         });
     },
 

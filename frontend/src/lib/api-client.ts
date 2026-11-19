@@ -8,6 +8,7 @@ import {
 } from '#lib/webauthn-client.ts';
 import { formatOf } from '#lib/audio-formats.ts';
 import { API_PREFIX, LIBRARY_ALBUMS_PATH, LIBRARY_SONGS_PATH } from '#lib/library-requests.ts';
+import { isRefusal } from '#lib/refusal.ts';
 import type { PlayerSong } from '#lib/stores/player.svelte.ts';
 import type { LyricsProvenance, LyricsSyncStatus } from '#lib/types.ts';
 import {
@@ -2510,6 +2511,11 @@ export async function fetchTrackLyrics(trackId: number): Promise<TrackLyricsResp
         lastTrackLyrics.delete(lastTrackLyrics.keys().next().value!);
       }
       return lyrics;
+    })
+    .catch((err: unknown) => {
+      // Gone, or no longer ours to read (a revoked grant): what was remembered must not be shown.
+      if (isRefusal(err)) lastTrackLyrics.delete(trackId);
+      throw err;
     })
     .finally(() => {
       inFlightTrackLyrics.delete(trackId);

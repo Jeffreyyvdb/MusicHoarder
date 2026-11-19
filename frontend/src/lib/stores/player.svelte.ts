@@ -8,6 +8,7 @@ import {
   toPlayerSong,
   type ApiSong
 } from '#lib/api-client.ts';
+import { isRefusal } from '#lib/refusal.ts';
 import {
   convertedStreamUrl,
   createUnplayableFormats,
@@ -1432,15 +1433,6 @@ async function topUpRadio(): Promise<boolean> {
   })();
 
   return radioTopUp;
-}
-
-/** A 4xx answer, which asking again will not change — unless it was a timeout or a rate limit. */
-function isRefusal(err: unknown): boolean {
-  const status = (err as { status?: unknown } | null)?.status;
-
-  return (
-    typeof status === 'number' && status >= 400 && status < 500 && status !== 408 && status !== 429
-  );
 }
 
 /**

@@ -158,6 +158,25 @@ describe('createLyricsDoc', () => {
     expect(doc.synced).toBe(lrc);
   });
 
+  it('drops a remembered answer when the fresh fetch is refused', async () => {
+    const { doc, drive } = setup(
+      { songId: 7, hasSynced: true },
+      {
+        api: {
+          lastFetchedTrackLyrics: () => ({ id: 7, lyricsStatus: 'Fetched', synced: lrc }),
+          fetchTrackLyrics: vi.fn(async () => {
+            throw Object.assign(new Error('Not found'), { status: 404 });
+          }) as LyricsDocApi['fetchTrackLyrics']
+        }
+      }
+    );
+    drive();
+    expect(doc.synced).toBe(lrc);
+    await flush();
+    expect(doc.loadState).toBe('error');
+    expect(doc.synced).toBeUndefined();
+  });
+
   it('drops a load that lands after the song changed', async () => {
     let resolveFetch: (v: unknown) => void = () => {};
     const { doc, drive, set } = setup(
