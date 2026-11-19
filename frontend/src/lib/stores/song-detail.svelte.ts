@@ -46,6 +46,10 @@ interface DetailTarget {
 
 let target = $state<DetailTarget | null>(null);
 let isOpen = $state(false);
+// Whether the overlay is fully over the app: set by SongDetailHost once its rise has finished, and
+// cleared once its fall has. What hides behind it (the tab bar, the mini player) follows this, not
+// `isOpen`, so that work stays out of the slide's frames.
+let covering = $state(false);
 let seq = 0;
 
 // The panel's own album set: every song, including unbuilt ones, and per destination folder rather
@@ -92,6 +96,12 @@ function toggle(): void {
 export const songDetail = {
   get isOpen() {
     return isOpen;
+  },
+  get covering() {
+    return covering;
+  },
+  setCovering(value: boolean) {
+    covering = value;
   },
   get target() {
     return target;

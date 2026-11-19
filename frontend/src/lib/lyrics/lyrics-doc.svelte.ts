@@ -1,11 +1,13 @@
 import {
   fetchTrackLyrics,
+  lastFetchedTrackLyrics,
   recheckSongLyrics,
   verifyLyricsTiming,
   type RecheckLyricsResponse,
   type TrackLyricsResponse,
   type VerifyLyricsTimingResponse
 } from '#lib/api-client.ts';
+import { isRefusal } from '#lib/refusal.ts';
 import { lyricsSourceLabel, parseLyricsOrigin, type LyricsOrigin } from '#lib/lyrics-source.ts';
 import type { LyricsProvenance, LyricsStatus, LyricsSyncStatus } from '#lib/types.ts';
 
@@ -17,9 +19,16 @@ export type LyricsDocApi = {
   fetchTrackLyrics: (trackId: number) => Promise<TrackLyricsResponse>;
   recheckSongLyrics: (songId: number) => Promise<RecheckLyricsResponse>;
   verifyLyricsTiming: (songId: number) => Promise<VerifyLyricsTimingResponse>;
+  /** The last fetched answer for a track, shown while a fresh fetch replaces it. */
+  lastFetchedTrackLyrics?: (trackId: number) => TrackLyricsResponse | undefined;
 };
 
-const realApi: LyricsDocApi = { fetchTrackLyrics, recheckSongLyrics, verifyLyricsTiming };
+const realApi: LyricsDocApi = {
+  fetchTrackLyrics,
+  lastFetchedTrackLyrics,
+  recheckSongLyrics,
+  verifyLyricsTiming
+};
 
 export type LyricsDoc = ReturnType<typeof createLyricsDoc>;
 
@@ -91,6 +100,9 @@ export function createLyricsDoc(opts: {
   let verifyMessage = $state<string | null>(null);
   // Plain (non-reactive) guard so the owner's effect can't loop on its own reset.
   let syncedForKey: string | null = null;
+  // Bumped when a re-check or a timing repair puts new text on screen, so a load already in flight
+  // (older than that write) does not put the previous text back. Plain, not $state.
+  let edits = 0;
 
   const hasSynced = $derived(Boolean(loadedSynced) || Boolean(opts.hasSynced()));
   const hasPlain = $derived(Boolean(loadedPlain) || Boolean(opts.hasPlain()));
@@ -212,19 +224,32 @@ export function createLyricsDoc(opts: {
       const songId = opts.songId();
       if (!fetchable || songId === null) return;
       if (!hasAny || loadedSynced || loadedPlain || loadState !== 'idle') return;
-      loadState = 'loading';
       const key = keyOf();
+      const apply = (data: TrackLyricsResponse) => {
+        loadedSynced = data.synced ?? undefined;
+        loadedPlain = data.plain ?? undefined;
+        applyLyricsMeta(data);
+      };
+      const last = api.lastFetchedTrackLyrics?.(songId);
+      if (last) apply(last);
+      else loadState = 'loading';
+      const editsBefore = edits;
+      // Dropped when the song changed, or a check wrote newer lyrics, while it was in flight.
+      const stillWanted = () => syncedForKey === key && edits === editsBefore;
       api
         .fetchTrackLyrics(songId)
         .then((data) => {
-          if (syncedForKey !== key) return; // moved on while in flight
-          loadedSynced = data.synced ?? undefined;
-          loadedPlain = data.plain ?? undefined;
-          applyLyricsMeta(data);
+          if (!stillWanted()) return;
+          apply(data);
           loadState = 'idle';
         })
-        .catch(() => {
-          if (syncedForKey === key) loadState = 'error';
+        .catch((err: unknown) => {
+          if (!stillWanted()) return;
+          // A remembered answer covers a network blip, never a refusal (gone, or access revoked).
+          if (last && !isRefusal(err)) return;
+          loadedSynced = undefined;
+          loadedPlain = undefined;
+          loadState = 'error';
         });
     },
 
@@ -247,6 +272,8 @@ export function createLyricsDoc(opts: {
         }
         const lyrics = await api.fetchTrackLyrics(songId);
         if (syncedForKey !== key) return;
+        edits += 1;
+        loadState = 'idle';
         loadedSynced = lyrics.synced ?? undefined;
         loadedPlain = lyrics.plain ?? undefined;
         applyLyricsMeta(lyrics);
@@ -275,6 +302,8 @@ export function createLyricsDoc(opts: {
           // Every timestamp moved, so the text on screen is stale — pull the repaired LRC.
           const lyrics = await api.fetchTrackLyrics(songId);
           if (syncedForKey !== key) return;
+          edits += 1;
+          loadState = 'idle';
           loadedSynced = lyrics.synced ?? undefined;
           loadedPlain = lyrics.plain ?? undefined;
           const shift = Math.round((result.lyricsSyncOffsetMs ?? 0) / 1000);

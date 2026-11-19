@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { toast } from 'svelte-sonner';
 import { createAiLyrics, type AiLyricsApi } from './ai-lyrics.svelte';
-import type { ApiSong } from '#lib/api-client.ts';
+import type { ApiSong, TrackLyricsResponse } from '#lib/api-client.ts';
 
 vi.mock('svelte-sonner', () => ({ toast: vi.fn() }));
 
@@ -153,6 +153,84 @@ describe('syncToSong', () => {
     expect(ai.syncOffsetMs).toBe(350);
     expect(ai.translation).toMatchObject({ romanizedSynced: '[00:01.00] ro', language: 'ja' });
     expect(ai.translationStale).toBe(true);
+  });
+
+  it('shows a remembered transcription at once, and drops it when the fresh answer has none', async () => {
+    const { ai } = setup({
+      song: songWithLyrics({ hasTranscribedLyrics: true }),
+      api: {
+        lastFetchedTrackLyrics: () => ({
+          id: 1,
+          lyricsStatus: 'Fetched',
+          transcribedSynced: '[00:01.00] remembered',
+          lyricsTranslationStatus: 'Completed',
+          translatedSynced: '[00:01.00] en'
+        })
+      }
+    });
+    ai.syncToSong();
+    expect(ai.transcription).toMatchObject({ synced: '[00:01.00] remembered' });
+    expect(ai.translation).toMatchObject({ translatedSynced: '[00:01.00] en' });
+    await flushMicrotasks();
+    expect(ai.transcription).toBeNull();
+    expect(ai.translation).toBeNull();
+  });
+
+  it('keeps a transcription made while an older load was still in flight', async () => {
+    const load = deferred<TrackLyricsResponse>();
+    const { ai } = setup({
+      song: songWithLyrics(),
+      api: { fetchTrackLyrics: vi.fn(() => load.promise) }
+    });
+    ai.syncToSong();
+    await ai.enhance();
+    expect(ai.transcription).toMatchObject({ synced: '[00:01.00] ai la' });
+    load.resolve({ id: 1, lyricsStatus: 'Fetched' });
+    await flushMicrotasks();
+    expect(ai.transcription).toMatchObject({ synced: '[00:01.00] ai la' });
+  });
+
+  it('keeps a transcription off the next song when it lands after a switch', async () => {
+    const transcribe = deferred<Awaited<ReturnType<AiLyricsApi['transcribeSongLyrics']>>>();
+    const { ai, setSong } = setup({
+      song: songWithLyrics({ id: 1 }),
+      api: {
+        transcribeSongLyrics: vi.fn(() => transcribe.promise),
+        fetchTrackLyrics: vi.fn(async (id: number) =>
+          id === 2
+            ? { id: 2, lyricsStatus: 'Fetched', transcribedSynced: '[00:01.00] second song' }
+            : { id, lyricsStatus: 'Fetched' }
+        )
+      }
+    });
+    ai.syncToSong();
+    const run = ai.enhance();
+    setSong(songWithLyrics({ id: 2 }));
+    ai.syncToSong();
+    transcribe.resolve({ id: 1, synced: '[00:01.00] first song', resynced: true });
+    await run;
+    await flushMicrotasks();
+    expect(ai.transcription).toMatchObject({ synced: '[00:01.00] second song' });
+  });
+
+  it('drops a remembered transcription when the fresh fetch is refused', async () => {
+    const { ai } = setup({
+      song: songWithLyrics({ hasTranscribedLyrics: true }),
+      api: {
+        lastFetchedTrackLyrics: () => ({
+          id: 1,
+          lyricsStatus: 'Fetched',
+          transcribedSynced: '[00:01.00] remembered'
+        }),
+        fetchTrackLyrics: vi.fn(async () => {
+          throw Object.assign(new Error('Forbidden'), { status: 403 });
+        })
+      }
+    });
+    ai.syncToSong();
+    expect(ai.transcription).not.toBeNull();
+    await flushMicrotasks();
+    expect(ai.transcription).toBeNull();
   });
 
   it('is a no-op for the same song, so the driving $effect cannot loop', async () => {

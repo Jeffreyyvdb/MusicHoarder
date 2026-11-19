@@ -31,7 +31,7 @@
     if (remembered && tabs.some((t) => t.id === remembered)) return remembered;
     return tabFor(page.url, user)?.id ?? null;
   });
-  const visible = $derived(!songDetail.isOpen && bottomBar.kind === 'tabs');
+  const visible = $derived(!songDetail.covering && bottomBar.kind === 'tabs');
 
   // Admins only: a demo session has no pipeline stream, so its dot could only ever lie.
   const running = $derived(isAdmin(user) && pipelineOverlay.isAnyRunning);

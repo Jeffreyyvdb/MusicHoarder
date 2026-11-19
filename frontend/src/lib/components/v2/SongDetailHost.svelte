@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { holdAppInert } from '#lib/actions/inert-app.ts';
-  import { untrack } from 'svelte';
+  import { holdAppHidden, holdAppInert } from '#lib/actions/inert-app.ts';
+  import { tick, untrack } from 'svelte';
   import { Dialog as DialogPrimitive } from 'bits-ui';
   import { Loader2 } from '@lucide/svelte';
   import { page } from '$app/state';
@@ -87,15 +87,134 @@
     return () => songsStore.stopLive();
   });
 
-  // Hide the global MiniPlayer only while the detail panel is actually open (the
-  // overlay has its own transport), then restore it on close.
+  // The overlay's time on screen, beside `songDetail.isOpen` (what was asked for):
+  // - `present`, from the open until the fall has finished. All that time the app is hidden from
+  //   assistive technology with `aria-hidden`, which costs no restyle, once focus is in here.
+  // - `covering` (songDetail.covering), from the end of the rise until the fall is nearly done.
+  //   `inert` on the app and hiding the mini player and tab bar each restyle or re-lay the whole
+  //   app; made the moment the overlay opens or closes, that work lands in the first frames of the
+  //   350ms rise or fall, which carry most of its distance, and the slide jumps.
+  let present = $state(false);
+  let focusedIn = $state(false);
+  const covering = $derived(songDetail.covering);
+  $effect(() => () => songDetail.setCovering(false));
+  let opener: HTMLElement | null = null;
   $effect(() => {
     if (!songDetail.isOpen) return;
-    return playerStore.registerPanel();
+    present = true;
+    // Reopened mid-fall, focus is still in the departing dialog: the opener is the one before it.
+    untrack(() => {
+      const active = document.activeElement;
+      if (active instanceof HTMLElement && !contentEl?.contains(active)) opener = active;
+    });
+  });
+  $effect(() => {
+    const open = songDetail.isOpen;
+    const el = contentEl;
+    if (open && !el) return;
+    let cancelled = false;
+    // The slide is a transition that bits-ui starts by setting `data-starting-style` or
+    // `data-ending-style` in its own update, after this one: it can be read a frame later.
+    requestAnimationFrame(() => {
+      if (cancelled) return;
+      const slides = el?.getAnimations() ?? [];
+      const slid = Promise.allSettled(slides.map((a) => a.finished));
+      if (open) {
+        void slid.then(() => {
+          if (!cancelled) songDetail.setCovering(true);
+        });
+        return;
+      }
+      // 40% of the fall's time is ~90% of its distance on this curve: the mini player and tab bar
+      // are back as their place is uncovered, and the restyle lands in the slow tail.
+      void Promise.race([slid, wait(timeUntil(slides, 0.4))]).then(() => {
+        if (!cancelled) songDetail.setCovering(false);
+      });
+      void slid.then(async () => {
+        if (cancelled) return;
+        present = false;
+        focusedIn = false;
+        await tick();
+        returnFocus(el);
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
   });
 
+  function timeUntil(slides: Animation[], fraction: number): number {
+    const slide = slides[0];
+    const total = Number(slide?.effect?.getComputedTiming().duration ?? 0);
+    return Math.max(0, total * fraction - Number(slide?.currentTime ?? 0));
+  }
+
+  function wait(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  // bits-ui moves focus in here a frame after the open. Chrome will not hide an element that holds
+  // focus, and keeps refusing once it has, so focus moves first and the app is hidden after it.
+  function focusIn(event: Event) {
+    event.preventDefault();
+    const dialog = contentEl;
+    if (!dialog) return;
+    if (!focusFirst(dialog.querySelectorAll<HTMLElement>(FOCUSABLE))) {
+      dialog.focus({ preventScroll: true });
+    }
+    focusedIn = true;
+  }
+
+  const FOCUSABLE = ['button', '[href]', 'input', 'select', 'textarea', '[tabindex]']
+    .map((tag) => `${tag}:not([disabled]):not([tabindex="-1"])`)
+    .join(', ');
+
+  /** Focuses the first that takes it: one hidden by CSS for another layout does not. */
+  function focusFirst(candidates: Iterable<HTMLElement>): boolean {
+    for (const el of candidates) {
+      if (!el.matches(FOCUSABLE) || el.closest('[aria-hidden="true"]')) continue;
+      el.focus({ preventScroll: true });
+      if (document.activeElement === el) return true;
+    }
+    return false;
+  }
+
+  // bits-ui lets go of its focus trap as the overlay starts closing, and the app stops being inert
+  // 40% into the fall: Tab would walk out of a dialog still on screen into an app still hidden from
+  // assistive technology. Until the fall is over, Tab stays where it is, unless focus is in a sheet
+  // that outlives the overlay, which keeps its own trap.
+  const leaving = $derived(present && !songDetail.isOpen);
+  $effect(() => {
+    if (!leaving) return;
+    const holdTab = (event: KeyboardEvent) => {
+      const active = document.activeElement;
+      const here = !active || active === document.body || (contentEl?.contains(active) ?? false);
+      if (event.key === 'Tab' && here) event.preventDefault();
+    };
+    document.addEventListener('keydown', holdTab, true);
+    return () => document.removeEventListener('keydown', holdTab, true);
+  });
+
+  // bits-ui returns focus as the fall starts, while the app is still inert and hidden, where
+  // focus() is ignored; so the overlay returns it itself once the fall is over, once per open.
+  function returnFocus(dialog: HTMLElement | null) {
+    const target = opener;
+    if (!target) return;
+    opener = null;
+    const active = document.activeElement;
+    const lost = !active || active === document.body || (dialog?.contains(active) ?? false);
+    if (!lost) return;
+    // Opened from the mini player, the button pressed was unmounted with it; it is back by now.
+    if (target.isConnected) target.focus({ preventScroll: true });
+    else focusFirst(document.querySelectorAll<HTMLElement>('[data-mh-np-opener]'));
+  }
+
+  // Hide the global MiniPlayer while the overlay covers it (it has its own transport).
+  $effect(() => (covering ? playerStore.registerPanel() : undefined));
+
   // The status bar follows the media appearance (black) while this is up. The claim is a token,
-  // released when the overlay closes or this unmounts.
+  // released when the overlay closes or this unmounts. It only repaints <html> and <body>
+  // (`--mh-page-surface` does not inherit, app.css), so it can change with the slide.
   $effect(() => (songDetail.isOpen ? themeSurface.claimMedia() : undefined));
   $effect(() => (songDetail.isOpen && videoShowing ? themeSurface.claimTv() : undefined));
 
@@ -225,10 +344,14 @@
       const ended = drag;
       drag = null;
       if (ended && (offset > ended.height * 0.25 || velocity > DISMISS_VELOCITY)) {
-        // Close from where the finger left it: the exit keyframes only define `to`, so the
-        // slide-out starts at the inline transform (and the scrim at its inline opacity).
-        if (contentEl) contentEl.style.transition = '';
-        if (overlayEl) overlayEl.style.transition = '';
+        // Close from where the finger left it: the inline values go in the same frame as the close
+        // starts, so the fall (and the scrim's fade) runs on from them.
+        for (const el of [contentEl, overlayEl]) {
+          if (!el) continue;
+          el.style.transition = '';
+          el.style.transform = '';
+          el.style.opacity = '';
+        }
         songDetail.close();
       } else {
         settle(contentEl);
@@ -243,7 +366,11 @@
   };
 
   // The page behind a full-screen Now Playing leaves the accessibility tree (see inert-app.ts).
-  $effect(() => (songDetail.isOpen ? holdAppInert() : undefined));
+  // `inert` waits for the rise (see `covering`); from the open to the end of the fall, `aria-hidden`
+  // keeps a screen reader from walking into the page behind.
+  const hideApp = $derived(present && focusedIn);
+  $effect(() => (hideApp ? holdAppHidden() : undefined));
+  $effect(() => (covering ? holdAppInert() : undefined));
 
   // A fresh open starts from a clean element (a drag-dismiss leaves its inline transform behind).
   $effect(() => {
@@ -280,6 +407,9 @@
       ]}
       style="--mh-content-pad: 0px"
       onInteractOutside={keepOpenForToasts}
+      onOpenAutoFocus={focusIn}
+      onCloseAutoFocus={(e) => e.preventDefault()}
+      preventBodyPointerEvents={false}
     >
       {#if r}
         <VideoBackdrop
@@ -440,44 +570,24 @@
     }
   }
 
-  /* The rise and the fade-in fill `backwards` only: a filled animation outranks the inline
-     transform/opacity that drag-to-dismiss writes, so `both` would leave the overlay deaf to the
-     finger once the rise had run. The fall and fade-out keep `both` to hold their end state until
-     bits-ui unmounts, and only define `to`, so a drag-to-dismiss closes from where the finger left
-     it. */
-  :global(.mh-np[data-state='open']) {
-    animation: mh-np-rise 350ms cubic-bezier(0.32, 0.72, 0, 1) backwards;
+  /* The slide is a transition between bits-ui's presence states rather than keyframes, so a close
+     during the rise, or an open during the fall, turns round where the panel is instead of first
+     jumping to the far end. bits-ui marks the first frame `data-starting-style` and the close
+     `data-ending-style`, and unmounts once the transition has finished. Drag-to-dismiss holds the
+     panel with an inline transform under `transition: none` and clears both as it closes, so the
+     fall starts where the finger let go. */
+  :global(.mh-np) {
+    transition: transform 350ms cubic-bezier(0.32, 0.72, 0, 1);
   }
-  :global(.mh-np[data-state='closed']) {
-    animation: mh-np-fall 350ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  :global(.mh-np[data-starting-style]),
+  :global(.mh-np[data-ending-style]) {
+    transform: translate3d(0, 100%, 0);
   }
-  :global(.mh-np-scrim[data-state='open']) {
-    animation: mh-np-fade-in 350ms cubic-bezier(0.32, 0.72, 0, 1) backwards;
+  :global(.mh-np-scrim) {
+    transition: opacity 350ms cubic-bezier(0.32, 0.72, 0, 1);
   }
-  :global(.mh-np-scrim[data-state='closed']) {
-    animation: mh-np-fade-out 350ms cubic-bezier(0.32, 0.72, 0, 1) both;
-  }
-  @keyframes mh-np-rise {
-    from {
-      transform: translate3d(0, 100%, 0);
-    }
-    to {
-      transform: translate3d(0, 0, 0);
-    }
-  }
-  @keyframes mh-np-fall {
-    to {
-      transform: translate3d(0, 100%, 0);
-    }
-  }
-  @keyframes mh-np-fade-in {
-    from {
-      opacity: 0;
-    }
-  }
-  @keyframes mh-np-fade-out {
-    to {
-      opacity: 0;
-    }
+  :global(.mh-np-scrim[data-starting-style]),
+  :global(.mh-np-scrim[data-ending-style]) {
+    opacity: 0;
   }
 </style>

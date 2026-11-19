@@ -1,5 +1,6 @@
 import {
   fetchTrackLyrics,
+  lastFetchedTrackLyrics,
   setPreferredLyricsSource,
   transcribeSongLyrics,
   translateSongLyrics,
@@ -8,6 +9,7 @@ import {
   type TranscribeLyricsResponse,
   type TranslateLyricsResponse
 } from '#lib/api-client.ts';
+import { isRefusal } from '#lib/refusal.ts';
 import { toast } from 'svelte-sonner';
 import { computeLyricsProvenance } from '#lib/lyrics/provenance.ts';
 import type { LyricsProvenance, LyricsStatus } from '#lib/types.ts';
@@ -65,6 +67,8 @@ export type ViewerLyricsDoc = {
  */
 export type AiLyricsApi = {
   fetchTrackLyrics: (trackId: number) => Promise<TrackLyricsResponse>;
+  /** The last fetched answer for a track, shown while a fresh fetch replaces it. */
+  lastFetchedTrackLyrics?: (trackId: number) => TrackLyricsResponse | undefined;
   transcribeSongLyrics: (songId: number) => Promise<TranscribeLyricsResponse>;
   translateSongLyrics: (songId: number) => Promise<TranslateLyricsResponse>;
   setPreferredLyricsSource: (
@@ -79,6 +83,7 @@ export type AiLyricsApi = {
 
 const realApi: AiLyricsApi = {
   fetchTrackLyrics,
+  lastFetchedTrackLyrics,
   transcribeSongLyrics,
   translateSongLyrics,
   setPreferredLyricsSource
@@ -128,6 +133,9 @@ export function createAiLyrics(opts: {
   let preferSaving = $state(false);
   // Plain (non-reactive) guard so re-syncing on song change can't loop the caller's effect.
   let loadedForSongId: number | null = null;
+  // Bumped by every write of the AI lyrics from an action, so a load that was already in flight
+  // (older than that write) does not put the previous state back. Plain, not $state.
+  let edits = 0;
 
   let translation = $state<AiTranslation | null>(null);
   let lyricsView = $state<LyricsViewMode>('original');
@@ -273,8 +281,15 @@ export function createAiLyrics(opts: {
   );
 
   /** Stage 1 — transcribe/re-sync the audio and reflect the server's (possibly promoted) default. */
-  async function runTranscribe() {
-    const r = await api.transcribeSongLyrics(song.id);
+  /** Whether `id` is still the song on screen: the prop can move before `syncToSong` has run. */
+  function showing(id: number): boolean {
+    return song.id === id && loadedForSongId === id;
+  }
+
+  async function runTranscribe(id: number) {
+    const r = await api.transcribeSongLyrics(id);
+    if (!showing(id)) return; // another song is on screen now
+    edits += 1;
     transcription = {
       synced: r.synced ?? undefined,
       plain: r.plain ?? undefined,
@@ -293,8 +308,10 @@ export function createAiLyrics(opts: {
   }
 
   /** Stage 2 — pronunciation + English translation of whatever stage 1 left on screen. */
-  async function runTranslate() {
-    const r = await api.translateSongLyrics(song.id);
+  async function runTranslate(id: number) {
+    const r = await api.translateSongLyrics(id);
+    if (!showing(id)) return;
+    edits += 1;
     translation = {
       romanizedSynced: r.romanizedSynced ?? undefined,
       romanizedPlain: r.romanizedPlain ?? undefined,
@@ -442,22 +459,22 @@ export function createAiLyrics(opts: {
       // fetch covers both the transcription and the translation.
       if (!current.hasTranscribedLyrics && !current.hasSyncedLyrics && !current.hasPlainLyrics)
         return;
-      api
-        .fetchTrackLyrics(id)
-        .then((d) => {
-          if (loadedForSongId !== id) return; // navigated away while in flight
-          if (d.transcribedSynced || d.transcribedPlain) {
-            transcription = {
-              synced: d.transcribedSynced ?? undefined,
-              plain: d.transcribedPlain ?? undefined,
-              model: d.transcriptionModel ?? undefined,
-              at: d.transcribedAtUtc ?? undefined,
-              alignedToReference: d.transcriptionAlignedToReference === true
-            };
-          }
-          syncOffsetMs = d.lyricsSyncOffsetMs ?? null;
-          if (d.lyricsTranslationStatus === 'Completed') {
-            translation = {
+      // Sets every field from the answer, so a fresh fetch also clears what a remembered one had.
+      const apply = (d: TrackLyricsResponse) => {
+        transcription =
+          d.transcribedSynced || d.transcribedPlain
+            ? {
+                synced: d.transcribedSynced ?? undefined,
+                plain: d.transcribedPlain ?? undefined,
+                model: d.transcriptionModel ?? undefined,
+                at: d.transcribedAtUtc ?? undefined,
+                alignedToReference: d.transcriptionAlignedToReference === true
+              }
+            : null;
+        syncOffsetMs = d.lyricsSyncOffsetMs ?? null;
+        const translated = d.lyricsTranslationStatus === 'Completed';
+        translation = translated
+          ? {
               romanizedSynced: d.romanizedSynced ?? undefined,
               romanizedPlain: d.romanizedPlain ?? undefined,
               translatedSynced: d.translatedSynced ?? undefined,
@@ -465,11 +482,26 @@ export function createAiLyrics(opts: {
               language: d.detectedLanguage ?? undefined,
               model: d.lyricsTranslationModel ?? undefined,
               at: d.lyricsTranslatedAtUtc ?? undefined
-            };
-            translationStale = d.lyricsTranslationStale === true;
-          }
+            }
+          : null;
+        translationStale = translated && d.lyricsTranslationStale === true;
+      };
+      const last = api.lastFetchedTrackLyrics?.(id);
+      if (last) apply(last);
+      const editsBefore = edits;
+      // Dropped when the song changed, or an action wrote newer lyrics, while it was in flight.
+      const stillWanted = () => loadedForSongId === id && edits === editsBefore;
+      api
+        .fetchTrackLyrics(id)
+        .then((d) => {
+          if (stillWanted()) apply(d);
         })
-        .catch(() => {});
+        .catch((err: unknown) => {
+          if (!stillWanted() || !isRefusal(err)) return;
+          transcription = null;
+          translation = null;
+          translationStale = false;
+        });
     },
 
     /**
@@ -485,27 +517,29 @@ export function createAiLyrics(opts: {
       enhanceTimer = null;
       enhanceError = null;
 
+      // The run belongs to the song it started on: `song` follows whatever is on screen.
+      const id = song.id;
       let transcribeFailure: string | null = null;
       if (canTranscribe) {
         enhanceState = 'transcribing';
         try {
-          await runTranscribe();
+          await runTranscribe(id);
         } catch (err) {
           transcribeFailure = err instanceof Error ? err.message : 'Transcription failed';
         }
       }
-      if (song.id !== loadedForSongId) return; // navigated away mid-run
+      if (!showing(id)) return; // navigated away mid-run
 
       let translateFailure: string | null = null;
       if (canTranslate) {
         enhanceState = 'translating';
         try {
-          await runTranslate();
+          await runTranslate(id);
         } catch (err) {
           translateFailure = err instanceof Error ? err.message : 'Translation failed';
         }
       }
-      if (song.id !== loadedForSongId) return;
+      if (!showing(id)) return;
 
       // A failed re-sync is the outcome to report even when the translation landed: the timing is what the
       // button is pressed for, and "Done" over unchanged lyrics reads as "the AI found nothing to fix". It
@@ -528,8 +562,11 @@ export function createAiLyrics(opts: {
       const previous = preferredSource;
       preferredSource = source; // optimistic
       preferSaving = true;
+      const id = song.id;
       try {
-        const r = await api.setPreferredLyricsSource(song.id, source);
+        const r = await api.setPreferredLyricsSource(id, source);
+        if (!showing(id)) return; // another song is on screen now
+        edits += 1;
         // The flip changed which lyrics are displayed — regenerate a now-stale translation so the
         // stacked pronunciation/translation always matches what's on screen. (False also syncs:
         // flipping back to the source the translation was generated from makes it fresh again.)
@@ -537,12 +574,14 @@ export function createAiLyrics(opts: {
           translationStale = r.lyricsTranslationStale === true;
           if (translationStale && !enhanceBusy) {
             enhanceState = 'translating';
-            void runTranslate()
+            void runTranslate(id)
               .then(() => {
+                if (!showing(id)) return;
                 enhanceState = 'success';
                 settleEnhance(3000);
               })
               .catch((err) => {
+                if (!showing(id)) return;
                 enhanceState = 'error';
                 enhanceError = err instanceof Error ? err.message : 'Translation failed';
                 settleEnhance(6000);
@@ -550,7 +589,7 @@ export function createAiLyrics(opts: {
           }
         }
       } catch {
-        preferredSource = previous; // revert on failure
+        if (showing(id)) preferredSource = previous; // revert on failure
       } finally {
         preferSaving = false;
       }
