@@ -5,11 +5,13 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Enrichment;
+using MusicHoarder.Api.Enrichment.Providers;
 using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Observability;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Settings;
+using MusicHoarder.Api.Tests.Persistence;
 using static MusicHoarder.Api.Tests.Enrichment.EnrichmentOrchestratorTests;
 
 namespace MusicHoarder.Api.Tests.Enrichment;
@@ -113,6 +115,67 @@ public class ProviderApplicabilityTests
         Assert.Equal(EnrichmentStatus.NeedsReview, (await db.Songs.AsNoTracking().SingleAsync()).EnrichmentStatus);
     }
 
+    // The sweeps ask CanHandle of rows that carry only CanHandleColumns. Every other column of these
+    // rows holds a value, so the day a provider's CanHandle starts reading one, it answers differently
+    // over the whole row than over the copy.
+    [Fact]
+    public async Task CanHandle_ReadsOnlyCanHandleColumns()
+    {
+        await using var db = CreateDb();
+        var options = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
+        {
+            SourceDirectory = "/source",
+            DestinationDirectory = "/dest",
+            YeTrackerArtistAllowlist = ["Kanye West"],
+            TrackerArtistAllowlist = ["Juice WRLD"],
+        });
+        IEnrichmentProvider[] providers =
+        [
+            new AcoustIdEnrichmentProvider(null!, null!, NullLogger<AcoustIdEnrichmentProvider>.Instance),
+            new AppleMusicEnrichmentProvider(null!, null!, options, NullLogger<AppleMusicEnrichmentProvider>.Instance),
+            new MusicBrainzWebEnrichmentProvider(null!, options, NullLogger<MusicBrainzWebEnrichmentProvider>.Instance),
+            new SpotifyApiEnrichmentProvider(null!, null!, null!, options,
+                Microsoft.Extensions.Options.Options.Create(new SpotifyOptions()),
+                NullLogger<SpotifyApiEnrichmentProvider>.Instance),
+            new DeezerEnrichmentProvider(null!, options, NullLogger<DeezerEnrichmentProvider>.Instance),
+            new TrackerEnrichmentProvider(null!, options, NullLogger<TrackerEnrichmentProvider>.Instance),
+            new YeTrackerEnrichmentProvider(null!, options, NullLogger<YeTrackerEnrichmentProvider>.Instance),
+        ];
+        SongMetadata[] songs =
+        [
+            Columns(db, 0, "/source/a.mp3", artist: "Kanye West", title: "Runaway", fingerprint: "fp", duration: 548),
+            Columns(db, 1, "/source/b.mp3", artist: "Juice WRLD", title: "Lucid Dreams"),
+            Columns(db, 2, "/source/Juice WRLD/Goodbye & Good Riddance/04 Lucid Dreams.mp3"),
+            Columns(db, 3, "/x", isrc: "USUM71807062"),
+            Columns(db, 4, "/x", musicBrainzId: "mb-1"),
+            Columns(db, 5, "/x"),
+        ];
+
+        foreach (var provider in providers)
+        {
+            var overWholeRows = songs.Select(provider.CanHandle).ToArray();
+            var overCopies = songs.Select(s => provider.CanHandle(IEnrichmentProvider.CanHandleColumns.Copy(s))).ToArray();
+            Assert.Equal(overWholeRows, overCopies);
+            Assert.Contains(true, overWholeRows);
+            Assert.Contains(false, overWholeRows);
+        }
+    }
+
+    private static SongMetadata Columns(
+        MusicHoarderDbContext db, int seed, string sourcePath, string? artist = null, string? title = null,
+        string? fingerprint = null, int? duration = null, string? isrc = null, string? musicBrainzId = null)
+    {
+        var song = SongColumnFill.Blank().FillExcept(db, seed, IEnrichmentProvider.CanHandleColumns.Names);
+        song.SourcePath = sourcePath;
+        song.Artist = artist;
+        song.Title = title;
+        song.Fingerprint = fingerprint;
+        song.DurationSeconds = duration;
+        song.Isrc = isrc;
+        song.MusicBrainzId = musicBrainzId;
+        return song;
+    }
+
     /// <summary>
     /// The real orchestrator and background service over SpotifyAPI (handles every song, finds
     /// nothing), YeTracker (handles none of these songs) and optionally Deezer (handles every song).
@@ -155,9 +218,10 @@ public class ProviderApplicabilityTests
                 new NoLyrics(),
                 options,
                 new FixedRuntimeSettings(options.Value),
+                Metrics,
                 NullLogger<EnrichmentOrchestrator>.Instance);
             Service = new EnrichmentBackgroundService(
-                scopes, _jobs, new EnrichmentProgressTracker(), Channel, orchestrator, options, Metrics,
+                scopes, _jobs, new EnrichmentProgressTracker(), Channel, orchestrator, options,
                 NullLogger<EnrichmentBackgroundService>.Instance);
         }
 

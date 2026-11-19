@@ -569,7 +569,6 @@ public class EnrichmentRetrySweepTests
             channel,
             new StubOrchestrator(enabled),
             opts,
-            TestPipelineMetrics.Create(),
             NullLogger<EnrichmentBackgroundService>.Instance);
     }
 
@@ -594,7 +593,6 @@ public class EnrichmentRetrySweepTests
             new EnrichmentPipelineChannel(new JobManager(), new EnrichmentProgressTracker()),
             orchestrator,
             opts,
-            TestPipelineMetrics.Create(),
             NullLogger<EnrichmentBackgroundService>.Instance);
     }
 
@@ -610,6 +608,9 @@ public class EnrichmentRetrySweepTests
 
         public Task<IReadOnlySet<EnrichmentProvider>> GetEnabledProviderEnumsAsync(CancellationToken ct = default)
             => Task.FromResult<IReadOnlySet<EnrichmentProvider>>(new HashSet<EnrichmentProvider>());
+
+        public Task<IReadOnlySet<EnrichmentProvider>> GetApplicableProvidersAsync(
+            SongMetadata song, CancellationToken ct = default) => GetEnabledProviderEnumsAsync(ct);
 
         public Task<bool> FetchLyricsForSongAsync(int songId, CancellationToken ct = default)
         {
@@ -630,6 +631,9 @@ public class EnrichmentRetrySweepTests
             => Task.FromResult(EnrichmentOutcome.Skipped);
 
         public Task<IReadOnlySet<EnrichmentProvider>> GetEnabledProviderEnumsAsync(CancellationToken ct = default) => Task.FromResult(enabled);
+
+        public Task<IReadOnlySet<EnrichmentProvider>> GetApplicableProvidersAsync(
+            SongMetadata song, CancellationToken ct = default) => GetEnabledProviderEnumsAsync(ct);
 
         public Task<bool> FetchLyricsForSongAsync(int songId, CancellationToken ct = default) => Task.FromResult(false);
 

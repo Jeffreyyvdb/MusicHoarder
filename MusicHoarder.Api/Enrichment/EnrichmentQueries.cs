@@ -29,12 +29,13 @@ internal static class EnrichmentQueries
 
     /// <summary>
     /// Filters to enrichable, non-deleted, non-synthetic, non-manually-approved songs that are
-    /// missing an attempt for at least one currently-enabled provider — i.e. a newly-added
-    /// provider has never run against them. Used by the startup sweep that gives a freshly
-    /// deployed provider a turn against existing songs (regardless of their current status).
-    /// Relies on the one-attempt-per-provider invariant: counting only enabled-provider attempts
-    /// and comparing to the enabled count detects a missing provider without being thrown off by
-    /// attempts left behind by since-disabled providers.
+    /// missing an attempt for at least one currently-enabled provider. This is a superset of the
+    /// songs a provider still owes a turn: a provider that cannot handle a song (a community tracker
+    /// outside its artist allowlist) never records an attempt on it, and that test is C#, so the
+    /// startup sweeps check it on the rows this returns. Relies on the one-attempt-per-provider
+    /// invariant: counting only enabled-provider attempts and comparing to the enabled count
+    /// detects a missing provider without being thrown off by attempts left behind by
+    /// since-disabled providers.
     /// </summary>
     public static IQueryable<SongMetadata> WhereMissingEnabledProvider(
         this IQueryable<SongMetadata> query, IReadOnlyCollection<EnrichmentProvider> enabled)

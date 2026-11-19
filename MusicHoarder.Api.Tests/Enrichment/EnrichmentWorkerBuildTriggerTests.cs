@@ -60,7 +60,6 @@ public class EnrichmentWorkerBuildTriggerTests
             channel,
             orchestrator,
             opts,
-            TestPipelineMetrics.Create(),
             NullLogger<EnrichmentBackgroundService>.Instance);
 
         var cts = new CancellationTokenSource();
@@ -104,6 +103,9 @@ public class EnrichmentWorkerBuildTriggerTests
 
         public Task<IReadOnlySet<EnrichmentProvider>> GetEnabledProviderEnumsAsync(CancellationToken ct = default)
             => Task.FromResult<IReadOnlySet<EnrichmentProvider>>(new HashSet<EnrichmentProvider>());
+
+        public Task<IReadOnlySet<EnrichmentProvider>> GetApplicableProvidersAsync(
+            SongMetadata song, CancellationToken ct = default) => GetEnabledProviderEnumsAsync(ct);
 
         public Task<bool> FetchLyricsForSongAsync(int songId, CancellationToken ct = default) => Task.FromResult(false);
 
