@@ -281,8 +281,14 @@ export function createAiLyrics(opts: {
   );
 
   /** Stage 1 — transcribe/re-sync the audio and reflect the server's (possibly promoted) default. */
-  async function runTranscribe() {
-    const r = await api.transcribeSongLyrics(song.id);
+  /** Whether `id` is still the song on screen: the prop can move before `syncToSong` has run. */
+  function showing(id: number): boolean {
+    return song.id === id && loadedForSongId === id;
+  }
+
+  async function runTranscribe(id: number) {
+    const r = await api.transcribeSongLyrics(id);
+    if (!showing(id)) return; // another song is on screen now
     edits += 1;
     transcription = {
       synced: r.synced ?? undefined,
@@ -302,8 +308,9 @@ export function createAiLyrics(opts: {
   }
 
   /** Stage 2 — pronunciation + English translation of whatever stage 1 left on screen. */
-  async function runTranslate() {
-    const r = await api.translateSongLyrics(song.id);
+  async function runTranslate(id: number) {
+    const r = await api.translateSongLyrics(id);
+    if (!showing(id)) return;
     edits += 1;
     translation = {
       romanizedSynced: r.romanizedSynced ?? undefined,
@@ -510,27 +517,29 @@ export function createAiLyrics(opts: {
       enhanceTimer = null;
       enhanceError = null;
 
+      // The run belongs to the song it started on: `song` follows whatever is on screen.
+      const id = song.id;
       let transcribeFailure: string | null = null;
       if (canTranscribe) {
         enhanceState = 'transcribing';
         try {
-          await runTranscribe();
+          await runTranscribe(id);
         } catch (err) {
           transcribeFailure = err instanceof Error ? err.message : 'Transcription failed';
         }
       }
-      if (song.id !== loadedForSongId) return; // navigated away mid-run
+      if (!showing(id)) return; // navigated away mid-run
 
       let translateFailure: string | null = null;
       if (canTranslate) {
         enhanceState = 'translating';
         try {
-          await runTranslate();
+          await runTranslate(id);
         } catch (err) {
           translateFailure = err instanceof Error ? err.message : 'Translation failed';
         }
       }
-      if (song.id !== loadedForSongId) return;
+      if (!showing(id)) return;
 
       // A failed re-sync is the outcome to report even when the translation landed: the timing is what the
       // button is pressed for, and "Done" over unchanged lyrics reads as "the AI found nothing to fix". It
@@ -553,8 +562,10 @@ export function createAiLyrics(opts: {
       const previous = preferredSource;
       preferredSource = source; // optimistic
       preferSaving = true;
+      const id = song.id;
       try {
-        const r = await api.setPreferredLyricsSource(song.id, source);
+        const r = await api.setPreferredLyricsSource(id, source);
+        if (!showing(id)) return; // another song is on screen now
         edits += 1;
         // The flip changed which lyrics are displayed — regenerate a now-stale translation so the
         // stacked pronunciation/translation always matches what's on screen. (False also syncs:
@@ -563,12 +574,14 @@ export function createAiLyrics(opts: {
           translationStale = r.lyricsTranslationStale === true;
           if (translationStale && !enhanceBusy) {
             enhanceState = 'translating';
-            void runTranslate()
+            void runTranslate(id)
               .then(() => {
+                if (!showing(id)) return;
                 enhanceState = 'success';
                 settleEnhance(3000);
               })
               .catch((err) => {
+                if (!showing(id)) return;
                 enhanceState = 'error';
                 enhanceError = err instanceof Error ? err.message : 'Translation failed';
                 settleEnhance(6000);
@@ -576,7 +589,7 @@ export function createAiLyrics(opts: {
           }
         }
       } catch {
-        preferredSource = previous; // revert on failure
+        if (showing(id)) preferredSource = previous; // revert on failure
       } finally {
         preferSaving = false;
       }

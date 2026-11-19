@@ -2495,6 +2495,22 @@ const inFlightTrackLyrics = new Map<number, Promise<TrackLyricsResponse>>();
 // "Loading lyrics…" in the middle of its slide; the panel still fetches, and that fetch replaces it.
 const lastTrackLyrics = new Map<number, TrackLyricsResponse>();
 const LAST_TRACK_LYRICS_KEPT = 30;
+// Successful lyrics writes per track. A read that was already on its way when one landed carries
+// the state from before it, so it answers its caller but is never remembered.
+const trackLyricsWrites = new Map<number, number>();
+
+function lyricsWritten(trackId: number): void {
+  trackLyricsWrites.set(trackId, (trackLyricsWrites.get(trackId) ?? 0) + 1);
+  lastTrackLyrics.delete(trackId);
+  inFlightTrackLyrics.delete(trackId);
+}
+
+/** Runs a lyrics write and, once it has succeeded, tells the lyrics reads above. */
+async function writingLyrics<T>(trackId: number, write: Promise<T>): Promise<T> {
+  const result = await write;
+  lyricsWritten(trackId);
+  return result;
+}
 
 export function lastFetchedTrackLyrics(trackId: number): TrackLyricsResponse | undefined {
   return lastTrackLyrics.get(trackId);
@@ -2503,8 +2519,12 @@ export function lastFetchedTrackLyrics(trackId: number): TrackLyricsResponse | u
 export async function fetchTrackLyrics(trackId: number): Promise<TrackLyricsResponse> {
   const pending = inFlightTrackLyrics.get(trackId);
   if (pending) return pending;
-  const request = requestJson<TrackLyricsResponse>(`/api/tracks/${trackId}/lyrics`)
+  const writesBefore = trackLyricsWrites.get(trackId) ?? 0;
+  const request: Promise<TrackLyricsResponse> = requestJson<TrackLyricsResponse>(
+    `/api/tracks/${trackId}/lyrics`
+  )
     .then((lyrics) => {
+      if ((trackLyricsWrites.get(trackId) ?? 0) !== writesBefore) return lyrics;
       lastTrackLyrics.delete(trackId);
       lastTrackLyrics.set(trackId, lyrics);
       if (lastTrackLyrics.size > LAST_TRACK_LYRICS_KEPT) {
@@ -2518,7 +2538,7 @@ export async function fetchTrackLyrics(trackId: number): Promise<TrackLyricsResp
       throw err;
     })
     .finally(() => {
-      inFlightTrackLyrics.delete(trackId);
+      if (inFlightTrackLyrics.get(trackId) === request) inFlightTrackLyrics.delete(trackId);
     });
   inFlightTrackLyrics.set(trackId, request);
   return request;
@@ -2542,7 +2562,10 @@ export interface RecheckLyricsResponse {
  * them, and re-tags the built file when it finds something.
  */
 export async function recheckSongLyrics(songId: number): Promise<RecheckLyricsResponse> {
-  return requestJson<RecheckLyricsResponse>(`/songs/${songId}/lyrics/recheck`, { method: 'POST' });
+  return writingLyrics(
+    songId,
+    requestJson<RecheckLyricsResponse>(`/songs/${songId}/lyrics/recheck`, { method: 'POST' })
+  );
 }
 
 export interface VerifyLyricsTimingResponse {
@@ -2571,9 +2594,12 @@ export interface VerifyLyricsTimingResponse {
  * "AI Generated".
  */
 export async function verifyLyricsTiming(songId: number): Promise<VerifyLyricsTimingResponse> {
-  return requestJson<VerifyLyricsTimingResponse>(`/songs/${songId}/lyrics/verify-timing`, {
-    method: 'POST'
-  });
+  return writingLyrics(
+    songId,
+    requestJson<VerifyLyricsTimingResponse>(`/songs/${songId}/lyrics/verify-timing`, {
+      method: 'POST'
+    })
+  );
 }
 
 /** Choose which lyrics the synced viewer shows when both an LRCLIB version and an AI transcription exist. */
@@ -2581,7 +2607,10 @@ export async function setPreferredLyricsSource(
   songId: number,
   source: 'lrclib' | 'transcribed'
 ): Promise<{ id: number; preferredLyricsSource: string; lyricsTranslationStale?: boolean | null }> {
-  return requestJson(`/songs/${songId}/lyrics/preferred?source=${source}`, { method: 'POST' });
+  return writingLyrics(
+    songId,
+    requestJson(`/songs/${songId}/lyrics/preferred?source=${source}`, { method: 'POST' })
+  );
 }
 
 export interface TranscribeLyricsResponse {
@@ -2611,9 +2640,12 @@ export interface TranscribeLyricsResponse {
  * a transcription with no reference lyrics is never promoted automatically.
  */
 export async function transcribeSongLyrics(songId: number): Promise<TranscribeLyricsResponse> {
-  return requestJson<TranscribeLyricsResponse>(`/songs/${songId}/lyrics/transcribe`, {
-    method: 'POST'
-  });
+  return writingLyrics(
+    songId,
+    requestJson<TranscribeLyricsResponse>(`/songs/${songId}/lyrics/transcribe`, {
+      method: 'POST'
+    })
+  );
 }
 
 export interface TranslateLyricsResponse {
@@ -2634,9 +2666,12 @@ export interface TranslateLyricsResponse {
  * written into file tags. An already-English song returns detectedLanguage "en" with all-null lyrics.
  */
 export async function translateSongLyrics(songId: number): Promise<TranslateLyricsResponse> {
-  return requestJson<TranslateLyricsResponse>(`/songs/${songId}/lyrics/translate`, {
-    method: 'POST'
-  });
+  return writingLyrics(
+    songId,
+    requestJson<TranslateLyricsResponse>(`/songs/${songId}/lyrics/translate`, {
+      method: 'POST'
+    })
+  );
 }
 
 export function getSongStreamUrl(songId: number): string {

@@ -190,6 +190,29 @@ describe('syncToSong', () => {
     expect(ai.transcription).toMatchObject({ synced: '[00:01.00] ai la' });
   });
 
+  it('keeps a transcription off the next song when it lands after a switch', async () => {
+    const transcribe = deferred<Awaited<ReturnType<AiLyricsApi['transcribeSongLyrics']>>>();
+    const { ai, setSong } = setup({
+      song: songWithLyrics({ id: 1 }),
+      api: {
+        transcribeSongLyrics: vi.fn(() => transcribe.promise),
+        fetchTrackLyrics: vi.fn(async (id: number) =>
+          id === 2
+            ? { id: 2, lyricsStatus: 'Fetched', transcribedSynced: '[00:01.00] second song' }
+            : { id, lyricsStatus: 'Fetched' }
+        )
+      }
+    });
+    ai.syncToSong();
+    const run = ai.enhance();
+    setSong(songWithLyrics({ id: 2 }));
+    ai.syncToSong();
+    transcribe.resolve({ id: 1, synced: '[00:01.00] first song', resynced: true });
+    await run;
+    await flushMicrotasks();
+    expect(ai.transcription).toMatchObject({ synced: '[00:01.00] second song' });
+  });
+
   it('drops a remembered transcription when the fresh fetch is refused', async () => {
     const { ai } = setup({
       song: songWithLyrics({ hasTranscribedLyrics: true }),

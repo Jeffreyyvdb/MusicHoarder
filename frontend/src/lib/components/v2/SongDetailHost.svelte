@@ -87,15 +87,21 @@
     return () => songsStore.stopLive();
   });
 
-  // `inert` on the app and hiding the mini player and tab bar each make the browser restyle or
-  // re-lay the whole app. Made the moment the overlay opens or closes, that work lands in the first
-  // frames of the 350ms rise or fall, which carry most of its distance, and the slide jumps. So they
-  // follow `covering` (songDetail.covering): on once the rise has finished, off once the fall has.
+  // The overlay's time on screen, beside `songDetail.isOpen` (what was asked for):
+  // - `present`, from the open until the fall has finished. All that time the app is hidden from
+  //   assistive technology with `aria-hidden`, which costs no restyle, once focus is in here.
+  // - `covering` (songDetail.covering), from the end of the rise until the fall is nearly done.
+  //   `inert` on the app and hiding the mini player and tab bar each restyle or re-lay the whole
+  //   app; made the moment the overlay opens or closes, that work lands in the first frames of the
+  //   350ms rise or fall, which carry most of its distance, and the slide jumps.
+  let present = $state(false);
+  let focusedIn = $state(false);
   const covering = $derived(songDetail.covering);
   $effect(() => () => songDetail.setCovering(false));
   let opener: HTMLElement | null = null;
   $effect(() => {
     if (!songDetail.isOpen) return;
+    present = true;
     // Reopened mid-fall, focus is still in the departing dialog: the opener is the one before it.
     untrack(() => {
       const active = document.activeElement;
@@ -108,21 +114,54 @@
     if (open && !el) return;
     let cancelled = false;
     const slides = el?.getAnimations() ?? [];
-    void Promise.allSettled(slides.map((a) => a.finished)).then(async () => {
-      if (cancelled) return;
-      if (songDetail.covering !== open) songDetail.setCovering(open);
-      // Closed before the rise finished, covering never came on; focus still has to come back.
-      if (open) return;
-      await tick();
-      returnFocus(el);
-    });
+    const slid = Promise.allSettled(slides.map((a) => a.finished));
+    if (open) {
+      void slid.then(() => {
+        if (!cancelled) songDetail.setCovering(true);
+      });
+    } else {
+      // 40% of the fall's time is ~90% of its distance on this curve: the mini player and tab bar
+      // are back as their place is uncovered, and the restyle lands in the slow tail.
+      void Promise.race([slid, wait(timeUntil(slides, 0.4))]).then(() => {
+        if (!cancelled) songDetail.setCovering(false);
+      });
+      void slid.then(async () => {
+        if (cancelled) return;
+        present = false;
+        focusedIn = false;
+        await tick();
+        returnFocus(el);
+      });
+    }
     return () => {
       cancelled = true;
     };
   });
 
-  // bits-ui returns focus as the fall starts, while the app is still inert, where focus() is
-  // ignored; so the overlay returns it itself once the app is live again, once per open.
+  function timeUntil(slides: Animation[], fraction: number): number {
+    const slide = slides[0];
+    const total = Number(slide?.effect?.getComputedTiming().duration ?? 0);
+    return Math.max(0, total * fraction - Number(slide?.currentTime ?? 0));
+  }
+
+  function wait(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  // bits-ui moves focus in here a frame after the open. Chrome will not hide an element that holds
+  // focus, and keeps refusing once it has, so focus moves first and the app is hidden after it.
+  function focusIn(event: Event) {
+    event.preventDefault();
+    const dialog = contentEl;
+    const first = dialog?.querySelector<HTMLElement>(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    );
+    (first ?? dialog)?.focus({ preventScroll: true });
+    focusedIn = true;
+  }
+
+  // bits-ui returns focus as the fall starts, while the app is still inert and hidden, where
+  // focus() is ignored; so the overlay returns it itself once the fall is over, once per open.
   function returnFocus(dialog: HTMLElement | null) {
     const target = opener;
     if (!target) return;
@@ -285,9 +324,9 @@
   };
 
   // The page behind a full-screen Now Playing leaves the accessibility tree (see inert-app.ts).
-  // `inert` waits for the rise (see `covering`); until then, and through the fall, `aria-hidden`
+  // `inert` waits for the rise (see `covering`); from the open to the end of the fall, `aria-hidden`
   // keeps a screen reader from walking into the page behind.
-  const hideApp = $derived(songDetail.isOpen || covering);
+  const hideApp = $derived(present && focusedIn);
   $effect(() => (hideApp ? holdAppHidden() : undefined));
   $effect(() => (covering ? holdAppInert() : undefined));
 
@@ -326,6 +365,7 @@
       ]}
       style="--mh-content-pad: 0px"
       onInteractOutside={keepOpenForToasts}
+      onOpenAutoFocus={focusIn}
       onCloseAutoFocus={(e) => e.preventDefault()}
       preventBodyPointerEvents={false}
     >
