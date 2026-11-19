@@ -78,6 +78,8 @@ public class EnrichmentBackgroundService(
                     .IgnoreQueryFilters()
                     .Include(s => s.ProviderAttempts)
                     .Where(s => page.Contains(s.Id) && s.EnrichmentStatus != EnrichmentStatus.Pending)
+                    // Again here: a song approved or deleted since its id was collected must not flip.
+                    .Where(s => !s.IsManuallyApproved && s.DeletedAtUtc == null)
                     .ToListAsync(ct);
 
                 foreach (var song in candidates)
@@ -184,7 +186,8 @@ public class EnrichmentBackgroundService(
             foreach (var song in page)
             {
                 var applicable = await orchestrator.GetApplicableProvidersAsync(song, ct).ConfigureAwait(false);
-                if (applicable.Except(attempted[song.Id]).Any())
+                // Against the sweep's own snapshot of enabled providers, which the queries above used.
+                if (applicable.Where(enabled.Contains).Except(attempted[song.Id]).Any())
                     missing.Add(song.Id);
             }
         }
