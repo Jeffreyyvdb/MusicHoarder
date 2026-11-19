@@ -1,3 +1,4 @@
+using System.Data.Common;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -132,16 +133,12 @@ public class MusicVideoCandidateCache(
         }
 
         var now = time.GetUtcNow().UtcDateTime;
-        if (row is null)
-        {
-            row = new SongVideoCandidateSet { SongId = song.Id };
-            db.SongVideoCandidateSets.Add(row);
-        }
-        row.QueryKey = QueryKeyFor(song);
-        row.SearchedAtUtc = now;
-        row.CandidatesJson = JsonSerializer.Serialize(candidates, Json);
-        row.Error = null;
-        await TrySaveAsync(db, song.Id, ct);
+        var stored = row ?? new SongVideoCandidateSet { SongId = song.Id };
+        stored.QueryKey = QueryKeyFor(song);
+        stored.SearchedAtUtc = now;
+        stored.CandidatesJson = JsonSerializer.Serialize(candidates, Json);
+        stored.Error = null;
+        await SaveAsync(db, stored, isNew: row is null, ct);
 
         return new VideoCandidateList(candidates, now);
     }
@@ -150,15 +147,11 @@ public class MusicVideoCandidateCache(
     public async Task RecordFailureAsync(MusicHoarderDbContext db, SongMetadata song, string error, CancellationToken ct)
     {
         var row = await SetOf(db, song.Id).FirstOrDefaultAsync(ct);
-        if (row is null)
-        {
-            row = new SongVideoCandidateSet { SongId = song.Id, CandidatesJson = "[]" };
-            db.SongVideoCandidateSets.Add(row);
-        }
-        row.QueryKey = QueryKeyFor(song);
-        row.SearchedAtUtc = time.GetUtcNow().UtcDateTime;
-        row.Error = error.Length > 1024 ? error[..1024] : error;
-        await TrySaveAsync(db, song.Id, ct);
+        var stored = row ?? new SongVideoCandidateSet { SongId = song.Id, CandidatesJson = "[]" };
+        stored.QueryKey = QueryKeyFor(song);
+        stored.SearchedAtUtc = time.GetUtcNow().UtcDateTime;
+        stored.Error = error.Length > 1024 ? error[..1024] : error;
+        await SaveAsync(db, stored, isNew: row is null, ct);
     }
 
     /// <summary>
@@ -216,9 +209,44 @@ public class MusicVideoCandidateCache(
     }
 
     /// <summary>
-    /// A remembered list is a convenience: losing a race to another writer (the prefetch and the picker
-    /// searching the same song at once) leaves the other's equivalent list, and must not fail anything.
+    /// Stores <paramref name="row"/>. A remembered list is a convenience: losing a race to another
+    /// writer (the prefetch and the picker searching the same song at once) leaves the other's
+    /// equivalent list, and must not fail anything.
+    ///
+    /// <para>
+    /// A song's first set is inserted with <c>ON CONFLICT DO NOTHING</c>: both writers can have found
+    /// no row, and a plain insert would make the loser's save fail on the one-set-per-song index —
+    /// an error in the database's log and EF's for an outcome that is fine. The loser yields to the
+    /// row already there, as a lost update does.
+    /// </para>
     /// </summary>
+    private async Task SaveAsync(MusicHoarderDbContext db, SongVideoCandidateSet row, bool isNew, CancellationToken ct)
+    {
+        if (!isNew || !db.Database.IsNpgsql())
+        {
+            if (isNew)
+                db.SongVideoCandidateSets.Add(row);
+            await TrySaveAsync(db, row.SongId, ct);
+            return;
+        }
+
+        try
+        {
+            var inserted = await db.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO "SongVideoCandidateSets" ("SongId", "QueryKey", "SearchedAtUtc", "CandidatesJson", "Error")
+                VALUES ({row.SongId}, {row.QueryKey}, {row.SearchedAtUtc}, {row.CandidatesJson}, {row.Error})
+                ON CONFLICT ("SongId") DO NOTHING
+                """, ct);
+            if (inserted == 0)
+                logger.LogDebug("Music video candidates for song {SongId} were stored by another writer first", row.SongId);
+        }
+        catch (DbException ex)
+        {
+            // The song was deleted meanwhile (the foreign key), or the database is unreachable.
+            logger.LogInformation(ex, "Music video candidates for song {SongId} were not stored", row.SongId);
+        }
+    }
+
     private async Task TrySaveAsync(MusicHoarderDbContext db, int songId, CancellationToken ct)
     {
         try
