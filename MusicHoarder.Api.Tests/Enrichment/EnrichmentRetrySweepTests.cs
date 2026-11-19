@@ -123,6 +123,39 @@ public class EnrichmentRetrySweepTests
     }
 
     [Fact]
+    public async Task Refresh_LeavesSongApprovedWhileTheSweepRuns()
+    {
+        await using var db = CreateDb();
+        var song = AddSong(db, EnrichmentStatus.NeedsReview);
+        song.ProviderAttempts.Add(new SongProviderAttempt
+        {
+            SongId = song.Id,
+            Provider = EnrichmentProvider.AcoustID,
+            Status = ProviderAttemptStatus.NoMatch,
+            AttemptedAtUtc = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        var channel = new EnrichmentPipelineChannel(new JobManager(), new EnrichmentProgressTracker());
+        var service = CreateService(
+            db, channel,
+            enabled: new HashSet<EnrichmentProvider> { EnrichmentProvider.AcoustID, EnrichmentProvider.SpotifyAPI },
+            onApplicabilityCheck: _ =>
+            {
+                var row = db.Songs.Single(s => s.Id == song.Id);
+                row.IsManuallyApproved = true;
+                row.EnrichmentStatus = EnrichmentStatus.Matched;
+                db.SaveChanges();
+            });
+
+        await service.RefreshStaleStatusesAsync(CancellationToken.None);
+
+        var stored = await db.Songs.AsNoTracking().SingleAsync();
+        Assert.Equal(EnrichmentStatus.Matched, stored.EnrichmentStatus);
+        Assert.False(channel.Reader.TryRead(out _));
+    }
+
+    [Fact]
     public async Task EnqueueMissing_SkipsDemoSong()
     {
         await using var db = CreateDb();
@@ -552,7 +585,8 @@ public class EnrichmentRetrySweepTests
         EnrichmentPipelineChannel channel,
         IReadOnlySet<EnrichmentProvider> enabled,
         bool retryNeedsReview = false,
-        bool retryFailed = false)
+        bool retryFailed = false,
+        Action<SongMetadata>? onApplicabilityCheck = null)
     {
         var opts = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
         {
@@ -567,9 +601,8 @@ public class EnrichmentRetrySweepTests
             new JobManager(),
             new EnrichmentProgressTracker(),
             channel,
-            new StubOrchestrator(enabled),
+            new StubOrchestrator(enabled, onApplicabilityCheck),
             opts,
-            TestPipelineMetrics.Create(),
             NullLogger<EnrichmentBackgroundService>.Instance);
     }
 
@@ -594,7 +627,6 @@ public class EnrichmentRetrySweepTests
             new EnrichmentPipelineChannel(new JobManager(), new EnrichmentProgressTracker()),
             orchestrator,
             opts,
-            TestPipelineMetrics.Create(),
             NullLogger<EnrichmentBackgroundService>.Instance);
     }
 
@@ -611,6 +643,9 @@ public class EnrichmentRetrySweepTests
         public Task<IReadOnlySet<EnrichmentProvider>> GetEnabledProviderEnumsAsync(CancellationToken ct = default)
             => Task.FromResult<IReadOnlySet<EnrichmentProvider>>(new HashSet<EnrichmentProvider>());
 
+        public Task<IReadOnlySet<EnrichmentProvider>> GetApplicableProvidersAsync(
+            SongMetadata song, CancellationToken ct = default) => GetEnabledProviderEnumsAsync(ct);
+
         public Task<bool> FetchLyricsForSongAsync(int songId, CancellationToken ct = default)
         {
             lock (_fetched) _fetched.Add(songId);
@@ -624,12 +659,20 @@ public class EnrichmentRetrySweepTests
         }
     }
 
-    private sealed class StubOrchestrator(IReadOnlySet<EnrichmentProvider> enabled) : IEnrichmentOrchestrator
+    private sealed class StubOrchestrator(
+        IReadOnlySet<EnrichmentProvider> enabled, Action<SongMetadata>? onApplicabilityCheck = null) : IEnrichmentOrchestrator
     {
         public Task<EnrichmentOutcome> ProcessSongAsync(int songId, CancellationToken ct = default)
             => Task.FromResult(EnrichmentOutcome.Skipped);
 
         public Task<IReadOnlySet<EnrichmentProvider>> GetEnabledProviderEnumsAsync(CancellationToken ct = default) => Task.FromResult(enabled);
+
+        public Task<IReadOnlySet<EnrichmentProvider>> GetApplicableProvidersAsync(
+            SongMetadata song, CancellationToken ct = default)
+        {
+            onApplicabilityCheck?.Invoke(song);
+            return GetEnabledProviderEnumsAsync(ct);
+        }
 
         public Task<bool> FetchLyricsForSongAsync(int songId, CancellationToken ct = default) => Task.FromResult(false);
 

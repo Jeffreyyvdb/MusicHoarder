@@ -1,7 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Jobs;
-using MusicHoarder.Api.Observability;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 
@@ -14,7 +13,6 @@ public class EnrichmentBackgroundService(
     EnrichmentPipelineChannel pipelineChannel,
     IEnrichmentOrchestrator orchestrator,
     IOptions<MusicEnricherOptions> options,
-    PipelineMetrics metrics,
     ILogger<EnrichmentBackgroundService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -47,17 +45,20 @@ public class EnrichmentBackgroundService(
         await Task.WhenAll([sweepTask, .. workerTasks]);
     }
 
+    /// <summary>Songs read per query by the startup sweeps that walk the library.</summary>
+    private const int SweepPageSize = 1000;
+
     /// <summary>
     /// Recomputes summary status for non-Pending songs against the currently enabled provider set.
     /// Songs whose status would now be Pending (because a newly-enabled provider has no attempt yet)
     /// are flipped and enqueued. ProviderAttempts are kept — the orchestrator skips providers with
     /// terminal attempts, so the re-run only hits the new provider.
     ///
-    /// Only songs that are <em>missing an attempt for at least one enabled provider</em> can flip to
-    /// Pending, so we materialize just that subset (via <see cref="EnrichmentQueries.WhereMissingEnabledProvider"/>)
-    /// instead of the entire non-Pending library — in steady state (every song fully attempted) this
-    /// loads nothing and deserializes no provider JSON. Manually-approved (locked) songs are excluded:
-    /// the orchestrator would skip them anyway, so flipping them would strand them in Pending forever.
+    /// Only songs missing an attempt from a provider that can act on them can flip to Pending, so
+    /// only those are loaded with their attempts (<see cref="SongIdsMissingAnApplicableProviderAsync"/>),
+    /// a page at a time. In steady state that is none, and no provider JSON is deserialized.
+    /// Manually-approved (locked) songs are excluded: the orchestrator would skip them anyway, so
+    /// flipping them would strand them in Pending forever.
     /// </summary>
     internal async Task RefreshStaleStatusesAsync(CancellationToken ct)
     {
@@ -70,27 +71,33 @@ public class EnrichmentBackgroundService(
             if (enabled.Count == 0)
                 return;
 
-            var candidates = await db.Songs
-                .IgnoreQueryFilters()
-                .Include(s => s.ProviderAttempts)
-                .Where(s => s.EnrichmentStatus != EnrichmentStatus.Pending)
-                .WhereMissingEnabledProvider(enabled)
-                .ToListAsync(ct);
-
             var flipped = new List<int>();
-            foreach (var song in candidates)
+            foreach (var page in (await SongIdsMissingAnApplicableProviderAsync(db, enabled, ct)).Chunk(SweepPageSize))
             {
-                if (song.ComputeSummaryStatus(enabled) != EnrichmentStatus.Pending)
-                    continue;
+                var candidates = await db.Songs
+                    .IgnoreQueryFilters()
+                    .Include(s => s.ProviderAttempts)
+                    .Where(s => page.Contains(s.Id) && s.EnrichmentStatus != EnrichmentStatus.Pending)
+                    // Again here: a song approved or deleted since its id was collected must not flip.
+                    .Where(s => !s.IsManuallyApproved && s.DeletedAtUtc == null)
+                    .ToListAsync(ct);
 
-                song.EnrichmentStatus = EnrichmentStatus.Pending;
-                song.EnrichmentError = null;
-                flipped.Add(song.Id);
+                foreach (var song in candidates)
+                {
+                    if (song.ComputeSummaryStatus(enabled) != EnrichmentStatus.Pending)
+                        continue;
+
+                    song.EnrichmentStatus = EnrichmentStatus.Pending;
+                    song.EnrichmentError = null;
+                    flipped.Add(song.Id);
+                }
+
+                await db.SaveChangesAsync(ct);
+                db.ChangeTracker.Clear();
             }
 
             if (flipped.Count > 0)
             {
-                await db.SaveChangesAsync(ct);
                 pipelineChannel.EnqueueRange(flipped);
                 logger.LogInformation(
                     "Refresh sweep flipped {Count} songs to Pending after provider-set change",
@@ -105,12 +112,12 @@ public class EnrichmentBackgroundService(
 
     /// <summary>
     /// Gives a newly-added provider a turn against existing songs: enqueues every enrichable song
-    /// that is missing an attempt for at least one currently-enabled provider — including songs
-    /// already <see cref="EnrichmentStatus.Matched"/>, which the refresh sweep leaves alone.
+    /// that is missing an attempt from a currently-enabled provider that can act on it — including
+    /// songs already <see cref="EnrichmentStatus.Matched"/>, which the refresh sweep leaves alone.
     /// Status is NOT flipped; <see cref="IEnrichmentOrchestrator.ProcessSongAsync"/> runs only the
     /// providers without a terminal attempt and re-evaluates consensus, so a song's status changes
-    /// only if the new provider wins. Idempotent: once every enabled provider has an attempt, the
-    /// song is no longer selected, so subsequent restarts enqueue nothing.
+    /// only if the new provider wins. Idempotent: once every such provider has an attempt, the song
+    /// is no longer selected, so subsequent restarts enqueue nothing.
     /// </summary>
     internal async Task EnqueueSongsMissingProvidersAsync(CancellationToken ct)
     {
@@ -123,12 +130,7 @@ public class EnrichmentBackgroundService(
             using var scope = scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
 
-            var ids = await db.Songs
-                .IgnoreQueryFilters()
-                .AsNoTracking()
-                .WhereMissingEnabledProvider(enabled)
-                .Select(s => s.Id)
-                .ToListAsync(ct);
+            var ids = await SongIdsMissingAnApplicableProviderAsync(db, enabled, ct);
 
             if (ids.Count > 0)
             {
@@ -141,6 +143,53 @@ public class EnrichmentBackgroundService(
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogWarning(ex, "Failed to enqueue songs missing an enabled provider on startup");
+        }
+    }
+
+    /// <summary>
+    /// Ids of the enrichable songs with no attempt yet from an enabled provider that can act on them.
+    /// The query only narrows to songs missing an attempt from some enabled provider, which is most
+    /// of the library: a community tracker handles its allowlisted artists alone and records nothing
+    /// on any other song. So each page is checked against
+    /// <see cref="IEnrichmentOrchestrator.GetApplicableProvidersAsync"/> on rows that carry only
+    /// <see cref="IEnrichmentProvider.CanHandleColumns"/>.
+    /// </summary>
+    private async Task<List<int>> SongIdsMissingAnApplicableProviderAsync(
+        MusicHoarderDbContext db, IReadOnlySet<EnrichmentProvider> enabled, CancellationToken ct)
+    {
+        var columns = IEnrichmentProvider.CanHandleColumns.With(nameof(SongMetadata.Id));
+        var missing = new List<int>();
+        var afterId = 0;
+        while (true)
+        {
+            var page = await db.Songs
+                .IgnoreQueryFilters()
+                .WhereMissingEnabledProvider(enabled)
+                .Where(s => s.Id > afterId)
+                .OrderBy(s => s.Id)
+                .Take(SweepPageSize)
+                .WithOnly(db, columns)
+                .ToListAsync(ct);
+            if (page.Count == 0)
+                return missing;
+            afterId = page[^1].Id;
+
+            var pageIds = page.Select(s => s.Id).ToList();
+            var attempted = (await db.SongProviderAttempts
+                    .IgnoreQueryFilters()
+                    .AsNoTracking()
+                    .Where(a => pageIds.Contains(a.SongId) && enabled.Contains(a.Provider))
+                    .Select(a => new { a.SongId, a.Provider })
+                    .ToListAsync(ct))
+                .ToLookup(a => a.SongId, a => a.Provider);
+
+            foreach (var song in page)
+            {
+                var applicable = await orchestrator.GetApplicableProvidersAsync(song, ct).ConfigureAwait(false);
+                // Against the sweep's own snapshot of enabled providers, which the queries above used.
+                if (applicable.Where(enabled.Contains).Except(attempted[song.Id]).Any())
+                    missing.Add(song.Id);
+            }
         }
     }
 
@@ -486,7 +535,6 @@ public class EnrichmentBackgroundService(
                 {
                     case EnrichmentOutcome.Matched:
                         progressTracker.IncrementEnriched();
-                        metrics.RecordTerminal("matched");
                         // Don't trigger a build per matched song — the build is kicked once per
                         // enrichment cycle when the channel drains (EnrichmentPipelineChannel
                         // .MarkProcessed/ResetCycle -> TriggerBuild), and that single run's batch
@@ -499,11 +547,9 @@ public class EnrichmentBackgroundService(
                         break;
                     case EnrichmentOutcome.NeedsReview:
                         progressTracker.IncrementNeedsReview();
-                        metrics.RecordTerminal("needs_review");
                         break;
                     case EnrichmentOutcome.Failed:
                         progressTracker.IncrementFailed();
-                        metrics.RecordTerminal("failed");
                         break;
                 }
             }
@@ -516,7 +562,6 @@ public class EnrichmentBackgroundService(
                 logger.LogWarning(ex, "Enrichment worker {WorkerId} failed processing song {SongId}",
                     workerId, songId);
                 progressTracker.IncrementFailed();
-                metrics.RecordTerminal("failed");
             }
             finally
             {

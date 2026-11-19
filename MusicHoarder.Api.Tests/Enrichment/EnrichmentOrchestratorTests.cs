@@ -1913,6 +1913,7 @@ public class EnrichmentOrchestratorTests
             new StubGeniusService(_ => Task.FromResult<LyricsResult?>(null)),
             opts,
             new TestRuntimeSettingsService(opts.Value),
+            TestPipelineMetrics.Create(),
             NullLogger<EnrichmentOrchestrator>.Instance);
     }
 
@@ -1933,6 +1934,7 @@ public class EnrichmentOrchestratorTests
             geniusService ?? new StubGeniusService(_ => Task.FromResult<LyricsResult?>(null)),
             opts,
             new TestRuntimeSettingsService(opts.Value),
+            TestPipelineMetrics.Create(),
             NullLogger<EnrichmentOrchestrator>.Instance);
     }
 

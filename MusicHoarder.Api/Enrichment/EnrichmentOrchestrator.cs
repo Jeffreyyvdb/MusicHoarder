@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Matching;
+using MusicHoarder.Api.Observability;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Settings;
@@ -22,6 +23,14 @@ public interface IEnrichmentOrchestrator
 {
     Task<EnrichmentOutcome> ProcessSongAsync(int songId, CancellationToken ct = default);
     Task<IReadOnlySet<EnrichmentProvider>> GetEnabledProviderEnumsAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// The enabled providers that can act on <paramref name="song"/>, which are the ones
+    /// <see cref="ProcessSongAsync"/> runs for it. A provider that cannot handle a song never records
+    /// an attempt on it (a community tracker outside its artist allowlist), so whether every provider
+    /// has had its turn is measured against this set, not the enabled one.
+    /// </summary>
+    Task<IReadOnlySet<EnrichmentProvider>> GetApplicableProvidersAsync(SongMetadata song, CancellationToken ct = default);
 
     /// <summary>
     /// Fetches LRCLIB lyrics for a single already-matched song that never had a lyrics fetch resolve
@@ -51,6 +60,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
     private readonly IGeniusLyricsService _geniusLyricsService;
     private readonly IOptions<MusicEnricherOptions> _options;
     private readonly IRuntimeSettingsService _runtimeSettings;
+    private readonly PipelineMetrics _metrics;
     private readonly ILogger<EnrichmentOrchestrator> _logger;
 
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _providerSemaphores = new();
@@ -62,6 +72,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         IGeniusLyricsService geniusLyricsService,
         IOptions<MusicEnricherOptions> options,
         IRuntimeSettingsService runtimeSettings,
+        PipelineMetrics metrics,
         ILogger<EnrichmentOrchestrator> logger)
     {
         _scopeFactory = scopeFactory;
@@ -70,6 +81,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         _geniusLyricsService = geniusLyricsService;
         _options = options;
         _runtimeSettings = runtimeSettings;
+        _metrics = metrics;
         _logger = logger;
 
         InitializeSemaphores(options.Value);
@@ -107,6 +119,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
             return EnrichmentOutcome.Skipped;
         }
 
+        var statusBefore = song.EnrichmentStatus;
         var existingAttempts = song.ProviderAttempts.ToDictionary(a => a.Provider);
         var anyProviderActed = false;
 
@@ -120,16 +133,9 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         // ConsensusEvaluator then saw two providers sharing an identifier and auto-matched the wrong
         // identity. Independence is the whole point of consensus — so two providers now only share an
         // MBID/ISRC when each arrived at it on its own.
-        foreach (var provider in enabledProviders)
+        foreach (var (provider, providerEnum) in ApplicableProviders(enabledProviders, song))
         {
-            if (!provider.CanHandle(song))
-                continue;
-
-            var providerEnum = MapProviderName(provider.Name);
-            if (providerEnum is null)
-                continue;
-
-            if (existingAttempts.TryGetValue(providerEnum.Value, out var existing))
+            if (existingAttempts.TryGetValue(providerEnum, out var existing))
             {
                 // Matched candidates are kept; re-running won't improve them.
                 if (existing.Status == ProviderAttemptStatus.Matched)
@@ -154,7 +160,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
             await semaphore.WaitAsync(ct);
             try
             {
-                await PersistProviderOutcomeAsync(provider, providerEnum.Value, song, existingAttempts, ct);
+                await PersistProviderOutcomeAsync(provider, providerEnum, song, existingAttempts, ct);
             }
             finally
             {
@@ -225,6 +231,9 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         var matched = ApplyConsensus(song, consensus, dbContext);
         await dbContext.SaveChangesAsync(ct);
 
+        if (song.EnrichmentStatus != statusBefore && TerminalOutcomeTag(song.EnrichmentStatus) is { } outcome)
+            _metrics.RecordTerminal(outcome);
+
         if (matched)
             await FetchLyricsForSongAsync(song, dbContext, ct);
 
@@ -240,6 +249,14 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
             enabled.Contains(a.Provider)
             && a.Status == ProviderAttemptStatus.RateLimited
             && (a.RateLimitedSinceUtc is null || now - a.RateLimitedSinceUtc.Value <= deferralWindow));
+
+    private static string? TerminalOutcomeTag(EnrichmentStatus status) => status switch
+    {
+        EnrichmentStatus.Matched => "matched",
+        EnrichmentStatus.NeedsReview => "needs_review",
+        EnrichmentStatus.Failed => "failed",
+        _ => null,
+    };
 
     private static EnrichmentOutcome ToOutcome(EnrichmentStatus status) => status switch
     {
@@ -347,6 +364,23 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
     {
         var effective = await _runtimeSettings.GetAsync(ct).ConfigureAwait(false);
         return BuildEnabledEnums(effective);
+    }
+
+    public async Task<IReadOnlySet<EnrichmentProvider>> GetApplicableProvidersAsync(
+        SongMetadata song, CancellationToken ct = default)
+    {
+        var effective = await _runtimeSettings.GetAsync(ct).ConfigureAwait(false);
+        return ApplicableProviders(GetEnabledProviders(effective), song).Select(p => p.Enum).ToHashSet();
+    }
+
+    private static IEnumerable<(IEnrichmentProvider Provider, EnrichmentProvider Enum)> ApplicableProviders(
+        IEnumerable<IEnrichmentProvider> enabledProviders, SongMetadata song)
+    {
+        foreach (var provider in enabledProviders)
+        {
+            if (provider.CanHandle(song) && MapProviderName(provider.Name) is { } providerEnum)
+                yield return (provider, providerEnum);
+        }
     }
 
     private IReadOnlySet<EnrichmentProvider> BuildEnabledEnums(EffectiveSettings effective)

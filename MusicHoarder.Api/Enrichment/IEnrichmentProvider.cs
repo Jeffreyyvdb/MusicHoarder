@@ -50,6 +50,22 @@ public sealed record ProviderRateLimited(TimeSpan RetryAfter) : ProviderOutcome;
 
 public interface IEnrichmentProvider
 {
+    /// <summary>
+    /// The song columns any <see cref="CanHandle"/> reads. The startup sweeps call it on rows that
+    /// carry only these (<see cref="SongMetadataLightQuery.WithOnly"/>), so an implementation that
+    /// starts reading another property must add it here or it sees a blank there.
+    /// </summary>
+    static readonly SongColumnSet CanHandleColumns = new(
+        nameof(SongMetadata.Artist),
+        nameof(SongMetadata.Album),
+        nameof(SongMetadata.Title),
+        nameof(SongMetadata.TrackNumber),
+        nameof(SongMetadata.SourcePath),
+        nameof(SongMetadata.Fingerprint),
+        nameof(SongMetadata.DurationSeconds),
+        nameof(SongMetadata.MusicBrainzId),
+        nameof(SongMetadata.Isrc));
+
     string Name { get; }
     int Priority { get; }
     bool CanHandle(SongMetadata song);
