@@ -37,14 +37,23 @@ public class MusicHoarderDbContext : DbContext
     private readonly ISecretColumnProtector? _secretProtector;
 
     /// <summary>
+    /// The user the query filters scope to. EF reads a context member in a filter again for every
+    /// query, as a parameter, so one compiled model (and one compiled query per shape) serves every
+    /// account. Capturing the id in <see cref="OnModelCreating"/> instead meant a model per account,
+    /// built on that account's first request after each restart (about a second) and every query
+    /// compiled again for it.
+    /// </summary>
+    private Guid FilterUserId => _currentUser?.UserId ?? Guid.Empty;
+
+    /// <summary>
     /// Used by <see cref="UserAwareModelCacheKeyFactory"/> to vary the compiled-model cache by exactly what
-    /// <see cref="OnModelCreating"/> captures for the query filters: whether there is an accessor, and its
-    /// user id. A context with no accessor sees every row; one whose accessor has no signed-in user sees
-    /// only rows owned by <see cref="Guid.Empty"/>. Keying both as "anonymous" let whichever was built first
+    /// <see cref="OnModelCreating"/> captures for the query filters: whether there is an accessor. A context
+    /// with no accessor sees every row; one with an accessor sees the rows of <see cref="FilterUserId"/>
+    /// (<see cref="Guid.Empty"/> when nobody is signed in). Keying both alike let whichever was built first
     /// decide what the other could read.
     /// </summary>
     internal string ModelCacheKeySegment =>
-        (_currentUser is null ? "unfiltered" : _currentUser.UserId.ToString("N"))
+        (_currentUser is null ? "unfiltered" : "filtered")
         // The protector is baked into the model as a value converter, so a context must never
         // share a cached model with one built for another protector (or for none). Production has
         // one protector (a singleton), so this adds no models there.
@@ -117,13 +126,9 @@ public class MusicHoarderDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
-        // EF query filters can reference instance state but per-EF-docs you should capture it
-        // into locals so the compiled query doesn't NRE when the accessor is null (design-time,
-        // tests). Combined with the IModelCacheKeyFactory below, this gives
-        // one cached model per (hasUser, userId) tuple — fine for Owner + Demo + a handful of
-        // invited friends; revisit before tenant counts grow into dozens.
+        // Whether filters apply at all is fixed per model (the cache key says so); whose rows they
+        // keep is FilterUserId, read per query.
         var hasUser = _currentUser is not null;
-        var userId = _currentUser?.UserId ?? Guid.Empty;
 
         modelBuilder.Entity<SongMetadata>(entity =>
         {
@@ -154,7 +159,7 @@ public class MusicHoarderDbContext : DbContext
 
             // Global query filter: scope every read to the current user. Background services
             // bypass via .IgnoreQueryFilters().
-            entity.HasQueryFilter(s => !hasUser || s.OwnerUserId == userId);
+            entity.HasQueryFilter(s => !hasUser || s.OwnerUserId == FilterUserId);
         });
 
         modelBuilder.Entity<SongDuplicateLink>(entity =>
@@ -175,7 +180,7 @@ public class MusicHoarderDbContext : DbContext
                 .HasForeignKey(e => e.SongIdHigh)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == FilterUserId);
         });
 
         modelBuilder.Entity<ArtistAlias>(entity =>
@@ -183,7 +188,7 @@ public class MusicHoarderDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => new { e.OwnerUserId, e.AliasKey }).IsUnique();
 
-            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == FilterUserId);
         });
 
         modelBuilder.Entity<DedupDismissal>(entity =>
@@ -191,7 +196,7 @@ public class MusicHoarderDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => new { e.OwnerUserId, e.Kind, e.ScopeKey, e.KeyLow, e.KeyHigh }).IsUnique();
 
-            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == FilterUserId);
         });
 
         modelBuilder.Entity<SongProviderAttempt>(entity =>
@@ -208,7 +213,7 @@ public class MusicHoarderDbContext : DbContext
             // Mirror Song's tenancy filter so this required dependent is filtered out exactly when
             // its principal would be (otherwise EF warns about the required relationship). Background
             // services that read this DbSet directly bypass via .IgnoreQueryFilters().
-            entity.HasQueryFilter(e => !hasUser || e.Song.OwnerUserId == userId);
+            entity.HasQueryFilter(e => !hasUser || e.Song.OwnerUserId == FilterUserId);
         });
 
         modelBuilder.Entity<SongMusicVideo>(entity =>
@@ -222,7 +227,7 @@ public class MusicHoarderDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
 
             // Mirror Song's tenancy filter (see SongProviderAttempt above).
-            entity.HasQueryFilter(e => !hasUser || e.Song.OwnerUserId == userId);
+            entity.HasQueryFilter(e => !hasUser || e.Song.OwnerUserId == FilterUserId);
         });
 
         modelBuilder.Entity<SongVideoCandidateSet>(entity =>
@@ -236,7 +241,7 @@ public class MusicHoarderDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
 
             // Mirror Song's tenancy filter (see SongProviderAttempt above).
-            entity.HasQueryFilter(e => !hasUser || e.Song.OwnerUserId == userId);
+            entity.HasQueryFilter(e => !hasUser || e.Song.OwnerUserId == FilterUserId);
         });
 
         // Canonical album tracklists reconciled across providers. Catalog/reference data shared across
@@ -289,7 +294,7 @@ public class MusicHoarderDbContext : DbContext
                 .HasForeignKey(e => e.CanonicalAlbumId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == FilterUserId);
         });
 
         // Owner-scoped album-completion verdict + backfill cursor. Owner-scoped for the same reason
@@ -306,7 +311,7 @@ public class MusicHoarderDbContext : DbContext
                 .HasForeignKey(e => e.CanonicalAlbumId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == FilterUserId);
         });
 
         modelBuilder.Entity<SongMetadataChange>(entity =>
@@ -321,7 +326,7 @@ public class MusicHoarderDbContext : DbContext
 
             // Mirror Song's tenancy filter so this required dependent is filtered out exactly when
             // its principal would be (otherwise EF warns about the required relationship).
-            entity.HasQueryFilter(e => !hasUser || e.Song.OwnerUserId == userId);
+            entity.HasQueryFilter(e => !hasUser || e.Song.OwnerUserId == FilterUserId);
         });
 
         modelBuilder.Entity<SongQualityGrade>(entity =>
@@ -339,7 +344,7 @@ public class MusicHoarderDbContext : DbContext
 
             // Mirror Song's tenancy filter so this dependent is filtered exactly when its principal
             // would be. Background services bypass via .IgnoreQueryFilters().
-            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == FilterUserId);
         });
 
         // The grader trial (Quality/Jev): every arm's answer per subject, kept apart from
@@ -351,14 +356,14 @@ public class MusicHoarderDbContext : DbContext
             entity.HasIndex(e => new { e.SubjectKind, e.SubjectId, e.InputFingerprint, e.Arm, e.Model });
             entity.HasIndex(e => new { e.OwnerUserId, e.CreatedAtUtc });
             entity.Property(e => e.CostUsd).HasPrecision(18, 9);
-            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == FilterUserId);
         });
 
         modelBuilder.Entity<GraderTrialLabel>(entity =>
         {
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => new { e.OwnerUserId, e.SubjectKind, e.SubjectId, e.InputFingerprint }).IsUnique();
-            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == FilterUserId);
         });
 
         modelBuilder.Entity<DirectoryPreference>(entity =>
@@ -367,7 +372,7 @@ public class MusicHoarderDbContext : DbContext
             // One preference row per (user, folder); looked up by path when toggling and rendering the tree.
             entity.HasIndex(e => new { e.OwnerUserId, e.Path }).IsUnique();
 
-            entity.HasQueryFilter(p => !hasUser || p.OwnerUserId == userId);
+            entity.HasQueryFilter(p => !hasUser || p.OwnerUserId == FilterUserId);
         });
 
         modelBuilder.Entity<SpotifySettings>(entity =>
@@ -383,7 +388,7 @@ public class MusicHoarderDbContext : DbContext
                 entity.Property(e => e.RefreshToken).HasConversion(protectedString);
             }
 
-            entity.HasQueryFilter(s => !hasUser || s.OwnerUserId == userId);
+            entity.HasQueryFilter(s => !hasUser || s.OwnerUserId == FilterUserId);
         });
 
         modelBuilder.Entity<SpotifyTrackLibraryMatch>(entity =>
@@ -393,7 +398,7 @@ public class MusicHoarderDbContext : DbContext
             entity.HasIndex(e => e.UpdatedAtUtc);
             entity.HasIndex(e => e.MatchStatus);
 
-            entity.HasQueryFilter(m => !hasUser || m.OwnerUserId == userId);
+            entity.HasQueryFilter(m => !hasUser || m.OwnerUserId == FilterUserId);
         });
 
         modelBuilder.Entity<WishlistSource>(entity =>
@@ -412,7 +417,7 @@ public class MusicHoarderDbContext : DbContext
                 .IsUnique()
                 .HasFilter("\"YouTubePlaylistId\" IS NOT NULL");
 
-            entity.HasQueryFilter(s => !hasUser || s.OwnerUserId == userId);
+            entity.HasQueryFilter(s => !hasUser || s.OwnerUserId == FilterUserId);
         });
 
         modelBuilder.Entity<FollowedArtist>(entity =>
@@ -428,7 +433,7 @@ public class MusicHoarderDbContext : DbContext
                 .HasForeignKey(r => r.FollowedArtistId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == FilterUserId);
         });
 
         modelBuilder.Entity<FollowedArtistRelease>(entity =>
@@ -437,7 +442,7 @@ public class MusicHoarderDbContext : DbContext
             entity.HasIndex(e => new { e.FollowedArtistId, e.ReleaseKey }).IsUnique();
             entity.HasIndex(e => e.DecidedAtUtc);
 
-            entity.HasQueryFilter(e => !hasUser || e.FollowedArtist.OwnerUserId == userId);
+            entity.HasQueryFilter(e => !hasUser || e.FollowedArtist.OwnerUserId == FilterUserId);
         });
 
         modelBuilder.Entity<SongReport>(entity =>
@@ -445,7 +450,7 @@ public class MusicHoarderDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => new { e.OwnerUserId, e.CreatedAtUtc });
             entity.HasIndex(e => e.SongId);
-            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == FilterUserId);
         });
 
         // Catalog data, like CanonicalAlbum: one row per normalized artist name, not user-scoped.
@@ -496,7 +501,7 @@ public class MusicHoarderDbContext : DbContext
                 .HasForeignKey(e => e.DownloadedSongId)
                 .OnDelete(DeleteBehavior.SetNull);
 
-            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == FilterUserId);
         });
 
         modelBuilder.Entity<ExportedPlaylist>(entity =>
@@ -507,7 +512,7 @@ public class MusicHoarderDbContext : DbContext
             // rename keeps the same row (and the old .m3u8 is deleted when the computed path changes).
             entity.HasIndex(e => new { e.OwnerUserId, e.Kind, e.SpotifyPlaylistId }).IsUnique();
 
-            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == FilterUserId);
         });
 
         modelBuilder.Entity<WishlistSourceTrack>(entity =>
@@ -526,7 +531,7 @@ public class MusicHoarderDbContext : DbContext
                 .HasForeignKey(e => e.WishlistItemId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            entity.HasQueryFilter(e => !hasUser || e.WishlistSource.OwnerUserId == userId);
+            entity.HasQueryFilter(e => !hasUser || e.WishlistSource.OwnerUserId == FilterUserId);
         });
 
         modelBuilder.Entity<Playlist>(entity =>
@@ -545,7 +550,7 @@ public class MusicHoarderDbContext : DbContext
                 .HasForeignKey(e => e.WishlistSourceId)
                 .OnDelete(DeleteBehavior.SetNull);
 
-            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == FilterUserId);
         });
 
         modelBuilder.Entity<PlaylistEntry>(entity =>
@@ -566,7 +571,7 @@ public class MusicHoarderDbContext : DbContext
                 .HasForeignKey(e => e.SongId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            entity.HasQueryFilter(e => !hasUser || e.Playlist.OwnerUserId == userId);
+            entity.HasQueryFilter(e => !hasUser || e.Playlist.OwnerUserId == FilterUserId);
         });
 
         modelBuilder.Entity<RuntimeSettings>(entity =>
@@ -579,7 +584,7 @@ public class MusicHoarderDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => new { e.OwnerUserId, e.StartedAtUtc });
 
-            entity.HasQueryFilter(r => !hasUser || r.OwnerUserId == userId);
+            entity.HasQueryFilter(r => !hasUser || r.OwnerUserId == FilterUserId);
         });
 
         modelBuilder.Entity<TrackSyncState>(entity =>
@@ -597,7 +602,7 @@ public class MusicHoarderDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
 
             // Match the Songs filter (required end) so filtered joins stay consistent.
-            entity.HasQueryFilter(e => !hasUser || e.Song!.OwnerUserId == userId);
+            entity.HasQueryFilter(e => !hasUser || e.Song!.OwnerUserId == FilterUserId);
         });
 
         modelBuilder.Entity<UpgradeRequest>(entity =>
@@ -612,7 +617,7 @@ public class MusicHoarderDbContext : DbContext
                 .HasForeignKey(e => e.SongId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == FilterUserId);
         });
 
         modelBuilder.Entity<LibraryWriteEvent>(entity =>
@@ -632,7 +637,7 @@ public class MusicHoarderDbContext : DbContext
 
             // Filter on OwnerUserId directly (not via e.Song) because the relationship is optional —
             // the stamped owner id is always present even for song-less cover events.
-            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == FilterUserId);
         });
 
         modelBuilder.Entity<EnrichmentSnapshot>(entity =>
@@ -646,7 +651,7 @@ public class MusicHoarderDbContext : DbContext
                 .HasForeignKey(s => s.SnapshotId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == FilterUserId);
         });
 
         modelBuilder.Entity<EnrichmentSnapshotSong>(entity =>
@@ -656,7 +661,7 @@ public class MusicHoarderDbContext : DbContext
 
             // Mirror the parent snapshot's tenancy filter so a child is filtered exactly when its
             // principal would be (otherwise EF warns about the required relationship).
-            entity.HasQueryFilter(e => !hasUser || e.Snapshot.OwnerUserId == userId);
+            entity.HasQueryFilter(e => !hasUser || e.Snapshot.OwnerUserId == FilterUserId);
         });
 
         modelBuilder.Entity<SongShare>(entity =>
@@ -674,7 +679,7 @@ public class MusicHoarderDbContext : DbContext
 
             // Owner-scoped for the management endpoints; the anonymous share endpoints resolve
             // tokens via .IgnoreQueryFilters() and re-scope by the share's own OwnerUserId.
-            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == FilterUserId);
         });
 
         modelBuilder.Entity<ShareVisit>(entity =>
@@ -692,7 +697,7 @@ public class MusicHoarderDbContext : DbContext
 
             // Owner-scoped like its share (OwnerUserId is copied from it at write time); the
             // anonymous beacons write — and de-duplicate — via .IgnoreQueryFilters().
-            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == FilterUserId);
         });
 
         modelBuilder.Entity<TranscriptionAudioSpend>(entity =>
@@ -713,7 +718,7 @@ public class MusicHoarderDbContext : DbContext
             // Both parties see exactly their rows: the owner for management, the grantee for
             // resolution — so the library scope needs no IgnoreQueryFilters() on grants
             // (only on the subsequent Song reads, which are re-scoped to the grant's owner).
-            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId || e.GranteeUserId == userId);
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == FilterUserId || e.GranteeUserId == FilterUserId);
         });
 
         modelBuilder.Entity<UserSongState>(entity =>
@@ -732,7 +737,7 @@ public class MusicHoarderDbContext : DbContext
             // Private to the friend it belongs to. The song relationship crosses tenants by
             // design (UserId is the grantee, Song.OwnerUserId the grantor), so the filter is on
             // the state's own UserId — writes additionally verify grant scope at the endpoint.
-            entity.HasQueryFilter(e => !hasUser || e.UserId == userId);
+            entity.HasQueryFilter(e => !hasUser || e.UserId == FilterUserId);
         });
 
         // Append-only play history, private to the listener like UserSongState. SongId is a plain
@@ -746,7 +751,7 @@ public class MusicHoarderDbContext : DbContext
             entity.Property(e => e.Album).HasMaxLength(ListeningEvent.MaxTextLength);
             entity.Property(e => e.Genre).HasMaxLength(ListeningEvent.MaxTextLength);
             entity.HasIndex(e => new { e.UserId, e.PlayedAtUtc });
-            entity.HasQueryFilter(e => !hasUser || e.UserId == userId);
+            entity.HasQueryFilter(e => !hasUser || e.UserId == FilterUserId);
         });
 
         // The account's remembered playback session: one row per user, private to that user like
@@ -757,7 +762,7 @@ public class MusicHoarderDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.OwnerUserId).IsUnique();
 
-            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == userId);
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == FilterUserId);
         });
 
         // Chat. A message is visible to the accounts taking part in its conversation, unless it was
@@ -808,8 +813,8 @@ public class MusicHoarderDbContext : DbContext
                 .OnDelete(DeleteBehavior.SetNull);
 
             entity.HasQueryFilter(e => !hasUser
-                || ((e.VisibleToUserId == null || e.VisibleToUserId == userId)
-                    && e.Conversation!.Participants.Any(p => p.UserId == userId)));
+                || ((e.VisibleToUserId == null || e.VisibleToUserId == FilterUserId)
+                    && e.Conversation!.Participants.Any(p => p.UserId == FilterUserId)));
         });
 
         modelBuilder.Entity<WebPushSubscription>(entity =>
@@ -817,7 +822,7 @@ public class MusicHoarderDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => new { e.UserId, e.Endpoint }).IsUnique();
 
-            entity.HasQueryFilter(e => !hasUser || e.UserId == userId);
+            entity.HasQueryFilter(e => !hasUser || e.UserId == FilterUserId);
         });
 
         modelBuilder.Entity<WebPushKeys>(entity =>
@@ -896,7 +901,7 @@ public class MusicHoarderDbContext : DbContext
             entity.HasIndex(e => e.EmailNormalized);
 
             // Owner-scoped for the management endpoints, same posture as SongShare.
-            entity.HasQueryFilter(e => !hasUser || e.CreatedByUserId == userId);
+            entity.HasQueryFilter(e => !hasUser || e.CreatedByUserId == FilterUserId);
         });
 
         modelBuilder.Entity<WebAuthnCredential>(entity =>

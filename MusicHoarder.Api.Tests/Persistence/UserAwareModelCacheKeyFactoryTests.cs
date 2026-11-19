@@ -24,13 +24,36 @@ public class UserAwareModelCacheKeyFactoryTests
     }
 
     [Fact]
-    public void contexts_for_the_same_user_share_a_model()
+    public void contexts_for_different_users_share_one_model_and_each_sees_only_its_own_rows()
     {
-        using var first = new MusicHoarderDbContext(Options, new TestCurrentUserAccessor(TestCurrentUserAccessor.OwnerUser));
-        using var second = new MusicHoarderDbContext(Options, new TestCurrentUserAccessor(TestCurrentUserAccessor.OwnerUser));
+        var options = new DbContextOptionsBuilder<MusicHoarderDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
+            .Options;
+        using (var seed = new MusicHoarderDbContext(options))
+        {
+            seed.Songs.AddRange(Song(TestUsers.OwnerId, "/owner.mp3"), Song(TestUsers.FriendId, "/friend.mp3"));
+            seed.SaveChanges();
+        }
 
-        Assert.Equal(KeyOf(first), KeyOf(second));
+        using var owner = new MusicHoarderDbContext(options, new TestCurrentUserAccessor(TestCurrentUserAccessor.OwnerUser));
+        using var friend = new MusicHoarderDbContext(options, new TestCurrentUserAccessor(TestCurrentUserAccessor.FriendUser));
+
+        Assert.Same(owner.Model, friend.Model);
+        Assert.Equal(["/friend.mp3"], friend.Songs.Select(s => s.SourcePath).ToList());
+        Assert.Equal(["/owner.mp3"], owner.Songs.Select(s => s.SourcePath).ToList());
+        Assert.Equal(["/friend.mp3"], friend.Songs.Select(s => s.SourcePath).ToList());
     }
+
+    private static SongMetadata Song(Guid ownerId, string path) => new()
+    {
+        OwnerUserId = ownerId,
+        SourcePath = path,
+        FileName = Path.GetFileName(path),
+        Extension = ".mp3",
+        FileSizeBytes = 1,
+        LastModifiedUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+        IndexedAtUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+    };
 
     private static object KeyOf(DbContext context) => new UserAwareModelCacheKeyFactory().Create(context, designTime: false);
 }
