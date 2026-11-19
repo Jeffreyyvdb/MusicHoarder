@@ -49,7 +49,7 @@
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="11.0.0" />
         <!-- Pinned directly (design-time only) to override a bad transitive resolution to
              EFCore.Design 8.0.0, which is ABI-incompatible with EFCore 10.x and breaks `dotnet ef`. -->
-        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.15">
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="11.0.0">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
