@@ -33,6 +33,11 @@
   import LyricsCompareSheet from '#lib/components/file-browser/now-playing/LyricsCompareSheet.svelte';
   import ActionSheet from '#lib/components/file-browser/now-playing/ActionSheet.svelte';
   import VolumeControl from '#lib/components/file-browser/now-playing/VolumeControl.svelte';
+  import {
+    arrive,
+    glide,
+    type Stage
+  } from '#lib/components/file-browser/now-playing/mode-motion.ts';
   import DevicePicker from '#lib/components/playback-sync/DevicePicker.svelte';
   import { DEVICE_ICONS } from '#lib/components/playback-sync/device-icons.ts';
   import {
@@ -237,6 +242,43 @@
         : mode
   );
   const playerOnly = $derived(wide.current && content === 'player');
+
+  // lg only: the player glides between centred and left, and the right column's view arrives.
+  const stage = $derived<Stage>(
+    content === 'player' || content === 'artwork'
+      ? null
+      : content === 'lyrics-video'
+        ? 'video'
+        : content
+  );
+  let asideEl = $state<HTMLElement>();
+  let playerBlockEl = $state<HTMLElement>();
+  let columnEl = $state<HTMLElement>();
+  let glideFrom: DOMRect | undefined;
+  let shownSolo: boolean | undefined;
+  let shownStage: Stage | undefined;
+  $effect.pre(() => {
+    const solo = playerOnly;
+    untrack(() => {
+      glideFrom =
+        shownSolo !== undefined && solo !== shownSolo
+          ? playerBlockEl?.getBoundingClientRect()
+          : undefined;
+    });
+  });
+  $effect(() => {
+    const isWide = wide.current;
+    const solo = playerOnly;
+    const next = stage;
+    untrack(() => {
+      if (glideFrom && asideEl && playerBlockEl) glide(asideEl, playerBlockEl, glideFrom);
+      if (shownStage !== undefined && next && next !== shownStage && columnEl)
+        arrive(columnEl, shownStage === null);
+      glideFrom = undefined;
+      shownSolo = isWide ? solo : undefined;
+      shownStage = isWide ? next : undefined;
+    });
+  });
 
   // Behind the watch view the backdrop plays the same clip; sharp, it reads as the video twice.
   $effect(() => {
@@ -900,13 +942,13 @@
            in hard edges at the column's sides. `my-auto` (not justify-center) centres the block
            while it fits and lets it overflow downward only, so its top is never unreachable —
            which is why the ScrollArea's content element is made a flex column. -->
-      <aside class="-mx-12 -mb-8 flex min-h-0 flex-col">
+      <aside class="-mx-12 -mb-8 flex min-h-0 flex-col" bind:this={asideEl}>
         <ScrollArea
           class="min-h-0 flex-1 [&>[data-slot=scroll-area-viewport]>*]:flex [&>[data-slot=scroll-area-viewport]>*]:flex-col"
           viewportClass="px-12 pt-6 pb-8"
         >
           {#if mh1}
-            <div class="my-auto">
+            <div class="my-auto" bind:this={playerBlockEl}>
               {#snippet art()}{@render coverArt(400, 'w-full', true)}{/snippet}
               {@render mh1(art, 'hidden pointer-fine:block')}
               <div class="mt-4" data-mh-np="modes">{@render bottomRow()}</div>
@@ -916,6 +958,7 @@
               class="my-auto flex w-full flex-col"
               data-mh-np="body"
               data-playing={isCurrentlyPlaying || undefined}
+              bind:this={playerBlockEl}
             >
               <!-- The art gives way first on a short window (the transport, title and volume below it
                  need ~430px), and never shrinks under 200px. -->
@@ -947,7 +990,7 @@
           {/if}
         </ScrollArea>
       </aside>
-      <div class={cn('flex min-h-0 flex-col pt-2', playerOnly && 'hidden')}>
+      <div class={cn('flex min-h-0 flex-col pt-2', playerOnly && 'hidden')} bind:this={columnEl}>
         {@render modeContent()}
       </div>
     </div>
