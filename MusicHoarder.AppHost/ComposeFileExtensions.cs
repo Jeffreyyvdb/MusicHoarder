@@ -96,6 +96,7 @@ internal static class ComposeFileExtensions
         file.ExportTelemetryToHostCollector(api, frontend);
 
         file.PersistDataProtectionKeys(api);
+        file.PersistCoverThumbnails(api);
         MountMusicLibrary(api);
         MountDemoMedia(api);
         file.ConfigureWishlistDownloads(api);
@@ -595,6 +596,18 @@ internal static class ComposeFileExtensions
     {
         api.AddVolume(new Volume { Name = "musichoarder-dpkeys", Type = "volume", Source = "musichoarder-dpkeys", Target = "/data/dpkeys" });
         file.Volumes["musichoarder-dpkeys"] = new Volume { Name = "musichoarder-dpkeys", Driver = "local" };
+    }
+
+    /// <summary>
+    /// Keeps the resized cover thumbnails (<c>/data/cover-thumbs</c>) across redeploys. In the container
+    /// layer every deploy threw them away, and the next album grid regenerated each one from a cold read
+    /// of the library's network mount, which serialises parallel opens: bursts of covers took 1-1.5 s.
+    /// Swarm only: the self-host shape may run as <c>PUID</c>, and a new named volume is owned by root.
+    /// </summary>
+    private static void PersistCoverThumbnails(this ComposeFile file, Service api)
+    {
+        api.AddVolume(new Volume { Name = "musichoarder-cover-thumbs", Type = "volume", Source = "musichoarder-cover-thumbs", Target = "/data/cover-thumbs" });
+        file.Volumes["musichoarder-cover-thumbs"] = new Volume { Name = "musichoarder-cover-thumbs", Driver = "local" };
     }
 
     /// <summary>

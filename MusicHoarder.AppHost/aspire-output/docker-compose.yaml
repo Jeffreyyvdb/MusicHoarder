@@ -96,6 +96,9 @@ services:
       - type: "volume"
         target: "/data/dpkeys"
         source: "musichoarder-dpkeys"
+      - type: "volume"
+        target: "/data/cover-thumbs"
+        source: "musichoarder-cover-thumbs"
       - type: "bind"
         target: "${SOURCE_DIRECTORY}"
         source: "${SOURCE_DIRECTORY}"
@@ -239,6 +242,8 @@ volumes:
   musichoarder-volume:
     driver: "local"
   musichoarder-dpkeys:
+    driver: "local"
+  musichoarder-cover-thumbs:
     driver: "local"
   musichoarder-downloads:
     driver: "local"
