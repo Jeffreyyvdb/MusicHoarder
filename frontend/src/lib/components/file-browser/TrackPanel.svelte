@@ -21,7 +21,6 @@
   import VideoWatchTab, {
     type VideoHousing
   } from '#lib/components/file-browser/VideoWatchTab.svelte';
-  import AiLyricsBadge, { AI_LYRICS_COPY } from '#lib/components/file-browser/AiLyricsBadge.svelte';
   import NowPlayingArt from '#lib/components/file-browser/now-playing/NowPlayingArt.svelte';
   import { skinHousing } from '#lib/hardware/hardware-mode.svelte.ts';
   import NowPlayingInfo from '#lib/components/file-browser/now-playing/NowPlayingInfo.svelte';
@@ -503,14 +502,6 @@
       .join(' · ')
   );
 
-  // The AI disclosure travels with the title too, as a chip that spells itself out on a tap.
-  const aiProvenance = $derived(
-    ai.hasLyrics && viewerDoc.provenance && viewerDoc.provenance !== 'Human'
-      ? viewerDoc.provenance
-      : null
-  );
-  let aiDetailOpen = $state(false);
-
   const isLiked = $derived(Boolean(song.likedAtUtc));
   async function toggleLike() {
     try {
@@ -645,24 +636,10 @@
     </div>
     {#if withHeart}{@render heart('lg')}{/if}
   </div>
-  {#if aiProvenance || song.sharedByUserId}
+  {#if song.sharedByUserId}
     <div class="mt-2 flex flex-wrap items-center gap-2">
-      <!-- Renders nothing for a track this account owns. -->
       <SharedByBadge {song} />
-      {#if aiProvenance}
-        <button
-          type="button"
-          class="focus-visible:ring-ring relative rounded-full after:absolute after:inset-x-0 after:-inset-y-3 focus-visible:ring-2 focus-visible:outline-hidden"
-          aria-expanded={aiDetailOpen}
-          onclick={() => (aiDetailOpen = !aiDetailOpen)}
-        >
-          <AiLyricsBadge provenance={aiProvenance} variant="theater" />
-        </button>
-      {/if}
     </div>
-    {#if aiProvenance && aiDetailOpen}
-      <p class="text-footnote text-muted-foreground mt-2">{AI_LYRICS_COPY[aiProvenance].detail}</p>
-    {/if}
   {/if}
 {/snippet}
 

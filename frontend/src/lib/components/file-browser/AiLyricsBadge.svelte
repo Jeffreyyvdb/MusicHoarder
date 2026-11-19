@@ -1,11 +1,7 @@
 <script lang="ts" module>
   import type { LyricsProvenance } from '#lib/types.ts';
 
-  /**
-   * What each label claims, in the words shown to the reader. Exported so Now Playing's chip can
-   * spell the detail out on a tap — a touch screen never shows the `title` tooltip.
-   */
-  export const AI_LYRICS_COPY: Record<
+  const AI_LYRICS_COPY: Record<
     Exclude<LyricsProvenance, 'Human'>,
     { label: string; detail: string }
   > = {

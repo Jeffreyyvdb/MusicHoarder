@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { AlertTriangle, CircleCheck, Loader2, Sparkles, Timer } from '@lucide/svelte';
+  import { AlertTriangle, CircleCheck, Loader2, Timer } from '@lucide/svelte';
   import { Badge } from '#lib/components/ui/badge/index.ts';
   import { Button } from '#lib/components/ui/button/index.ts';
   import { SegmentedControl } from '#lib/components/ui/segmented-control/index.ts';
@@ -70,22 +70,8 @@
   const showTimingRow = $derived(
     isOwner && lrclibDoc.hasSynced && (timingSuspect || lrclibDoc.verifyMessage !== null)
   );
-  // lg keeps the old control bar's "Player shows" line: it is the answer to "which lyrics am I
-  // looking at?" when both exist.
-  const sourceLine = $derived.by(() => {
-    if (!wide || !isOwner) return null;
-    if (ai.canCompare)
-      return `Player shows: ${ai.preferredSource === 'transcribed' ? `AI-synced · ${ai.transcription?.model ?? 'whisper'}` : lrclibDoc.sourceLabel}`;
-    if (ai.transcription)
-      return `AI transcription${ai.transcription.model ? ` · ${ai.transcription.model}` : ''}`;
-    return null;
-  });
   const hasStatus = $derived(
-    Boolean(aiLine) ||
-      Boolean(ai.enhanceError) ||
-      showTimingRow ||
-      Boolean(sourceLine) ||
-      ai.comparing
+    Boolean(aiLine) || Boolean(ai.enhanceError) || showTimingRow || ai.comparing
   );
 </script>
 
@@ -111,12 +97,6 @@
       {/if}
       {#if ai.enhanceError}
         <p class="text-footnote text-destructive-text" role="alert">{ai.enhanceError}</p>
-      {/if}
-      {#if sourceLine && !ai.comparing}
-        <p class="text-footnote text-muted-foreground flex items-center gap-1.5">
-          <Sparkles class="size-3.5 shrink-0" />
-          {sourceLine}
-        </p>
       {/if}
       {#if showTimingRow}
         <!-- The timing verdict and the button that settles it. Admin-only: verifying is a server
