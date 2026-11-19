@@ -91,7 +91,9 @@ public class ProviderApplicabilityTests
     {
         await using var db = CreateDb();
         var song = AddSong(db, EnrichmentStatus.NeedsReview);
-        AddAttempt(song, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.NoMatch);
+        // Due for a retry, so SpotifyAPI runs again, finds nothing again, and the song is saved
+        // with the status it already had.
+        AddAttempt(song, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.NoMatch, retryDue: true);
         await db.SaveChangesAsync();
         var pipeline = new Pipeline(db);
 
@@ -283,13 +285,16 @@ public class ProviderApplicabilityTests
         return song;
     }
 
-    private static void AddAttempt(SongMetadata song, EnrichmentProvider provider, ProviderAttemptStatus status) =>
+    private static void AddAttempt(
+        SongMetadata song, EnrichmentProvider provider, ProviderAttemptStatus status, bool retryDue = false) =>
         song.ProviderAttempts.Add(new SongProviderAttempt
         {
             Provider = provider,
             Status = status,
             AttemptedAtUtc = DateTime.UtcNow,
-            NextRetryAfterUtc = status == ProviderAttemptStatus.NoMatch ? DateTime.UtcNow.AddDays(30) : null,
+            NextRetryAfterUtc = status == ProviderAttemptStatus.NoMatch
+                ? DateTime.UtcNow.AddDays(retryDue ? -1 : 30)
+                : null,
         });
 
     private static MusicHoarderDbContext CreateDb() =>
