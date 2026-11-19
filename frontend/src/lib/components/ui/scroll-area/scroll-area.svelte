@@ -2,6 +2,7 @@
   import { ScrollArea as ScrollAreaPrimitive } from 'bits-ui';
   import { MediaQuery } from 'svelte/reactivity';
   import { Scrollbar } from './index.js';
+  import { verticalWheel } from '#lib/actions/vertical-wheel.ts';
   import { cn, type WithoutChild } from '#lib/utils.js';
 
   let {
@@ -28,6 +29,11 @@
   // so "hover" would flash the bar at touchstart and hide it mid-fling — the scroll indicator
   // iOS draws for a native scroller is the thing this replaces.
   const coarse = new MediaQuery('pointer: coarse');
+
+  $effect(() => {
+    if (orientation !== 'horizontal' || !viewportRef) return;
+    return verticalWheel(viewportRef).destroy;
+  });
 </script>
 
 <ScrollAreaPrimitive.Root
