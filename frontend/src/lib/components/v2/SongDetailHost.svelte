@@ -96,8 +96,10 @@
   let opener: HTMLElement | null = null;
   $effect(() => {
     if (!songDetail.isOpen) return;
+    // Reopened mid-fall, focus is still in the departing dialog: the opener is the one before it.
     untrack(() => {
-      opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      const active = document.activeElement;
+      if (active instanceof HTMLElement && !contentEl?.contains(active)) opener = active;
     });
   });
   $effect(() => {
@@ -107,8 +109,9 @@
     let cancelled = false;
     const slides = el?.getAnimations() ?? [];
     void Promise.allSettled(slides.map((a) => a.finished)).then(async () => {
-      if (cancelled || songDetail.covering === open) return;
-      songDetail.setCovering(open);
+      if (cancelled) return;
+      if (songDetail.covering !== open) songDetail.setCovering(open);
+      // Closed before the rise finished, covering never came on; focus still has to come back.
       if (open) return;
       await tick();
       returnFocus(el);
@@ -119,9 +122,10 @@
   });
 
   // bits-ui returns focus as the fall starts, while the app is still inert, where focus() is
-  // ignored; so the overlay returns it itself once the app is live again.
+  // ignored; so the overlay returns it itself once the app is live again, once per open.
   function returnFocus(dialog: HTMLElement | null) {
     const target = opener;
+    if (!target) return;
     opener = null;
     const active = document.activeElement;
     const lost = !active || active === document.body || (dialog?.contains(active) ?? false);
