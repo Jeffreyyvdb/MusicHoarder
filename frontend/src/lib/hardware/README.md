@@ -91,8 +91,16 @@ with its dim. Everything else is restyled, never hidden.
   scrubber, times and transport), `modes` (Lyrics, Devices, Video, Info, Queue) and `volume`, in
   the wide, phone and sideways layouts alike. The stylesheet dresses them: a molded case at lg, a
   printed plate with an LED lit while the song plays, the cover in its bezel, the readout on an
-  LCD, black transport keys with the scrubber as a fader, white mode keys. A control added to Now
-  Playing is in the MH-1 with no skin work.
+  LCD, the transport as one black rocker (a cap on a side wall that tilts toward the pressed end)
+  with the scrubber as a fader, Like and Mute as SPEC-01's latching keys (a matte cap standing out
+  of a black base, down while on), the volume as its FlatKnob (a white cap with a red dot over a
+  tick ring, the number and the name under it), and the mode row as a second rocker in the kit's
+  white, the zone of the mode that is on latched with its LED lit. Both rockers are one rule set:
+  `data-mh-rocker` marks the row, and a tone is a handful of `--rk-*` values. All of it is drawn
+  from the app's own elements: `VolumeControl` hands the stylesheet its level as `--np-volume`
+  and asks `skinLook` whether the slider is slid or turned (a knob follows an up or down drag),
+  and the knob's number is the slider's own `aria-valuenow`. A control added to Now Playing is in
+  the MH-1 with no skin work.
 - Now Playing's look values: `SongDetailHost` takes its surface from `skinLook` (the desk in the
   app's own theme, where the plain app is forced dark on black), so `theme-color` stays the skin's
   there too. A music video behind it plays as a CRT (`VideoBackdrop`'s `data-mh-crt`); while it is
