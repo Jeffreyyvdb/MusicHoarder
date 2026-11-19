@@ -32,6 +32,8 @@
   import { seekTargetForKey } from '#lib/player-seek.ts';
   import { formatDuration } from '#lib/formatters.ts';
   import { blurAfterPointerClick, cn, transportGlyphClass } from '#lib/utils.ts';
+  import { untrack } from 'svelte';
+  import { glide } from '#lib/components/file-browser/now-playing/mode-motion.ts';
 
   // Watch mode for the music video: the clip fitted into all of Now Playing's middle (a phone) or
   // right column (lg) — as large as its shape allows, like Android's `fitClip` — and expandable to
@@ -158,6 +160,34 @@
     return () => observer.disconnect();
   });
 
+  // The monitor opens on a 16:9 guess and grows (or shrinks) to the clip's shape once its metadata
+  // says, and the picture travels to full screen and back, as one stretch on the compositor:
+  // animating the size itself would lay the page out every frame while the music plays.
+  let resizeFrom: DOMRect | undefined;
+  let shownRatio: number | undefined;
+  let shownExpanded: boolean | undefined;
+  const resizing = (toggled: boolean) => (toggled ? frameEl : (housingEl ?? frameEl));
+  $effect.pre(() => {
+    const nextRatio = ratio;
+    const nextExpanded = expanded;
+    untrack(() => {
+      const toggled = shownExpanded !== undefined && nextExpanded !== shownExpanded;
+      const refit = shownRatio !== undefined && nextRatio !== shownRatio && !nextExpanded;
+      resizeFrom = toggled || refit ? resizing(toggled)?.getBoundingClientRect() : undefined;
+    });
+  });
+  $effect(() => {
+    const nextRatio = ratio;
+    const nextExpanded = expanded;
+    untrack(() => {
+      const el = resizing(shownExpanded !== undefined && nextExpanded !== shownExpanded);
+      if (resizeFrom && el) glide(el, el, resizeFrom, true);
+      resizeFrom = undefined;
+      shownRatio = nextRatio;
+      shownExpanded = nextExpanded;
+    });
+  });
+
   const isCurrentSong = $derived(playerStore.currentSong?.id === songId);
   const isPlaying = $derived(isCurrentSong && playerStore.isPlaying);
   const effectiveDuration = $derived(
@@ -271,15 +301,17 @@
     }
   }
 
-  function collapse() {
+  // The browser's full screen is left first: until it is, the frame still fills the screen, and the
+  // picture would have nowhere to travel back from.
+  async function collapse() {
+    nativeFullscreen = false;
+    if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
     expanded = false;
     controlsVisible = true;
-    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
-    nativeFullscreen = false;
   }
 
   function toggleFullscreen() {
-    if (expanded) collapse();
+    if (expanded) void collapse();
     else void enterFullscreen();
   }
 
@@ -344,7 +376,7 @@
       // Capture phase + stopPropagation: the track panel lives inside a bits-ui Dialog
       // that also closes on Escape, and collapsing the video must not close the panel.
       e.stopPropagation();
-      collapse();
+      void collapse();
       return;
     }
     const target = e.target as HTMLElement | null;

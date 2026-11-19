@@ -16,23 +16,42 @@ const SWAP_MS = 200;
 
 type Box = Pick<DOMRect, 'left' | 'top' | 'width' | 'height'>;
 
+// The move each element is making, so the next one can stop it. `getAnimations()` would answer
+// too, but it recalculates the styles of everything just built under the element first.
+const running = new WeakMap<HTMLElement, Animation>();
+
+function play(el: HTMLElement, keyframes: Keyframe[], options: KeyframeAnimationOptions): void {
+  running.set(el, el.animate(keyframes, options));
+}
+
+function stop(el: HTMLElement): void {
+  running.get(el)?.cancel();
+  running.delete(el);
+}
+
 /**
  * The transform that puts `to` back where `from` was, with its origin on `to`'s centre in the
- * `mover`'s own coordinates. `null` when nothing visibly moved.
+ * `mover`'s own coordinates. It keeps the proportions (scaled by width) unless `stretch`, for a box
+ * whose shape changed: a video monitor that learnt its clip's size, a picture going full screen.
+ * `null` when nothing visibly moved, or when there was nothing to move from.
  */
 export function glideFrame(
   from: Box,
   to: Box,
-  mover: Box
+  mover: Box,
+  stretch = false
 ): { transform: string; transformOrigin: string } | null {
+  if (from.width * from.height === 0 || to.width * to.height === 0) return null;
   const toX = to.left + to.width / 2;
   const toY = to.top + to.height / 2;
   const dx = from.left + from.width / 2 - toX;
   const dy = from.top + from.height / 2 - toY;
-  const scale = to.width > 0 ? from.width / to.width : 1;
-  if (Math.abs(dx) < 1 && Math.abs(dy) < 1 && Math.abs(scale - 1) < 0.01) return null;
+  const sx = from.width / to.width;
+  const sy = stretch ? from.height / to.height : sx;
+  if (Math.abs(dx) < 1 && Math.abs(dy) < 1 && Math.abs(sx - 1) < 0.01 && Math.abs(sy - 1) < 0.01)
+    return null;
   return {
-    transform: `translate(${dx}px, ${dy}px) scale(${scale})`,
+    transform: `translate(${dx}px, ${dy}px) ${stretch ? `scale(${sx}, ${sy})` : `scale(${sx})`}`,
     transformOrigin: `${toX - mover.left}px ${toY - mover.top}px`
   };
 }
@@ -43,12 +62,22 @@ export function glideFrame(
  * mid-way. `from` is read with any glide still running applied, so a second switch mid-flight
  * continues from where the player is on screen rather than jumping.
  */
-export function glide(mover: HTMLElement, block: HTMLElement, from: DOMRect): void {
-  for (const running of mover.getAnimations()) running.cancel();
+export function glide(
+  mover: HTMLElement,
+  block: HTMLElement,
+  from: DOMRect,
+  stretch = false
+): void {
+  stop(mover);
   if (prefersReducedMotion()) return;
-  const frame = glideFrame(from, block.getBoundingClientRect(), mover.getBoundingClientRect());
+  const frame = glideFrame(
+    from,
+    block.getBoundingClientRect(),
+    mover.getBoundingClientRect(),
+    stretch
+  );
   if (!frame) return;
-  mover.animate([frame, { transform: 'none', transformOrigin: frame.transformOrigin }], {
+  play(mover, [frame, { transform: 'none', transformOrigin: frame.transformOrigin }], {
     duration: MODE_MOTION_MS,
     easing: EASE_OUT
   });
@@ -56,10 +85,11 @@ export function glide(mover: HTMLElement, block: HTMLElement, from: DOMRect): vo
 
 /** Brings the column's new view in: from the side when the column just opened, else up in place. */
 export function arrive(column: HTMLElement, opened: boolean): void {
-  for (const running of column.getAnimations()) running.cancel();
+  stop(column);
   const still = prefersReducedMotion();
   const offset = still ? 'none' : opened ? 'translateX(24px)' : 'translateY(6px)';
-  column.animate(
+  play(
+    column,
     [
       { opacity: 0, transform: offset },
       { opacity: 1, transform: 'none' }

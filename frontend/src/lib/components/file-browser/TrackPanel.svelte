@@ -243,7 +243,9 @@
   );
   const playerOnly = $derived(wide.current && content === 'player');
 
-  // lg only: the player glides between centred and left, and the right column's view arrives.
+  // Mode changes, choreographed (`now-playing/mode-motion.ts`). At lg the player glides between
+  // centred and left and the right column's view arrives. On a phone, and a phone on its side, the
+  // new middle arrives, and the cover shrinks into the top bar's thumbnail or grows back out of it.
   const stage = $derived<Stage>(
     content === 'player' || content === 'artwork'
       ? null
@@ -254,29 +256,40 @@
   let asideEl = $state<HTMLElement>();
   let playerBlockEl = $state<HTMLElement>();
   let columnEl = $state<HTMLElement>();
-  let glideFrom: DOMRect | undefined;
-  let shownSolo: boolean | undefined;
+  let middleEl = $state<HTMLElement>();
+  let artEl = $state<HTMLElement>();
+  let readoutEl = $state<HTMLElement>();
+  let thumbEl = $state<HTMLElement>();
+  let moveFrom: DOMRect | undefined;
   let shownStage: Stage | undefined;
+  let shownWide: boolean | undefined;
   $effect.pre(() => {
-    const solo = playerOnly;
+    const next = stage;
     untrack(() => {
-      glideFrom =
-        shownSolo !== undefined && solo !== shownSolo
-          ? playerBlockEl?.getBoundingClientRect()
-          : undefined;
+      moveFrom = undefined;
+      if (shownWide !== wide.current || next === shownStage) return;
+      const from = shownStage === null ? (wide.current ? playerBlockEl : artEl) : undefined;
+      const to = next === null ? (wide.current ? playerBlockEl : thumbEl) : undefined;
+      moveFrom = (from ?? to)?.getBoundingClientRect();
     });
   });
   $effect(() => {
     const isWide = wide.current;
-    const solo = playerOnly;
     const next = stage;
     untrack(() => {
-      if (glideFrom && asideEl && playerBlockEl) glide(asideEl, playerBlockEl, glideFrom);
-      if (shownStage !== undefined && next && next !== shownStage && columnEl)
-        arrive(columnEl, shownStage === null);
-      glideFrom = undefined;
-      shownSolo = isWide ? solo : undefined;
-      shownStage = isWide ? next : undefined;
+      const changed = shownWide === isWide && next !== shownStage;
+      if (isWide) {
+        if (moveFrom && asideEl && playerBlockEl) glide(asideEl, playerBlockEl, moveFrom);
+        if (changed && next && columnEl) arrive(columnEl, shownStage === null);
+      } else if (changed) {
+        const cover = next === null ? artEl : thumbEl;
+        if (moveFrom && cover) glide(cover, cover, moveFrom);
+        if (next === null && moveFrom && readoutEl) arrive(readoutEl, false);
+        else if (middleEl) arrive(middleEl, false);
+      }
+      moveFrom = undefined;
+      shownStage = next;
+      shownWide = isWide;
     });
   });
 
@@ -895,14 +908,16 @@
           aria-label={`${trackTitle} by ${trackArtist}. Show the artwork`}
           onclick={() => (mode = 'player')}
         >
-          <NowPlayingArt
-            artist={trackArtist}
-            title={album.title}
-            {coverUrl}
-            size={44}
-            corner={6}
-            class="shrink-0 !shadow-[0_2px_8px_rgb(0_0_0/0.35)]"
-          />
+          <span class="flex shrink-0" bind:this={thumbEl}>
+            <NowPlayingArt
+              artist={trackArtist}
+              title={album.title}
+              {coverUrl}
+              size={44}
+              corner={6}
+              class="shrink-0 !shadow-[0_2px_8px_rgb(0_0_0/0.35)]"
+            />
+          </span>
           <span class="flex min-w-0 flex-col">
             <span class="text-headline truncate">{trackTitle}</span>
             <span class="text-subheadline text-muted-foreground truncate">{trackArtist}</span>
@@ -1004,13 +1019,13 @@
     >
       {@render topBar()}
       <div class="flex min-h-0 flex-1 gap-6 pr-6 pl-4">
-        <div class="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div class="flex min-h-0 min-w-0 flex-1 flex-col" bind:this={middleEl}>
           {#if content === 'player'}
             <div
               class="flex min-h-0 flex-1 touch-none items-center justify-center pb-3 select-none"
               data-drag-handle
             >
-              <div class="w-[min(100%,calc(100svh-120px))]" data-mh-np="screen">
+              <div class="w-[min(100%,calc(100svh-120px))]" data-mh-np="screen" bind:this={artEl}>
                 <NowPlayingArt
                   artist={trackArtist}
                   title={album.title}
@@ -1029,7 +1044,9 @@
         <div class="no-scrollbar flex w-[min(360px,46%)] shrink-0 flex-col overflow-y-auto pb-2">
           <div class="my-auto">
             {#if content === 'player'}
-              <div class="mb-3" data-mh-np="readout">{@render titleBlock()}</div>
+              <div class="mb-3" data-mh-np="readout" bind:this={readoutEl}>
+                {@render titleBlock()}
+              </div>
             {/if}
             <div data-mh-np="keys">{@render transport()}</div>
             <div class="mt-1" data-mh-np="modes">{@render bottomRow()}</div>
@@ -1046,7 +1063,7 @@
     >
       {@render topBar()}
 
-      <div class="flex min-h-0 flex-1 flex-col">
+      <div class="flex min-h-0 flex-1 flex-col" bind:this={middleEl}>
         {#if device}
           <div class="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-3">
             <div class="my-auto">
@@ -1063,10 +1080,12 @@
             <div
               class="mx-auto flex w-full max-w-[min(100%,40svh,329px)] flex-col md:max-w-[min(100%,40svh,440px)]"
             >
-              <div data-mh-np="screen">
+              <div data-mh-np="screen" bind:this={artEl}>
                 {@render coverArt(360, 'w-full')}
               </div>
-              <div class="mt-7" data-mh-np="readout">{@render titleBlock()}</div>
+              <div class="mt-7" data-mh-np="readout" bind:this={readoutEl}>
+                {@render titleBlock()}
+              </div>
             </div>
           </div>
         {/if}

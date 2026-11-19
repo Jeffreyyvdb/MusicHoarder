@@ -27,6 +27,18 @@ describe('glideFrame', () => {
     );
   });
 
+  it('stretches a monitor that learnt its clip is taller than it guessed', () => {
+    const guessed = box(100, 145, 640, 360);
+    const real = box(100, 85, 640, 480);
+    expect(glideFrame(guessed, real, real, true)?.transform).toBe(
+      'translate(0px, 0px) scale(1, 0.75)'
+    );
+  });
+
+  it('does nothing when there was no box to move from', () => {
+    expect(glideFrame(box(0, 0, 0, 0), box(10, 10, 300, 300), box(0, 0, 400, 400))).toBeNull();
+  });
+
   it('does nothing when the layout change left the player where it was', () => {
     expect(
       glideFrame(box(10, 10, 300, 300), box(10.4, 10, 300, 300), box(0, 0, 400, 400))
