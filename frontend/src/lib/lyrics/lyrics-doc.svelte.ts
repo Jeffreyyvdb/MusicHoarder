@@ -1,5 +1,6 @@
 import {
   fetchTrackLyrics,
+  lastFetchedTrackLyrics,
   recheckSongLyrics,
   verifyLyricsTiming,
   type RecheckLyricsResponse,
@@ -17,9 +18,16 @@ export type LyricsDocApi = {
   fetchTrackLyrics: (trackId: number) => Promise<TrackLyricsResponse>;
   recheckSongLyrics: (songId: number) => Promise<RecheckLyricsResponse>;
   verifyLyricsTiming: (songId: number) => Promise<VerifyLyricsTimingResponse>;
+  /** The last fetched answer for a track, shown while a fresh fetch replaces it. */
+  lastFetchedTrackLyrics?: (trackId: number) => TrackLyricsResponse | undefined;
 };
 
-const realApi: LyricsDocApi = { fetchTrackLyrics, recheckSongLyrics, verifyLyricsTiming };
+const realApi: LyricsDocApi = {
+  fetchTrackLyrics,
+  lastFetchedTrackLyrics,
+  recheckSongLyrics,
+  verifyLyricsTiming
+};
 
 export type LyricsDoc = ReturnType<typeof createLyricsDoc>;
 
@@ -212,19 +220,24 @@ export function createLyricsDoc(opts: {
       const songId = opts.songId();
       if (!fetchable || songId === null) return;
       if (!hasAny || loadedSynced || loadedPlain || loadState !== 'idle') return;
-      loadState = 'loading';
       const key = keyOf();
+      const apply = (data: TrackLyricsResponse) => {
+        loadedSynced = data.synced ?? undefined;
+        loadedPlain = data.plain ?? undefined;
+        applyLyricsMeta(data);
+      };
+      const last = api.lastFetchedTrackLyrics?.(songId);
+      if (last) apply(last);
+      else loadState = 'loading';
       api
         .fetchTrackLyrics(songId)
         .then((data) => {
           if (syncedForKey !== key) return; // moved on while in flight
-          loadedSynced = data.synced ?? undefined;
-          loadedPlain = data.plain ?? undefined;
-          applyLyricsMeta(data);
+          apply(data);
           loadState = 'idle';
         })
         .catch(() => {
-          if (syncedForKey === key) loadState = 'error';
+          if (syncedForKey === key && !last) loadState = 'error';
         });
     },
 

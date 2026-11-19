@@ -1,5 +1,6 @@
 import {
   fetchTrackLyrics,
+  lastFetchedTrackLyrics,
   setPreferredLyricsSource,
   transcribeSongLyrics,
   translateSongLyrics,
@@ -65,6 +66,8 @@ export type ViewerLyricsDoc = {
  */
 export type AiLyricsApi = {
   fetchTrackLyrics: (trackId: number) => Promise<TrackLyricsResponse>;
+  /** The last fetched answer for a track, shown while a fresh fetch replaces it. */
+  lastFetchedTrackLyrics?: (trackId: number) => TrackLyricsResponse | undefined;
   transcribeSongLyrics: (songId: number) => Promise<TranscribeLyricsResponse>;
   translateSongLyrics: (songId: number) => Promise<TranslateLyricsResponse>;
   setPreferredLyricsSource: (
@@ -79,6 +82,7 @@ export type AiLyricsApi = {
 
 const realApi: AiLyricsApi = {
   fetchTrackLyrics,
+  lastFetchedTrackLyrics,
   transcribeSongLyrics,
   translateSongLyrics,
   setPreferredLyricsSource
@@ -442,22 +446,22 @@ export function createAiLyrics(opts: {
       // fetch covers both the transcription and the translation.
       if (!current.hasTranscribedLyrics && !current.hasSyncedLyrics && !current.hasPlainLyrics)
         return;
-      api
-        .fetchTrackLyrics(id)
-        .then((d) => {
-          if (loadedForSongId !== id) return; // navigated away while in flight
-          if (d.transcribedSynced || d.transcribedPlain) {
-            transcription = {
-              synced: d.transcribedSynced ?? undefined,
-              plain: d.transcribedPlain ?? undefined,
-              model: d.transcriptionModel ?? undefined,
-              at: d.transcribedAtUtc ?? undefined,
-              alignedToReference: d.transcriptionAlignedToReference === true
-            };
-          }
-          syncOffsetMs = d.lyricsSyncOffsetMs ?? null;
-          if (d.lyricsTranslationStatus === 'Completed') {
-            translation = {
+      // Sets every field from the answer, so a fresh fetch also clears what a remembered one had.
+      const apply = (d: TrackLyricsResponse) => {
+        transcription =
+          d.transcribedSynced || d.transcribedPlain
+            ? {
+                synced: d.transcribedSynced ?? undefined,
+                plain: d.transcribedPlain ?? undefined,
+                model: d.transcriptionModel ?? undefined,
+                at: d.transcribedAtUtc ?? undefined,
+                alignedToReference: d.transcriptionAlignedToReference === true
+              }
+            : null;
+        syncOffsetMs = d.lyricsSyncOffsetMs ?? null;
+        const translated = d.lyricsTranslationStatus === 'Completed';
+        translation = translated
+          ? {
               romanizedSynced: d.romanizedSynced ?? undefined,
               romanizedPlain: d.romanizedPlain ?? undefined,
               translatedSynced: d.translatedSynced ?? undefined,
@@ -465,9 +469,16 @@ export function createAiLyrics(opts: {
               language: d.detectedLanguage ?? undefined,
               model: d.lyricsTranslationModel ?? undefined,
               at: d.lyricsTranslatedAtUtc ?? undefined
-            };
-            translationStale = d.lyricsTranslationStale === true;
-          }
+            }
+          : null;
+        translationStale = translated && d.lyricsTranslationStale === true;
+      };
+      const last = api.lastFetchedTrackLyrics?.(id);
+      if (last) apply(last);
+      api
+        .fetchTrackLyrics(id)
+        .then((d) => {
+          if (loadedForSongId === id) apply(d); // else navigated away while in flight
         })
         .catch(() => {});
     },

@@ -87,11 +87,12 @@
     return () => songsStore.stopLive();
   });
 
-  // `inert` on the app, the black status bar and hiding the mini player each make the browser
-  // restyle the whole app. Made the moment the overlay opens or closes, that restyle lands in the
-  // first frames of the 350ms rise or fall, which carry most of its distance, and the slide jumps.
-  // So they follow `covering`: on once the rise has finished, off once the fall has.
-  let covering = $state(false);
+  // `inert` on the app and hiding the mini player and tab bar each make the browser restyle or
+  // re-lay the whole app. Made the moment the overlay opens or closes, that work lands in the first
+  // frames of the 350ms rise or fall, which carry most of its distance, and the slide jumps. So they
+  // follow `covering` (songDetail.covering): on once the rise has finished, off once the fall has.
+  const covering = $derived(songDetail.covering);
+  $effect(() => () => songDetail.setCovering(false));
   let opener: HTMLElement | null = null;
   $effect(() => {
     if (!songDetail.isOpen) return;
@@ -106,8 +107,8 @@
     let cancelled = false;
     const slides = el?.getAnimations() ?? [];
     void Promise.allSettled(slides.map((a) => a.finished)).then(async () => {
-      if (cancelled || covering === open) return;
-      covering = open;
+      if (cancelled || songDetail.covering === open) return;
+      songDetail.setCovering(open);
       if (open) return;
       await tick();
       returnFocus(el);
@@ -131,8 +132,9 @@
   $effect(() => (covering ? playerStore.registerPanel() : undefined));
 
   // The status bar follows the media appearance (black) while this is up. The claim is a token,
-  // released when the overlay closes or this unmounts.
-  $effect(() => (covering ? themeSurface.claimMedia() : undefined));
+  // released when the overlay closes or this unmounts. It only repaints <html> and <body>
+  // (`--mh-page-surface` does not inherit, app.css), so it can change with the slide.
+  $effect(() => (songDetail.isOpen ? themeSurface.claimMedia() : undefined));
   $effect(() => (songDetail.isOpen && videoShowing ? themeSurface.claimTv() : undefined));
 
   // Follow playback: when a new song starts while the panel is showing the song
@@ -317,6 +319,7 @@
       style="--mh-content-pad: 0px"
       onInteractOutside={keepOpenForToasts}
       onCloseAutoFocus={(e) => e.preventDefault()}
+      preventBodyPointerEvents={false}
     >
       {#if r}
         <VideoBackdrop

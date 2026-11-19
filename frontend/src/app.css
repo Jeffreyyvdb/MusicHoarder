@@ -386,6 +386,15 @@
   --color-surface-sunken: var(--surface-sunken);
 }
 
+/* The page surface the root layout writes on <html> for the status bar and Safari's chrome. It
+   changes as Now Playing opens and closes; an inherited custom property on <html> would restyle
+   every element at that moment, mid-slide. Not inheriting, it reaches only the rules below that
+   read it on <html> (and <body>, through `inherit`), plus `.mh-surface-edges`, which sets its own. */
+@property --mh-page-surface {
+  syntax: '*';
+  inherits: false;
+}
+
 @layer base {
   /* The default focus outline is the full-strength tint: where it is the only indicator it must
      clear 3:1 against the page, which a 50% ring (2.2–2.7:1) does not. A translucent halo is only
@@ -435,7 +444,7 @@
   }
   body {
     @apply text-foreground;
-    background-color: var(--mh-page-surface, var(--background));
+    background-color: inherit;
   }
   /* Installed app only (app.html sets the marker): holding a link or a cover does nothing, as in a
      native app. Without this iOS opens its link preview, a small Safari over the page, and holding

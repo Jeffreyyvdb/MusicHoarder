@@ -2490,12 +2490,30 @@ export interface TrackLyricsResponse {
 // entry is dropped once it settles, so a re-check or a later open still refetches.
 const inFlightTrackLyrics = new Map<number, Promise<TrackLyricsResponse>>();
 
+// The last answer per track, so Now Playing reopening on a song shows its lyrics at once instead of
+// "Loading lyrics…" in the middle of its slide; the panel still fetches, and that fetch replaces it.
+const lastTrackLyrics = new Map<number, TrackLyricsResponse>();
+const LAST_TRACK_LYRICS_KEPT = 30;
+
+export function lastFetchedTrackLyrics(trackId: number): TrackLyricsResponse | undefined {
+  return lastTrackLyrics.get(trackId);
+}
+
 export async function fetchTrackLyrics(trackId: number): Promise<TrackLyricsResponse> {
   const pending = inFlightTrackLyrics.get(trackId);
   if (pending) return pending;
-  const request = requestJson<TrackLyricsResponse>(`/api/tracks/${trackId}/lyrics`).finally(() => {
-    inFlightTrackLyrics.delete(trackId);
-  });
+  const request = requestJson<TrackLyricsResponse>(`/api/tracks/${trackId}/lyrics`)
+    .then((lyrics) => {
+      lastTrackLyrics.delete(trackId);
+      lastTrackLyrics.set(trackId, lyrics);
+      if (lastTrackLyrics.size > LAST_TRACK_LYRICS_KEPT) {
+        lastTrackLyrics.delete(lastTrackLyrics.keys().next().value!);
+      }
+      return lyrics;
+    })
+    .finally(() => {
+      inFlightTrackLyrics.delete(trackId);
+    });
   inFlightTrackLyrics.set(trackId, request);
   return request;
 }

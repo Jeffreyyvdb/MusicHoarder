@@ -155,6 +155,27 @@ describe('syncToSong', () => {
     expect(ai.translationStale).toBe(true);
   });
 
+  it('shows a remembered transcription at once, and drops it when the fresh answer has none', async () => {
+    const { ai } = setup({
+      song: songWithLyrics({ hasTranscribedLyrics: true }),
+      api: {
+        lastFetchedTrackLyrics: () => ({
+          id: 1,
+          lyricsStatus: 'Fetched',
+          transcribedSynced: '[00:01.00] remembered',
+          lyricsTranslationStatus: 'Completed',
+          translatedSynced: '[00:01.00] en'
+        })
+      }
+    });
+    ai.syncToSong();
+    expect(ai.transcription).toMatchObject({ synced: '[00:01.00] remembered' });
+    expect(ai.translation).toMatchObject({ translatedSynced: '[00:01.00] en' });
+    await flushMicrotasks();
+    expect(ai.transcription).toBeNull();
+    expect(ai.translation).toBeNull();
+  });
+
   it('is a no-op for the same song, so the driving $effect cannot loop', async () => {
     const { ai, api } = setup({ song: songWithLyrics() });
     ai.syncToSong();
