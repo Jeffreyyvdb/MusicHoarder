@@ -388,8 +388,8 @@
 
 /* The page surface the root layout writes on <html> for the status bar and Safari's chrome. It
    changes as Now Playing opens and closes; an inherited custom property on <html> would restyle
-   every element at that moment, mid-slide. Not inheriting, it reaches only the rules below that
-   read it on <html> (and <body>, through `inherit`), plus `.mh-surface-edges`, which sets its own. */
+   every element at that moment, mid-slide. Not inheriting, it is read only by the rule on <html>;
+   elsewhere `var(--mh-page-surface, …)` takes its fallback (`.mh-surface-edges` sets its own). */
 @property --mh-page-surface {
   syntax: '*';
   inherits: false;
@@ -444,7 +444,7 @@
   }
   body {
     @apply text-foreground;
-    background-color: inherit;
+    background-color: var(--mh-page-surface, var(--background));
   }
   /* Installed app only (app.html sets the marker): holding a link or a cover does nothing, as in a
      native app. Without this iOS opens its link preview, a small Safari over the page, and holding

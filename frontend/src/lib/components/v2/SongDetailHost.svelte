@@ -154,13 +154,9 @@
     event.preventDefault();
     const dialog = contentEl;
     if (!dialog) return;
-    // The first one that takes focus: a copy hidden by CSS for another layout does not.
-    for (const el of dialog.querySelectorAll<HTMLElement>(FOCUSABLE)) {
-      if (el.closest('[aria-hidden="true"]')) continue;
-      el.focus({ preventScroll: true });
-      if (document.activeElement === el) break;
+    if (!focusFirst(dialog.querySelectorAll<HTMLElement>(FOCUSABLE))) {
+      dialog.focus({ preventScroll: true });
     }
-    if (!dialog.contains(document.activeElement)) dialog.focus({ preventScroll: true });
     focusedIn = true;
   }
 
@@ -168,14 +164,27 @@
     .map((tag) => `${tag}:not([disabled]):not([tabindex="-1"])`)
     .join(', ');
 
+  /** Focuses the first that takes it: one hidden by CSS for another layout does not. */
+  function focusFirst(candidates: Iterable<HTMLElement>): boolean {
+    for (const el of candidates) {
+      if (!el.matches(FOCUSABLE) || el.closest('[aria-hidden="true"]')) continue;
+      el.focus({ preventScroll: true });
+      if (document.activeElement === el) return true;
+    }
+    return false;
+  }
+
   // bits-ui lets go of its focus trap as the overlay starts closing, and the app stops being inert
   // 40% into the fall: Tab would walk out of a dialog still on screen into an app still hidden from
-  // assistive technology. Until the fall is over, Tab stays where it is.
+  // assistive technology. Until the fall is over, Tab stays where it is, unless focus is in a sheet
+  // that outlives the overlay, which keeps its own trap.
   const leaving = $derived(present && !songDetail.isOpen);
   $effect(() => {
     if (!leaving) return;
     const holdTab = (event: KeyboardEvent) => {
-      if (event.key === 'Tab') event.preventDefault();
+      const active = document.activeElement;
+      const here = !active || active === document.body || (contentEl?.contains(active) ?? false);
+      if (event.key === 'Tab' && here) event.preventDefault();
     };
     document.addEventListener('keydown', holdTab, true);
     return () => document.removeEventListener('keydown', holdTab, true);
@@ -191,12 +200,8 @@
     const lost = !active || active === document.body || (dialog?.contains(active) ?? false);
     if (!lost) return;
     // Opened from the mini player, the button pressed was unmounted with it; it is back by now.
-    const back = target.isConnected
-      ? target
-      : [...document.querySelectorAll<HTMLElement>('[data-mh-np-opener]')].find(
-          (el) => el.getClientRects().length > 0
-        );
-    back?.focus({ preventScroll: true });
+    if (target.isConnected) target.focus({ preventScroll: true });
+    else focusFirst(document.querySelectorAll<HTMLElement>('[data-mh-np-opener]'));
   }
 
   // Hide the global MiniPlayer while the overlay covers it (it has its own transport).
