@@ -153,12 +153,33 @@
   function focusIn(event: Event) {
     event.preventDefault();
     const dialog = contentEl;
-    const first = dialog?.querySelector<HTMLElement>(
-      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-    );
-    (first ?? dialog)?.focus({ preventScroll: true });
+    if (!dialog) return;
+    // The first one that takes focus: a copy hidden by CSS for another layout does not.
+    for (const el of dialog.querySelectorAll<HTMLElement>(FOCUSABLE)) {
+      if (el.closest('[aria-hidden="true"]')) continue;
+      el.focus({ preventScroll: true });
+      if (document.activeElement === el) break;
+    }
+    if (!dialog.contains(document.activeElement)) dialog.focus({ preventScroll: true });
     focusedIn = true;
   }
+
+  const FOCUSABLE = ['button', '[href]', 'input', 'select', 'textarea', '[tabindex]']
+    .map((tag) => `${tag}:not([disabled]):not([tabindex="-1"])`)
+    .join(', ');
+
+  // bits-ui lets go of its focus trap as the overlay starts closing, and the app stops being inert
+  // 40% into the fall: Tab would walk out of a dialog still on screen into an app still hidden from
+  // assistive technology. Until the fall is over, Tab stays where it is.
+  const leaving = $derived(present && !songDetail.isOpen);
+  $effect(() => {
+    if (!leaving) return;
+    const holdTab = (event: KeyboardEvent) => {
+      if (event.key === 'Tab') event.preventDefault();
+    };
+    document.addEventListener('keydown', holdTab, true);
+    return () => document.removeEventListener('keydown', holdTab, true);
+  });
 
   // bits-ui returns focus as the fall starts, while the app is still inert and hidden, where
   // focus() is ignored; so the overlay returns it itself once the fall is over, once per open.
@@ -168,7 +189,14 @@
     opener = null;
     const active = document.activeElement;
     const lost = !active || active === document.body || (dialog?.contains(active) ?? false);
-    if (lost && target?.isConnected) target.focus({ preventScroll: true });
+    if (!lost) return;
+    // Opened from the mini player, the button pressed was unmounted with it; it is back by now.
+    const back = target.isConnected
+      ? target
+      : [...document.querySelectorAll<HTMLElement>('[data-mh-np-opener]')].find(
+          (el) => el.getClientRects().length > 0
+        );
+    back?.focus({ preventScroll: true });
   }
 
   // Hide the global MiniPlayer while the overlay covers it (it has its own transport).

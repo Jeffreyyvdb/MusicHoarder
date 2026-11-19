@@ -2534,7 +2534,9 @@ export async function fetchTrackLyrics(trackId: number): Promise<TrackLyricsResp
     })
     .catch((err: unknown) => {
       // Gone, or no longer ours to read (a revoked grant): what was remembered must not be shown.
-      if (isRefusal(err)) lastTrackLyrics.delete(trackId);
+      // A read older than a write says nothing about what the write left behind.
+      const current = (trackLyricsWrites.get(trackId) ?? 0) === writesBefore;
+      if (current && isRefusal(err)) lastTrackLyrics.delete(trackId);
       throw err;
     })
     .finally(() => {

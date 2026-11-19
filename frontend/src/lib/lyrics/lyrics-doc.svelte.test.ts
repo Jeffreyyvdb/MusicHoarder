@@ -177,6 +177,42 @@ describe('createLyricsDoc', () => {
     expect(doc.synced).toBeUndefined();
   });
 
+  it('keeps a timing repair when an older load lands after it', async () => {
+    let answerOld: (v: unknown) => void = () => {};
+    let calls = 0;
+    const { doc, drive } = setup(
+      { songId: 7, hasSynced: true },
+      {
+        api: {
+          lastFetchedTrackLyrics: () => ({
+            id: 7,
+            lyricsStatus: 'Fetched',
+            synced: '[00:01.00] x'
+          }),
+          fetchTrackLyrics: vi.fn(() => {
+            calls += 1;
+            return calls === 1
+              ? new Promise((resolve) => (answerOld = resolve))
+              : Promise.resolve({ id: 7, lyricsStatus: 'Fetched', synced: '[00:05.00] x' });
+          }) as LyricsDocApi['fetchTrackLyrics'],
+          verifyLyricsTiming: vi.fn(async (id: number) => ({
+            id,
+            lyricsSyncStatus: 'Ok' as const,
+            repaired: true,
+            usedAi: false,
+            lyricsSyncOffsetMs: 4000
+          }))
+        }
+      }
+    );
+    drive();
+    await doc.verifyTiming();
+    expect(doc.synced).toBe('[00:05.00] x');
+    answerOld({ id: 7, lyricsStatus: 'Fetched', synced: '[00:01.00] x' });
+    await flush();
+    expect(doc.synced).toBe('[00:05.00] x');
+  });
+
   it('drops a load that lands after the song changed', async () => {
     let resolveFetch: (v: unknown) => void = () => {};
     const { doc, drive, set } = setup(

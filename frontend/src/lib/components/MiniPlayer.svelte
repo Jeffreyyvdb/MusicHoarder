@@ -294,6 +294,7 @@
             tabindex="-1"
             aria-hidden="true"
             onclick={openNowPlaying}
+            data-mh-np-opener
             class="row-span-2 self-center rounded-md focus-visible:outline-hidden"
           >
             <Cover
@@ -309,6 +310,7 @@
           <button
             type="button"
             onclick={openNowPlaying}
+            data-mh-np-opener
             aria-label={`Open now playing: ${song.title} by ${song.artist}`}
             class="text-subheadline focus-visible:ring-ring flex min-w-0 items-end rounded-md text-left font-semibold focus-visible:ring-2 focus-visible:outline-hidden"
           >
@@ -347,6 +349,7 @@
               out:trackSlideOut={{ step: playerStore.trackStep }}
               type="button"
               onclick={openNowPlaying}
+              data-mh-np-opener
               aria-label="Open now playing"
               class="focus-visible:ring-ring col-start-1 row-start-1 flex min-w-0 items-center gap-3 rounded-full pl-3.5 text-left focus-visible:ring-2 focus-visible:outline-hidden focus-visible:ring-inset"
             >
@@ -515,6 +518,7 @@
                 out:trackSlideOut={{ step: playerStore.trackStep }}
                 type="button"
                 onclick={openNowPlaying}
+                data-mh-np-opener
                 aria-label="Open now playing"
                 class="group/np focus-visible:ring-ring col-start-1 row-start-1 flex max-w-full min-w-0 items-center gap-2.5 rounded-md px-1.5 py-0.5 text-left focus-visible:ring-2 focus-visible:outline-hidden"
               >
@@ -647,6 +651,7 @@
             size="icon"
             class="text-muted-foreground hover:text-foreground size-8"
             onclick={openNowPlaying}
+            data-mh-np-opener
             aria-label="Lyrics"
           >
             <Quote class="size-4" />

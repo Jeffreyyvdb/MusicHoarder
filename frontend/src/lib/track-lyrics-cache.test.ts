@@ -54,21 +54,45 @@ describe('the remembered track lyrics', () => {
   });
 
   it('forgets it after a write, and does not remember a read that started before the write', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => json(lyrics(3, '[00:01.00] remembered')))
+    );
+    await fetchTrackLyrics(3);
     let answerRead: (r: Response) => void = () => {};
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
         if (url.includes('/lyrics/transcribe')) return json({ id: 3, synced: '[00:01.00] new' });
-        if (url.includes('/api/tracks/3/lyrics')) {
-          return new Promise<Response>((resolve) => (answerRead = resolve));
-        }
-        return json({});
+        return new Promise<Response>((resolve) => (answerRead = resolve));
       })
     );
     const read = fetchTrackLyrics(3);
     await transcribeSongLyrics(3);
+    expect(lastFetchedTrackLyrics(3)).toBeUndefined();
     answerRead(json(lyrics(3, '[00:01.00] old')));
     await expect(read).resolves.toMatchObject({ synced: '[00:01.00] old' });
     expect(lastFetchedTrackLyrics(3)).toBeUndefined();
+  });
+
+  it('keeps a newer answer when a read older than a write is refused', async () => {
+    let refuseOld: (r: Response) => void = () => {};
+    let reads = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/lyrics/transcribe')) return json({ id: 4, synced: '[00:01.00] new' });
+        reads += 1;
+        return reads === 1
+          ? new Promise<Response>((resolve) => (refuseOld = resolve))
+          : json(lyrics(4, '[00:01.00] new'));
+      })
+    );
+    const old = fetchTrackLyrics(4);
+    await transcribeSongLyrics(4);
+    await fetchTrackLyrics(4);
+    refuseOld(json({ error: 'Forbidden' }, 403));
+    await expect(old).rejects.toThrow();
+    expect(lastFetchedTrackLyrics(4)?.synced).toBe('[00:01.00] new');
   });
 });
