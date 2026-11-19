@@ -40,9 +40,12 @@
       <div data-mh-video-key>
         <button
           type="button"
-          class="flex size-11 items-center justify-center rounded-lg border border-black/15 bg-white/80 text-black shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 aria-pressed:bg-[#d2d2c8] aria-pressed:shadow-inner"
-          aria-label="Lyrics"
+          class="flex size-11 items-center justify-center rounded-lg border border-black/15 bg-white/80 text-black shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 disabled:text-black/45 disabled:shadow-none aria-pressed:bg-[#d2d2c8] aria-pressed:shadow-inner"
+          aria-label={housing.lyricsAvailability === 'none'
+            ? 'Lyrics — none available here'
+            : 'Lyrics'}
           aria-pressed={housing.lyricsVisible}
+          disabled={housing.lyricsAvailability === 'none'}
           onclick={housing.toggleLyrics}><MessageSquareQuote class="size-5" /></button
         >
         <small aria-hidden="true">Lyrics</small>

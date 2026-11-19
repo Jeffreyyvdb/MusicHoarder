@@ -933,7 +933,7 @@
   bind:open={confirmResetOpen}
   title="Reset metadata?"
   description={`Clears the matches and lyrics for “${trackTitle}”. Re-enrichment runs automatically.`}
-  actionLabel="Reset metadata"
-  destructive
-  onAction={() => void handleResetEnrichment()}
+  actions={[
+    { label: 'Reset metadata', destructive: true, onAction: () => void handleResetEnrichment() }
+  ]}
 />

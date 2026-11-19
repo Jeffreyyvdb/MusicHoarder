@@ -32,6 +32,11 @@
   import ManageVideoSheet from '#lib/components/file-browser/now-playing/ManageVideoSheet.svelte';
   import LyricsCompareSheet from '#lib/components/file-browser/now-playing/LyricsCompareSheet.svelte';
   import ActionSheet from '#lib/components/file-browser/now-playing/ActionSheet.svelte';
+  import {
+    lyricsAvailability,
+    videoAvailability,
+    type MediaAvailability
+  } from '#lib/components/file-browser/now-playing/media-availability.ts';
   import VolumeControl from '#lib/components/file-browser/now-playing/VolumeControl.svelte';
   import {
     arrive,
@@ -184,6 +189,25 @@
   // ── Mode ────────────────────────────────────────────────────────────────────
   type DetailMode = RequestedDetailMode | 'lyrics-video' | 'artwork';
   let mode = $state<DetailMode>('player');
+
+  const lyrics = $derived(
+    lyricsAvailability({
+      hasLyrics: viewerDoc.hasAny,
+      busy: ai.enhanceBusy,
+      instrumental: song.isInstrumental === true,
+      canRecheck: isOwner,
+      canEnhance: ai.canEnhance
+    })
+  );
+  const videoState = $derived(
+    videoAvailability({
+      playable: video.playable,
+      settled: video.settled && video.songId === song.id,
+      canManage: isOwner
+    })
+  );
+  // The reason a toggle is disabled, for its tooltip and accessible name.
+  const lyricsWhy = $derived(song.isInstrumental === true ? 'instrumental' : 'none for this song');
   // The panel mounts on each open, so it starts on the artwork. A request that names a mode (a row
   // menu's "Song info") switches to it. One that names none is the host following playback to the
   // next song: the view the listener picked stays, except Lyrics for a song that has none.
@@ -197,7 +221,11 @@
     appliedSeq = seq;
     appliedSongId = id;
     if (freshRequest && requestedMode) mode = requestedMode;
-    else if (untrack(() => mode) === 'lyrics' && !ai.hasLyrics) mode = 'player';
+    else if (untrack(() => lyrics) !== 'ready') {
+      const current = untrack(() => mode);
+      if (current === 'lyrics') mode = 'player';
+      else if (current === 'lyrics-video') mode = 'video';
+    }
   });
 
   // The Queue is the queue loaded on this device: offered while there is one, and left (back to the
@@ -314,6 +342,32 @@
     } else mode = content === target ? 'player' : target;
   }
 
+  // A toggle that is on always turns off, whatever the song has.
+  function pressLyrics() {
+    if (lyrics === 'ready' || content === 'lyrics' || content === 'lyrics-video')
+      toggleMode('lyrics');
+    else if (lyrics === 'offer') lyricsOfferOpen = true;
+  }
+
+  function pressVideo() {
+    if (videoState === 'ready' || content === 'video' || content === 'lyrics-video')
+      toggleMode('video');
+    else if (videoState === 'offer') videoOfferOpen = true;
+  }
+
+  async function recheckLyrics() {
+    const id = song.id;
+    await lrclibDoc.recheck();
+    if (song.id !== id) return;
+    if (lrclibDoc.hasAny) toggleMode('lyrics');
+    else toast('LRCLIB still has nothing for this track');
+  }
+
+  function findVideo() {
+    void video.fetch();
+    toast('Looking for a video — it shows up when it’s ready');
+  }
+
   function showLyrics() {
     if (content !== 'lyrics') mode = 'lyrics';
   }
@@ -354,6 +408,8 @@
     untrack(() => {
       compareOpen = false;
       aiConfirmOpen = false;
+      lyricsOfferOpen = false;
+      videoOfferOpen = false;
     });
   });
   $effect(() => {
@@ -363,6 +419,31 @@
   });
 
   let manageVideoOpen = $state(false);
+  let lyricsOfferOpen = $state(false);
+  let videoOfferOpen = $state(false);
+
+  const lyricsOfferDescription = $derived(
+    lrclibDoc.status === 'NotFound'
+      ? 'LRCLIB has no lyrics for this track.'
+      : lrclibDoc.status === 'Failed'
+        ? 'The last lyrics fetch failed.'
+        : 'Lyrics are fetched automatically after a metadata match.'
+  );
+  const lyricsOfferActions = $derived([
+    { label: 'Check LRCLIB again', onAction: () => void recheckLyrics() },
+    ...(ai.canEnhance
+      ? [{ label: `${ai.enhanceLabel}…`, onAction: () => (aiConfirmOpen = true) }]
+      : [])
+  ]);
+  const videoOfferTitle = $derived(
+    videoProblem(video.info, video.infoUnavailable)?.text ?? 'No music video for this song'
+  );
+  const videoOfferActions = $derived([
+    ...(video.info?.status === 'Fetching'
+      ? []
+      : [{ label: 'Find one automatically', onAction: findVideo }]),
+    { label: 'Choose a video…', onAction: () => (manageVideoOpen = true) }
+  ]);
 
   // ── Song facts ──────────────────────────────────────────────────────────────
   const isCurrentlyLoaded = $derived(playerStore.currentSong?.id === song.id);
@@ -586,20 +667,34 @@
 {/snippet}
 
 <!-- Lyrics and video can stay pressed together. -->
-{#snippet modeButton(target: DetailMode, label: string, Icon: Component<{ class?: string }>)}
+{#snippet modeButton(
+  target: DetailMode,
+  label: string,
+  Icon: Component<{ class?: string }>,
+  availability: MediaAvailability = 'ready',
+  why = '',
+  onpress: () => void = () => toggleMode(target)
+)}
   {@const mediaToggle = target === 'lyrics' || target === 'video'}
   {@const active = content === target || (content === 'lyrics-video' && mediaToggle)}
+  {@const none = availability === 'none' && !active}
+  {@const name = none ? `${label} — ${why}` : label}
   <button
     type="button"
     class={cn(
       'focus-visible:ring-ring flex size-11 items-center justify-center rounded-full transition-colors focus-visible:ring-2 focus-visible:outline-hidden',
-      active ? 'text-foreground' : 'text-muted-foreground pointer-fine:hover:text-foreground'
+      none
+        ? 'text-muted-foreground-dim'
+        : active
+          ? 'text-foreground'
+          : 'text-muted-foreground pointer-fine:hover:text-foreground'
     )}
     aria-pressed={mediaToggle || !wide.current ? active : undefined}
     aria-current={!mediaToggle && wide.current && active ? 'true' : undefined}
-    aria-label={label}
-    title={label}
-    onclick={() => toggleMode(target)}
+    aria-label={name}
+    title={name}
+    disabled={none}
+    onclick={onpress}
   >
     <span
       class={cn(
@@ -617,7 +712,7 @@
      another device, the line under the row says where, and opens the same picker. -->
 {#snippet bottomRow()}
   <div class="flex items-center justify-evenly">
-    {@render modeButton('lyrics', 'Lyrics', MessageSquareQuote)}
+    {@render modeButton('lyrics', 'Lyrics', MessageSquareQuote, lyrics, lyricsWhy, pressLyrics)}
     {#if playerStore.airPlayAvailable && isCurrentlyLoaded}
       <button
         type="button"
@@ -657,9 +752,14 @@
         {/snippet}
       </DevicePicker>
     {/if}
-    {#if video.playable}
-      {@render modeButton('video', 'Video', MonitorPlay)}
-    {/if}
+    {@render modeButton(
+      'video',
+      'Video',
+      MonitorPlay,
+      videoState,
+      'none for this song',
+      pressVideo
+    )}
     {@render modeButton('info', 'Info', Info)}
     {#if queueAvailable}
       {@render modeButton('queue', 'Queue', ListMusic)}
@@ -834,7 +934,8 @@
         caption={videoLine ? videoCaption : undefined}
         housing={monitor}
         lyricsVisible={content === 'lyrics-video'}
-        onToggleLyrics={() => toggleMode('lyrics')}
+        lyricsAvailability={lyrics}
+        onToggleLyrics={pressLyrics}
         lyricsOverlay={videoLyrics}
         onPlayRequest={handlePlayToggle}
       />
@@ -1126,12 +1227,23 @@
     bind:open={aiConfirmOpen}
     title={`${ai.enhanceLabel}?`}
     description={aiHint}
-    actionLabel={ai.enhanceLabel}
-    onAction={startEnhance}
+    actions={[{ label: ai.enhanceLabel, onAction: startEnhance }]}
   />
 {/if}
 
 {#if isOwner}
+  <ActionSheet
+    bind:open={lyricsOfferOpen}
+    title="No lyrics for this song"
+    description={lyricsOfferDescription}
+    actions={lyricsOfferActions}
+  />
+  <ActionSheet
+    bind:open={videoOfferOpen}
+    title={videoOfferTitle}
+    description="Find one automatically, or pick from the search results."
+    actions={videoOfferActions}
+  />
   <ManageVideoSheet bind:open={manageVideoOpen} {video} title={`${trackTitle} — ${trackArtist}`} />
 {/if}
 
