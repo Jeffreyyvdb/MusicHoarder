@@ -6,6 +6,8 @@
   import { REMOVE_FROM_QUEUE_ICON } from '#lib/queue/queue-actions.ts';
   import { playerStore, type PlayerSong } from '#lib/stores/player.svelte.ts';
   import { cn } from '#lib/utils.ts';
+  import { carryBuiltTiles, watchNearViewport } from '#lib/viewport-fill.ts';
+  import { untrack } from 'svelte';
 
   /**
    * Now Playing's Queue mode: the song playing, then what follows it — the songs added by hand
@@ -69,6 +71,34 @@
       seen.set(song.id, n + 1);
       return `${song.id}:${n}`;
     });
+  });
+
+  // Rows are built where someone can see them: a screenful on the first frame, then each one that
+  // comes within two screens of the view (`#lib/viewport-fill.ts`). Opening the queue built all of
+  // up to a hundred rows in one frame before anything moved.
+  const FIRST_FILL = 16;
+  let listEl = $state<HTMLElement | null>(null);
+  let builtKeys = $state.raw<ReadonlySet<string>>(
+    carryBuiltTiles(
+      new Set(),
+      untrack(() => keys.map((key) => ({ key }))),
+      FIRST_FILL
+    )
+  );
+  $effect(() => {
+    const list = listEl;
+    const rows = keys.map((key) => ({ key }));
+    untrack(() => (builtKeys = carryBuiltTiles(builtKeys, rows, FIRST_FILL)));
+    if (!list) return;
+    const watcher = watchNearViewport(list, {
+      attribute: 'data-queue-key',
+      onnear: (near) =>
+        untrack(() => {
+          const fresh = near.filter((key) => !builtKeys.has(key));
+          if (fresh.length > 0) builtKeys = new Set([...builtKeys, ...fresh]);
+        })
+    });
+    return () => watcher.destroy();
   });
 
   // ── Reorder by dragging the handle ─────────────────────────────────────────
@@ -268,83 +298,97 @@
     />
   {/if}
 
-  {#each sections as section (`${section.kind}:${section.start}`)}
-    {@render sectionHeader(section)}
-    <ol class="relative" aria-label={section.kind === 'added' ? 'Next in queue' : 'Up next'}>
-      {#each upNext.slice(section.start, section.end) as song, i (keys[section.start + i])}
-        {@const pos = section.start + i}
-        {@const dragging = drag?.pos === pos}
-        {@const offset = offsetFor(pos)}
-        <li
-          use:swipeRow={{
-            side: 'trailing',
-            tone: 'destructive',
-            icon: REMOVE_FROM_QUEUE_ICON,
-            onswipe: () => remove(pos, song),
-            disabled: !editable || drag !== null
-          }}
-          class={cn(
-            'group relative flex h-16 items-center pr-1 md:h-14',
-            dragging
-              ? 'z-10 rounded-lg bg-[var(--np-fill)] shadow-lg backdrop-blur-xl'
-              : drag && 'transition-transform duration-200 ease-out'
-          )}
-          style:transform={offset ? `translateY(${offset}px)` : undefined}
-        >
-          <button
-            type="button"
-            class="focus-visible:ring-ring flex h-full min-w-0 flex-1 items-center gap-3 rounded-lg pl-4 text-left focus-visible:ring-2 focus-visible:outline-hidden focus-visible:ring-inset active:bg-[var(--np-fill)]"
-            aria-label={`Play ${song.title} by ${song.artist} now`}
-            disabled={!editable}
-            onclick={() => playerStore.skipToInQueue(pos)}
-          >
-            <Cover
-              artist={song.artist}
-              title={song.album ?? song.title}
-              coverUrl={song.coverUrl}
-              size={48}
-              corner={6}
-              caption={false}
-              dprCap={3}
-              class="md:size-10!"
-            />
-            {@render songText(song)}
-          </button>
-          {#if editable}
-            <!-- With a pointer: shown on hover. On touch the swipe is the way, and this stays for
-                 screen readers only. -->
-            <button
-              type="button"
-              class="text-muted-foreground focus-visible:ring-ring pointer-fine:hover:text-foreground grid size-9 shrink-0 place-items-center rounded-full opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:outline-hidden pointer-coarse:sr-only"
-              aria-label={`Remove ${song.title} from the queue`}
-              title="Remove from queue"
-              onclick={() => remove(pos, song)}
+  <div bind:this={listEl}>
+    {#each sections as section (`${section.kind}:${section.start}`)}
+      {@render sectionHeader(section)}
+      <ol class="relative" aria-label={section.kind === 'added' ? 'Next in queue' : 'Up next'}>
+        {#each upNext.slice(section.start, section.end) as song, i (keys[section.start + i])}
+          {@const pos = section.start + i}
+          {@const dragging = drag?.pos === pos}
+          {@const offset = offsetFor(pos)}
+          {@const key = keys[pos]}
+          {#if !builtKeys.has(key)}
+            <li
+              class="h-16 md:h-14"
+              data-queue-key={key}
+              style:transform={offset ? `translateY(${offset}px)` : undefined}
             >
-              <X class="size-4" />
-            </button>
-            <button
-              type="button"
-              data-queue-handle={pos}
-              data-drag-ignore
+              <span class="sr-only">{song.title}, {song.artist}</span>
+            </li>
+          {:else}
+            <li
+              data-queue-key={key}
+              use:swipeRow={{
+                side: 'trailing',
+                tone: 'destructive',
+                icon: REMOVE_FROM_QUEUE_ICON,
+                onswipe: () => remove(pos, song),
+                disabled: !editable || drag !== null
+              }}
               class={cn(
-                'text-muted-foreground focus-visible:ring-ring grid size-11 shrink-0 touch-none place-items-center rounded-full select-none focus-visible:ring-2 focus-visible:outline-hidden',
-                dragging ? 'text-foreground cursor-grabbing' : 'cursor-grab'
+                'group relative flex h-16 items-center pr-1 md:h-14',
+                dragging
+                  ? 'z-10 rounded-lg bg-[var(--np-fill)] shadow-lg backdrop-blur-xl'
+                  : drag && 'transition-transform duration-200 ease-out'
               )}
-              aria-label={`Reorder ${song.title}`}
-              aria-describedby="mh-queue-reorder-hint"
-              onpointerdown={(e) => startDrag(e, pos, section)}
-              onpointermove={moveDrag}
-              onpointerup={endDrag}
-              onpointercancel={endDrag}
-              onkeydown={(e) => onHandleKeydown(e, pos, section, song)}
+              style:transform={offset ? `translateY(${offset}px)` : undefined}
             >
-              <Menu class="size-5" />
-            </button>
+              <button
+                type="button"
+                class="focus-visible:ring-ring flex h-full min-w-0 flex-1 items-center gap-3 rounded-lg pl-4 text-left focus-visible:ring-2 focus-visible:outline-hidden focus-visible:ring-inset active:bg-[var(--np-fill)]"
+                aria-label={`Play ${song.title} by ${song.artist} now`}
+                disabled={!editable}
+                onclick={() => playerStore.skipToInQueue(pos)}
+              >
+                <Cover
+                  artist={song.artist}
+                  title={song.album ?? song.title}
+                  coverUrl={song.coverUrl}
+                  size={48}
+                  corner={6}
+                  caption={false}
+                  dprCap={3}
+                  class="md:size-10!"
+                />
+                {@render songText(song)}
+              </button>
+              {#if editable}
+                <!-- With a pointer: shown on hover. On touch the swipe is the way, and this stays for
+                 screen readers only. -->
+                <button
+                  type="button"
+                  class="text-muted-foreground focus-visible:ring-ring pointer-fine:hover:text-foreground grid size-9 shrink-0 place-items-center rounded-full opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:outline-hidden pointer-coarse:sr-only"
+                  aria-label={`Remove ${song.title} from the queue`}
+                  title="Remove from queue"
+                  onclick={() => remove(pos, song)}
+                >
+                  <X class="size-4" />
+                </button>
+                <button
+                  type="button"
+                  data-queue-handle={pos}
+                  data-drag-ignore
+                  class={cn(
+                    'text-muted-foreground focus-visible:ring-ring grid size-11 shrink-0 touch-none place-items-center rounded-full select-none focus-visible:ring-2 focus-visible:outline-hidden',
+                    dragging ? 'text-foreground cursor-grabbing' : 'cursor-grab'
+                  )}
+                  aria-label={`Reorder ${song.title}`}
+                  aria-describedby="mh-queue-reorder-hint"
+                  onpointerdown={(e) => startDrag(e, pos, section)}
+                  onpointermove={moveDrag}
+                  onpointerup={endDrag}
+                  onpointercancel={endDrag}
+                  onkeydown={(e) => onHandleKeydown(e, pos, section, song)}
+                >
+                  <Menu class="size-5" />
+                </button>
+              {/if}
+            </li>
           {/if}
-        </li>
-      {/each}
-    </ol>
-  {/each}
+        {/each}
+      </ol>
+    {/each}
+  </div>
 
   {#if moreCount > 0}
     <div class="flex items-center justify-between gap-3 px-4 pt-3">
