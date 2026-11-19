@@ -113,13 +113,18 @@
     const el = contentEl;
     if (open && !el) return;
     let cancelled = false;
-    const slides = el?.getAnimations() ?? [];
-    const slid = Promise.allSettled(slides.map((a) => a.finished));
-    if (open) {
-      void slid.then(() => {
-        if (!cancelled) songDetail.setCovering(true);
-      });
-    } else {
+    // The slide is a transition that bits-ui starts by setting `data-starting-style` or
+    // `data-ending-style` in its own update, after this one: it can be read a frame later.
+    requestAnimationFrame(() => {
+      if (cancelled) return;
+      const slides = el?.getAnimations() ?? [];
+      const slid = Promise.allSettled(slides.map((a) => a.finished));
+      if (open) {
+        void slid.then(() => {
+          if (!cancelled) songDetail.setCovering(true);
+        });
+        return;
+      }
       // 40% of the fall's time is ~90% of its distance on this curve: the mini player and tab bar
       // are back as their place is uncovered, and the restyle lands in the slow tail.
       void Promise.race([slid, wait(timeUntil(slides, 0.4))]).then(() => {
@@ -132,7 +137,7 @@
         await tick();
         returnFocus(el);
       });
-    }
+    });
     return () => {
       cancelled = true;
     };
@@ -339,10 +344,14 @@
       const ended = drag;
       drag = null;
       if (ended && (offset > ended.height * 0.25 || velocity > DISMISS_VELOCITY)) {
-        // Close from where the finger left it: the exit keyframes only define `to`, so the
-        // slide-out starts at the inline transform (and the scrim at its inline opacity).
-        if (contentEl) contentEl.style.transition = '';
-        if (overlayEl) overlayEl.style.transition = '';
+        // Close from where the finger left it: the inline values go in the same frame as the close
+        // starts, so the fall (and the scrim's fade) runs on from them.
+        for (const el of [contentEl, overlayEl]) {
+          if (!el) continue;
+          el.style.transition = '';
+          el.style.transform = '';
+          el.style.opacity = '';
+        }
         songDetail.close();
       } else {
         settle(contentEl);
@@ -561,44 +570,24 @@
     }
   }
 
-  /* The rise and the fade-in fill `backwards` only: a filled animation outranks the inline
-     transform/opacity that drag-to-dismiss writes, so `both` would leave the overlay deaf to the
-     finger once the rise had run. The fall and fade-out keep `both` to hold their end state until
-     bits-ui unmounts, and only define `to`, so a drag-to-dismiss closes from where the finger left
-     it. */
-  :global(.mh-np[data-state='open']) {
-    animation: mh-np-rise 350ms cubic-bezier(0.32, 0.72, 0, 1) backwards;
+  /* The slide is a transition between bits-ui's presence states rather than keyframes, so a close
+     during the rise, or an open during the fall, turns round where the panel is instead of first
+     jumping to the far end. bits-ui marks the first frame `data-starting-style` and the close
+     `data-ending-style`, and unmounts once the transition has finished. Drag-to-dismiss holds the
+     panel with an inline transform under `transition: none` and clears both as it closes, so the
+     fall starts where the finger let go. */
+  :global(.mh-np) {
+    transition: transform 350ms cubic-bezier(0.32, 0.72, 0, 1);
   }
-  :global(.mh-np[data-state='closed']) {
-    animation: mh-np-fall 350ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  :global(.mh-np[data-starting-style]),
+  :global(.mh-np[data-ending-style]) {
+    transform: translate3d(0, 100%, 0);
   }
-  :global(.mh-np-scrim[data-state='open']) {
-    animation: mh-np-fade-in 350ms cubic-bezier(0.32, 0.72, 0, 1) backwards;
+  :global(.mh-np-scrim) {
+    transition: opacity 350ms cubic-bezier(0.32, 0.72, 0, 1);
   }
-  :global(.mh-np-scrim[data-state='closed']) {
-    animation: mh-np-fade-out 350ms cubic-bezier(0.32, 0.72, 0, 1) both;
-  }
-  @keyframes mh-np-rise {
-    from {
-      transform: translate3d(0, 100%, 0);
-    }
-    to {
-      transform: translate3d(0, 0, 0);
-    }
-  }
-  @keyframes mh-np-fall {
-    to {
-      transform: translate3d(0, 100%, 0);
-    }
-  }
-  @keyframes mh-np-fade-in {
-    from {
-      opacity: 0;
-    }
-  }
-  @keyframes mh-np-fade-out {
-    to {
-      opacity: 0;
-    }
+  :global(.mh-np-scrim[data-starting-style]),
+  :global(.mh-np-scrim[data-ending-style]) {
+    opacity: 0;
   }
 </style>
