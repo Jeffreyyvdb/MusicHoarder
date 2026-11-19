@@ -1,6 +1,6 @@
 <script lang="ts">
   import { holdAppInert } from '#lib/actions/inert-app.ts';
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { Dialog as DialogPrimitive } from 'bits-ui';
   import { Loader2 } from '@lucide/svelte';
   import { page } from '$app/state';
@@ -87,16 +87,52 @@
     return () => songsStore.stopLive();
   });
 
-  // Hide the global MiniPlayer only while the detail panel is actually open (the
-  // overlay has its own transport), then restore it on close.
+  // `inert` on the app, the black status bar and hiding the mini player each make the browser
+  // restyle the whole app. Made the moment the overlay opens or closes, that restyle lands in the
+  // first frames of the 350ms rise or fall, which carry most of its distance, and the slide jumps.
+  // So they follow `covering`: on once the rise has finished, off once the fall has.
+  let covering = $state(false);
+  let opener: HTMLElement | null = null;
   $effect(() => {
     if (!songDetail.isOpen) return;
-    return playerStore.registerPanel();
+    untrack(() => {
+      opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    });
   });
+  $effect(() => {
+    const open = songDetail.isOpen;
+    const el = contentEl;
+    if (open && !el) return;
+    let cancelled = false;
+    const slides = el?.getAnimations() ?? [];
+    void Promise.allSettled(slides.map((a) => a.finished)).then(async () => {
+      if (cancelled || covering === open) return;
+      covering = open;
+      if (open) return;
+      await tick();
+      returnFocus(el);
+    });
+    return () => {
+      cancelled = true;
+    };
+  });
+
+  // bits-ui returns focus as the fall starts, while the app is still inert, where focus() is
+  // ignored; so the overlay returns it itself once the app is live again.
+  function returnFocus(dialog: HTMLElement | null) {
+    const target = opener;
+    opener = null;
+    const active = document.activeElement;
+    const lost = !active || active === document.body || (dialog?.contains(active) ?? false);
+    if (lost && target?.isConnected) target.focus({ preventScroll: true });
+  }
+
+  // Hide the global MiniPlayer while the overlay covers it (it has its own transport).
+  $effect(() => (covering ? playerStore.registerPanel() : undefined));
 
   // The status bar follows the media appearance (black) while this is up. The claim is a token,
   // released when the overlay closes or this unmounts.
-  $effect(() => (songDetail.isOpen ? themeSurface.claimMedia() : undefined));
+  $effect(() => (covering ? themeSurface.claimMedia() : undefined));
   $effect(() => (songDetail.isOpen && videoShowing ? themeSurface.claimTv() : undefined));
 
   // Follow playback: when a new song starts while the panel is showing the song
@@ -243,7 +279,7 @@
   };
 
   // The page behind a full-screen Now Playing leaves the accessibility tree (see inert-app.ts).
-  $effect(() => (songDetail.isOpen ? holdAppInert() : undefined));
+  $effect(() => (covering ? holdAppInert() : undefined));
 
   // A fresh open starts from a clean element (a drag-dismiss leaves its inline transform behind).
   $effect(() => {
@@ -280,6 +316,7 @@
       ]}
       style="--mh-content-pad: 0px"
       onInteractOutside={keepOpenForToasts}
+      onCloseAutoFocus={(e) => e.preventDefault()}
     >
       {#if r}
         <VideoBackdrop

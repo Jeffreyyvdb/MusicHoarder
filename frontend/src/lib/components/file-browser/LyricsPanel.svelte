@@ -188,12 +188,18 @@
     followActive = true;
   });
 
+  // The lines last centred. A new set (Now Playing opening, another song, another source) jumps
+  // straight to its line: gliding there from the top races through the whole song.
+  let centredLines: unknown = null;
+
   function scrollActiveLineIntoView() {
     const idx = activeLineIndex;
     const container = containerEl;
     if (idx < 0 || !container) return;
     const el = container.querySelector<HTMLElement>(`[data-lyric-line="${idx}"]`);
     if (!el) return;
+    const glide = centredLines === parsedLines && !prefersReducedMotion();
+    centredLines = parsedLines;
 
     const elRect = el.getBoundingClientRect();
     const containerRect = container.getBoundingClientRect();
@@ -201,10 +207,7 @@
     const targetScroll = offset - container.clientHeight / 2 + el.clientHeight / 2;
     // JS smooth scrolling is not covered by the global Reduce Motion clamp, so ask each time: under
     // Reduce Motion the lines jump instead of gliding.
-    container.scrollTo({
-      top: Math.max(0, targetScroll),
-      behavior: prefersReducedMotion() ? 'auto' : 'smooth'
-    });
+    container.scrollTo({ top: Math.max(0, targetScroll), behavior: glide ? 'smooth' : 'auto' });
   }
 
   $effect(() => {
