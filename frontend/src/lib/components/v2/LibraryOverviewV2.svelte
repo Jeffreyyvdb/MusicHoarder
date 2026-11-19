@@ -17,6 +17,7 @@
   import TrackRowMenu, { activateTrack } from '#lib/components/v2/TrackRowMenu.svelte';
   import TrackRowText from '#lib/components/v2/TrackRowText.svelte';
   import { longpress, type LongPressPoint } from '#lib/actions/long-press.ts';
+  import { verticalWheel } from '#lib/actions/vertical-wheel.ts';
   import {
     isSpotifyLiked,
     rowCoverFallbackForSong,
@@ -307,6 +308,7 @@
           <section aria-labelledby="overview-favourites">
             {@render sectionHeader('Favourite tracks', '/tracks?f=mh-liked', 'overview-favourites')}
             <div
+              use:verticalWheel
               data-scroll-x={paged ? '' : undefined}
               style:grid-template-rows="repeat({Math.min(FAVOURITE_ROWS, favoriteTracks.length)},
               auto)"
