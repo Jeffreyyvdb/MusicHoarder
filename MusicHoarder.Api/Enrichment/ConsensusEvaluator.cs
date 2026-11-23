@@ -312,10 +312,10 @@ public static class ConsensusEvaluator
 
     /// <summary>
     /// Tier 3 — a clean, *unambiguous* fingerprint match (AcoustID) is acoustically authoritative and
-    /// may stand alone. The caller only reaches this tier once every enabled provider has had its
-    /// turn, so a name-based corroborator/contradictor already got the chance to weigh in. Requires a
+    /// may stand alone. The caller only reaches this tier once every applicable provider has had its
+    /// turn, so a corroborator/contradictor already got the chance to weigh in. Requires a
     /// single candidate (an ambiguous fingerprint that resolved to several recordings — flagged
-    /// multiple_candidates — still goes to review) and no strong name-based provider landing on a
+    /// multiple_candidates — still goes to review) and no other strong candidate landing on a
     /// different identity. Abstains (returns null) otherwise.
     /// </summary>
     private static ConsensusResult? TrySoloFingerprintMatch(
@@ -330,12 +330,14 @@ public static class ConsensusEvaluator
         if (soloFingerprint is null)
             return null;
 
-        // Don't stand alone if a strong name-based provider landed on a *different* identity
-        // (e.g. a different version/recording) — that genuine conflict belongs in review.
-        var contradictedByNameBased = strong.Any(c =>
-            c.IsNameBased && !c.Identity.AgreesWith(soloFingerprint.Identity, identityOptions));
+        // Don't stand alone if another strong candidate landed on a *different* identity (a
+        // different version/recording, or a leak the tracker knows that the fingerprint mistakes
+        // for a released song) — that genuine conflict belongs in review.
+        var contradictedByOther = strong.Any(c =>
+            c.Provider != soloFingerprint.Provider
+            && !c.Identity.AgreesWith(soloFingerprint.Identity, identityOptions));
 
-        return contradictedByNameBased
+        return contradictedByOther
             ? null
             : new ConsensusResult(
                 EnrichmentStatus.Matched, soloFingerprint.Result, soloFingerprint.Confidence,
