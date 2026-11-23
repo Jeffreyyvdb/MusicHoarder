@@ -1511,6 +1511,167 @@ public class EnrichmentOrchestratorTests
         Assert.Equal(EnrichmentStatus.NeedsReview, updated.EnrichmentStatus);
     }
 
+    // A community tracker handles only its allowlisted artists and records no attempt on any other
+    // song, so it must not stop the rest of the providers' answers from being the whole picture.
+    [Fact]
+    public async Task ProcessSong_TrackerCannotHandleSong_CleanFingerprintMatchesAlone()
+    {
+        await using var db = CreateDb();
+        var song = AddPendingSong(db, artist: "Some Artist", title: "Some Song");
+        await db.SaveChangesAsync();
+
+        var opts = TrackerEnabled();
+        var acoustId = RealAcoustId(
+            new AcoustIdMatch("mb-123", "acoust-123", "Some Song", "Some Artist", "Some Artist", 0.95f, 240_000));
+        var orchestrator = CreateOrchestratorWithProviders(db, [acoustId, TrackerForOtherArtists()], opts);
+
+        var outcome = await orchestrator.ProcessSongAsync(song.Id);
+
+        Assert.Equal(EnrichmentOutcome.Matched, outcome);
+        Assert.Equal("AcoustID", song.MatchedBy);
+        Assert.Equal("mb-123", song.MusicBrainzId);
+    }
+
+    [Fact]
+    public async Task ProcessSong_TrackerCannotHandleSong_ReviewKeepsTheBestCandidate()
+    {
+        await using var db = CreateDb();
+        var song = AddPendingSong(db, artist: "Some Artist", title: "Some Song");
+        await db.SaveChangesAsync();
+
+        var acoustId = new StubEnrichmentProvider("AcoustID", 100, canHandle: _ => true,
+            enrich: _ => Task.FromResult<ProviderOutcome>(new ProviderMatched(new EnrichmentProviderResult(
+                "Some Artist", "Some Artist", "Some Song", null, null,
+                "mb-123", null, null, "acoust-123", null, "AcoustID", 0.95,
+                ["multiple_candidates"], EnrichmentStatus.Matched))));
+        var orchestrator = CreateOrchestratorWithProviders(db, [acoustId, TrackerForOtherArtists()], TrackerEnabled());
+
+        var outcome = await orchestrator.ProcessSongAsync(song.Id);
+
+        Assert.Equal(EnrichmentOutcome.NeedsReview, outcome);
+        Assert.Equal("AcoustID", song.MatchedBy);
+        Assert.Equal(0.95, song.MatchConfidence);
+    }
+
+    [Fact]
+    public async Task ProcessSong_TrackerCannotHandleSong_ProviderErrorIsFailed()
+    {
+        await using var db = CreateDb();
+        var song = AddPendingSong(db, artist: "Some Artist", title: "Some Song");
+        await db.SaveChangesAsync();
+
+        var acoustId = new StubEnrichmentProvider("AcoustID", 100, canHandle: _ => true,
+            enrich: _ => throw new HttpRequestException("connection refused"));
+        var orchestrator = CreateOrchestratorWithProviders(db, [acoustId, TrackerForOtherArtists()], TrackerEnabled());
+
+        var outcome = await orchestrator.ProcessSongAsync(song.Id);
+
+        Assert.Equal(EnrichmentOutcome.Failed, outcome);
+        Assert.Equal(EnrichmentStatus.Failed, song.EnrichmentStatus);
+    }
+
+    // AcoustID's names are checked against an untagged file's path, the same way the name-based
+    // providers' are: a path that names something else leaves the fingerprint needing a second voice.
+    [Fact]
+    public async Task ProcessSong_UntaggedFile_FingerprintOfAnotherSong_NeedsReview()
+    {
+        await using var db = CreateDb();
+        var song = AddUntaggedSong(db, "/source/Some Band/Demo Album/My Demo.mp3");
+        await db.SaveChangesAsync();
+
+        var opts = TrackerEnabled();
+        opts.Value.EnableSpotifyApiProvider = true;
+        var acoustId = RealAcoustId(
+            new AcoustIdMatch("mb-other", "acoust-other", "Other Song", "Other Artist", "Other Artist", 0.95f, 240_000));
+        var spotify = new StubEnrichmentProvider("SpotifyAPI", 200, canHandle: _ => true,
+            enrich: _ => Task.FromResult<ProviderOutcome>(new ProviderNoMatch()));
+        var orchestrator = CreateOrchestratorWithProviders(db, [acoustId, spotify, TrackerForOtherArtists()], opts);
+
+        var outcome = await orchestrator.ProcessSongAsync(song.Id);
+
+        Assert.Equal(EnrichmentOutcome.NeedsReview, outcome);
+        Assert.Null(song.Title);
+        Assert.Null(song.MusicBrainzId);
+    }
+
+    [Fact]
+    public async Task ProcessSong_UntaggedFile_StoredFingerprintOfAnotherSong_NeedsReview()
+    {
+        // A match AcoustID stored before this check existed is kept and never re-run, so the
+        // check has to hold for it too.
+        await using var db = CreateDb();
+        var song = AddUntaggedSong(db, "/source/Some Band/Demo Album/My Demo.mp3");
+        song.ProviderAttempts.Add(new SongProviderAttempt
+        {
+            Provider = EnrichmentProvider.AcoustID,
+            Status = ProviderAttemptStatus.Matched,
+            AttemptedAtUtc = DateTime.UtcNow,
+            MatchedDataJson = JsonSerializer.Serialize(new EnrichmentProviderResult(
+                "Other Artist", "Other Artist", "Other Song", null, null, "mb-other", null, null, "acoust-other", null,
+                "AcoustID", 0.95, [], EnrichmentStatus.Matched)),
+        });
+        await db.SaveChangesAsync();
+
+        var opts = TrackerEnabled();
+        opts.Value.EnableSpotifyApiProvider = true;
+        var acoustId = new StubEnrichmentProvider("AcoustID", 100, canHandle: _ => true,
+            enrich: _ => throw new InvalidOperationException("a stored match is not re-run"));
+        var spotify = new StubEnrichmentProvider("SpotifyAPI", 200, canHandle: _ => true,
+            enrich: _ => Task.FromResult<ProviderOutcome>(new ProviderNoMatch()));
+        var orchestrator = CreateOrchestratorWithProviders(db, [acoustId, spotify, TrackerForOtherArtists()], opts);
+
+        var outcome = await orchestrator.ProcessSongAsync(song.Id);
+
+        Assert.Equal(EnrichmentOutcome.NeedsReview, outcome);
+        Assert.Null(song.MusicBrainzId);
+    }
+
+    [Fact]
+    public async Task ProcessSong_UntaggedFile_FingerprintOfTheSongItsPathNames_MatchesAlone()
+    {
+        await using var db = CreateDb();
+        var song = AddUntaggedSong(db, "/source/Some Band/Demo Album/01 My Demo.mp3");
+        await db.SaveChangesAsync();
+
+        var opts = TrackerEnabled();
+        opts.Value.EnableSpotifyApiProvider = true;
+        var acoustId = RealAcoustId(
+            new AcoustIdMatch("mb-demo", "acoust-demo", "My Demo (Remastered)", "Some Band", "Some Band", 0.95f, 240_000));
+        var spotify = new StubEnrichmentProvider("SpotifyAPI", 200, canHandle: _ => true,
+            enrich: _ => Task.FromResult<ProviderOutcome>(new ProviderNoMatch()));
+        var orchestrator = CreateOrchestratorWithProviders(db, [acoustId, spotify, TrackerForOtherArtists()], opts);
+
+        var outcome = await orchestrator.ProcessSongAsync(song.Id);
+
+        Assert.Equal(EnrichmentOutcome.Matched, outcome);
+        Assert.Equal("mb-demo", song.MusicBrainzId);
+    }
+
+    private static SongMetadata AddUntaggedSong(MusicHoarderDbContext db, string sourcePath)
+    {
+        var song = AddPendingSong(db);
+        song.SourcePath = sourcePath;
+        song.FileName = Path.GetFileName(sourcePath);
+        song.Artist = null;
+        song.Title = null;
+        return song;
+    }
+
+    private static AcoustIdEnrichmentProvider RealAcoustId(AcoustIdMatch match) =>
+        new(new StubAcoustIdService(_ => Task.FromResult<AcoustIdMatch?>(match)),
+            new AcoustIdMatchValidator(), NullLogger<AcoustIdEnrichmentProvider>.Instance);
+
+    private static StubEnrichmentProvider TrackerForOtherArtists() =>
+        new("Tracker", 50, canHandle: _ => false,
+            enrich: _ => throw new InvalidOperationException("the tracker cannot handle this song"));
+
+    private static IOptions<MusicEnricherOptions> TrackerEnabled()
+    {
+        var opts = CreateOptions();
+        opts.Value.EnableTrackerProvider = true;
+        return opts;
+    }
+
     // Spotify reporting 2019 leaves the year a tie the row's current year breaks, so the healer's
     // correction changes the verdict itself.
     [Theory]

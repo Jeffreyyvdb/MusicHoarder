@@ -221,6 +221,78 @@ public class ConsensusEvaluatorTests
     }
 
     [Fact]
+    public void CleanFingerprint_TrackerUnsureOfAnotherSong_NeedsReview()
+    {
+        // A leak the fingerprint mistakes for a released song: the tracker's doubt about the leak
+        // still contradicts the fingerprint, so neither may stand alone.
+        var song = Song();
+        Add(song, EnrichmentProvider.AcoustID, ProviderAttemptStatus.Matched,
+            Result("Juice WRLD", "Lucid Dreams", mbid: "mb-1", conf: 0.95, recommend: EnrichmentStatus.Matched));
+        Add(song, EnrichmentProvider.Tracker, ProviderAttemptStatus.Matched,
+            Result("Juice WRLD", "Some Leak", conf: 0.72, recommend: EnrichmentStatus.NeedsReview));
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.AcoustID, EnrichmentProvider.Tracker), Opts);
+
+        Assert.Equal(EnrichmentStatus.NeedsReview, r.Status);
+    }
+
+    [Fact]
+    public void FailedAttemptOfAProviderThatNoLongerApplies_IsNotFailed()
+    {
+        // The tracker errored while the song's artist was on its list; it has since been retagged.
+        var song = Song();
+        Add(song, EnrichmentProvider.AcoustID, ProviderAttemptStatus.NoMatch, null);
+        Add(song, EnrichmentProvider.Tracker, ProviderAttemptStatus.Failed, null);
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.AcoustID, EnrichmentProvider.Tracker), Opts,
+            applicableProviders: Enabled(EnrichmentProvider.AcoustID));
+
+        Assert.Equal(EnrichmentStatus.NeedsReview, r.Status);
+    }
+
+    [Theory]
+    [InlineData("/source/Taylor Swift/Midnights/03 Anti-Hero.mp3", "Taylor Swift", "Anti-Hero")]
+    [InlineData("/source/slskd/JAY-Z - 99 Problems.mp3", "JAY-Z", "99 Problems")]
+    [InlineData("/source/Queen/A Night at the Opera/11 Bohemian Rhapsody - Remastered 2011.mp3", "Queen", "Bohemian Rhapsody")]
+    [InlineData("/source/AC-DC/Back in Black/06 Back in Black.mp3", "AC/DC", "Back in Black")]
+    [InlineData("/source/Taylor Swift/Midnights/03 Antihero.mp3", "Taylor Swift", "Anti-Hero")]
+    [InlineData("/source/slskd/JayZ - Encore.mp3", "JAY-Z", "Encore")]
+    [InlineData("/source/Queen/Greatest Hits/Bohemian Rhapsody - Remastered.mp3", "Queen", "Bohemian Rhapsody")]
+    public void CleanFingerprint_OfTheSongAnUntaggedPathNames_Matched(string path, string artist, string title)
+    {
+        var song = Song();
+        song.SourcePath = path;
+        Add(song, EnrichmentProvider.AcoustID, ProviderAttemptStatus.Matched,
+            Result(artist, title, mbid: "mb-1", conf: 0.95, recommend: EnrichmentStatus.Matched));
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.AcoustID), Opts, sourceRoot: "/source");
+
+        Assert.Equal(EnrichmentStatus.Matched, r.Status);
+    }
+
+    [Theory]
+    [InlineData("/source/Jay Rock/Redemption/03 Win.mp3", "JAY-Z", "Win")]
+    [InlineData("/source/A Tribe Called Quest/Covers/01 Take On Me.mp3", "a-ha", "Take On Me")]
+    [InlineData("/source/Music/Singles/Drake - Avalon.mp3", "Roxy Music", "Avalon")]
+    [InlineData("/source/Music/Summer Mix/01 Drake - Avalon.mp3", "Roxy Music", "Avalon")]
+    [InlineData("/source/The Band/Demos/05 Intro - Live.mp3", "The xx", "Intro")]
+    public void CleanFingerprint_OfAnotherArtistsSong_NeedsReview(string path, string artist, string title)
+    {
+        var song = Song();
+        song.SourcePath = path;
+        Add(song, EnrichmentProvider.AcoustID, ProviderAttemptStatus.Matched,
+            Result(artist, title, mbid: "mb-1", conf: 0.95, recommend: EnrichmentStatus.Matched));
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.AcoustID), Opts, sourceRoot: "/source");
+
+        Assert.Equal(EnrichmentStatus.NeedsReview, r.Status);
+    }
+
+    [Fact]
     public void TrackerAndSpotifyAgree_StillCorroboratesAsCluster()
     {
         var song = Song();

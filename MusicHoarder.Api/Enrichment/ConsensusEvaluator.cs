@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using MusicHoarder.Api.Matching;
 using MusicHoarder.Api.Persistence;
 
@@ -17,7 +18,7 @@ namespace MusicHoarder.Api.Enrichment;
 /// it must be corroborated to promote.</item>
 /// </list>
 /// </summary>
-public static class ConsensusEvaluator
+public static partial class ConsensusEvaluator
 {
     /// <summary>Minimum own-confidence for a candidate to act as a corroborating vote.</summary>
     public const double DefaultCorroborationFloor = 0.5;
@@ -47,6 +48,14 @@ public static class ConsensusEvaluator
     /// <summary>Max time a song waits on a rate-limited provider before finalizing on the rest.</summary>
     public static readonly TimeSpan DefaultRateLimitDeferral = TimeSpan.FromMinutes(30);
 
+    /// <param name="applicableProviders">The enabled providers that can act on this song, which are
+    /// the ones that must have had their turn before the picture is complete. A community tracker
+    /// records no attempt on a song outside its artist allowlist, so waiting on every enabled
+    /// provider would keep such a song incomplete forever. Defaults to
+    /// <paramref name="enabledProviders"/>.</param>
+    /// <param name="sourceRoot">The library's source directory. When given, a lone fingerprint may only
+    /// stand alone on an untagged file whose path names the same song (see
+    /// <see cref="TrySoloFingerprintMatch"/>).</param>
     public static ConsensusResult Evaluate(
         SongMetadata song,
         IReadOnlySet<EnrichmentProvider> enabledProviders,
@@ -55,14 +64,16 @@ public static class ConsensusEvaluator
         bool preferOriginalRelease = true,
         DateTime? utcNow = null,
         TimeSpan? maxRateLimitDeferral = null,
-        bool relaxDownloadDurationMismatch = false)
+        bool relaxDownloadDurationMismatch = false,
+        IReadOnlySet<EnrichmentProvider>? applicableProviders = null,
+        string? sourceRoot = null)
     {
         var now = utcNow ?? DateTime.UtcNow;
         var deferralWindow = maxRateLimitDeferral ?? DefaultRateLimitDeferral;
 
         var verdict = EvaluateInternal(
-            song, enabledProviders, identityOptions, corroborationFloor, preferOriginalRelease, now, deferralWindow,
-            relaxDownloadDurationMismatch);
+            song, enabledProviders, applicableProviders ?? enabledProviders, identityOptions, corroborationFloor,
+            preferOriginalRelease, now, deferralWindow, relaxDownloadDurationMismatch, sourceRoot);
 
         // A confident verdict the answered providers already reached stands — never block a build
         // waiting on a provider that may never recover (e.g. iTunes throttling a shared IP). A
@@ -90,12 +101,14 @@ public static class ConsensusEvaluator
     private static ConsensusResult EvaluateInternal(
         SongMetadata song,
         IReadOnlySet<EnrichmentProvider> enabledProviders,
+        IReadOnlySet<EnrichmentProvider> applicableProviders,
         IdentityMatchOptions identityOptions,
         double corroborationFloor,
         bool preferOriginalRelease,
         DateTime now,
         TimeSpan deferralWindow,
-        bool relaxDownloadDurationMismatch)
+        bool relaxDownloadDurationMismatch,
+        string? sourceRoot)
     {
         if (enabledProviders.Count == 0)
             return new ConsensusResult(EnrichmentStatus.NeedsReview, null, 0, []);
@@ -125,7 +138,7 @@ public static class ConsensusEvaluator
         // A provider has "had its turn" once it reached a terminal status — or once its rate-limit
         // has gone stale (waiting longer won't help), so the picture is treated as complete and a
         // terminal verdict (NeedsReview/Failed) can be reached instead of deferring indefinitely.
-        var allAttempted = enabledProviders.All(p =>
+        var allAttempted = applicableProviders.All(p =>
             attempts.Any(a => a.Provider == p &&
                 (a.Status is ProviderAttemptStatus.Matched
                     or ProviderAttemptStatus.NoMatch
@@ -136,7 +149,8 @@ public static class ConsensusEvaluator
         {
             if (!allAttempted)
                 return new ConsensusResult(EnrichmentStatus.Pending, null, 0, []);
-            var anyFailed = attempts.Any(a => a.Status == ProviderAttemptStatus.Failed);
+            var anyFailed = attempts.Any(a =>
+                applicableProviders.Contains(a.Provider) && a.Status == ProviderAttemptStatus.Failed);
             return new ConsensusResult(
                 anyFailed ? EnrichmentStatus.Failed : EnrichmentStatus.NeedsReview, null, 0, []);
         }
@@ -152,7 +166,7 @@ public static class ConsensusEvaluator
         return TryMultiProviderConsensus(
                 strong, song, identityOptions, preferOriginalRelease, relaxDownloadDurationMismatch)
             ?? TrySoloNameBasedMatch(strong, identityOptions)
-            ?? (allAttempted ? TrySoloFingerprintMatch(strong, identityOptions) : null)
+            ?? (allAttempted ? TrySoloFingerprintMatch(strong, song, identityOptions, sourceRoot) : null)
             ?? FinalizeReviewOrPending(candidates, allAttempted);
     }
 
@@ -305,14 +319,18 @@ public static class ConsensusEvaluator
 
     /// <summary>
     /// Tier 3 — a clean, *unambiguous* fingerprint match (AcoustID) is acoustically authoritative and
-    /// may stand alone. The caller only reaches this tier once every enabled provider has had its
-    /// turn, so a name-based corroborator/contradictor already got the chance to weigh in. Requires a
+    /// may stand alone. The caller only reaches this tier once every applicable provider has had its
+    /// turn, so a corroborator/contradictor already got the chance to weigh in. Requires a
     /// single candidate (an ambiguous fingerprint that resolved to several recordings — flagged
-    /// multiple_candidates — still goes to review) and no strong name-based provider landing on a
-    /// different identity. Abstains (returns null) otherwise.
+    /// multiple_candidates — still goes to review) and no other strong candidate landing on a
+    /// different identity. An untagged file's artist and title come from its path: a fingerprint naming
+    /// something else doesn't contradict that guess, but it can't stand alone on it either, or a leak the
+    /// fingerprint mistakes for a released song is silently retitled. This is judged here, against the
+    /// row as it is now, because a stored fingerprint match is kept and never re-validated. Abstains
+    /// (returns null) otherwise.
     /// </summary>
     private static ConsensusResult? TrySoloFingerprintMatch(
-        List<Candidate> strong, IdentityMatchOptions identityOptions)
+        List<Candidate> strong, SongMetadata song, IdentityMatchOptions identityOptions, string? sourceRoot)
     {
         var soloFingerprint = strong
             .Where(c => !c.IsNameBased
@@ -323,17 +341,48 @@ public static class ConsensusEvaluator
         if (soloFingerprint is null)
             return null;
 
-        // Don't stand alone if a strong name-based provider landed on a *different* identity
-        // (e.g. a different version/recording) — that genuine conflict belongs in review.
-        var contradictedByNameBased = strong.Any(c =>
-            c.IsNameBased && !c.Identity.AgreesWith(soloFingerprint.Identity, identityOptions));
+        // Don't stand alone if another strong candidate landed on a *different* identity (a
+        // different version/recording, or a leak the tracker knows that the fingerprint mistakes
+        // for a released song) — that genuine conflict belongs in review.
+        var contradictedByOther = strong.Any(c =>
+            c.Provider != soloFingerprint.Provider
+            && !c.Identity.AgreesWith(soloFingerprint.Identity, identityOptions));
 
-        return contradictedByNameBased
-            ? null
-            : new ConsensusResult(
-                EnrichmentStatus.Matched, soloFingerprint.Result, soloFingerprint.Confidence,
-                [soloFingerprint.Provider]);
+        if (contradictedByOther)
+            return null;
+
+        if (sourceRoot is not null
+            && !PathNamesTheMatch(SongSearchText.ResolveDetailed(song, sourceRoot), soloFingerprint.Result))
+            return null;
+
+        return new ConsensusResult(
+            EnrichmentStatus.Matched, soloFingerprint.Result, soloFingerprint.Confidence,
+            [soloFingerprint.Provider]);
     }
+
+    // A name agrees with the path as spelled ("AC/DC" and an "AC-DC" folder both read "acdc"), or with
+    // dashes folded to spaces on both sides, as the path query folds them ("Anti-Hero" and "Anti Hero").
+    // Folded, every word of the artist must be there, so "jay" alone does not stand for "JAY-Z". The
+    // artist folder can also vouch for the artist, but only by naming all of it: a "Title - Subtitle"
+    // filename leaves the folder out of the path query, and a bucket folder ("Music") must not stand
+    // for "Roxy Music".
+    private static bool PathNamesTheMatch(SongSearchText.Resolved source, EnrichmentProviderResult match)
+    {
+        var path = source.PathQuery;
+        return (!source.TitleFromPath
+                || CandidateTextMatch.AllPresent(match.Title, path)
+                || CandidateTextMatch.AllPresent(FoldDashes(match.Title), FoldDashes(path)))
+            && (!source.ArtistFromPath
+                || CandidateTextMatch.Containment(match.Artist, path) > 0
+                || CandidateTextMatch.AllPresent(FoldDashes(match.Artist), FoldDashes(path))
+                || CandidateTextMatch.AllPresent(match.Artist, source.Artist)
+                || CandidateTextMatch.AllPresent(FoldDashes(match.Artist), FoldDashes(source.Artist)));
+    }
+
+    private static string? FoldDashes(string? value) => value is null ? null : Dash().Replace(value, " ");
+
+    [GeneratedRegex("[-\u2010-\u2015\u2212]")]
+    private static partial Regex Dash();
 
     /// <summary>
     /// Tier 4 — no tier above reached a verdict. Once every provider has had its turn the song needs
