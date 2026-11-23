@@ -252,6 +252,23 @@ public class ConsensusEvaluatorTests
         Assert.Equal(EnrichmentStatus.NeedsReview, r.Status);
     }
 
+    [Theory]
+    [InlineData("/source/Taylor Swift/Midnights/03 Anti-Hero.mp3", "Taylor Swift", "Anti-Hero")]
+    [InlineData("/source/slskd/JAY-Z - 99 Problems.mp3", "JAY-Z", "99 Problems")]
+    [InlineData("/source/Queen/A Night at the Opera/11 Bohemian Rhapsody - Remastered 2011.mp3", "Queen", "Bohemian Rhapsody")]
+    public void CleanFingerprint_OfTheSongAnUntaggedPathNames_Matched(string path, string artist, string title)
+    {
+        var song = Song();
+        song.SourcePath = path;
+        Add(song, EnrichmentProvider.AcoustID, ProviderAttemptStatus.Matched,
+            Result(artist, title, mbid: "mb-1", conf: 0.95, recommend: EnrichmentStatus.Matched));
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.AcoustID), Opts, sourceRoot: "/source");
+
+        Assert.Equal(EnrichmentStatus.Matched, r.Status);
+    }
+
     [Fact]
     public void TrackerAndSpotifyAgree_StillCorroboratesAsCluster()
     {
