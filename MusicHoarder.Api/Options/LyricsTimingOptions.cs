@@ -50,6 +50,8 @@ public class LyricsTimingOptions
     [Range(0, 10_000_000)]
     public int AudioSecondsPerDay { get; set; } = 20000;
 
+    public int BackgroundAudioCeilingSeconds => Math.Min(AudioSecondsPerHour, AudioSecondsPerDay);
+
     /// <summary>Songs the sweep probes per pass, so one pass can never drain the whole hour's budget at once.</summary>
     [Range(1, 500)]
     public int SweepBatchSize { get; set; } = 20;
