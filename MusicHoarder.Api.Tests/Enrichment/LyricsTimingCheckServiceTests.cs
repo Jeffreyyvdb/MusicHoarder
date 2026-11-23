@@ -5,6 +5,7 @@ using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Tests.Persistence;
 
 namespace MusicHoarder.Api.Tests.Enrichment;
 
@@ -82,6 +83,35 @@ public class LyricsTimingCheckServiceTests : IDisposable
 
         Assert.False(await service.RunProbePassAsync(CancellationToken.None));
         Assert.Empty(transcriber.ClipCalls);
+    }
+
+    [Fact]
+    public async Task probe_pass_reaches_past_a_full_batch_of_songs_whose_audio_is_missing()
+    {
+        await using var db = CreateDbContext();
+        await AssertProbeReachesPastMissingAudio(db);
+    }
+
+    [PostgresFact]
+    public async Task probe_pass_reaches_past_a_full_batch_of_songs_whose_audio_is_missing_on_postgres()
+    {
+        await using var database = await PostgresTestDatabase.CreateAsync();
+        await using var db = database.NewContext();
+        await AssertProbeReachesPastMissingAudio(db);
+    }
+
+    private async Task AssertProbeReachesPastMissingAudio(MusicHoarderDbContext db)
+    {
+        var older = AddSong(db, 1, LyricsSyncStatus.Suspect);
+        AddSong(db, 2, LyricsSyncStatus.Suspect, fileMissing: true);
+        AddSong(db, 3, LyricsSyncStatus.Suspect, fileMissing: true);
+        await db.SaveChangesAsync();
+
+        var transcriber = new FakeTranscriber();
+        var service = NewService(db, transcriber, new LyricsTimingOptions { SweepBatchSize = 2 });
+
+        Assert.True(await service.RunProbePassAsync(CancellationToken.None));
+        Assert.Equal([older.SourcePath!], transcriber.ClipCalls);
     }
 
     // --- Re-sync pass ---
@@ -241,6 +271,39 @@ public class LyricsTimingCheckServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task resync_pass_reaches_an_older_song_past_newer_ones_whose_audio_is_missing()
+    {
+        await using var db = CreateDbContext();
+        await AssertResyncReachesPastMissingAudio(db);
+    }
+
+    [PostgresFact]
+    public async Task resync_pass_reaches_an_older_song_past_newer_ones_whose_audio_is_missing_on_postgres()
+    {
+        await using var database = await PostgresTestDatabase.CreateAsync();
+        await using var db = database.NewContext();
+        await AssertResyncReachesPastMissingAudio(db);
+    }
+
+    private async Task AssertResyncReachesPastMissingAudio(MusicHoarderDbContext db)
+    {
+        var older = AddSong(db, 1, LyricsSyncStatus.Suspect, probeAttempts: 1);
+        var missing = Enumerable.Range(2, 3)
+            .Select(id => AddSong(db, id, LyricsSyncStatus.Suspect, probeAttempts: 1, fileMissing: true))
+            .ToList();
+        await db.SaveChangesAsync();
+
+        var transcriber = new FakeTranscriber();
+        var service = NewService(db, transcriber, new LyricsTimingOptions());
+
+        Assert.True(await service.RunResyncPassAsync(CancellationToken.None));
+
+        Assert.Equal([older.SourcePath!], transcriber.FullCalls);
+        Assert.Equal(TranscriptionStatus.Completed, older.TranscriptionStatus);
+        Assert.All(missing, s => Assert.Equal(TranscriptionStatus.NotRequested, s.TranscriptionStatus));
+    }
+
+    [Fact]
     public async Task a_rate_limited_resync_is_not_recorded_and_gives_its_audio_back()
     {
         await using var db = CreateDbContext();
@@ -287,10 +350,12 @@ public class LyricsTimingCheckServiceTests : IDisposable
         Guid? owner = null,
         bool deleted = false,
         bool built = false,
-        int? durationSeconds = 120)
+        int? durationSeconds = 120,
+        bool fileMissing = false)
     {
         var path = Path.Combine(_tmpDir.FullName, $"{id}.mp3");
-        File.WriteAllBytes(path, [0x00]);
+        if (!fileMissing)
+            File.WriteAllBytes(path, [0x00]);
         var song = new SongMetadata
         {
             Id = id,
