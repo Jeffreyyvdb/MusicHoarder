@@ -5,9 +5,9 @@ using MusicHoarder.Api.Persistence;
 namespace MusicHoarder.Api.History.Sources;
 
 /// <summary>
-/// Everything that happens to a track's words: LRCLIB lookups, the timing check that catches an LRC
-/// written for a different recording, the AI transcription that fills the gap LRCLIB cannot, and
-/// translations.
+/// Everything that happens to a track's words: lookups (LRCLIB, then Genius for plain text), the timing
+/// check that catches an LRC written for a different recording, the AI transcription that fills the gap
+/// neither source can, and translations.
 /// </summary>
 public sealed class LyricsActivitySource(MusicHoarderDbContext db) : IActivitySource
 {
@@ -26,11 +26,12 @@ public sealed class LyricsActivitySource(MusicHoarderDbContext db) : IActivitySo
             .Take(window.MaxRowsPerSource)
             .Select(s => new
             {
-                s.Id, s.Title, s.Album, s.AlbumArtist, s.Artist, s.LyricsStatus,
+                s.Id, s.Title, s.Album, s.AlbumArtist, s.Artist, s.LyricsStatus, s.LyricsOrigin,
                 HasSynced = s.SyncedLyrics != null,
                 At = s.LyricsLastAttemptedAtUtc!.Value,
             })
             .ToListAsync(ct);
+        var originOf = fetched.ToDictionary(s => s.Id, s => s.LyricsOrigin);
 
         summaries.AddRange(ActivityText.GroupByAlbumDay(
             ActivityCategory.Lyrics, "lyrics-added", ActivityTint.Ok,
@@ -42,16 +43,15 @@ public sealed class LyricsActivitySource(MusicHoarderDbContext db) : IActivitySo
             rows => rows.All(r => r.Detail == SyncedDetail)
                 ? $"Added synced lyrics to {ActivityText.Plural(rows.Count, "track")} of {ActivityText.Quote(rows[0].Album)}"
                 : $"Added lyrics to {ActivityText.Plural(rows.Count, "track")} of {ActivityText.Quote(rows[0].Album)}",
-            rows => rows.All(r => r.Detail == SyncedDetail)
-                ? "From LRCLIB, timed line by line"
-                : "From LRCLIB"));
+            rows => SourceLine(rows.Select(r => originOf[r.SongId!.Value]).Distinct().ToList(),
+                rows.All(r => r.Detail == SyncedDetail))));
 
         summaries.AddRange(ActivityText.GroupByAlbumDay(
             ActivityCategory.Lyrics, "lyrics-missing", ActivityTint.Info,
             fetched
                 .Where(s => s.LyricsStatus == LyricsStatus.NotFound)
                 .Select(s => new ActivityItem(s.Id, s.Title, s.Album, s.AlbumArtist ?? s.Artist, s.At)),
-            rows => $"LRCLIB has no lyrics for {ActivityText.Plural(rows.Count, "track")} of {ActivityText.Quote(rows[0].Album)}",
+            rows => $"No lyrics found for {ActivityText.Plural(rows.Count, "track")} of {ActivityText.Quote(rows[0].Album)}",
             _ => "MusicHoarder will ask again later"));
 
         summaries.AddRange(ActivityText.GroupByAlbumDay(
@@ -192,6 +192,14 @@ public sealed class LyricsActivitySource(MusicHoarderDbContext db) : IActivitySo
             g => $"Translated the lyrics of {ActivityText.Plural(g.Count, "track")} of {ActivityText.Quote(g[0].Album)}",
             g => g[0].Detail is { } lang ? $"Translated from {lang}" : null).ToList();
     }
+
+    private static string SourceLine(IReadOnlyList<LyricsOrigin> origins, bool allSynced) => origins switch
+    {
+        [LyricsOrigin.Lrclib] when allSynced => "From LRCLIB, timed line by line",
+        [LyricsOrigin.Lrclib] => "From LRCLIB",
+        [LyricsOrigin.Genius] => "From Genius",
+        _ => "From LRCLIB and Genius",
+    };
 
     private static string ModelSuffix(string? model) =>
         string.IsNullOrWhiteSpace(model) ? "" : $" — {model}";

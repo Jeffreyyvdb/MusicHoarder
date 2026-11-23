@@ -107,26 +107,16 @@ public sealed class ArtistCatalogResolver(
     private async Task<IReadOnlyList<DeezerArtistCandidate>> CandidatesAsync(string artistName, CancellationToken ct)
     {
         var key = TitleNormalizer.NormalizeForSearch(artistName);
+        if (key.Length == 0)
+            return [];
+
         var threshold = options.Value.IdentityArtistThreshold;
         var found = await deezer.SearchArtistCandidatesAsync(artistName, ct);
         return found
-            .Where(c => !string.IsNullOrEmpty(c.Id) && SameName(key, c.Name, threshold))
+            .Where(c => !string.IsNullOrEmpty(c.Id) && ArtistNameMatch.SameSpelling(artistName, c.Name, threshold))
             .OrderByDescending(c => TitleNormalizer.NormalizeForSearch(c.Name) == key)
             .ThenByDescending(c => c.Fans)
             .ToList();
-    }
-
-    /// <summary>
-    /// The same name, give or take spelling (a typo, punctuation, diacritics). Deliberately stricter
-    /// than <see cref="CanonicalAlbumMatch.SameArtist"/>, which accepts one name plus whole words: that
-    /// is right for an album credit ("Ms. Lauryn Hill"), and wrong here, where "Daft Punk Tribute
-    /// Orchestra" lists a "Discovery" too.
-    /// </summary>
-    internal static bool SameName(string key, string? candidate, double threshold)
-    {
-        var other = TitleNormalizer.NormalizeForSearch(candidate);
-        if (key.Length == 0 || other.Length == 0) return false;
-        return key == other || FuzzySharp.Fuzz.Ratio(key, other) >= threshold;
     }
 
     private static void Apply(ArtistCatalogLink link, DeezerArtistCandidate artist, ArtistCatalogLinkStatus status, DateTime now)

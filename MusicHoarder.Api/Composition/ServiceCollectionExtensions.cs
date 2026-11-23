@@ -547,7 +547,8 @@ public static class ServiceCollectionExtensions
             return new GeniusLyricsService(
                 httpClient,
                 sp.GetRequiredService<IOptions<MusicEnricherOptions>>(),
-                sp.GetRequiredService<ILogger<GeniusLyricsService>>());
+                sp.GetRequiredService<ILogger<GeniusLyricsService>>(),
+                sp.GetRequiredService<TimeProvider>());
         });
 
         // Experimental AI lyrics transcription (OpenAI-compatible /audio/transcriptions). Infinite

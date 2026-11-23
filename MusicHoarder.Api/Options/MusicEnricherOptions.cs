@@ -637,6 +637,13 @@ public class MusicEnricherOptions
     public bool EnableGeniusLyrics { get; set; } = true;
 
     /// <summary>
+    /// Max Genius requests per second, across every worker. A song costs up to two (search, then its
+    /// page).
+    /// </summary>
+    [Range(1, 5)]
+    public int GeniusRequestsPerSecond { get; set; } = 1;
+
+    /// <summary>
     /// The inline LRCLIB fetch only fires on the enrichment run that flips a song to <c>Matched</c>, so a
     /// song whose fetch was interrupted (shutdown/cancellation) — or that matched before a lyrics-matching
     /// fix shipped — is stranded at <see cref="LyricsStatus.NotFetched"/> with nothing to retry it. This

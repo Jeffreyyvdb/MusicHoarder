@@ -423,7 +423,7 @@
 
   const lyricsOfferDescription = $derived(
     lrclibDoc.status === 'NotFound'
-      ? 'LRCLIB has no lyrics for this track.'
+      ? 'No lyrics found for this track.'
       : lrclibDoc.status === 'Failed'
         ? 'The last lyrics fetch failed.'
         : 'Lyrics are fetched automatically after a metadata match.'
