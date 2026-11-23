@@ -74,8 +74,7 @@ describe('createVideoFollower', () => {
   });
 
   it('gives a video a fresh window after the audio itself jumps', () => {
-    // A scrub, a new position from the lock screen, or the audio resuming after a stall: the
-    // video was not too slow, the audio moved.
+    // A scrub or a new position from the lock screen: the video was not too slow, the audio moved.
     const follower = createVideoFollower({ giveUpAfterMs: 5000 });
     for (const input of ticks(0, 4000, 10, () => ({ videoTime: 10, seeking: true }))) {
       follower.step(input);
@@ -84,6 +83,45 @@ describe('createVideoFollower', () => {
       (input) => follower.step(input)
     );
     expect(afterJump.some((step) => step.kind === 'give-up')).toBe(false);
+  });
+
+  it.each([0.9, 1.2, 2])(
+    'gives up on a video that keeps stalling the audio for %ss at a time',
+    (stallS) => {
+      // Issue #753: in the app shell the video and the native player share one link, so a video
+      // that cannot keep up starves the audio into stalls. The store writes no new time while the
+      // audio stands still, so the follower sees no ticks during a stall, then the audio resuming
+      // where it stopped. A stall must not hand the video a fresh window.
+      const follower = createVideoFollower({ giveUpAfterMs: 5000 });
+      let now = 0;
+      let audio = 10;
+      let gaveUpAtAudio: number | null = null;
+      while (now <= 60000 && gaveUpAtAudio === null) {
+        for (let tick = 0; tick < 30 && gaveUpAtAudio === null; tick++) {
+          const step = follower.step({ videoTime: 0, seeking: false, mapped: audio, now });
+          if (step.kind === 'give-up') gaveUpAtAudio = audio;
+          now += 100;
+          audio += 0.1;
+        }
+        now += stallS * 1000;
+      }
+      expect(gaveUpAtAudio).not.toBeNull();
+      const audioOutOfStep = gaveUpAtAudio! - 10;
+      expect(audioOutOfStep).toBeGreaterThanOrEqual(5);
+      expect(audioOutOfStep).toBeLessThan(5.3);
+    }
+  );
+
+  it('counts no stall against a video', () => {
+    // The audio standing still is not the video falling behind: only audio played out of step does.
+    const follower = createVideoFollower({ giveUpAfterMs: 5000 });
+    for (const input of ticks(0, 4000, 10, () => ({ videoTime: 10, seeking: true }))) {
+      follower.step(input);
+    }
+    const stalled = ticks(4100, 20000, 14, () => ({ videoTime: 10, seeking: true })).map((input) =>
+      follower.step({ ...input, mapped: 14 })
+    );
+    expect(stalled.some((step) => step.kind === 'give-up')).toBe(false);
   });
 
   it('forgets a slow stretch once the video is back in step', () => {
