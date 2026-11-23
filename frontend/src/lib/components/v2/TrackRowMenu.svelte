@@ -3,6 +3,7 @@
   import { songDetail } from '#lib/stores/song-detail.svelte.ts';
   import { tapActionFor } from '#lib/track-list-view.svelte.ts';
   import { buttonVariants } from '#lib/components/ui/button/index.ts';
+  import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
   import { cn } from '#lib/utils.ts';
 
   /**
@@ -26,6 +27,14 @@
     buttonVariants({ variant: 'ghost', size: 'icon' }),
     'text-muted-foreground hover:text-foreground aria-expanded:text-foreground shrink-0 rounded-full pointer-coarse:size-11'
   );
+
+  // Compact (below md) presents the actions as a bottom sheet, md+ as a menu at the ⋯ button. One
+  // query for every row, made on first use: a list renders hundreds of these menus.
+  let compactQuery: IsMobile | undefined;
+  function isCompact(): boolean {
+    compactQuery ??= new IsMobile();
+    return compactQuery.current;
+  }
 </script>
 
 <script lang="ts">
@@ -50,9 +59,12 @@
     UsersRound
   } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
+  import type { Component } from 'svelte';
   import type { LongPressPoint } from '#lib/actions/long-press.ts';
+  import * as BottomSheet from '#lib/components/ui/bottom-sheet/index.ts';
   import { Button } from '#lib/components/ui/button/index.ts';
   import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
+  import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
   import ShareWithFriendDialog from '#lib/components/file-browser/ShareWithFriendDialog.svelte';
   import AddToPlaylistSheet from '#lib/components/v2/AddToPlaylistSheet.svelte';
   import ReportDownloadSheet from '#lib/components/v2/ReportDownloadSheet.svelte';
@@ -66,7 +78,8 @@
 
   // The one action set for a song wherever it is listed — Tracks rows, album tracklists, the
   // Overview's favourites, an artist's songs — behind a visible ⋯ button and, on the row, a
-  // touch-and-hold / right-click twin (the row calls `openAt`). iOS context-menu rules: at most
+  // touch-and-hold / right-click twin (the row calls `openAt`). A menu at md+, a bottom sheet on a
+  // phone, both drawn from the one `groups` list below. iOS context-menu rules: at most
   // three groups by frequency, unavailable items hidden rather than disabled, destructive last.
   //   1. Play · Play next · Add to queue (a row's swipe right is the twin of the last)
   //   2. Add to / Remove from favourites · Add to playlist… · Go to album · Go to artist
@@ -206,17 +219,89 @@
   function songInfo() {
     songDetail.open(song.id, albumKey, { mode: 'info' });
   }
+
+  type RowAction = {
+    label: string;
+    icon: Component;
+    run: () => void;
+    destructive?: boolean;
+  };
+
+  // Read only once the menu or sheet is open, so a row that is never opened never builds it.
+  const groups = $derived.by((): RowAction[][] => {
+    const playback: RowAction[] = [
+      { label: 'Play', icon: Play, run: onplay },
+      { label: 'Play next', icon: ListStart, run: () => queueSong(song, 'next') },
+      { label: 'Add to queue', icon: ListEnd, run: () => queueSong(song, 'last') }
+    ];
+    const library: RowAction[] = [
+      isLiked
+        ? { label: 'Remove from favourites', icon: HeartOff, run: toggleLike }
+        : { label: 'Add to favourites', icon: Heart, run: toggleLike },
+      { label: 'Add to playlist…', icon: ListPlus, run: openAddToPlaylist }
+    ];
+    if (showAlbum && albumHref) {
+      const href = albumHref;
+      library.push({ label: 'Go to album', icon: Disc3, run: () => void goto(href) });
+    }
+    if (showArtist) {
+      library.push({ label: 'Go to artist', icon: Mic2, run: () => void goto(artistHref) });
+    }
+    const about: RowAction[] = [{ label: 'Song info', icon: Info, run: songInfo }];
+    if (canShare) {
+      about.push(
+        { label: 'Share link…', icon: Share, run: share },
+        { label: 'Send to…', icon: Send, run: () => sendTo.show(sendToSong(song)) }
+      );
+    }
+    if (canShareWithPeople && song.album) {
+      about.push({ label: 'Share with a friend…', icon: UsersRound, run: openFriends });
+    }
+    if (admin) {
+      about.push({
+        label: 'View timeline',
+        icon: History,
+        run: () => void goto(`/track/${song.id}`)
+      });
+    }
+    const removal: RowAction[] = [];
+    if (onremove) {
+      removal.push({
+        label: 'Remove from playlist',
+        icon: ListMinus,
+        run: onremove,
+        destructive: true
+      });
+    }
+    if (canReport) {
+      removal.push({
+        label: 'Report wrong download…',
+        icon: Flag,
+        run: openReport,
+        destructive: true
+      });
+    }
+    return [playback, library, about, removal].filter((group) => group.length > 0);
+  });
+
+  // The sheet closes before its action runs, as an iOS action sheet does, so the sheet or page
+  // the action opens is the only thing on screen.
+  function pick(action: RowAction) {
+    setOpen(false);
+    action.run();
+  }
 </script>
 
-{#if !mounted}
+{#if !mounted || isCompact()}
   <!-- A plain element with the trigger's look: the Button component and an icon component per row
-       were, after the menu itself, most of what was left of a row's cost. -->
+       were, after the menu itself, most of what was left of a row's cost. On a phone it stays the
+       trigger, for the sheet below. -->
   <button
     type="button"
     data-slot="button"
     aria-label="More for {title}"
-    aria-haspopup="menu"
-    aria-expanded="false"
+    aria-haspopup={isCompact() ? 'dialog' : 'menu'}
+    aria-expanded={open}
     class={cn(RESTING_TRIGGER, className)}
     onclick={(e) => {
       // The row behind this button plays or opens the song on click; the menu must not.
@@ -286,81 +371,61 @@
       align={anchor ? 'start' : 'end'}
       class="max-h-(--bits-dropdown-menu-content-available-height) w-60 pointer-coarse:w-72"
     >
-      <DropdownMenu.Group>
-        <DropdownMenu.Item onSelect={onplay}>
-          <Play /> Play
-        </DropdownMenu.Item>
-        <DropdownMenu.Item onSelect={() => queueSong(song, 'next')}>
-          <ListStart /> Play next
-        </DropdownMenu.Item>
-        <DropdownMenu.Item onSelect={() => queueSong(song, 'last')}>
-          <ListEnd /> Add to queue
-        </DropdownMenu.Item>
-      </DropdownMenu.Group>
-      <DropdownMenu.Separator />
-      <DropdownMenu.Group>
-        <DropdownMenu.Item onSelect={toggleLike}>
-          {#if isLiked}
-            <HeartOff /> Remove from favourites
-          {:else}
-            <Heart /> Add to favourites
-          {/if}
-        </DropdownMenu.Item>
-        <DropdownMenu.Item onSelect={openAddToPlaylist}>
-          <ListPlus /> Add to playlist…
-        </DropdownMenu.Item>
-        {#if showAlbum && albumHref}
-          <DropdownMenu.Item onSelect={() => void goto(albumHref)}>
-            <Disc3 /> Go to album
-          </DropdownMenu.Item>
-        {/if}
-        {#if showArtist}
-          <DropdownMenu.Item onSelect={() => void goto(artistHref)}>
-            <Mic2 /> Go to artist
-          </DropdownMenu.Item>
-        {/if}
-      </DropdownMenu.Group>
-      <DropdownMenu.Separator />
-      <DropdownMenu.Group>
-        <DropdownMenu.Item onSelect={songInfo}>
-          <Info /> Song info
-        </DropdownMenu.Item>
-        {#if canShare}
-          <DropdownMenu.Item onSelect={share}>
-            <Share /> Share link…
-          </DropdownMenu.Item>
-          <DropdownMenu.Item onSelect={() => sendTo.show(sendToSong(song))}>
-            <Send /> Send to…
-          </DropdownMenu.Item>
-        {/if}
-        {#if canShareWithPeople && song.album}
-          <DropdownMenu.Item onSelect={openFriends}>
-            <UsersRound /> Share with a friend…
-          </DropdownMenu.Item>
-        {/if}
-        {#if admin}
-          <DropdownMenu.Item onSelect={() => void goto(`/track/${song.id}`)}>
-            <History /> View timeline
-          </DropdownMenu.Item>
-        {/if}
-      </DropdownMenu.Group>
-      {#if onremove || canReport}
-        <DropdownMenu.Separator />
+      {#each groups as group, i (i)}
+        {#if i > 0}<DropdownMenu.Separator />{/if}
         <DropdownMenu.Group>
-          {#if onremove}
-            <DropdownMenu.Item variant="destructive" onSelect={onremove}>
-              <ListMinus /> Remove from playlist
+          {#each group as action (action.label)}
+            <DropdownMenu.Item
+              variant={action.destructive ? 'destructive' : 'default'}
+              onSelect={action.run}
+            >
+              <action.icon />
+              {action.label}
             </DropdownMenu.Item>
-          {/if}
-          {#if canReport}
-            <DropdownMenu.Item variant="destructive" onSelect={openReport}>
-              <Flag /> Report wrong download…
-            </DropdownMenu.Item>
-          {/if}
+          {/each}
         </DropdownMenu.Group>
-      {/if}
+      {/each}
     </DropdownMenu.Content>
   </DropdownMenu.Root>
+{/if}
+
+{#if mounted && isCompact()}
+  <!-- showClose off: Cancel is the way out, at the bottom where the thumb is (see ActionSheet). -->
+  <BottomSheet.Root
+    bind:open={() => open, setOpen}
+    {title}
+    description={[artistOf(song), song.album].filter(Boolean).join(' · ')}
+    showClose={false}
+  >
+    <div class="flex flex-col gap-4">
+      {#each groups as group, i (i)}
+        <GroupedList.Section>
+          {#each group as action (action.label)}
+            <GroupedList.Row
+              label={action.label}
+              destructive={action.destructive}
+              onclick={() => pick(action)}
+            >
+              {#snippet trailing()}
+                <action.icon
+                  aria-hidden="true"
+                  class={cn(
+                    'size-5',
+                    action.destructive ? 'text-destructive-text' : 'text-muted-foreground'
+                  )}
+                />
+              {/snippet}
+            </GroupedList.Row>
+          {/each}
+        </GroupedList.Section>
+      {/each}
+      <GroupedList.Section>
+        <GroupedList.Row onclick={() => setOpen(false)}>
+          <span class="text-body text-primary text-center font-semibold">Cancel</span>
+        </GroupedList.Row>
+      </GroupedList.Section>
+    </div>
+  </BottomSheet.Root>
 {/if}
 
 {#if playlistMounted}
