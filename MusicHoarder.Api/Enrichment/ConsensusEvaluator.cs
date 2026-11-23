@@ -143,7 +143,8 @@ public static class ConsensusEvaluator
         {
             if (!allAttempted)
                 return new ConsensusResult(EnrichmentStatus.Pending, null, 0, []);
-            var anyFailed = attempts.Any(a => a.Status == ProviderAttemptStatus.Failed);
+            var anyFailed = attempts.Any(a =>
+                applicableProviders.Contains(a.Provider) && a.Status == ProviderAttemptStatus.Failed);
             return new ConsensusResult(
                 anyFailed ? EnrichmentStatus.Failed : EnrichmentStatus.NeedsReview, null, 0, []);
         }
