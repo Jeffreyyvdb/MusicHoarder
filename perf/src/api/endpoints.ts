@@ -88,6 +88,7 @@ export const ENDPOINTS: Endpoint[] = [
   { name: 'Radio (autoplay)', group: 'Play a track', path: (s) => `/api/radio?seedSongId=${s.songId}&limit=25`, budget: { p95Ms: 300 } },
 
   { name: 'Followed artists', group: 'Manage', path: () => '/api/artists/following', budget: { p95Ms: 150 } },
+  { name: 'Artist suggestions', group: 'Browse', path: () => '/api/artists/suggestions', budget: { p95Ms: 200 } },
   { name: 'History feed', group: 'Manage', path: () => '/api/history', budget: { p95Ms: 500 } },
   { name: 'Insights', group: 'Manage', path: () => '/insights', budget: { p95Ms: 500 } },
   { name: 'Directory tree', group: 'Manage', path: () => '/library/directory-tree', budget: { p95Ms: 500 } },

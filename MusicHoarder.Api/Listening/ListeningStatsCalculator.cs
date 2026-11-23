@@ -73,7 +73,8 @@ public static class ListeningStatsCalculator
 
     private static string DayKey(DateTime day) => day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
-    private static IEnumerable<string> ArtistsOf(ListeningEventRow row) =>
+    /// <summary>The artists a play is credited to: every artist on the track, once each. Suggestions share it.</summary>
+    internal static IEnumerable<string> ArtistsOf(ListeningEventRow row) =>
         string.IsNullOrWhiteSpace(row.Artist)
             ? []
             : ArtistCreditNormalizer.SplitArtists(row.Artist)
