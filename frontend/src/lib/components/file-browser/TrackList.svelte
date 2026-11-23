@@ -14,21 +14,18 @@
   import { ADD_TO_QUEUE_ICON, queueSong } from '#lib/queue/queue-actions.ts';
   import { DYNAMIC_TYPE_CHANGE, dynamicTypeScale } from '#lib/dynamic-type.ts';
   import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
-  import { formatDuration, formatFamily, formatFileSize } from '#lib/formatters.ts';
+  import { formatDuration } from '#lib/formatters.ts';
   import {
     albumKeyForSong,
-    isSpotifySourced,
     mapEnrichmentStatus,
     rowCoverFallbackForSong,
     rowCoverUrlForSong,
-    songOriginLabel,
     toPlayerSong,
     type ApiSong
   } from '#lib/api-client.ts';
   import {
     artistOf,
     hasLyrics,
-    matchValue,
     titleOf,
     type SortKey,
     type TrackListView
@@ -37,7 +34,6 @@
   import { playerStore } from '#lib/stores/player.svelte.ts';
   import { songsStore } from '#lib/stores/songs.svelte.ts';
   import { cn } from '#lib/utils.ts';
-  import { skinLook } from '#lib/hardware/hardware-mode.svelte.ts';
 
   type Props = {
     /**
@@ -142,14 +138,15 @@
   // the window arithmetic exact.
   //
   // The row height holds two lines of text, so on a phone it follows the Text Size setting
-  // (Dynamic Type): 64pt at the default size, never less. Desktop keeps its dense 56px.
+  // (Dynamic Type): 64pt at the default size, never less. Desktop rows are 56px, title over
+  // artist beside a 40px cover, as Spotify's are; the skin keeps that height too.
   let typeScale = $state(dynamicTypeScale());
   $effect(() => {
     const onChange = () => (typeScale = dynamicTypeScale());
     window.addEventListener(DYNAMIC_TYPE_CHANGE, onChange);
     return () => window.removeEventListener(DYNAMIC_TYPE_CHANGE, onChange);
   });
-  const rowH = $derived(compact ? Math.max(64, Math.round(64 * typeScale)) : skinLook(56, 40));
+  const rowH = $derived(compact ? Math.max(64, Math.round(64 * typeScale)) : 56);
   const OVERSCAN = 8;
 
   let scrollEl = $state<HTMLElement | null>(null);
@@ -236,9 +233,7 @@
   // column is the row's ⋯ menu.
   const GRID = [
     'grid-cols-[40px_40px_minmax(0,1fr)_28px_52px_32px]',
-    '@xl:grid-cols-[40px_40px_minmax(0,1.5fr)_minmax(0,1fr)_56px_28px_52px_32px]',
-    '@3xl:grid-cols-[44px_44px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_44px_56px_84px_28px_52px_32px]',
-    '@5xl:grid-cols-[44px_44px_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,0.9fr)_52px_104px_72px_128px_84px_28px_52px_32px]'
+    '@xl:grid-cols-[44px_40px_minmax(0,1.6fr)_minmax(0,1fr)_28px_52px_32px]'
   ].join(' ');
 </script>
 
@@ -274,8 +269,8 @@
 
 <!--
   @container: column visibility is driven by the table's own width, not the viewport — the nav
-  sidebar can shrink this area well below viewport breakpoints. Tiers: @xl adds artist+format,
-  @3xl adds album+year+source, @5xl adds size+match(+bitrate).
+  sidebar can shrink this area well below viewport breakpoints. The artist sits under the title;
+  @xl adds the album. Every other sort is in the Sort and filter menu.
 -->
 <div class="@container flex min-h-0 flex-1 flex-col overflow-hidden">
   <!-- The one scroller: nav bar, header bands, (desktop) column header, rows. `relative` makes its
@@ -299,13 +294,7 @@
         <span class="text-right text-[11px] font-medium">#</span>
         <span></span>
         {@render sortHead('title', 'Title')}
-        <span class="hidden @xl:block">{@render sortHead('artist', 'Artist')}</span>
-        <span class="hidden @3xl:block">{@render sortHead('album', 'Album')}</span>
-        <span class="hidden @3xl:block">{@render sortHead('year', 'Year')}</span>
-        <span class="text-muted-foreground hidden text-[11px] font-medium @xl:block">Format</span>
-        <span class="hidden @5xl:block">{@render sortHead('size', 'Size')}</span>
-        <span class="hidden @5xl:block">{@render sortHead('match', 'Match')}</span>
-        <span class="text-muted-foreground hidden text-[11px] font-medium @3xl:block">Source</span>
+        <span class="hidden @xl:block">{@render sortHead('album', 'Album')}</span>
         <span></span>
         <button
           type="button"
@@ -423,11 +412,7 @@
               />
             </div>
           {:else}
-            {@const family = formatFamily(song.extension)}
-            {@const mv = matchValue(song)}
             {@const isSelected = selectedId === song.id}
-            {@const origin = songOriginLabel(song)}
-            {@const isFromSpotify = isSpotifySourced(song)}
             <div
               role="button"
               tabindex="0"
@@ -491,17 +476,19 @@
                 title={song.album ?? titleOf(song)}
                 coverUrl={rowCoverUrlForSong(song)}
                 fallbackUrl={rowCoverFallbackForSong(song)}
-                size={skinLook(36, 28)}
+                size={40}
                 corner={4}
                 caption={false}
               />
 
               <!-- title + sub -->
               <div class="min-w-0" data-mh-track-title>
-                <div class={cn('truncate text-[13px] font-medium', isLoaded && 'text-primary')}>
+                <div class={cn('truncate text-[15px] font-medium', isLoaded && 'text-primary')}>
                   {#if isLoaded}<span class="sr-only">Now playing, </span>{/if}{titleOf(song)}
                 </div>
-                <div class="text-muted-foreground mt-0.5 flex items-center gap-2 text-[11px]">
+                <div
+                  class="text-muted-foreground mt-0.5 flex min-w-0 items-center gap-2 text-[13px]"
+                >
                   {#if needsReview}
                     <Badge
                       variant="warning"
@@ -509,27 +496,27 @@
                       title="Enrichment uncertain — needs review">Review</Badge
                     >
                   {/if}
+                  <a
+                    href={artistHref(song)}
+                    onclick={(e) => e.stopPropagation()}
+                    class="hover:text-foreground truncate hover:underline"
+                  >
+                    {artistOf(song)}
+                  </a>
                   <!-- On hover or selection only: nearly every row has lyrics, so at rest the
                        badge was a column of "LRC" that said nothing (the With lyrics filter is
-                       the way to find the ones that don't). -->
+                       the way to find the ones that don't). After the artist, so the name lines
+                       up under the title while it is hidden. -->
                   {#if hasLyrics(song)}
                     <span
                       class={cn(
-                        'bg-muted text-foreground rounded px-1 py-px text-[11px] font-semibold opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100',
+                        'bg-muted text-foreground shrink-0 rounded px-1 py-px text-[11px] font-semibold opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100',
                         isSelected && 'opacity-100'
                       )}
                     >
                       LRC
                     </span>
                   {/if}
-                  <!-- artist inline when narrow (its own column is hidden there) -->
-                  <a
-                    href={artistHref(song)}
-                    onclick={(e) => e.stopPropagation()}
-                    class="truncate hover:underline @xl:hidden"
-                  >
-                    {artistOf(song)}
-                  </a>
                   <!-- Only when the list mixes libraries (see TrackRowText); renders nothing for a
                        track this account owns. -->
                   {#if songsStore.hasMixedSources}
@@ -538,89 +525,18 @@
                 </div>
               </div>
 
-              <!-- artist (clickable) -->
-              <a
-                href={artistHref(song)}
-                onclick={(e) => e.stopPropagation()}
-                class="text-muted-foreground hover:text-foreground hidden truncate text-[12px] hover:underline @xl:block"
-              >
-                {artistOf(song)}
-              </a>
               <!-- album (clickable) -->
               {#if song.album}
                 <a
                   href={albumHref(song)}
                   onclick={(e) => e.stopPropagation()}
-                  class="text-muted-foreground hover:text-foreground hidden truncate text-[12px] hover:underline @3xl:block"
+                  class="text-muted-foreground hover:text-foreground hidden truncate text-[13px] hover:underline @xl:block"
                 >
                   {song.album}
                 </a>
               {:else}
-                <span class="text-muted-foreground hidden truncate text-[12px] @3xl:block">—</span>
+                <span class="text-muted-foreground hidden truncate text-[13px] @xl:block">—</span>
               {/if}
-              <!-- year -->
-              <span class="text-muted-foreground hidden text-[11px] tabular-nums @3xl:block">
-                {song.year ?? '—'}
-              </span>
-              <!-- format -->
-              <span
-                class="text-muted-foreground hidden items-center gap-1.5 text-[11px] tabular-nums @xl:flex"
-              >
-                {#if family === 'OTHER'}
-                  <span>{(song.extension ?? '').replace(/^\./, '').toUpperCase() || '—'}</span>
-                {:else}
-                  <span class="text-foreground font-medium">{family}</span>
-                {/if}
-                {#if song.bitRate && song.bitRate > 0}
-                  <span class="text-muted-foreground hidden text-[11px] @5xl:inline"
-                    >{song.bitRate}kbps</span
-                  >
-                {/if}
-              </span>
-              <!-- size -->
-              <span class="text-muted-foreground hidden text-[11px] tabular-nums @5xl:block">
-                {formatFileSize(song.fileSizeBytes)}
-              </span>
-              <!-- match -->
-              <span class="hidden items-center gap-2 @5xl:flex">
-                {#if mv != null}
-                  <span class="bg-secondary h-1 flex-1 overflow-hidden rounded-full">
-                    <span
-                      class="bg-muted-foreground block h-full rounded-full"
-                      style="width: {mv * 100}%;"
-                    ></span>
-                  </span>
-                  <span
-                    class="text-muted-foreground min-w-[28px] text-right text-[11px] tabular-nums"
-                    >{mv.toFixed(2)}</span
-                  >
-                {:else}
-                  <span
-                    class="text-muted-foreground flex-1 text-right text-[11px]"
-                    title="No match confidence recorded for this track"
-                  >
-                    —
-                  </span>
-                {/if}
-              </span>
-              <!-- source (where this track came from) -->
-              <span class="hidden min-w-0 @3xl:block">
-                {#if origin}
-                  <span
-                    title={origin.title}
-                    class={cn(
-                      'inline-block max-w-full truncate rounded px-1.5 py-0.5 text-[11px] font-medium',
-                      isFromSpotify
-                        ? 'bg-primary/12 text-primary'
-                        : 'bg-muted text-muted-foreground'
-                    )}
-                  >
-                    {origin.label}
-                  </span>
-                {:else}
-                  <span class="text-muted-foreground text-[11px]">—</span>
-                {/if}
-              </span>
               <!-- like -->
               <button
                 type="button"
@@ -647,7 +563,7 @@
                 />
               </button>
               <!-- duration -->
-              <span class="text-muted-foreground text-right text-[11px] tabular-nums">
+              <span class="text-muted-foreground text-right text-[13px] tabular-nums">
                 {formatDuration(song.durationSeconds)}
               </span>
               <!-- ⋯: hover-revealed, resting on touch, and kept up while its menu is open -->
