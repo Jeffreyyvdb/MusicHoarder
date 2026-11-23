@@ -9,11 +9,19 @@ namespace MusicHoarder.Api.Tests.Artwork;
 public sealed class StubExternalCoverArtFetcher : IExternalCoverArtFetcher
 {
     public ExternalCoverArtFetchResult Result { get; set; } = new(null, HadTransientFailure: false);
+    public ExternalCoverArtFetchResult? SpotifyResult { get; set; }
     public List<ExternalCoverArtQuery> Calls { get; } = [];
+    public List<ExternalCoverArtQuery> SpotifyCalls { get; } = [];
 
     public Task<ExternalCoverArtFetchResult> FetchAsync(ExternalCoverArtQuery query, CancellationToken ct = default)
     {
         Calls.Add(query);
         return Task.FromResult(Result);
+    }
+
+    public Task<ExternalCoverArtFetchResult> FetchSpotifyAsync(ExternalCoverArtQuery query, CancellationToken ct = default)
+    {
+        SpotifyCalls.Add(query);
+        return Task.FromResult(SpotifyResult ?? Result);
     }
 }

@@ -288,6 +288,25 @@ public class AlbumTimelineEndpointTests
     }
 
     [Fact]
+    public async Task CoverUpgradeCooldown_IsNotShownAsMissingCoverWarning()
+    {
+        await using var db = NewContext();
+        db.Songs.Add(Song("/1.mp3", destinationPath: "/dest/Daft Punk/Discovery/1.mp3", builtAt: T0.AddHours(1)));
+        db.AlbumCoverFetchAttempts.Add(new AlbumCoverFetchAttempt
+        {
+            AlbumFolder = "/dest/Daft Punk/Discovery",
+            Status = AlbumCoverFetchStatus.UpgradeNotFound,
+            AttemptCount = 1,
+            LastAttemptAtUtc = T0.AddHours(4),
+        });
+        await db.SaveChangesAsync();
+
+        var timeline = await Timeline(db);
+
+        Assert.DoesNotContain(timeline.Events, e => e.Key.StartsWith("cover-fetch:"));
+    }
+
+    [Fact]
     public async Task Events_AreChronologicallyOrdered()
     {
         await using var db = NewContext();

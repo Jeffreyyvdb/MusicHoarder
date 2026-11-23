@@ -255,6 +255,121 @@ public class ExternalCoverArtSweepBackgroundServiceTests
         Assert.All(await db.Songs.IgnoreQueryFilters().ToListAsync(), s => Assert.False(s.HasCoverArt));
     }
 
+    [Fact]
+    public async Task UpgradesExistingCoverArtArchiveFoldersToSpotify()
+    {
+        var fs = Fs("/dest/Artist/CaaAlbum", "/dest/Artist/SourceAlbum", "/dest/Artist/AlreadySpotify");
+        fs.AddFile("/dest/Artist/CaaAlbum/cover.png", new MockFileData("caa"));
+        fs.AddFile("/dest/Artist/SourceAlbum/cover.jpg", new MockFileData("source"));
+        fs.AddFile("/dest/Artist/AlreadySpotify/cover.jpg", new MockFileData("spotify"));
+
+        var t0 = DateTime.UtcNow.AddDays(-2);
+        await using var db = CreateDbContext();
+        db.Songs.AddRange(
+            Song(1, "/dest/Artist/CaaAlbum/01.mp3", mbReleaseId: "mbid-1"),
+            Song(2, "/dest/Artist/CaaAlbum/02.mp3", spotifyId: "sp-track-1"),
+            Song(3, "/dest/Artist/SourceAlbum/01.mp3"),
+            Song(4, "/dest/Artist/AlreadySpotify/01.mp3"));
+        db.LibraryWriteEvents.AddRange(
+            CoverEvent("/dest/Artist/CaaAlbum", "fetched:coverartarchive", t0),
+            CoverEvent("/dest/Artist/SourceAlbum", "written", t0),
+            CoverEvent("/dest/Artist/AlreadySpotify", "fetched:coverartarchive", t0),
+            CoverEvent("/dest/Artist/AlreadySpotify", "fetched:spotify", t0.AddHours(1)));
+        await db.SaveChangesAsync();
+
+        var writer = new ScriptedCoverWriter
+        {
+            OnReplaceWithSpotify = _ => new AlbumCoverWriteResult(true, "spotify"),
+        };
+        var written = await RunSweepAsync(db, fs, writer);
+
+        Assert.Equal(1, written);
+        Assert.Empty(writer.Calls);
+        var upgrade = Assert.Single(writer.ReplaceCalls);
+        Assert.Equal("/dest/Artist/CaaAlbum", upgrade.Folder);
+        // Identifiers merged across tracks in the folder so both Spotify and MBID reach the query.
+        Assert.Equal("sp-track-1", upgrade.Query.SpotifyTrackId);
+        Assert.Equal("mbid-1", upgrade.Query.MusicBrainzReleaseId);
+
+        var latestEvent = await db.LibraryWriteEvents
+            .Where(e => e.AlbumFolder == "/dest/Artist/CaaAlbum")
+            .OrderByDescending(e => e.WrittenAtUtc)
+            .FirstAsync();
+        Assert.Equal("fetched:coverartarchive", latestEvent.OldValue);
+        Assert.Equal("fetched:spotify", latestEvent.NewValue);
+
+        // Second sweep sees latest event is now fetched:spotify and does not re-attempt it.
+        writer.ReplaceCalls.Clear();
+        Assert.Equal(0, await RunSweepAsync(db, fs, writer));
+        Assert.Empty(writer.ReplaceCalls);
+    }
+
+    [Fact]
+    public async Task UpgradeMissRecordsUpgradeCooldownWithoutBreakingExistingCover()
+    {
+        var fs = Fs("/dest/Artist/CaaAlbum");
+        fs.AddFile("/dest/Artist/CaaAlbum/cover.png", new MockFileData("caa"));
+        await using var db = CreateDbContext();
+        db.Songs.Add(Song(1, "/dest/Artist/CaaAlbum/01.mp3"));
+        db.LibraryWriteEvents.Add(CoverEvent("/dest/Artist/CaaAlbum", "fetched:coverartarchive", DateTime.UtcNow.AddDays(-1)));
+        await db.SaveChangesAsync();
+
+        var writer = new ScriptedCoverWriter
+        {
+            OnReplaceWithSpotify = _ => new AlbumCoverWriteResult(false, null),
+        };
+        var written = await RunSweepAsync(db, fs, writer);
+
+        Assert.Equal(0, written);
+        Assert.Single(writer.ReplaceCalls);
+        var attempt = await db.AlbumCoverFetchAttempts.SingleAsync();
+        Assert.Equal(AlbumCoverFetchStatus.UpgradeNotFound, attempt.Status);
+        Assert.NotNull(attempt.NextRetryAfterUtc);
+
+        // Cooldown prevents re-hammering Spotify on the next sweep.
+        writer.ReplaceCalls.Clear();
+        await RunSweepAsync(db, fs, writer);
+        Assert.Empty(writer.ReplaceCalls);
+    }
+
+    [Fact]
+    public async Task UpgradeSkippedStopsWithoutRecordingCooldowns()
+    {
+        var fs = Fs("/dest/Artist/CaaOne", "/dest/Artist/CaaTwo");
+        fs.AddFile("/dest/Artist/CaaOne/cover.png", new MockFileData("caa"));
+        fs.AddFile("/dest/Artist/CaaTwo/cover.png", new MockFileData("caa"));
+        await using var db = CreateDbContext();
+        db.Songs.AddRange(
+            Song(1, "/dest/Artist/CaaOne/01.mp3"),
+            Song(2, "/dest/Artist/CaaTwo/01.mp3"));
+        db.LibraryWriteEvents.AddRange(
+            CoverEvent("/dest/Artist/CaaOne", "fetched:coverartarchive", DateTime.UtcNow.AddDays(-1)),
+            CoverEvent("/dest/Artist/CaaTwo", "fetched:coverartarchive", DateTime.UtcNow.AddDays(-1)));
+        await db.SaveChangesAsync();
+
+        var writer = new ScriptedCoverWriter
+        {
+            OnReplaceWithSpotify = _ => new AlbumCoverWriteResult(false, null, Skipped: true),
+        };
+        await RunSweepAsync(db, fs, writer);
+
+        // Stops on the first Skipped response (e.g. missing Spotify credentials) and writes no cooldowns.
+        Assert.Single(writer.ReplaceCalls);
+        Assert.Empty(await db.AlbumCoverFetchAttempts.ToListAsync());
+    }
+
+    private static LibraryWriteEvent CoverEvent(string folder, string newValue, DateTime writtenAtUtc) => new()
+    {
+        OwnerUserId = WellKnownUsers.OwnerId,
+        Kind = LibraryWriteEventKind.AlbumCoverWritten,
+        WrittenAtUtc = writtenAtUtc,
+        AlbumFolder = folder,
+        AlbumArtist = "Artist",
+        Album = "Album",
+        FieldName = "Cover",
+        NewValue = newValue,
+    };
+
     private static async Task<int> RunSweepAsync(
         MusicHoarderDbContext db,
         MockFileSystem fs,
@@ -296,7 +411,8 @@ public class ExternalCoverArtSweepBackgroundServiceTests
         bool isUnreleased = false,
         bool deleted = false,
         LibraryBuildStatus status = LibraryBuildStatus.Done,
-        string? mbReleaseId = null) => new()
+        string? mbReleaseId = null,
+        string? spotifyId = null) => new()
     {
         Id = id,
         OwnerUserId = owner ?? WellKnownUsers.OwnerId,
@@ -311,6 +427,7 @@ public class ExternalCoverArtSweepBackgroundServiceTests
         AlbumArtist = "Artist",
         Album = "Album",
         MusicBrainzReleaseId = mbReleaseId,
+        SpotifyId = spotifyId,
         DestinationPath = destinationPath,
         LibraryBuildStatus = status,
         IsSynthetic = isSynthetic,
@@ -331,7 +448,9 @@ public class ExternalCoverArtSweepBackgroundServiceTests
     private sealed class ScriptedCoverWriter : IAlbumCoverWriter
     {
         public Func<string, AlbumCoverWriteResult> OnWrite { get; set; } = _ => new AlbumCoverWriteResult(false, null);
+        public Func<string, AlbumCoverWriteResult> OnReplaceWithSpotify { get; set; } = _ => new AlbumCoverWriteResult(false, null);
         public List<(string Folder, ExternalCoverArtQuery? Query)> Calls { get; } = [];
+        public List<(string Folder, ExternalCoverArtQuery Query)> ReplaceCalls { get; } = [];
 
         public bool WriteIfMissing(string destinationDirectory, string sourceAudioPath) => false;
 
@@ -340,6 +459,13 @@ public class ExternalCoverArtSweepBackgroundServiceTests
         {
             Calls.Add((destinationDirectory, externalQuery));
             return Task.FromResult(OnWrite(destinationDirectory));
+        }
+
+        public Task<AlbumCoverWriteResult> ReplaceWithSpotifyAsync(
+            string destinationDirectory, ExternalCoverArtQuery externalQuery, CancellationToken ct = default)
+        {
+            ReplaceCalls.Add((destinationDirectory, externalQuery));
+            return Task.FromResult(OnReplaceWithSpotify(destinationDirectory));
         }
     }
 

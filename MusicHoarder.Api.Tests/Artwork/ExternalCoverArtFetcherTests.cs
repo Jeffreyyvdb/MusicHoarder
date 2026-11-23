@@ -16,6 +16,77 @@ public class ExternalCoverArtFetcherTests
     private static readonly ExternalCoverArtQuery FullQuery = new("mbid-1", "rg-1", "Artist", "Album");
 
     [Fact]
+    public async Task SpotifyBeatsCoverArtArchiveWhenBothExist()
+    {
+        var spotify = new StubSpotifyCatalog { TrackAlbumId = "sa1", ImageUrl = "https://i.scdn.example/ab.jpg" };
+        var caa = new StubCaa { Release = new CoverArtArchiveImage(Png, "image/png") };
+        var deezer = new StubDeezer();
+        var apple = new StubApple();
+        var http = new UrlKeyedImageHandler { ["https://i.scdn.example/ab.jpg"] = (HttpStatusCode.OK, Png, "image/jpeg") };
+        var fetcher = CreateFetcher(caa, deezer, apple, http, spotify: spotify, spotifyCredentials: true);
+
+        var result = await fetcher.FetchAsync(new ExternalCoverArtQuery("mbid-1", "rg-1", "Artist", "Album", SpotifyTrackId: "t1"));
+
+        Assert.NotNull(result.Cover);
+        Assert.Equal("spotify", result.Cover.Source);
+        Assert.False(result.HadTransientFailure);
+        Assert.Equal(0, caa.ReleaseCalls);
+        Assert.Equal(0, caa.ReleaseGroupCalls);
+        Assert.Equal(0, deezer.SearchCalls);
+        Assert.Equal(0, apple.SearchCalls);
+    }
+
+    [Fact]
+    public async Task SpotifyMissFallsBackToCoverArtArchive()
+    {
+        var spotify = new StubSpotifyCatalog(); // returns no match
+        var caa = new StubCaa { Release = new CoverArtArchiveImage(Png, "image/png") };
+        var deezer = new StubDeezer();
+        var fetcher = CreateFetcher(caa, deezer, new StubApple(), spotify: spotify, spotifyCredentials: true);
+
+        var result = await fetcher.FetchAsync(FullQuery);
+
+        Assert.Equal("coverartarchive", result.Cover?.Source);
+        Assert.Equal(1, spotify.SearchCalls);
+        Assert.Equal(1, caa.ReleaseCalls);
+        Assert.Equal(0, deezer.SearchCalls);
+    }
+
+    [Fact]
+    public async Task FetchSpotifyAsyncReturnsSkippedWithoutCredentials()
+    {
+        var spotify = new StubSpotifyCatalog { TrackAlbumId = "sa1", ImageUrl = "https://i.scdn.example/ab.jpg" };
+        var caa = new StubCaa { Release = new CoverArtArchiveImage(Png, "image/png") };
+        var fetcher = CreateFetcher(caa, new StubDeezer(), new StubApple(), spotify: spotify, spotifyCredentials: false);
+
+        var result = await fetcher.FetchSpotifyAsync(new ExternalCoverArtQuery("mbid-1", "rg-1", "Artist", "Album", SpotifyTrackId: "t1"));
+
+        Assert.Null(result.Cover);
+        Assert.True(result.Skipped);
+        Assert.False(result.HadTransientFailure);
+        Assert.Equal(0, spotify.TrackAlbumIdCalls);
+        Assert.Equal(0, caa.ReleaseCalls);
+    }
+
+    [Fact]
+    public async Task FetchSpotifyAsyncDoesNotFallBackToCoverArtArchiveOrOtherProviders()
+    {
+        var spotify = new StubSpotifyCatalog();
+        var caa = new StubCaa { Release = new CoverArtArchiveImage(Png, "image/png") };
+        var deezer = new StubDeezer { AlbumId = "d1", CoverUrl = "https://cdn.deezer.example/c.jpg" };
+        var fetcher = CreateFetcher(caa, deezer, new StubApple(), spotify: spotify, spotifyCredentials: true);
+
+        var result = await fetcher.FetchSpotifyAsync(FullQuery);
+
+        Assert.Null(result.Cover);
+        Assert.False(result.Skipped);
+        Assert.False(result.HadTransientFailure);
+        Assert.Equal(1, spotify.SearchCalls);
+        Assert.Equal(0, caa.ReleaseCalls);
+        Assert.Equal(0, deezer.SearchCalls);
+    }
+
+    [Fact]
     public async Task CoverArtArchiveHitShortCircuitsTheChain()
     {
         var caa = new StubCaa { Release = new CoverArtArchiveImage(Png, "image/png") };

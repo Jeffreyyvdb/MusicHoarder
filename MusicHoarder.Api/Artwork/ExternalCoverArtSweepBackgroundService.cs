@@ -9,7 +9,8 @@ namespace MusicHoarder.Api.Artwork;
 /// <summary>
 /// Periodic sweep that fetches external cover art for already-built album folders still missing a
 /// cover on disk — the back-catalog counterpart of the library builder's post-batch cover pass (which
-/// only sees freshly built tracks). Per-folder retry cooldowns are persisted in
+/// only sees freshly built tracks) — and upgrades existing Cover Art Archive covers to Spotify when
+/// Spotify covers are enabled and configured. Per-folder retry cooldowns are persisted in
 /// <see cref="AlbumCoverFetchAttempt"/> so transient provider failures retry sooner than clean
 /// "no provider has it" misses, and restarts don't re-hammer the providers. Folders are processed
 /// sequentially: the per-provider rate limiters dominate throughput, and iTunes' backoff window is
@@ -112,99 +113,229 @@ public sealed class ExternalCoverArtSweepBackgroundService(
         if (rows.Count == 0)
             return 0;
 
-        // One representative per destination album folder; prefer a track that carries a release MBID
-        // (the Cover Art Archive key), then one with a Spotify id (the official-album-image key),
-        // then the lowest id for determinism.
-        var folders = rows
+        // One candidate per destination album folder; prefer a track carrying a Spotify id (primary
+        // official-art key), then one with a release MBID (Cover Art Archive fallback), then lowest id.
+        // Merge identifiers across all tracks in the folder so Spotify and MBID lookups both get a key
+        // even when different tracks carry them.
+        var allFolders = rows
             .GroupBy(r => fileSystem.Path.GetDirectoryName(r.DestinationPath) ?? string.Empty, StringComparer.Ordinal)
-            .Where(g => !string.IsNullOrEmpty(g.Key))
-            .Select(g => (Folder: g.Key, Representative: g
-                .OrderByDescending(r => !string.IsNullOrWhiteSpace(r.MusicBrainzReleaseId))
-                .ThenByDescending(r => !string.IsNullOrWhiteSpace(r.SpotifyId))
-                .ThenBy(r => r.Id)
-                .First()))
-            .Where(f => fileSystem.Directory.Exists(f.Folder)
-                && !coverArtResolver.DirectoryHasCoverImage(f.Folder))
+            .Where(g => !string.IsNullOrEmpty(g.Key) && fileSystem.Directory.Exists(g.Key))
+            .Select(g =>
+            {
+                var rep = g
+                    .OrderByDescending(r => !string.IsNullOrWhiteSpace(r.SpotifyId))
+                    .ThenByDescending(r => !string.IsNullOrWhiteSpace(r.MusicBrainzReleaseId))
+                    .ThenBy(r => r.Id)
+                    .First();
+                var spotifyId = g.Select(r => r.SpotifyId).FirstOrDefault(id => !string.IsNullOrWhiteSpace(id));
+                var mbReleaseId = g.Select(r => r.MusicBrainzReleaseId).FirstOrDefault(id => !string.IsNullOrWhiteSpace(id));
+                var mbReleaseGroupId = g.Select(r => r.MusicBrainzReleaseGroupId).FirstOrDefault(id => !string.IsNullOrWhiteSpace(id));
+                return new FolderCandidate(
+                    g.Key,
+                    rep,
+                    new ExternalCoverArtQuery(mbReleaseId, mbReleaseGroupId, rep.AlbumArtist, rep.Album, spotifyId));
+            })
             .ToList();
 
-        if (folders.Count == 0)
+        if (allFolders.Count == 0)
             return 0;
 
-        var folderKeys = folders.Select(f => f.Folder).ToList();
-        var cooldowns = await db.AlbumCoverFetchAttempts
-            .Where(a => folderKeys.Contains(a.AlbumFolder))
-            .ToDictionaryAsync(a => a.AlbumFolder, StringComparer.Ordinal, ct);
-
-        var due = folders
-            .Where(f => !cooldowns.TryGetValue(f.Folder, out var attempt)
-                || (attempt.NextRetryAfterUtc is not null && attempt.NextRetryAfterUtc <= now))
-            .Take(opts.ExternalCoverArtSweepBatchSize)
-            .ToList();
+        var missingFolders = new List<FolderCandidate>();
+        var coveredFolders = new List<FolderCandidate>();
+        foreach (var candidate in allFolders)
+        {
+            if (coverArtResolver.DirectoryHasCoverImage(candidate.Folder))
+                coveredFolders.Add(candidate);
+            else
+                missingFolders.Add(candidate);
+        }
 
         var runId = Guid.NewGuid();
         var written = 0;
-        foreach (var (folder, rep) in due)
+        var attempted = 0;
+
+        // Pass 1: folders missing a cover on disk.
+        if (missingFolders.Count > 0)
         {
-            ct.ThrowIfCancellationRequested();
+            var missingKeys = missingFolders.Select(f => f.Folder).ToList();
+            var cooldowns = await db.AlbumCoverFetchAttempts
+                .Where(a => missingKeys.Contains(a.AlbumFolder))
+                .ToDictionaryAsync(a => a.AlbumFolder, StringComparer.Ordinal, ct);
 
-            var query = new ExternalCoverArtQuery(
-                rep.MusicBrainzReleaseId, rep.MusicBrainzReleaseGroupId, rep.AlbumArtist, rep.Album, rep.SpotifyId);
-            // A released row has no staged source left; its destination copy still carries the
-            // embedded art the tag writer copied across, so read from there instead.
-            var audioPath = rep.SourceReleased ? rep.DestinationPath : rep.SourcePath;
-            var result = await coverWriter.WriteIfMissingAsync(folder, audioPath, query, ct);
+            var due = missingFolders
+                .Where(f => !cooldowns.TryGetValue(f.Folder, out var attempt)
+                    || attempt.Status is AlbumCoverFetchStatus.UpgradeNotFound or AlbumCoverFetchStatus.UpgradeFailed
+                    || (attempt.NextRetryAfterUtc is not null && attempt.NextRetryAfterUtc <= now))
+                .Take(opts.ExternalCoverArtSweepBatchSize)
+                .ToList();
 
-            if (result.Written)
+            foreach (var item in due)
             {
-                written++;
+                ct.ThrowIfCancellationRequested();
+                attempted++;
 
-                // The folder was a fetch candidate (it had no cover at heal time), so the heal pass
-                // above didn't flag it — do it now so the freshly written cover surfaces immediately.
-                await DestinationCoverFlagger.FlagFolderAsync(db, folder, fileSystem.Path.DirectorySeparatorChar, ct);
+                var (folder, rep, query) = item;
+                // A released row has no staged source left; its destination copy still carries the
+                // embedded art the tag writer copied across, so read from there instead.
+                var audioPath = rep.SourceReleased ? rep.DestinationPath : rep.SourcePath;
+                var result = await coverWriter.WriteIfMissingAsync(folder, audioPath, query, ct);
 
-                if (cooldowns.TryGetValue(folder, out var resolved))
+                if (result.Written)
                 {
-                    db.AlbumCoverFetchAttempts.Remove(resolved);
+                    written++;
+
+                    // The folder was a fetch candidate (it had no cover at heal time), so the heal pass
+                    // above didn't flag it — do it now so the freshly written cover surfaces immediately.
+                    await DestinationCoverFlagger.FlagFolderAsync(db, folder, fileSystem.Path.DirectorySeparatorChar, ct);
+
+                    if (cooldowns.TryGetValue(folder, out var resolved))
+                    {
+                        db.AlbumCoverFetchAttempts.Remove(resolved);
+                    }
+
+                    db.LibraryWriteEvents.Add(new LibraryWriteEvent
+                    {
+                        OwnerUserId = rep.OwnerUserId,
+                        RunId = runId,
+                        SongId = rep.Id,
+                        Kind = LibraryWriteEventKind.AlbumCoverWritten,
+                        WrittenAtUtc = DateTime.UtcNow,
+                        AlbumFolder = folder,
+                        AlbumArtist = rep.AlbumArtist,
+                        Album = rep.Album,
+                        FieldName = "Cover",
+                        NewValue = result.Source == "source" ? "written" : $"fetched:{result.Source}",
+                    });
+                }
+                else
+                {
+                    RecordCooldown(
+                        db, cooldowns, folder, opts,
+                        result.TransientFailure ? AlbumCoverFetchStatus.Failed : AlbumCoverFetchStatus.NotFound,
+                        result.TransientFailure);
                 }
 
-                db.LibraryWriteEvents.Add(new LibraryWriteEvent
-                {
-                    OwnerUserId = rep.OwnerUserId,
-                    RunId = runId,
-                    SongId = rep.Id,
-                    Kind = LibraryWriteEventKind.AlbumCoverWritten,
-                    WrittenAtUtc = DateTime.UtcNow,
-                    AlbumFolder = folder,
-                    AlbumArtist = rep.AlbumArtist,
-                    Album = rep.Album,
-                    FieldName = "Cover",
-                    NewValue = result.Source == "source" ? "written" : $"fetched:{result.Source}",
-                });
+                // Persist per folder so a cancelled sweep keeps the cooldowns/events it already earned.
+                await db.SaveChangesAsync(ct);
             }
-            else
+        }
+
+        // Pass 2: upgrade existing Cover Art Archive covers to Spotify when Spotify is preferred.
+        var remainingBudget = opts.ExternalCoverArtSweepBatchSize - attempted;
+        if (opts.EnableSpotifyCovers && remainingBudget > 0 && coveredFolders.Count > 0)
+        {
+            var coveredKeys = coveredFolders.Select(f => f.Folder).ToList();
+            var coverEvents = await db.LibraryWriteEvents
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(e => e.Kind == LibraryWriteEventKind.AlbumCoverWritten
+                    && e.AlbumFolder != null
+                    && coveredKeys.Contains(e.AlbumFolder))
+                .Select(e => new { e.Id, Folder = e.AlbumFolder!, e.WrittenAtUtc, e.NewValue })
+                .ToListAsync(ct);
+
+            var caaFolders = coverEvents
+                .GroupBy(e => e.Folder, StringComparer.Ordinal)
+                .Where(g =>
+                {
+                    var latest = g.OrderByDescending(e => e.WrittenAtUtc).ThenByDescending(e => e.Id).First();
+                    return string.Equals(latest.NewValue, "fetched:coverartarchive", StringComparison.OrdinalIgnoreCase);
+                })
+                .Select(g => g.Key)
+                .ToHashSet(StringComparer.Ordinal);
+
+            if (caaFolders.Count > 0)
             {
-                if (!cooldowns.TryGetValue(folder, out var attempt))
+                var upgradeCandidates = coveredFolders.Where(f => caaFolders.Contains(f.Folder)).ToList();
+                var upgradeKeys = upgradeCandidates.Select(f => f.Folder).ToList();
+                var upgradeCooldowns = await db.AlbumCoverFetchAttempts
+                    .Where(a => upgradeKeys.Contains(a.AlbumFolder))
+                    .ToDictionaryAsync(a => a.AlbumFolder, StringComparer.Ordinal, ct);
+
+                var upgradeDue = upgradeCandidates
+                    .Where(f => !upgradeCooldowns.TryGetValue(f.Folder, out var attempt)
+                        || attempt.Status is AlbumCoverFetchStatus.NotFound or AlbumCoverFetchStatus.Failed
+                        || (attempt.NextRetryAfterUtc is not null && attempt.NextRetryAfterUtc <= now))
+                    .Take(remainingBudget)
+                    .ToList();
+
+                foreach (var (folder, rep, query) in upgradeDue)
                 {
-                    attempt = new AlbumCoverFetchAttempt { AlbumFolder = folder };
-                    cooldowns[folder] = attempt;
-                    db.AlbumCoverFetchAttempts.Add(attempt);
+                    ct.ThrowIfCancellationRequested();
+
+                    var result = await coverWriter.ReplaceWithSpotifyAsync(folder, query, ct);
+                    if (result.Skipped)
+                    {
+                        // Spotify covers disabled or credentials not configured — leave remaining
+                        // Cover Art Archive folders untouched with no cooldowns recorded.
+                        break;
+                    }
+
+                    if (result.Written)
+                    {
+                        written++;
+
+                        await DestinationCoverFlagger.FlagFolderAsync(db, folder, fileSystem.Path.DirectorySeparatorChar, ct);
+
+                        if (upgradeCooldowns.TryGetValue(folder, out var resolved))
+                        {
+                            db.AlbumCoverFetchAttempts.Remove(resolved);
+                        }
+
+                        db.LibraryWriteEvents.Add(new LibraryWriteEvent
+                        {
+                            OwnerUserId = rep.OwnerUserId,
+                            RunId = runId,
+                            SongId = rep.Id,
+                            Kind = LibraryWriteEventKind.AlbumCoverWritten,
+                            WrittenAtUtc = DateTime.UtcNow,
+                            AlbumFolder = folder,
+                            AlbumArtist = rep.AlbumArtist,
+                            Album = rep.Album,
+                            FieldName = "Cover",
+                            OldValue = "fetched:coverartarchive",
+                            NewValue = $"fetched:{result.Source}",
+                        });
+                    }
+                    else
+                    {
+                        RecordCooldown(
+                            db, upgradeCooldowns, folder, opts,
+                            result.TransientFailure ? AlbumCoverFetchStatus.UpgradeFailed : AlbumCoverFetchStatus.UpgradeNotFound,
+                            result.TransientFailure);
+                    }
+
+                    await db.SaveChangesAsync(ct);
                 }
-
-                attempt.AttemptCount++;
-                attempt.LastAttemptAtUtc = DateTime.UtcNow;
-                attempt.Status = result.TransientFailure ? AlbumCoverFetchStatus.Failed : AlbumCoverFetchStatus.NotFound;
-                attempt.NextRetryAfterUtc = result.TransientFailure
-                    ? DateTime.UtcNow.AddHours(opts.ExternalCoverArtFailedRetryHours)
-                    : opts.ExternalCoverArtNotFoundRetryDays > 0
-                        ? DateTime.UtcNow.AddDays(opts.ExternalCoverArtNotFoundRetryDays)
-                        : null;
             }
-
-            // Persist per folder so a cancelled sweep keeps the cooldowns/events it already earned.
-            await db.SaveChangesAsync(ct);
         }
 
         return written;
+    }
+
+    private static void RecordCooldown(
+        MusicHoarderDbContext db,
+        Dictionary<string, AlbumCoverFetchAttempt> cooldowns,
+        string folder,
+        MusicEnricherOptions opts,
+        AlbumCoverFetchStatus status,
+        bool transientFailure)
+    {
+        if (!cooldowns.TryGetValue(folder, out var attempt))
+        {
+            attempt = new AlbumCoverFetchAttempt { AlbumFolder = folder };
+            cooldowns[folder] = attempt;
+            db.AlbumCoverFetchAttempts.Add(attempt);
+        }
+
+        attempt.AttemptCount++;
+        attempt.LastAttemptAtUtc = DateTime.UtcNow;
+        attempt.Status = status;
+        attempt.NextRetryAfterUtc = transientFailure
+            ? DateTime.UtcNow.AddHours(opts.ExternalCoverArtFailedRetryHours)
+            : opts.ExternalCoverArtNotFoundRetryDays > 0
+                ? DateTime.UtcNow.AddDays(opts.ExternalCoverArtNotFoundRetryDays)
+                : null;
     }
 
     /// <summary>
@@ -257,6 +388,8 @@ public sealed class ExternalCoverArtSweepBackgroundService(
         if (flagged > 0)
             await db.SaveChangesAsync(ct);
     }
+
+    private sealed record FolderCandidate(string Folder, SweepRow Representative, ExternalCoverArtQuery Query);
 
     private sealed record SweepRow(
         int Id, Guid OwnerUserId, string SourcePath, string DestinationPath, bool SourceReleased,

@@ -82,6 +82,27 @@ public class AlbumTracklistReconcilerTests
     }
 
     [Fact]
+    public void Reconcile_PrefersSpotifyCoverArtUrlOverMusicBrainz()
+    {
+        var candidates = new[]
+        {
+            new AlbumTracklistCandidate(
+                EnrichmentProvider.MusicBrainzWeb, "mb-1", "Discovery", "Daft Punk", 2001,
+                "https://coverartarchive.org/release/mb-1/front",
+                [new CandidateTrack(1, 1, "One More Time", 320000, "rec-1")]),
+            new AlbumTracklistCandidate(
+                EnrichmentProvider.SpotifyAPI, "sp-1", "Discovery", "Daft Punk", 2001,
+                "https://i.scdn.co/image/spotify-cover",
+                [new CandidateTrack(1, 1, "One More Time", 320000, null)]),
+        };
+
+        var result = AlbumTracklistReconciler.Reconcile(candidates);
+
+        Assert.NotNull(result);
+        Assert.Equal("https://i.scdn.co/image/spotify-cover", result!.CoverArtUrl);
+    }
+
+    [Fact]
     public void Reconcile_NoCandidates_ReturnsNull()
     {
         Assert.Null(AlbumTracklistReconciler.Reconcile([]));

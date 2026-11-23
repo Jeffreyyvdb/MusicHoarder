@@ -191,6 +191,72 @@ public class AlbumCoverWriterAsyncTests
         Assert.Empty(fetcher.Calls);
     }
 
+    [Fact]
+    public async Task ReplaceWithSpotifyOverwritesCoverAndRemovesStaleExtension()
+    {
+        var jpeg = new byte[] { 0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3, 4 };
+        var fs = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            ["/dest/Album/track.mp3"] = new("audio"),
+            ["/dest/Album/cover.png"] = new(Png),
+        });
+        var fetcher = new StubExternalCoverArtFetcher
+        {
+            SpotifyResult = new ExternalCoverArtFetchResult(new FetchedCoverArt(jpeg, "image/jpeg", "spotify"), false),
+        };
+        var writer = CreateWriter(fs, fetcher);
+
+        var result = await writer.ReplaceWithSpotifyAsync("/dest/Album", Query);
+
+        Assert.True(result.Written);
+        Assert.Equal("spotify", result.Source);
+        Assert.Equal(jpeg, fs.File.ReadAllBytes("/dest/Album/cover.jpg"));
+        Assert.False(fs.File.Exists("/dest/Album/cover.png"));
+        Assert.Equal([Query], fetcher.SpotifyCalls);
+    }
+
+    [Fact]
+    public async Task ReplaceWithSpotifyLeavesExistingCoverUntouchedWhenSpotifyMisses()
+    {
+        var fs = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            ["/dest/Album/track.mp3"] = new("audio"),
+            ["/dest/Album/cover.png"] = new(Png),
+        });
+        var fetcher = new StubExternalCoverArtFetcher
+        {
+            SpotifyResult = new ExternalCoverArtFetchResult(null, HadTransientFailure: false),
+        };
+        var writer = CreateWriter(fs, fetcher);
+
+        var result = await writer.ReplaceWithSpotifyAsync("/dest/Album", Query);
+
+        Assert.False(result.Written);
+        Assert.False(result.Skipped);
+        Assert.Equal(Png, fs.File.ReadAllBytes("/dest/Album/cover.png"));
+    }
+
+    [Fact]
+    public async Task ReplaceWithSpotifyPropagatesSkippedWhenCredentialsMissing()
+    {
+        var fs = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            ["/dest/Album/track.mp3"] = new("audio"),
+            ["/dest/Album/cover.png"] = new(Png),
+        });
+        var fetcher = new StubExternalCoverArtFetcher
+        {
+            SpotifyResult = new ExternalCoverArtFetchResult(null, HadTransientFailure: false, Skipped: true),
+        };
+        var writer = CreateWriter(fs, fetcher);
+
+        var result = await writer.ReplaceWithSpotifyAsync("/dest/Album", Query);
+
+        Assert.False(result.Written);
+        Assert.True(result.Skipped);
+        Assert.Equal(Png, fs.File.ReadAllBytes("/dest/Album/cover.png"));
+    }
+
     private static AlbumCoverWriter CreateWriter(
         MockFileSystem fs,
         StubExternalCoverArtFetcher fetcher,

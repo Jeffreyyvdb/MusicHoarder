@@ -534,6 +534,39 @@ public class ActivitySourceTests
         Assert.Contains("Mine", entry.Headline);
     }
 
+    [Fact]
+    public async Task Artwork_IgnoresUpgradeCooldownsForFoldersThatAlreadyHaveACover()
+    {
+        using var db = NewContext();
+        db.AlbumCoverFetchAttempts.AddRange(
+            new AlbumCoverFetchAttempt
+            {
+                AlbumFolder = "/dest/Artist/CaaNotOnSpotify", Status = AlbumCoverFetchStatus.UpgradeNotFound,
+                AttemptCount = 1, LastAttemptAtUtc = Now.AddHours(-1),
+            },
+            new AlbumCoverFetchAttempt
+            {
+                AlbumFolder = "/dest/Artist/CaaRateLimited", Status = AlbumCoverFetchStatus.UpgradeFailed,
+                AttemptCount = 1, LastAttemptAtUtc = Now.AddHours(-1),
+            });
+        db.LibraryWriteEvents.AddRange(
+            new LibraryWriteEvent
+            {
+                OwnerUserId = Owner, Kind = LibraryWriteEventKind.AlbumCoverWritten, WrittenAtUtc = Now.AddHours(-2),
+                AlbumFolder = "/dest/Artist/CaaNotOnSpotify", Album = "CaaNotOnSpotify", AlbumArtist = "Artist",
+                FieldName = "Cover", NewValue = "fetched:coverartarchive",
+            },
+            new LibraryWriteEvent
+            {
+                OwnerUserId = Owner, Kind = LibraryWriteEventKind.AlbumCoverWritten, WrittenAtUtc = Now.AddHours(-2),
+                AlbumFolder = "/dest/Artist/CaaRateLimited", Album = "CaaRateLimited", AlbumArtist = "Artist",
+                FieldName = "Cover", NewValue = "fetched:coverartarchive",
+            });
+        db.SaveChanges();
+
+        Assert.Empty(await new ArtworkActivitySource(db).CollectAsync(Window, default));
+    }
+
     // --- Library writes ----------------------------------------------------------------------
 
     [Fact]

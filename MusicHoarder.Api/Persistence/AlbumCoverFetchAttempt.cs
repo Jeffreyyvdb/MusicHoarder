@@ -7,6 +7,18 @@ public enum AlbumCoverFetchStatus
 
     /// <summary>At least one provider errored or was rate limited — worth retrying sooner.</summary>
     Failed = 1,
+
+    /// <summary>
+    /// Folder already has a Cover Art Archive cover on disk, and Spotify answered cleanly without a
+    /// verified match to replace it. Filtered out of "no cover art" UI feeds.
+    /// </summary>
+    UpgradeNotFound = 2,
+
+    /// <summary>
+    /// Folder already has a Cover Art Archive cover on disk, and Spotify errored or rate-limited
+    /// during the upgrade attempt — worth retrying sooner. Filtered out of "no cover art" UI feeds.
+    /// </summary>
+    UpgradeFailed = 3,
 }
 
 /// <summary>
