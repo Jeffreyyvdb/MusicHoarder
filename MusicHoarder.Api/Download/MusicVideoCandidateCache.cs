@@ -232,7 +232,7 @@ public class MusicVideoCandidateCache(
 
         try
         {
-            var inserted = await db.Database.ExecuteSqlInterpolatedAsync($"""
+            var inserted = await db.Database.ExecuteSqlAsync($"""
                 INSERT INTO "SongVideoCandidateSets" ("SongId", "QueryKey", "SearchedAtUtc", "CandidatesJson", "Error")
                 VALUES ({row.SongId}, {row.QueryKey}, {row.SearchedAtUtc}, {row.CandidatesJson}, {row.Error})
                 ON CONFLICT ("SongId") DO NOTHING

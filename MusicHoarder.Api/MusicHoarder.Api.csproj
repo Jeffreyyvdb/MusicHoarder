@@ -40,6 +40,10 @@
 
     <ItemGroup>
         <PackageReference Include="Aspire.Npgsql.EntityFrameworkCore.PostgreSQL" Version="13.6.5" />
+        <!-- Aspire 13.6.5 asks only for Npgsql EF >= 10.0.3, which resolves to 10.x and pins EF Core
+             Relational at 10. Referenced directly so the provider matches EF Core 11; drop this once
+             the Aspire integration depends on Npgsql EF 11 itself. -->
+        <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="11.0.0" />
         <PackageReference Include="Fido2.AspNet" Version="4.3.3" />
         <!-- Fido2 4.3.2 depends on System.Formats.Cbor 9.0.0 (GHSA-vmv3-wvjp-wqpj). This project gets the
              patched assembly from the ASP.NET Core shared framework (hence NU1510), but the test and
@@ -48,12 +52,12 @@
         <PackageReference Include="FuzzySharp" Version="2.0.2" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="11.0.0" />
         <!-- Pinned directly (design-time only) to override a bad transitive resolution to
-             EFCore.Design 8.0.0, which is ABI-incompatible with EFCore 10.x and breaks `dotnet ef`. -->
-        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.15">
+             EFCore.Design 8.0.0, which is ABI-incompatible with EFCore 10+ and breaks `dotnet ef`. -->
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="11.0.0">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
-        <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.15">
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="11.0.0">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
@@ -65,8 +69,8 @@
              package already carries the macOS/Windows natives for local dev. Managed SkiaSharp and
              the native asset must move together — a mismatch fails the native-lib version check. -->
         <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.156.1" />
-        <PackageReference Include="System.IO.Abstractions" Version="22.3.0" />
-        <PackageReference Include="System.IO.Abstractions.TestingHelpers" Version="22.3.0" />
+        <PackageReference Include="System.IO.Abstractions" Version="23.0.0" />
+        <PackageReference Include="System.IO.Abstractions.TestingHelpers" Version="23.0.0" />
         <PackageReference Include="TagLibSharp" Version="2.3.0" />
     </ItemGroup>
 
