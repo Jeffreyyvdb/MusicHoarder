@@ -1103,8 +1103,11 @@ public static class SongsEndpoints
     /// for songs that haven't been built yet.
     /// </summary>
     internal static string? ResolveAudioFilePath(SongMetadata song) =>
-        (!string.IsNullOrEmpty(song.DestinationPath) && File.Exists(song.DestinationPath)) ? song.DestinationPath :
-        (!string.IsNullOrEmpty(song.SourcePath) && File.Exists(song.SourcePath)) ? song.SourcePath :
+        ResolveAudioFilePath(song.DestinationPath, song.SourcePath);
+
+    internal static string? ResolveAudioFilePath(string? destinationPath, string? sourcePath) =>
+        (!string.IsNullOrEmpty(destinationPath) && File.Exists(destinationPath)) ? destinationPath :
+        (!string.IsNullOrEmpty(sourcePath) && File.Exists(sourcePath)) ? sourcePath :
         null;
 
     /// <summary>

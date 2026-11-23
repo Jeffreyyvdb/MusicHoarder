@@ -46,6 +46,8 @@ public sealed class LyricsTimingCheckService(
     /// <summary>The same, for the re-sync pass, which a closed budget or a busy provider stops just the same.</summary>
     private DateTime _resyncDeferredUntilUtc = DateTime.MinValue;
 
+    private const int ResyncSongsPerPass = 3;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         logger.LogInformation("Lyrics timing check service started.");
@@ -141,42 +143,42 @@ public sealed class LyricsTimingCheckService(
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
 
-        var songs = await db.Songs
-            .IgnoreQueryFilters()
-            .WhereEligibleForLyricsTimingProbe()
-            .Where(s => s.LyricsSyncStatus == LyricsSyncStatus.Suspect)
-            .Where(s => s.LyricsSyncProbeAttempts < opts.MaxProbeAttempts)
-            .OrderBy(s => s.LyricsSyncProbeAttempts)
-            .ThenByDescending(s => s.Id)
-            .Take(opts.SweepBatchSize)
-            .ToListAsync(ct);
+        var songs = await TakeAudibleAsync(
+            db,
+            db.Songs
+                .IgnoreQueryFilters()
+                .WhereEligibleForLyricsTimingProbe()
+                .Where(s => s.LyricsSyncStatus == LyricsSyncStatus.Suspect)
+                .Where(s => s.LyricsSyncProbeAttempts < opts.MaxProbeAttempts)
+                .OrderBy(s => s.LyricsSyncProbeAttempts)
+                .ThenByDescending(s => s.Id),
+            opts.SweepBatchSize,
+            ct);
 
         if (songs.Count < opts.SweepBatchSize && opts.ProbeUnconfirmedSongs)
         {
             // "Ok" with no probe attempt means only the arithmetic has looked at it: nothing provably wrong,
             // which a uniformly shifted or carelessly timed LRC also satisfies. Newest first, so what was
             // just added is checked before the back catalogue.
-            songs.AddRange(await db.Songs
-                .IgnoreQueryFilters()
-                .WhereEligibleForLyricsTimingProbe()
-                .Where(s => s.LyricsSyncStatus == LyricsSyncStatus.Ok)
-                .Where(s => s.LyricsSyncProbeAttempts == 0)
-                .OrderByDescending(s => s.Id)
-                .Take(opts.SweepBatchSize - songs.Count)
-                .ToListAsync(ct));
+            songs.AddRange(await TakeAudibleAsync(
+                db,
+                db.Songs
+                    .IgnoreQueryFilters()
+                    .WhereEligibleForLyricsTimingProbe()
+                    .Where(s => s.LyricsSyncStatus == LyricsSyncStatus.Ok)
+                    .Where(s => s.LyricsSyncProbeAttempts == 0)
+                    .OrderByDescending(s => s.Id),
+                opts.SweepBatchSize - songs.Count,
+                ct));
         }
 
         if (songs.Count == 0)
             return false;
 
         var probed = 0;
-        foreach (var song in songs)
+        foreach (var (song, path) in songs)
         {
             ct.ThrowIfCancellationRequested();
-
-            var path = SongsEndpoints.ResolveAudioFilePath(song);
-            if (path is null)
-                continue;
 
             LyricsProbeResult? result;
             try
@@ -226,26 +228,23 @@ public sealed class LyricsTimingCheckService(
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
 
-        var songs = await db.Songs
-            .IgnoreQueryFilters()
-            .WhereDueForAutoResync()
-            .WhereFitsBackgroundAudioCeiling(opts.BackgroundAudioCeilingSeconds)
-            .OrderByDescending(s => s.Id)
-            // A whole song per call: a handful per pass keeps one pass from sitting on the rate limiter.
-            .Take(Math.Min(remaining, 3))
-            .ToListAsync(ct);
+        var songs = await TakeAudibleAsync(
+            db,
+            db.Songs
+                .IgnoreQueryFilters()
+                .WhereDueForAutoResync()
+                .WhereFitsBackgroundAudioCeiling(opts.BackgroundAudioCeilingSeconds)
+                .OrderByDescending(s => s.Id),
+            Math.Min(remaining, ResyncSongsPerPass),
+            ct);
 
         if (songs.Count == 0)
             return false;
 
         var resynced = 0;
-        foreach (var song in songs)
+        foreach (var (song, path) in songs)
         {
             ct.ThrowIfCancellationRequested();
-
-            var path = SongsEndpoints.ResolveAudioFilePath(song);
-            if (path is null)
-                continue;
 
             try
             {
@@ -288,6 +287,36 @@ public sealed class LyricsTimingCheckService(
             await db.SaveChangesAsync(ct);
 
         return resynced > 0;
+    }
+
+    private static async Task<List<(SongMetadata Song, string Path)>> TakeAudibleAsync(
+        MusicHoarderDbContext db, IQueryable<SongMetadata> candidates, int count, CancellationToken ct)
+    {
+        if (count <= 0)
+            return [];
+
+        var picked = new List<(int Id, string Path)>(count);
+        await foreach (var candidate in candidates
+            .Select(s => new { s.Id, s.DestinationPath, s.SourcePath })
+            .AsAsyncEnumerable()
+            .WithCancellation(ct))
+        {
+            if (SongsEndpoints.ResolveAudioFilePath(candidate.DestinationPath, candidate.SourcePath) is not { } path)
+                continue;
+            picked.Add((candidate.Id, path));
+            if (picked.Count == count)
+                break;
+        }
+
+        if (picked.Count == 0)
+            return [];
+
+        var ids = picked.Select(p => p.Id).ToList();
+        var songs = await db.Songs
+            .IgnoreQueryFilters()
+            .Where(s => ids.Contains(s.Id))
+            .ToDictionaryAsync(s => s.Id, ct);
+        return [.. picked.Select(p => (songs[p.Id], p.Path))];
     }
 
     /// <summary>
