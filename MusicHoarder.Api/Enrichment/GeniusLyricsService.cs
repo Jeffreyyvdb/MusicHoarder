@@ -1,6 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Metadata;
 using MusicHoarder.Api.Options;
@@ -24,7 +23,7 @@ public interface IGeniusLyricsService
 /// <see cref="MusicEnricherOptions.GeniusRequestsPerSecond"/> across every caller, and a run of refusals
 /// stops them for a while (<see cref="GeniusRefusalGate"/>).
 /// </summary>
-public sealed partial class GeniusLyricsService(
+public sealed class GeniusLyricsService(
     HttpClient httpClient,
     IOptions<MusicEnricherOptions> options,
     ILogger<GeniusLyricsService> logger,
@@ -45,7 +44,7 @@ public sealed partial class GeniusLyricsService(
 
         var opts = options.Value;
         var primary = ArtistCreditNormalizer.GetPrimaryArtist(song.Artist) ?? song.Artist;
-        var query = $"{primary} {FeaturingSuffix().Replace(song.Title, string.Empty).Trim()}";
+        var query = $"{primary} {GeniusHitMatcher.WithoutFeaturing(song.Title)}";
 
         try
         {
@@ -166,7 +165,4 @@ public sealed partial class GeniusLyricsService(
         && year.TryGetInt32(out var value)
             ? value
             : null;
-
-    [GeneratedRegex(@"\s*[\(\[]\s*(feat\.?|ft\.?|featuring|with)\s[^\)\]]*[\)\]]|\s+(feat\.?|ft\.?|featuring)\s.*$", RegexOptions.IgnoreCase)]
-    private static partial Regex FeaturingSuffix();
 }

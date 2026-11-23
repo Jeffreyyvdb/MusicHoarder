@@ -55,24 +55,24 @@ public static partial class GeniusHitMatcher
                     && GenericTitleNumber(hit.Title) is { } hitNumber && hitNumber.SequenceEqual(genericNumber))));
     }
 
-    /// <summary>The numbers in a generic title ("Interlude II" → [2], "Intro" → []), or null for any other title.</summary>
+    /// <summary>The title without a featured-artist credit, in brackets or trailing.</summary>
+    public static string WithoutFeaturing(string title) => FeaturingCredit().Replace(title, string.Empty).Trim();
+
+    /// <summary>
+    /// The numbers in a generic title ("Interlude II" → [2], "Skit (1)" → [1], "Intro" → []), or null for
+    /// any other title. Whether it is generic is read without bracketed text, its numbers with it.
+    /// </summary>
     private static int[]? GenericTitleNumber(string title)
     {
         var words = Words(TitleNormalizer.NormalizeForSearch(title));
         if (words.Length == 0)
             words = Words(title.ToLowerInvariant());
-        if (!words.Any(GenericTitleWords.Contains))
+        var generic = words.Any(GenericTitleWords.Contains)
+            && words.All(w => GenericTitleWords.Contains(w) || NumberingWords.Contains(w) || NumberOf(w) is not null);
+        if (!generic)
             return null;
 
-        var numbers = new List<int>();
-        foreach (var word in words.Where(w => !GenericTitleWords.Contains(w) && !NumberingWords.Contains(w)))
-        {
-            if (NumberOf(word) is not { } number)
-                return null;
-            numbers.Add(number);
-        }
-
-        return [.. numbers];
+        return [.. Words(WithoutFeaturing(title).ToLowerInvariant()).Select(NumberOf).OfType<int>()];
     }
 
     private static string[] Words(string text) =>
@@ -97,6 +97,9 @@ public static partial class GeniusHitMatcher
 
     [GeneratedRegex(@"[^\p{L}\p{N}]+")]
     private static partial Regex NonWordRun();
+
+    [GeneratedRegex(@"\s*[\(\[]\s*(feat\.?|ft\.?|featuring|with)\s[^\)\]]*[\)\]]|\s+(feat\.?|ft\.?|featuring)\s.*$", RegexOptions.IgnoreCase)]
+    private static partial Regex FeaturingCredit();
 
     private static bool SameTitle(string ours, string theirs, double threshold)
     {
