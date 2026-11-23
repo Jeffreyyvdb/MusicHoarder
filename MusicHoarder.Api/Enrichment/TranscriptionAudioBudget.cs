@@ -23,7 +23,7 @@ public sealed class TranscriptionAudioBudget(
     ILogger<TranscriptionAudioBudget> logger)
 {
     /// <summary>A song with no known length is metered as this long, so it cannot slip past the meter.</summary>
-    private const double UnknownDurationSeconds = 300;
+    public const int UnknownDurationSeconds = 300;
 
     private static readonly TimeSpan Day = TimeSpan.FromDays(1);
     private static readonly TimeSpan Hour = TimeSpan.FromHours(1);
