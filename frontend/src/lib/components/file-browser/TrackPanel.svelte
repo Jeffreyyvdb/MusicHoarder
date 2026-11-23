@@ -430,9 +430,8 @@
   );
   const lyricsOfferActions = $derived([
     { label: 'Check LRCLIB again', onAction: () => void recheckLyrics() },
-    ...(ai.canEnhance
-      ? [{ label: `${ai.enhanceLabel}…`, onAction: () => (aiConfirmOpen = true) }]
-      : [])
+    // Picking it here is the confirmation: a second sheet would ask the same question again.
+    ...(ai.canEnhance ? [{ label: ai.enhanceLabel, onAction: startEnhance }] : [])
   ]);
   const videoOfferTitle = $derived(
     videoProblem(video.info, video.infoUnavailable)?.text ?? 'No music video for this song'
