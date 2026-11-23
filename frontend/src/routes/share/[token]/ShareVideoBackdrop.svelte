@@ -4,12 +4,13 @@
   import { videoBackdropPrefs } from '#lib/stores/video-backdrop-prefs.svelte.ts';
   import { cropMatte } from '#lib/actions/crop-matte.ts';
   import { cn } from '#lib/utils.ts';
+  import { createVideoFollower } from '#lib/video-follow.ts';
 
   // Read-only cousin of the in-app VideoBackdrop for the anonymous share page: the song's muted
   // music video, cross-faded in over the page's fixed ambient-artwork backdrop once the first
   // frame is decoded. The player's audio element is the master clock — the <video> is slaved to
-  // it through the share's per-song sync offset (videoTime = audioTime + offsetMs/1000) with a
-  // hard resync whenever drift exceeds DRIFT_TOLERANCE_S. The layer stack is opaque while
+  // it through the share's per-song sync offset (videoTime = audioTime + offsetMs/1000) by the
+  // rule in #lib/video-follow. The layer stack is opaque while
   // visible (video + gradient scrim), so the page's flat scrim underneath needs no coordination.
   let {
     songId,
@@ -28,7 +29,7 @@
     pillarbox?: number | null;
   } = $props();
 
-  const DRIFT_TOLERANCE_S = 0.3;
+  const follower = createVideoFollower();
 
   // Same opt-out `videoBackdropPrefs` gives the owner inside the app (and the same
   // localStorage entry — one preference per browser, whichever page set it), plus Reduce
@@ -80,9 +81,13 @@
       return;
     }
 
-    if (Math.abs(el.currentTime - mapped) > DRIFT_TOLERANCE_S) {
-      el.currentTime = mapped;
-    }
+    const step = follower.step({
+      videoTime: el.currentTime,
+      seeking: el.seeking,
+      mapped,
+      now: performance.now()
+    });
+    if (step.kind === 'seek') el.currentTime = step.to;
     if (playerStore.isPlaying && el.paused) {
       void el.play().catch(() => {});
     }

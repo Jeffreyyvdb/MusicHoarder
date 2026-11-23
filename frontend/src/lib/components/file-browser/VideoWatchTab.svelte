@@ -37,6 +37,7 @@
   import { blurAfterPointerClick, cn, transportGlyphClass } from '#lib/utils.ts';
   import { untrack } from 'svelte';
   import { glide } from '#lib/components/file-browser/now-playing/mode-motion.ts';
+  import { createVideoFollower } from '#lib/video-follow.ts';
 
   // Watch mode for the music video: the clip fitted into all of Now Playing's middle (a phone) or
   // right column (lg) — as large as its shape allows, like Android's `fitClip` — and expandable to
@@ -44,7 +45,7 @@
   // own transport sits right under it; the fullscreen view brings its own chrome, since the app
   // is hidden there. Same slave-sync model as the backdrop — the store's audio
   // element is the master clock and the (muted) video follows it through the per-song offset,
-  // hard-resyncing when drift exceeds DRIFT_TOLERANCE_S. That is also what makes the scrubber
+  // by the rule in #lib/video-follow. That is also what makes the scrubber
   // work: it seeks the *audio*, and the next sync pass drags the video to the new position.
   // When the song shown isn't the one playing, the frame holds the first frame with a play hint.
   let {
@@ -88,7 +89,7 @@
     onPlayRequest: () => void;
   } = $props();
 
-  const DRIFT_TOLERANCE_S = 0.3;
+  const follower = createVideoFollower();
   /** How long the fullscreen controls linger after the last pointer move. */
   const CONTROLS_IDLE_MS = 3000;
 
@@ -215,6 +216,7 @@
     videoLoadRetries = 0;
     videoFailed = false;
     clipOver = false;
+    follower.reset();
   });
 
   $effect(() => {
@@ -248,9 +250,13 @@
     }
     if (clipOver) clipOver = false;
 
-    if (Math.abs(el.currentTime - mapped) > DRIFT_TOLERANCE_S) {
-      el.currentTime = mapped;
-    }
+    const step = follower.step({
+      videoTime: el.currentTime,
+      seeking: el.seeking,
+      mapped,
+      now: performance.now()
+    });
+    if (step.kind === 'seek') el.currentTime = step.to;
     if (playerStore.isPlaying && el.paused) {
       void el.play().catch(() => {});
     }
