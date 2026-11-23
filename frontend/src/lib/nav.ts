@@ -191,11 +191,11 @@ export const NAV_GROUPS: NavGroup[] = [
         // because a chip row does the same job in a quarter of the sidebar and, unlike routes,
         // chips combine. The keywords carry the retired names so the palette still finds them.
         id: 'tracks',
-        label: 'Tracks',
+        label: 'My tracks',
         href: '/tracks',
         icon: ListMusic,
         keywords:
-          'songs everything liked favourites favorites hearts loved my music mine local files spotify video lyrics unreleased'
+          'tracks songs liked favourites favorites hearts loved my music mine local files spotify video lyrics unreleased'
       },
       {
         // Playlists made here, and one per Spotify / Deezer / YouTube playlist collected under Add —

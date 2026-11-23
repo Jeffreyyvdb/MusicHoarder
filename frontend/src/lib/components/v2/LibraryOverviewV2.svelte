@@ -143,7 +143,7 @@
   const allLibraryRows = $derived([
     { href: '/library', label: 'Albums', icon: Disc3, count: allAlbums.length },
     { href: '/artists', label: 'Artists', icon: Mic2, count: artistGroups.length },
-    { href: '/tracks', label: 'Tracks', icon: ListMusic, count: trackListSongs.length },
+    { href: '/tracks', label: 'My tracks', icon: ListMusic, count: trackListSongs.length },
     {
       href: '/tracks?f=mh-liked',
       label: 'Favourites',
@@ -160,7 +160,7 @@
           }
         ]
       : []),
-    // After Tracks' own slices (Favourites, Spotify liked), which read as part of Tracks.
+    // After My tracks' own slices (Favourites, Spotify liked), which read as part of it.
     playlistsRow,
     listeningRow
   ]);

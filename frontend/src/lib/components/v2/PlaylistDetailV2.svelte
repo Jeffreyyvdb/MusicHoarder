@@ -421,7 +421,7 @@
           <EmptyState
             icon={ListVideo}
             title="This playlist is empty"
-            hint="Pick Add to playlist… from any track’s ⋯ menu, in Tracks, an album or Now Playing."
+            hint="Pick Add to playlist… from any track’s ⋯ menu, in My tracks, an album or Now Playing."
           />
         {/if}
       {:else}

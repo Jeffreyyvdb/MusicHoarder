@@ -221,8 +221,7 @@ export interface ApiSong {
   /**
    * Server-decided "album completion added this". The same fact as `acquisitionIntent === 'AlbumFill'`
    * with the string comparison done once, on the side that owns the enum. Absent on rows shared with
-   * you (that projection carries no intent) and on a server older than the field, both of which read
-   * as "yours" — see {@link isMyMusic}.
+   * you, since that projection carries no intent.
    */
   isAlbumFill?: boolean | null;
 }
@@ -272,31 +271,6 @@ export function isLocalFile(s: ApiSong): boolean {
 /** True when you imported this track yourself from a URL (the Add-from-URL dialog). */
 export function isAddedByLink(s: ApiSong): boolean {
   return s.originSource === 'DirectUrl';
-}
-
-/**
- * True when this track is *yours* — you asked for it, rather than album completion adding it because
- * you already owned another track from the same record. The flat Tracks list and the album-recency
- * sort are built from this; the album views deliberately are not, because a filled album has to look
- * complete there.
- *
- * Two details carry weight:
- *
- *  • A like promotes a filled track. Hearting one is the deliberate act that says "keep this", and
- *    it is the whole payoff of the feature — without it, liking an album-fill track would do nothing
- *    visible. Play counts deliberately do NOT promote: shuffling an album through once would
- *    silently adopt every track on it.
- *  • A row that says nothing about its intent reads as yours. An API too old to send either field,
- *    and the deliberately narrow `SharedSongRowDto` (which carries neither), must degrade to showing
- *    everything rather than to an empty list.
- *
- * The server decides the fill half (`isAlbumFill`); the like half stays here because the store
- * writes `likedAtUtc` optimistically on a heart tap, and a server-computed answer would be stale
- * before the request that refreshed it came back.
- */
-export function isMyMusic(s: ApiSong): boolean {
-  const fill = s.isAlbumFill ?? s.acquisitionIntent === 'AlbumFill';
-  return !fill || Boolean(s.likedAtUtc);
 }
 
 /** True when a music video for this track is downloaded and playable. */

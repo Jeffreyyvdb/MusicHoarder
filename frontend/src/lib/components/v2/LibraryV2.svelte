@@ -206,7 +206,7 @@
   // ── derivations (only clean/built songs make up the library) ────────────────
   const builtSongs = $derived(songsStore.builtSongs);
 
-  // What the Tracks list covers — see isTrackListSong for the (deliberate) shape of it.
+  // What My tracks covers — see isTrackListSong for the (deliberate) shape of it.
   const trackListBase = $derived(songsStore.trackListSongs);
 
   // "Unreleased only": leaks/snippets/stems, as classified by the API. Grid-only — the Tracks list
@@ -502,7 +502,7 @@
         ? artistName
         : chips.length === 1
           ? CHIP_LABELS[chips[0]]
-          : 'Tracks';
+          : 'My tracks';
     return { label, href: url.pathname + url.search };
   });
   // The artist's albums are the server-narrowed cards (a compilation shows only this artist's
@@ -630,7 +630,7 @@
   const artistMenus: Record<number, RowMenu | undefined> = {};
 
   // ── nav bar text ───────────────────────────────────────────────────────────
-  const TOOLBAR_TITLE = { albums: 'Albums', artists: 'Artists', tracks: 'Tracks' };
+  const TOOLBAR_TITLE = { albums: 'Albums', artists: 'Artists', tracks: 'My tracks' };
   const SEARCH_LABEL = {
     albums: 'Search albums',
     artists: 'Search artists',
@@ -952,7 +952,7 @@
      title, search, filter tokens and Play/Shuffle scroll away with the rows. -->
 {#snippet tracksHeader()}
   <PageToolbarV2
-    title="Tracks"
+    title="My tracks"
     meta={toolbarMeta}
     metaFrom="lg"
     search={searchField}

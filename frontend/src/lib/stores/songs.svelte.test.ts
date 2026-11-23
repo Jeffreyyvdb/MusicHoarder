@@ -120,10 +120,15 @@ describe('shared cuts', () => {
 
   it('keeps built songs, the Tracks base and the lead artists in step with the rows', async () => {
     fetchSongs.mockResolvedValue([
-      song(1, { isBuilt: true, artist: 'Nina' }),
+      song(1, { isBuilt: true, artist: 'Nina', originKind: 'Scanned' }),
       song(2, { isBuilt: false, artist: 'Nina' }),
-      // Album completion filled this one in: built, but not yours until you like it.
-      song(3, { isBuilt: true, artist: 'Otis', acquisitionIntent: 'AlbumFill' })
+      // A playlist download: built, but not one of your tracks until you like it.
+      song(3, {
+        isBuilt: true,
+        artist: 'Otis',
+        originKind: 'Downloaded',
+        originSource: 'SpotifyPlaylist'
+      })
     ]);
     fetchAlbums.mockResolvedValue([]);
     const store = await freshStore();
@@ -135,7 +140,7 @@ describe('shared cuts', () => {
     expect(store.trackListSongs.map((s) => s.id)).toEqual([1]);
     expect(store.leadArtistGroups.map((g) => g.label)).toEqual(['Nina', 'Otis']);
 
-    // A like promotes the album-fill track into the Tracks list, without a refetch.
+    // A heart moves it into My tracks, without a refetch.
     likeSong.mockResolvedValue({ likedAtUtc: '2026-09-24T10:00:00Z' });
     await store.toggleLike(3);
     await flush();
@@ -147,18 +152,25 @@ describe('shared cuts', () => {
   });
 
   it("gives the sidebar the pages' own figures, however the artists are credited", async () => {
+    const local = { isBuilt: true, originKind: 'Scanned' };
     fetchSongs.mockResolvedValue([
       // A duo credited as one album artist: the Artists grid lists its members, not "A & B".
-      song(1, { isBuilt: true, artist: 'A & B', albumArtist: 'A & B', artists: 'A;B' }),
-      song(2, { isBuilt: true, artist: 'A' }),
+      song(1, { ...local, artist: 'A & B', albumArtist: 'A & B', artists: 'A;B' }),
+      song(2, { ...local, artist: 'A' }),
       // A featured-only guest never leads a release, so the grid leaves them out.
-      song(3, { isBuilt: true, artist: 'Nina', artists: 'Nina;Guest' }),
+      song(3, { ...local, artist: 'Nina', artists: 'Nina;Guest' }),
       // The same lead in other capitals is one artist.
-      song(4, { isBuilt: true, artist: 'NINA' }),
+      song(4, { ...local, artist: 'NINA' }),
       // Not built: in no grid.
       song(5, { isBuilt: false, artist: 'Otis' }),
-      // Album fill: an artist in the grid, but not a row in the Tracks list.
-      song(6, { isBuilt: true, artist: 'Zed', acquisitionIntent: 'AlbumFill' })
+      // Album fill: an artist in the grid, but not a row in My tracks.
+      song(6, {
+        isBuilt: true,
+        artist: 'Zed',
+        originKind: 'Downloaded',
+        originSource: 'AlbumCompletion',
+        acquisitionIntent: 'AlbumFill'
+      })
     ]);
     fetchAlbums.mockResolvedValue([{ key: 'one' }, { key: 'two' }]);
     const store = await freshStore();

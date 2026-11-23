@@ -396,10 +396,11 @@ describe('chip vocabulary', () => {
 
 describe('isTrackListSong', () => {
   const built = { isBuilt: true };
-  it('covers built songs you asked for', () => {
-    expect(isTrackListSong(song(1, built))).toBe(true);
-  });
-  it('covers your own source files still waiting on review, built or not', () => {
+  const downloaded = { ...built, originKind: 'Downloaded' as const };
+  const liked = { likedAtUtc: '2026-01-01T00:00:00Z' };
+
+  it('covers your own source files, and those still waiting on review before they are built', () => {
+    expect(isTrackListSong(song(1, { ...built, originKind: 'Scanned' }))).toBe(true);
     expect(
       isTrackListSong(song(1, { isBuilt: false, originKind: 'Scanned', enrichmentStatus: 2 }))
     ).toBe(true);
@@ -410,11 +411,77 @@ describe('isTrackListSong', () => {
       isTrackListSong(song(1, { isBuilt: false, originKind: 'Downloaded', enrichmentStatus: 2 }))
     ).toBe(false);
   });
-  it('leaves album completion out until a like promotes it', () => {
-    expect(isTrackListSong(song(1, { ...built, isAlbumFill: true }))).toBe(false);
+
+  it('covers downloads you liked on Spotify, hearted here, or added from a link', () => {
     expect(
-      isTrackListSong(song(1, { ...built, isAlbumFill: true, likedAtUtc: '2026-01-01T00:00:00Z' }))
+      isTrackListSong(song(1, { ...downloaded, spotifyLikedAtUtc: '2026-01-01T00:00:00Z' }))
     ).toBe(true);
+    expect(isTrackListSong(song(1, { ...downloaded, ...liked }))).toBe(true);
+    expect(isTrackListSong(song(1, { ...downloaded, originSource: 'DirectUrl' }))).toBe(true);
+  });
+
+  it('leaves out what the pipeline fetched on its own until you heart it', () => {
+    for (const originSource of [
+      'SpotifyPlaylist',
+      'DeezerPlaylist',
+      'YouTubePlaylist',
+      'ArtistRequest',
+      'FollowedArtist',
+      'AlbumCompletion'
+    ] as const) {
+      expect(isTrackListSong(song(1, { ...downloaded, originSource }))).toBe(false);
+      expect(isTrackListSong(song(1, { ...downloaded, originSource, ...liked }))).toBe(true);
+    }
+    expect(isTrackListSong(song(1, { ...built, originKind: 'Synced' }))).toBe(false);
+    expect(isTrackListSong(song(1, { ...built, originKind: 'Synced', ...liked }))).toBe(true);
+  });
+
+  it('counts a Spotify like on an album fill', () => {
+    expect(
+      isTrackListSong(
+        song(1, {
+          ...downloaded,
+          originSource: 'AlbumCompletion',
+          isAlbumFill: true,
+          spotifyLikedAtUtc: '2026-01-01T00:00:00Z'
+        })
+      )
+    ).toBe(true);
+  });
+
+  // A quality upgrade moves a local file into the download root, and a link add can lose its
+  // wishlist row. Either way nothing says a collection fetched it, so it stays yours.
+  it('keeps a download that no collection fetched', () => {
+    expect(isTrackListSong(song(1, downloaded))).toBe(true);
+    expect(isTrackListSong(song(1, { ...downloaded, originSource: 'None' }))).toBe(true);
+    expect(isTrackListSong(song(1, built))).toBe(true);
+  });
+
+  // The stored intent outlives the wishlist link the origin is derived from.
+  it('leaves out an album fill whose wishlist link is gone', () => {
+    expect(isTrackListSong(song(1, { ...downloaded, isAlbumFill: true }))).toBe(false);
+    expect(isTrackListSong(song(1, { ...downloaded, acquisitionIntent: 'AlbumFill' }))).toBe(false);
+  });
+
+  // Playing is not choosing: shuffling a playlist through once must not adopt every track on it.
+  it('is not changed by plays', () => {
+    expect(
+      isTrackListSong(song(1, { ...downloaded, originSource: 'SpotifyPlaylist', playCount: 12 }))
+    ).toBe(false);
+  });
+
+  it('needs a download to be built, even a liked one', () => {
+    const unbuilt = { ...downloaded, isBuilt: false };
+    expect(isTrackListSong(song(1, { ...unbuilt, ...liked }))).toBe(false);
+    expect(
+      isTrackListSong(song(1, { ...unbuilt, spotifyLikedAtUtc: '2026-01-01T00:00:00Z' }))
+    ).toBe(false);
+    expect(isTrackListSong(song(1, { ...unbuilt, originSource: 'DirectUrl' }))).toBe(false);
+  });
+
+  it('keeps every built song of a library shared with you', () => {
+    expect(isTrackListSong(song(1, { ...built, sharedByUserId: 'grantor' }))).toBe(true);
+    expect(isTrackListSong(song(1, { isBuilt: false, sharedByUserId: 'grantor' }))).toBe(false);
   });
 });
 
