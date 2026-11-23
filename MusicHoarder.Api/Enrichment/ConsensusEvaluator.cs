@@ -363,18 +363,20 @@ public static partial class ConsensusEvaluator
     // A name agrees with the path as spelled ("AC/DC" and an "AC-DC" folder both read "acdc"), or with
     // dashes folded to spaces on both sides, as the path query folds them ("Anti-Hero" and "Anti Hero").
     // Folded, every word of the artist must be there, so "jay" alone does not stand for "JAY-Z". The
-    // artist folder counts only for a track-numbered file, the structured-library layout
-    // SongSearchText reads; a loose "Drake - Avalon.mp3" sits in a bucket folder that names no one.
+    // artist folder can also vouch for the artist, but only by naming all of it: a "Title - Subtitle"
+    // filename leaves the folder out of the path query, and a bucket folder ("Music") must not stand
+    // for "Roxy Music".
     private static bool PathNamesTheMatch(SongSearchText.Resolved source, EnrichmentProviderResult match)
     {
         var path = source.PathQuery;
-        var artistText = source.TrackNumber is null ? path : $"{path} {source.Artist}";
         return (!source.TitleFromPath
                 || CandidateTextMatch.AllPresent(match.Title, path)
                 || CandidateTextMatch.AllPresent(FoldDashes(match.Title), FoldDashes(path)))
             && (!source.ArtistFromPath
-                || CandidateTextMatch.Containment(match.Artist, artistText) > 0
-                || CandidateTextMatch.AllPresent(FoldDashes(match.Artist), FoldDashes(artistText)));
+                || CandidateTextMatch.Containment(match.Artist, path) > 0
+                || CandidateTextMatch.AllPresent(FoldDashes(match.Artist), FoldDashes(path))
+                || CandidateTextMatch.AllPresent(match.Artist, source.Artist)
+                || CandidateTextMatch.AllPresent(FoldDashes(match.Artist), FoldDashes(source.Artist)));
     }
 
     private static string? FoldDashes(string? value) => value is null ? null : Dash().Replace(value, " ");
