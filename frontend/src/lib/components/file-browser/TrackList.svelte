@@ -230,10 +230,11 @@
   });
 
   // Desktop table columns. The header and row templates must stay identical per tier; the last
-  // column is the row's ⋯ menu.
+  // column is the row's ⋯ menu. From @4xl the artist line under the title becomes its own column.
   const GRID = [
     'grid-cols-[40px_40px_minmax(0,1fr)_28px_52px_32px]',
-    '@xl:grid-cols-[44px_40px_minmax(0,1.6fr)_minmax(0,1fr)_28px_52px_32px]'
+    '@xl:grid-cols-[44px_40px_minmax(0,1.6fr)_minmax(0,1fr)_28px_52px_32px]',
+    '@4xl:grid-cols-[44px_40px_minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_28px_52px_32px]'
   ].join(' ');
 </script>
 
@@ -270,7 +271,8 @@
 <!--
   @container: column visibility is driven by the table's own width, not the viewport — the nav
   sidebar can shrink this area well below viewport breakpoints. The artist sits under the title;
-  @xl adds the album. Every other sort is in the Sort and filter menu.
+  @xl adds the album, and @4xl gives the artist a column of its own. Every other sort is in the
+  Sort and filter menu.
 -->
 <div class="@container flex min-h-0 flex-1 flex-col overflow-hidden">
   <!-- The one scroller: nav bar, header bands, (desktop) column header, rows. `relative` makes its
@@ -294,6 +296,7 @@
         <span class="text-right text-[11px] font-medium">#</span>
         <span></span>
         {@render sortHead('title', 'Title')}
+        <span class="hidden @4xl:block">{@render sortHead('artist', 'Artist')}</span>
         <span class="hidden @xl:block">{@render sortHead('album', 'Album')}</span>
         <span></span>
         <button
@@ -481,13 +484,14 @@
                 caption={false}
               />
 
-              <!-- title + sub -->
-              <div class="min-w-0" data-mh-track-title>
+              <!-- title + sub. From @4xl the wrapper drops out of the box tree, so the title and
+                   the artist line are two cells of the grid: the Title and Artist columns. -->
+              <div class="min-w-0 @4xl:contents" data-mh-track-title>
                 <div class={cn('truncate text-[15px] font-medium', isLoaded && 'text-primary')}>
                   {#if isLoaded}<span class="sr-only">Now playing, </span>{/if}{titleOf(song)}
                 </div>
                 <div
-                  class="text-muted-foreground mt-0.5 flex min-w-0 items-center gap-2 text-[13px]"
+                  class="text-muted-foreground mt-0.5 flex min-w-0 items-center gap-2 text-[13px] @4xl:mt-0"
                 >
                   {#if needsReview}
                     <Badge
