@@ -38,7 +38,8 @@ internal sealed class GeniusRefusalGate
         lock (_lock)
         {
             _consecutiveRefusals++;
-            if (_consecutiveRefusals < RefusalsToTrip || now < _closedUntil)
+            var sentBeforeTheGateClosed = now < _closedUntil;
+            if (_consecutiveRefusals < RefusalsToTrip || sentBeforeTheGateClosed)
                 return null;
 
             _lastCooldown = _lastCooldown == TimeSpan.Zero

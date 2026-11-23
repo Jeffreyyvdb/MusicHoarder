@@ -40,7 +40,9 @@ public class GeniusLyricsServiceTests
 
     private static readonly DateTimeOffset Start = new(2026, 11, 23, 12, 0, 0, TimeSpan.Zero);
 
-    private static GeniusLyricsService Create(Handler handler, TimeProvider? clock = null, int requestsPerSecond = 1000) => new(
+    private const int Unthrottled = 1000;
+
+    private static GeniusLyricsService Create(Handler handler, TimeProvider? clock = null, int requestsPerSecond = Unthrottled) => new(
         new HttpClient(handler) { BaseAddress = new Uri("https://genius.com/") },
         Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions { GeniusRequestsPerSecond = requestsPerSecond }),
         NullLogger<GeniusLyricsService>.Instance,
