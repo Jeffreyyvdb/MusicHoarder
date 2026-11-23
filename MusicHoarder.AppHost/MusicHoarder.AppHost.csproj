@@ -6,10 +6,6 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <UserSecretsId>df146f6f-c6e2-439e-aab4-9a0c9f006153</UserSecretsId>
-        <!-- ASPIRE010 (new in Aspire 13.5) warns that AspireUseCliBundle is unset, so DCP and the
-             dashboard come from the restored NuGet packages instead of an installed Aspire CLI.
-             That is deliberate: it keeps the AppHost buildable without the CLI on PATH. -->
-        <NoWarn>$(NoWarn);ASPIRE010</NoWarn>
     </PropertyGroup>
 
     <ItemGroup>

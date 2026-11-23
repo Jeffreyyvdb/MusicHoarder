@@ -33,54 +33,68 @@ var destinationDirectory = builder.AddParameter("destination-directory")
 // Optional: a folder of real audio that seeds the demo account with playable songs (hosted demo only).
 // Blank by default → the demo keeps its synthetic seed. Point at a small local folder to test locally.
 var demoMediaDirectory = builder.AddParameter("demo-media-directory", builder.Configuration["Parameters:demo-media-directory"] ?? "")
-    .WithDescription("Optional directory of real audio used to seed the demo account with playable songs. Blank keeps the synthetic demo seed.");
-// These secrets are optional: the app degrades gracefully when blank. Default a missing value to
-// empty so the AppHost boots without prompting (a configured user-secret / env value still wins).
+    .WithDescription("Optional directory of real audio used to seed the demo account with playable songs. Blank keeps the synthetic demo seed.")
+    .AsOptional();
+// These secrets are optional: the app degrades gracefully when blank. Aspire 17 treats a parameter
+// as required by default and faults one left blank, so each optional parameter says .AsOptional()
+// (a configured user-secret / env value still wins).
 var acoustIdApiKey = builder.AddParameter("acoustid-api-key", builder.Configuration["Parameters:acoustid-api-key"] ?? "", secret: true)
-    .WithDescription("AcoustID API key (acoustid.org/api-key). Optional — disables the AcoustID provider when blank.");
+    .WithDescription("AcoustID API key (acoustid.org/api-key). Optional — disables the AcoustID provider when blank.")
+    .AsOptional();
 var spotifyClientId = builder.AddParameter("spotify-client-id", builder.Configuration["Parameters:spotify-client-id"] ?? "", secret: true)
-    .WithDescription("Spotify app Client ID. Optional — disables Spotify enrichment + OAuth when blank.");
+    .WithDescription("Spotify app Client ID. Optional — disables Spotify enrichment + OAuth when blank.")
+    .AsOptional();
 var spotifyClientSecret = builder.AddParameter("spotify-client-secret", builder.Configuration["Parameters:spotify-client-secret"] ?? "", secret: true)
-    .WithDescription("Spotify app Client Secret.");
+    .WithDescription("Spotify app Client Secret.")
+    .AsOptional();
 var frontendPublicBaseUrl = builder.AddParameter("frontend-public-base-url")
     .WithDescription("Public HTTPS base URL of the frontend, used for Spotify OAuth redirect-back. Only consumed when publishing (e.g. the Dokploy domain); local dev uses the dynamic dev endpoint.");
 // Spotify forbids per-env redirect URIs (no wildcards, no localhost), so every environment routes OAuth through one
 // registered relay on the prod frontend. Local dev points at that prod relay verbatim; publish mode derives it from
 // frontend-public-base-url. The signing key + return-origin allowlist guard the relay's browser bounce.
 var spotifyOAuthRelayUrl = builder.AddParameter("spotify-oauth-relay-url", builder.Configuration["Parameters:spotify-oauth-relay-url"] ?? "")
-    .WithDescription("Absolute URL of the single registered Spotify OAuth relay (e.g. https://<prod-frontend>/api/spotify/relay). Used verbatim as redirect_uri in local dev. Empty → falls back to request-derived redirect (offline dev).");
+    .WithDescription("Absolute URL of the single registered Spotify OAuth relay (e.g. https://<prod-frontend>/api/spotify/relay). Used verbatim as redirect_uri in local dev. Empty → falls back to request-derived redirect (offline dev).")
+    .AsOptional();
 var spotifyOAuthStateKey = builder.AddParameter("spotify-oauth-state-key", builder.Configuration["Parameters:spotify-oauth-state-key"] ?? "", secret: true)
-    .WithDescription("Shared HMAC key that signs the Spotify OAuth state. MUST be identical across local dev, the prod relay, and every PR preview. Empty → opaque unsigned state (offline dev only).");
+    .WithDescription("Shared HMAC key that signs the Spotify OAuth state. MUST be identical across local dev, the prod relay, and every PR preview. Empty → opaque unsigned state (offline dev only).")
+    .AsOptional();
 var spotifyReturnOriginAllowlist = builder.AddParameter("spotify-return-origin-allowlist", builder.Configuration["Parameters:spotify-return-origin-allowlist"] ?? "https://localhost:* http://127.0.0.1:*")
-    .WithDescription("Comma/space-separated origins the Spotify relay may bounce back to (prod origin, *.<preview-domain>, and loopback for local dev). Single '*' matches one host/port segment.");
+    .WithDescription("Comma/space-separated origins the Spotify relay may bounce back to (prod origin, *.<preview-domain>, and loopback for local dev). Single '*' matches one host/port segment.")
+    .AsOptional();
 
 // Umami analytics is read by the frontend at runtime via $env/dynamic/public, so these are plain
 // (non-secret) runtime env vars on the frontend container. Default to empty so the AppHost boots and
 // `aspire do push` resolves them without prompting; the tracker script only renders when both
 // public-umami-src and public-umami-website-id are non-empty (filled in Dokploy).
 var publicUmamiSrc = builder.AddParameter("public-umami-src", builder.Configuration["Parameters:public-umami-src"] ?? "")
-    .WithDescription("Full Umami tracker URL ending in /script.js. Blank disables analytics.");
+    .WithDescription("Full Umami tracker URL ending in /script.js. Blank disables analytics.")
+    .AsOptional();
 var publicUmamiWebsiteId = builder.AddParameter("public-umami-website-id", builder.Configuration["Parameters:public-umami-website-id"] ?? "")
-    .WithDescription("Umami website id (GUID). Blank disables analytics.");
+    .WithDescription("Umami website id (GUID). Blank disables analytics.")
+    .AsOptional();
 var publicUmamiRecorderSrc = builder.AddParameter("public-umami-recorder-src", builder.Configuration["Parameters:public-umami-recorder-src"] ?? "")
-    .WithDescription("Optional Umami session-recorder URL ending in /recorder.js. Blank disables the recorder.");
+    .WithDescription("Optional Umami session-recorder URL ending in /recorder.js. Blank disables the recorder.")
+    .AsOptional();
 
 // Looping, the in-app problem reporter (frontend/src/lib/looping.svelte.ts): the inbox's origin. Read
 // by the frontend at runtime like Umami. Blank (the default, and every self-hosted instance) loads
 // nothing; set, the widget is still fetched only on devices that hold a reporter key.
 var publicLoopingUrl = builder.AddParameter("public-looping-url", builder.Configuration["Parameters:public-looping-url"] ?? "")
-    .WithDescription("Origin of a Looping problem-report inbox (https://…). Blank disables the reporter.");
+    .WithDescription("Origin of a Looping problem-report inbox (https://…). Blank disables the reporter.")
+    .AsOptional();
 
 // Chrome's WebMCP origin-trial token for this deployment's origin (a token is valid for one origin
 // only). The frontend sends it as an `Origin-Trial` header; blank sends nothing, and WebMCP then
 // works only where a user turned on chrome://flags/#enable-webmcp-testing.
 var webMcpOriginTrialToken = builder.AddParameter("webmcp-origin-trial-token", builder.Configuration["Parameters:webmcp-origin-trial-token"] ?? "")
-    .WithDescription("Optional Chrome origin-trial token for WebMCP, registered for this deployment's origin. Blank disables the trial header.");
+    .WithDescription("Optional Chrome origin-trial token for WebMCP, registered for this deployment's origin. Blank disables the trial header.")
+    .AsOptional();
 
 // AI quality grading calls an OpenAI-compatible endpoint (OpenRouter by default). The key is the
 // only required secret; with it blank the grader degrades to a no-op like the other providers.
 var qualityGradingApiKey = builder.AddParameter("quality-grading-api-key", builder.Configuration["Parameters:quality-grading-api-key"] ?? "", secret: true)
-    .WithDescription("API key for the OpenAI-compatible quality-grading endpoint (e.g. an OpenRouter key). Optional — disables AI grading when blank.");
+    .WithDescription("API key for the OpenAI-compatible quality-grading endpoint (e.g. an OpenRouter key). Optional — disables AI grading when blank.")
+    .AsOptional();
 var qualityGradingBaseUrl = builder.AddParameter("quality-grading-base-url", builder.Configuration["Parameters:quality-grading-base-url"] ?? "https://openrouter.ai/api/v1")
     .WithDescription("Base URL of the OpenAI-compatible chat-completions API used for grading.");
 var qualityGradingModel = builder.AddParameter("quality-grading-model", builder.Configuration["Parameters:quality-grading-model"] ?? "deepseek/deepseek-v4-flash")
@@ -90,7 +104,8 @@ var qualityGradingModel = builder.AddParameter("quality-grading-model", builder.
 // (Groq Whisper recommended). With the key blank the whole feature is hidden. Provider-neutral param
 // names so the deployed env var is LYRICS_TRANSCRIPTION_API_KEY (matches the self-host/preview compose).
 var lyricsTranscriptionApiKey = builder.AddParameter("lyrics-transcription-api-key", builder.Configuration["Parameters:lyrics-transcription-api-key"] ?? "", secret: true)
-    .WithDescription("API key for the OpenAI-compatible audio-transcriptions endpoint (Groq recommended). Blank → the AI lyrics feature is hidden.");
+    .WithDescription("API key for the OpenAI-compatible audio-transcriptions endpoint (Groq recommended). Blank → the AI lyrics feature is hidden.")
+    .AsOptional();
 var lyricsTranscriptionBaseUrl = builder.AddParameter("lyrics-transcription-base-url", builder.Configuration["Parameters:lyrics-transcription-base-url"] ?? "https://api.groq.com/openai/v1")
     .WithDescription("Base URL of the transcription API (e.g. https://api.groq.com/openai/v1 for Groq, or https://api.openai.com/v1, or a self-hosted whisper).");
 var lyricsTranscriptionModel = builder.AddParameter("lyrics-transcription-model", builder.Configuration["Parameters:lyrics-transcription-model"] ?? "whisper-large-v3")
@@ -108,24 +123,29 @@ var lyricsTranslationModel = builder.AddParameter("lyrics-translation-model", bu
 // themselves; MusicHoarder only needs to reach its REST API and read its completed-downloads dir).
 // All blank → the integration is off and the "slskd" download provider reports NotFound.
 var slskdBaseUrl = builder.AddParameter("slskd-base-url", builder.Configuration["Parameters:slskd-base-url"] ?? "")
-    .WithDescription("Base URL of a user-operated slskd instance (e.g. http://localhost:5030). Blank → Soulseek integration off.");
+    .WithDescription("Base URL of a user-operated slskd instance (e.g. http://localhost:5030). Blank → Soulseek integration off.")
+    .AsOptional();
 var slskdApiKey = builder.AddParameter("slskd-api-key", builder.Configuration["Parameters:slskd-api-key"] ?? "", secret: true)
-    .WithDescription("slskd API key (web.authentication.api_keys), sent as X-API-Key.");
+    .WithDescription("slskd API key (web.authentication.api_keys), sent as X-API-Key.")
+    .AsOptional();
 var slskdDownloadsDirectory = builder.AddParameter("slskd-downloads-directory", builder.Configuration["Parameters:slskd-downloads-directory"] ?? "")
-    .WithDescription("slskd's completed-downloads directory as seen from the API process (in dev: the host path slskd writes to).");
+    .WithDescription("slskd's completed-downloads directory as seen from the API process (in dev: the host path slskd writes to).")
+    .AsOptional();
 
 // Optional streaming-FLAC acquisition sidecar (the "spotiflac" download provider). The sidecar is a
 // separate, self-hosted, off-by-default service (never provisioned here); MusicHoarder only calls its
 // HTTP contract. Blank → the integration is off and the "spotiflac" provider reports NotFound.
 var streamingFlacSidecarUrl = builder.AddParameter("streaming-flac-sidecar-url", builder.Configuration["Parameters:streaming-flac-sidecar-url"] ?? "")
-    .WithDescription("Base URL of a self-hosted streaming-FLAC acquisition sidecar (e.g. http://spotiflac:8000). Blank → integration off.");
+    .WithDescription("Base URL of a self-hosted streaming-FLAC acquisition sidecar (e.g. http://spotiflac:8000). Blank → integration off.")
+    .AsOptional();
 
 var ownerEmail = builder.AddParameter("owner-email")
     .WithDescription("Email of the owner (admin) account. Used by magic-link sign-in.");
 var demoUserEmail = builder.AddParameter("demo-user-email")
     .WithDescription("Email of the demo (read-only) account. Defaults to demo@musichoarder.local.");
 var resendApiKey = builder.AddParameter("resend-api-key", builder.Configuration["Parameters:resend-api-key"] ?? "", secret: true)
-    .WithDescription("Resend API key for magic-link emails. Optional — falls back to logging links to the console when blank.");
+    .WithDescription("Resend API key for magic-link emails. Optional — falls back to logging links to the console when blank.")
+    .AsOptional();
 var resendFromAddress = builder.AddParameter("resend-from-address")
     .WithDescription("'From' address for magic-link emails (must be on a domain verified in Resend).");
 
