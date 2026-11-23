@@ -743,9 +743,11 @@ public static class AlbumsEndpoints
         }
 
         // External cover fetch failures (success leaves no row — the cover.* file is the marker).
+        // Upgrade cooldowns are excluded: those folders already have a cover on disk.
         var coverFailures = await db.AlbumCoverFetchAttempts
             .AsNoTracking()
-            .Where(a => albumFolders.Contains(a.AlbumFolder))
+            .Where(a => albumFolders.Contains(a.AlbumFolder)
+                && (a.Status == AlbumCoverFetchStatus.NotFound || a.Status == AlbumCoverFetchStatus.Failed))
             .ToListAsync(ct);
         foreach (var failure in coverFailures)
         {

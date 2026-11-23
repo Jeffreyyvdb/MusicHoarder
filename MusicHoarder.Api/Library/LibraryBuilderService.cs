@@ -546,9 +546,18 @@ public class LibraryBuilderService(
                                 var directory = fileSystem.Path.GetDirectoryName(candidate.DestinationPath);
                                 if (!string.IsNullOrEmpty(directory))
                                 {
-                                    coverDirectories.TryAdd(directory, new CoverPassEntry(
+                                    var entry = new CoverPassEntry(
                                         result.SourcePath, result.OwnerUserId, result.SongId, result.Album, result.AlbumArtist,
-                                        result.MusicBrainzReleaseId, result.MusicBrainzReleaseGroupId, result.SpotifyId));
+                                        result.MusicBrainzReleaseId, result.MusicBrainzReleaseGroupId, result.SpotifyId);
+                                    coverDirectories.AddOrUpdate(
+                                        directory,
+                                        entry,
+                                        (_, existing) => existing with
+                                        {
+                                            MusicBrainzReleaseId = existing.MusicBrainzReleaseId ?? entry.MusicBrainzReleaseId,
+                                            MusicBrainzReleaseGroupId = existing.MusicBrainzReleaseGroupId ?? entry.MusicBrainzReleaseGroupId,
+                                            SpotifyId = existing.SpotifyId ?? entry.SpotifyId,
+                                        });
                                 }
                             }
                             break;
@@ -1150,8 +1159,8 @@ public class LibraryBuilderService(
 
     // Writes a cover.<ext> into each freshly-built album folder that doesn't already have a
     // cover/folder/front.* image, lifting art from a representative source track (folder image first,
-    // else embedded — Navidrome's order), and falling back to external providers (Cover Art Archive →
-    // Spotify → Deezer → iTunes) when the source has none. One task per directory, so no intra-album races.
+    // else embedded — Navidrome's order), and falling back to external providers (Spotify → Cover Art
+    // Archive → Deezer → iTunes) when the source has none. One task per directory, so no intra-album races.
     // Best-effort: a cover failure never fails the build. When a cover is actually written it records
     // an AlbumCoverWritten event so the History feed can surface "Cover art added for <album>".
     private async Task WriteAlbumCoversAsync(

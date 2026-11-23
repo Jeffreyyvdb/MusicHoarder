@@ -6,11 +6,17 @@ namespace MusicHoarder.Api.Artwork;
 
 /// <summary>
 /// Outcome of a cover write attempt. <see cref="Source"/> is <c>"source"</c> when the art came from
-/// the source files, or the external provider tag (<c>coverartarchive</c>/<c>deezer</c>/<c>itunes</c>).
+/// the source files, or the external provider tag (<c>spotify</c>/<c>coverartarchive</c>/<c>deezer</c>/<c>itunes</c>).
 /// <see cref="TransientFailure"/> reports an external-provider error/rate-limit so the sweep can pick
 /// a shorter retry cooldown than a clean "no provider has it".
+/// <see cref="Skipped"/> indicates a targeted upgrade could not run (provider disabled or credentials
+/// missing) and should not be recorded as a miss.
 /// </summary>
-public sealed record AlbumCoverWriteResult(bool Written, string? Source, bool TransientFailure = false);
+public sealed record AlbumCoverWriteResult(
+    bool Written,
+    string? Source,
+    bool TransientFailure = false,
+    bool Skipped = false);
 
 /// <summary>
 /// Writes a destination album folder's <c>cover.&lt;ext&gt;</c> from a representative source track,
@@ -36,6 +42,17 @@ public interface IAlbumCoverWriter
         string destinationDirectory,
         string sourceAudioPath,
         ExternalCoverArtQuery? externalQuery,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Replaces an existing destination folder cover with Spotify's official album cover when Spotify
+    /// has a verified match. Leaves existing cover files untouched when Spotify is disabled,
+    /// unconfigured, errors, or has no match; removes stale <c>cover.&lt;ext&gt;</c> siblings when the
+    /// format changes so an old file cannot shadow the new cover.
+    /// </summary>
+    Task<AlbumCoverWriteResult> ReplaceWithSpotifyAsync(
+        string destinationDirectory,
+        ExternalCoverArtQuery externalQuery,
         CancellationToken ct = default);
 }
 
@@ -103,6 +120,46 @@ public class AlbumCoverWriter(
         }
     }
 
+    public async Task<AlbumCoverWriteResult> ReplaceWithSpotifyAsync(
+        string destinationDirectory,
+        ExternalCoverArtQuery externalQuery,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            if (!options.Value.EnableExternalCoverArtFetch
+                || !options.Value.EnableSpotifyCovers
+                || !fileSystem.Directory.Exists(destinationDirectory))
+            {
+                return new AlbumCoverWriteResult(false, null, Skipped: true);
+            }
+
+            var fetched = await externalFetcher.FetchSpotifyAsync(externalQuery, ct);
+            if (fetched.Skipped)
+            {
+                return new AlbumCoverWriteResult(false, null, Skipped: true);
+            }
+
+            if (fetched.Cover is null)
+            {
+                return new AlbumCoverWriteResult(false, null, fetched.HadTransientFailure);
+            }
+
+            var newPath = WriteCoverFile(destinationDirectory, fetched.Cover.Bytes, fetched.Cover.ContentType);
+            RemoveStaleCoverFiles(destinationDirectory, newPath);
+            return new AlbumCoverWriteResult(true, fetched.Cover.Source, fetched.HadTransientFailure);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to replace album cover with Spotify art in {Directory}", destinationDirectory);
+            return new AlbumCoverWriteResult(false, null, TransientFailure: true);
+        }
+    }
+
     private bool DestinationNeedsCover(string destinationDirectory)
         => fileSystem.Directory.Exists(destinationDirectory)
             && !coverArtResolver.DirectoryHasCoverImage(destinationDirectory);
@@ -136,12 +193,51 @@ public class AlbumCoverWriter(
         return true;
     }
 
-    private void WriteCoverFile(string destinationDirectory, byte[] bytes, string contentType)
+    private string WriteCoverFile(string destinationDirectory, byte[] bytes, string contentType)
     {
         var coverPath = fileSystem.Path.Combine(
             destinationDirectory,
             $"cover{CoverArtResolver.ExtensionForContentType(contentType)}");
         fileSystem.File.WriteAllBytes(coverPath, bytes);
         logger.LogInformation("Wrote album cover {CoverPath}", coverPath);
+        return coverPath;
+    }
+
+    // When a replacement cover changes format (e.g. cover.png → cover.jpg), remove the older
+    // cover.<ext> so CoverArtResolver (which checks extensions in priority order) never serves the
+    // stale file ahead of the newly written one.
+    private void RemoveStaleCoverFiles(string destinationDirectory, string keepPath)
+    {
+        var keepName = fileSystem.Path.GetFileName(keepPath);
+        try
+        {
+            foreach (var path in fileSystem.Directory.EnumerateFiles(destinationDirectory))
+            {
+                var fileName = fileSystem.Path.GetFileName(path);
+                if (string.Equals(fileName, keepName, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var stem = fileSystem.Path.GetFileNameWithoutExtension(fileName);
+                var ext = fileSystem.Path.GetExtension(fileName);
+                if (!string.Equals(stem, "cover", StringComparison.OrdinalIgnoreCase)
+                    || !CoverArtResolver.ImageExtensions.Contains(ext, StringComparer.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    fileSystem.File.Delete(path);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogDebug(ex, "Could not remove superseded cover file {Path}", path);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Could not inspect {Directory} for superseded cover files", destinationDirectory);
+        }
     }
 }

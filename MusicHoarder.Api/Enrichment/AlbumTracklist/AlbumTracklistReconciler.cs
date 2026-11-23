@@ -135,7 +135,8 @@ public static class AlbumTracklistReconciler
             Title: MostVotedString(winning.Select(c => c.Title)),
             AlbumArtist: MostVotedString(winning.Select(c => c.AlbumArtist)),
             Year: EarliestYear(winning),
-            CoverArtUrl: winning.FirstOrDefault(c => c.Source == EnrichmentProvider.MusicBrainzWeb)?.CoverArtUrl
+            CoverArtUrl: winning.FirstOrDefault(c => c.Source == EnrichmentProvider.SpotifyAPI && !string.IsNullOrWhiteSpace(c.CoverArtUrl))?.CoverArtUrl
+                ?? winning.FirstOrDefault(c => c.Source == EnrichmentProvider.MusicBrainzWeb && !string.IsNullOrWhiteSpace(c.CoverArtUrl))?.CoverArtUrl
                 ?? winning.Select(c => c.CoverArtUrl).FirstOrDefault(u => !string.IsNullOrWhiteSpace(u)),
             ResolvedTrackCount: resolvedCount,
             TrackCountContested: trackCountContested,

@@ -24,23 +24,35 @@ public sealed record ExternalCoverArtQuery(
     string? SpotifyTrackId = null,
     string? SpotifyAlbumId = null);
 
-/// <summary>A validated cover image. <see cref="Source"/> ∈ coverartarchive | spotify | deezer | itunes.</summary>
+/// <summary>A validated cover image. <see cref="Source"/> ∈ spotify | coverartarchive | deezer | itunes.</summary>
 public sealed record FetchedCoverArt(byte[] Bytes, string ContentType, string Source);
 
 /// <summary>
 /// <see cref="HadTransientFailure"/> distinguishes "no provider has this cover" (a long NotFound
 /// cooldown is fine) from "a provider errored or was rate limited" (retry sooner).
+/// <see cref="Skipped"/> indicates a single-provider lookup could not run (disabled or missing
+/// credentials) and should not be recorded as a miss.
 /// </summary>
-public sealed record ExternalCoverArtFetchResult(FetchedCoverArt? Cover, bool HadTransientFailure);
+public sealed record ExternalCoverArtFetchResult(
+    FetchedCoverArt? Cover,
+    bool HadTransientFailure,
+    bool Skipped = false);
 
 public interface IExternalCoverArtFetcher
 {
     /// <summary>
-    /// Tries the provider chain (Cover Art Archive by MBID → Spotify → Deezer → iTunes) and returns
+    /// Tries the provider chain (Spotify → Cover Art Archive by MBID → Deezer → iTunes) and returns
     /// the first usable front cover. Never throws (except on cancellation); provider errors fall
     /// through to the next provider and surface as <see cref="ExternalCoverArtFetchResult.HadTransientFailure"/>.
     /// </summary>
     Task<ExternalCoverArtFetchResult> FetchAsync(ExternalCoverArtQuery query, CancellationToken ct = default);
+
+    /// <summary>
+    /// Tries Spotify alone (used to upgrade an existing Cover Art Archive cover without falling
+    /// back to other providers). Sets <see cref="ExternalCoverArtFetchResult.Skipped"/> when Spotify
+    /// covers are disabled or Spotify app credentials are not configured.
+    /// </summary>
+    Task<ExternalCoverArtFetchResult> FetchSpotifyAsync(ExternalCoverArtQuery query, CancellationToken ct = default);
 }
 
 public sealed class ExternalCoverArtFetcher(
@@ -58,20 +70,17 @@ public sealed class ExternalCoverArtFetcher(
         var opts = options.Value;
         var hadTransientFailure = false;
 
-        if (opts.EnableCoverArtArchiveCovers)
+        if (opts.EnableSpotifyCovers && HasSpotifyLookupKey(query))
         {
-            var (cover, failed) = await TryProviderAsync("coverartarchive", () => FetchFromCoverArtArchiveAsync(query, ct));
+            var (cover, failed) = await TryProviderAsync("spotify", () => FetchFromSpotifyAsync(query, ct));
             hadTransientFailure |= failed;
             if (cover is not null)
                 return new ExternalCoverArtFetchResult(cover, hadTransientFailure);
         }
 
-        if (opts.EnableSpotifyCovers
-            && (!string.IsNullOrWhiteSpace(query.SpotifyAlbumId)
-                || !string.IsNullOrWhiteSpace(query.SpotifyTrackId)
-                || !string.IsNullOrWhiteSpace(query.Album)))
+        if (opts.EnableCoverArtArchiveCovers)
         {
-            var (cover, failed) = await TryProviderAsync("spotify", () => FetchFromSpotifyAsync(query, ct));
+            var (cover, failed) = await TryProviderAsync("coverartarchive", () => FetchFromCoverArtArchiveAsync(query, ct));
             hadTransientFailure |= failed;
             if (cover is not null)
                 return new ExternalCoverArtFetchResult(cover, hadTransientFailure);
@@ -95,6 +104,28 @@ public sealed class ExternalCoverArtFetcher(
 
         return new ExternalCoverArtFetchResult(null, hadTransientFailure);
     }
+
+    public async Task<ExternalCoverArtFetchResult> FetchSpotifyAsync(ExternalCoverArtQuery query, CancellationToken ct = default)
+    {
+        if (!options.Value.EnableSpotifyCovers)
+            return new ExternalCoverArtFetchResult(null, HadTransientFailure: false, Skipped: true);
+
+        var (clientId, clientSecret) = await spotifyCredentials.ResolveAsync(ct);
+        if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
+            return new ExternalCoverArtFetchResult(null, HadTransientFailure: false, Skipped: true);
+
+        if (!HasSpotifyLookupKey(query))
+            return new ExternalCoverArtFetchResult(null, HadTransientFailure: false);
+
+        var (cover, failed) = await TryProviderAsync(
+            "spotify", () => FetchFromSpotifyWithCredentialsAsync(clientId, clientSecret, query, ct));
+        return new ExternalCoverArtFetchResult(cover, failed);
+    }
+
+    private static bool HasSpotifyLookupKey(ExternalCoverArtQuery query)
+        => !string.IsNullOrWhiteSpace(query.SpotifyAlbumId)
+            || !string.IsNullOrWhiteSpace(query.SpotifyTrackId)
+            || !string.IsNullOrWhiteSpace(query.Album);
 
     private async Task<(FetchedCoverArt? Cover, bool Failed)> TryProviderAsync(
         string source, Func<Task<FetchedCoverArt?>> fetch)
@@ -136,6 +167,12 @@ public sealed class ExternalCoverArtFetcher(
         if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
             return null;
 
+        return await FetchFromSpotifyWithCredentialsAsync(clientId, clientSecret, query, ct);
+    }
+
+    private async Task<FetchedCoverArt?> FetchFromSpotifyWithCredentialsAsync(
+        string clientId, string clientSecret, ExternalCoverArtQuery query, CancellationToken ct)
+    {
         // ID-first: the enrichment match's track/album id points at the official album image, no
         // search ambiguity involved. Text search is the last resort and must pass verification.
         var albumId = query.SpotifyAlbumId;

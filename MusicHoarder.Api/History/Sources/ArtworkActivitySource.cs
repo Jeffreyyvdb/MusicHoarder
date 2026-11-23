@@ -18,7 +18,8 @@ public sealed class ArtworkActivitySource(MusicHoarderDbContext db) : IActivityS
         // it carries AlbumFolder, is indexed on it, and IS owner-filtered.
         var attempts = await db.AlbumCoverFetchAttempts
             .AsNoTracking()
-            .Where(a => a.LastAttemptAtUtc >= window.FromUtc && a.LastAttemptAtUtc <= window.ToUtc)
+            .Where(a => (a.Status == AlbumCoverFetchStatus.NotFound || a.Status == AlbumCoverFetchStatus.Failed)
+                && a.LastAttemptAtUtc >= window.FromUtc && a.LastAttemptAtUtc <= window.ToUtc)
             .OrderByDescending(a => a.LastAttemptAtUtc)
             .Take(window.MaxRowsPerSource)
             .Select(a => new { a.Id, a.AlbumFolder, a.Status, a.AttemptCount, a.LastAttemptAtUtc })

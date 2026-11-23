@@ -369,23 +369,24 @@ public class MusicEnricherOptions
     // --- External cover art (destination folder covers) ---
 
     /// <summary>
-    /// Fetch a front cover from external providers (Cover Art Archive → Deezer → iTunes) when an
-    /// album's source files carry no art, and write it as the destination folder's <c>cover.&lt;ext&gt;</c>.
-    /// Master switch for both the build-time fallback and the periodic back-catalog sweep.
+    /// Fetch a front cover from external providers (Spotify → Cover Art Archive → Deezer → iTunes)
+    /// when an album's source files carry no art, and write it as the destination folder's
+    /// <c>cover.&lt;ext&gt;</c>. Master switch for both the build-time fallback and the periodic
+    /// back-catalog sweep.
     /// </summary>
     public bool EnableExternalCoverArtFetch { get; set; } = true;
 
-    /// <summary>Try the Cover Art Archive (keyed by MusicBrainz release / release-group MBID) first.</summary>
+    /// <summary>Fall back to the Cover Art Archive (keyed by MusicBrainz release / release-group MBID) after Spotify.</summary>
     public bool EnableCoverArtArchiveCovers { get; set; } = true;
 
     /// <summary>
-    /// Fetch the official Spotify album image (keyed by the matched Spotify track/album id when the
-    /// enrichment match carries one, else a verified album search) after the Cover Art Archive.
-    /// Needs Spotify app credentials; silently skipped without them.
+    /// Try the official Spotify album image first (keyed by the matched Spotify track/album id when
+    /// the enrichment match carries one, else a verified album search). Needs Spotify app credentials;
+    /// silently skipped without them.
     /// </summary>
     public bool EnableSpotifyCovers { get; set; } = true;
 
-    /// <summary>Fall back to Deezer album search (<c>cover_xl</c>) when the Cover Art Archive has nothing.</summary>
+    /// <summary>Fall back to Deezer album search (<c>cover_xl</c>) when Spotify and the Cover Art Archive have nothing.</summary>
     public bool EnableDeezerCovers { get; set; } = true;
 
     /// <summary>Fall back to iTunes album search (artwork upgraded to 3000x3000) as the last resort.</summary>
