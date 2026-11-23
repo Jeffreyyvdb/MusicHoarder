@@ -137,37 +137,24 @@
     openMenu(album, { x: e.clientX, y: e.clientY }, tile);
   }
 
-  // A library's grid is hundreds of tiles, and building them all in one task held the main thread
-  // for the whole navigation (over a second on a phone). Every album gets its link at once, so
-  // the grid has its full height and scroll position from the first frame; the covers, labels
-  // and buttons inside are built for the first screenful, then for the rest as below.
+  // A library's grid is hundreds or thousands of tiles, and building every cover, badge, button
+  // and gesture handler in one task — or eagerly in idle slices — held the main thread for seconds
+  // on big grids and big artist pages. Every album gets its link at once, so the grid has its full
+  // height and scroll position from the first frame; the heavy inside (Cover, images, long-press,
+  // hover Play) is built for the first screenful and then only as each tile comes within two
+  // screens of the viewport or takes focus (`#lib/viewport-fill.ts`).
+  //
+  // With a mouse or trackpad at md and wider, find-in-page needs the album titles in the DOM, so
+  // unbuilt tiles there still carry their lightweight title/artist text (zero Cover/img/listeners)
+  // while waiting for the viewport to build their artwork.
   const FIRST_FILL = 36;
-  const FILL_STEP = 48;
+  const searchablePlaceholders = new MediaQuery('(min-width: 768px) and (pointer: fine)');
 
-  // With a mouse or trackpad at md and wider, the rest are built in idle slices until every album
-  // has its tile: that is where find-in-page is used, and it only finds what has been built.
-  // Everywhere else (a phone, a tablet, a narrow window) building them all doubled the page's
-  // memory and kept the main thread busy for over a second after the grid was already usable, for
-  // tiles most visits never scroll to — so there a tile is built when it comes near the screen.
-  const fillsEverything = new MediaQuery('(min-width: 768px) and (pointer: fine)');
-
-  let filledCount = $state(FIRST_FILL);
-  $effect(() => {
-    if (!fillsEverything.current || filledCount >= albums.length) return;
-    const fill = () => (filledCount += FILL_STEP);
-    if (typeof requestIdleCallback === 'function') {
-      const handle = requestIdleCallback(fill, { timeout: 200 });
-      return () => cancelIdleCallback(handle);
-    }
-    const handle = setTimeout(fill, 16);
-    return () => clearTimeout(handle);
-  });
-
-  // The albums whose tile has been built there: the first screenful, and each one that came
-  // within two screens of the viewport or took focus (see `#lib/viewport-fill.ts`). By key, and never
-  // taken back while the album stays in the list, so a re-sort moves built tiles instead of tearing
-  // them down. `$state.raw`, replaced per batch: one set read by every tile is cheaper than a
-  // signal per album.
+  // The albums whose tile has been built: the first screenful, and each one that came within two
+  // screens of the viewport or took focus (see `#lib/viewport-fill.ts`). By key, and never taken
+  // back while the album stays in the list, so a re-sort moves built tiles instead of tearing them
+  // down. `$state.raw`, replaced per batch: one set read by every tile is cheaper than a signal
+  // per album.
   //
   // It starts as what the first frame builds by position, so on a fresh grid the effect below finds
   // nothing to add: a write there, right after mount, would make every one of the hundreds of
@@ -184,7 +171,7 @@
     const grid = gridEl;
     const list = albums;
     // A shelf is a dozen tiles, all built.
-    if (layout === 'shelf' || fillsEverything.current) return;
+    if (layout === 'shelf') return;
     // Before the grid check: a list that emptied has no grid, and must still be forgotten.
     untrack(() => (builtKeys = carryBuiltTiles(builtKeys, list, FIRST_FILL)));
     if (!grid) return;
@@ -247,8 +234,31 @@
   }
 </script>
 
-{#snippet tile(album: AlbumSummary, shelf: boolean, filled: boolean)}
-  {@const badge = badgeFor(album)}
+{#snippet tileMeta(album: AlbumSummary)}
+  <div class="min-w-0 px-0.5">
+    <p
+      class="text-subheadline truncate font-semibold md:text-[12.5px] md:leading-snug md:font-medium"
+    >
+      {album.title}
+    </p>
+    <p class="text-footnote text-muted-foreground truncate md:text-[11.5px]">
+      {album.artist}{album.year ? ` · ${album.year}` : ''}
+    </p>
+    {#if album.folderKeys.length > 1}
+      <!-- The card folds together several destination folders — say so rather than silently
+           hiding that this album is split on disk. -->
+      <p
+        class="text-footnote text-muted-foreground-dim md:text-[11px]"
+        title={album.folderKeys.join('\n')}
+      >
+        {album.folderKeys.length} editions
+      </p>
+    {/if}
+  </div>
+{/snippet}
+
+{#snippet tile(album: AlbumSummary, shelf: boolean, filled: boolean, deferred: boolean)}
+  {@const badge = filled ? badgeFor(album) : null}
   <a
     href={hrefFor(album)}
     data-album-key={shelf ? undefined : album.key}
@@ -257,16 +267,20 @@
       'group focus-visible:ring-ring flex flex-col rounded-lg focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-hidden',
       shelf
         ? 'w-[150px] shrink-0 snap-start md:w-[168px]'
-        : 'p-1 transition-transform [contain-intrinsic-size:auto_13rem] [content-visibility:auto] hover:-translate-y-0.5'
+        : 'p-1 transition-transform hover:-translate-y-0.5',
+      !shelf && deferred && 'mh-deferred-tile'
     )}
     aria-label={`Open album ${album.title} by ${album.artist}`}
   >
     {#if !filled}
-      <!-- Not built yet (see `filledCount` and `builtKeys`): the link is already a working tile of
-           the right size. -->
-      <div class="flex flex-col gap-2" aria-hidden="true">
-        <div class="bg-muted aspect-square w-full rounded-lg"></div>
-        <div class="h-9"></div>
+      <!-- Not built yet (see `builtKeys`): the link is already a working tile of the right size. -->
+      <div class="flex flex-col gap-2">
+        <div class="bg-muted aspect-square w-full rounded-lg" aria-hidden="true"></div>
+        {#if searchablePlaceholders.current}
+          {@render tileMeta(album)}
+        {:else}
+          <div class="h-9" aria-hidden="true"></div>
+        {/if}
       </div>
     {:else}
       <!-- The hold (and its 97% press feedback) lives on this inner box, not on the link: on a shelf
@@ -312,26 +326,7 @@
             <Play class="size-4" fill="currentColor" />
           </button>
         </div>
-        <div class="min-w-0 px-0.5">
-          <p
-            class="text-subheadline truncate font-semibold md:text-[12.5px] md:leading-snug md:font-medium"
-          >
-            {album.title}
-          </p>
-          <p class="text-footnote text-muted-foreground truncate md:text-[11.5px]">
-            {album.artist}{album.year ? ` · ${album.year}` : ''}
-          </p>
-          {#if album.folderKeys.length > 1}
-            <!-- The card folds together several destination folders — say so rather than silently
-             hiding that this album is split on disk. -->
-            <p
-              class="text-footnote text-muted-foreground-dim md:text-[11px]"
-              title={album.folderKeys.join('\n')}
-            >
-              {album.folderKeys.length} editions
-            </p>
-          {/if}
-        </div>
+        {@render tileMeta(album)}
       </div>
     {/if}
   </a>
@@ -371,7 +366,7 @@
     <div class="flex gap-3 px-4 pt-2 pb-3 md:gap-4 md:px-7">
       {#each albums as album (album.key)}
         <div class="shrink-0" animate:shelfFlip in:shelfIn out:shelfOut>
-          {@render tile(album, true, true)}
+          {@render tile(album, true, true, false)}
         </div>
       {/each}
     </div>
@@ -379,7 +374,7 @@
 {:else}
   <div class={GRID_CLASS} bind:this={gridEl}>
     {#each albums as album, i (album.key)}
-      {@render tile(album, false, i < filledCount || builtKeys.has(album.key))}
+      {@render tile(album, false, i < FIRST_FILL || builtKeys.has(album.key), i >= FIRST_FILL)}
     {/each}
   </div>
 {/if}
@@ -427,3 +422,16 @@
     </DropdownMenu.Content>
   </DropdownMenu.Root>
 {/if}
+
+<style>
+  /* Below-the-fold album tiles skip off-screen layout/paint; older browsers keep containment. */
+  .mh-deferred-tile {
+    content-visibility: auto;
+    contain-intrinsic-size: auto none auto 13rem;
+  }
+  @supports not (content-visibility: auto) {
+    .mh-deferred-tile {
+      contain: layout style paint;
+    }
+  }
+</style>

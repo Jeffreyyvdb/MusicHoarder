@@ -314,9 +314,9 @@
     box-shadow: var(--mh-body-shadow);
   }
   /* The page: inset from the desk's edge (and 8px from the sidebar, whose own gap carries the
-     rest), its corners molded. Its height gives back the margin. */
+     rest when expanded), its corners molded. Its height gives back the margin. */
   :root[data-mh-skin='hardware'] [data-slot='sidebar-inset'] {
-    margin: 8px 8px 8px 0;
+    margin: 8px;
     height: calc(100svh - 16px);
     border-radius: 26px;
     /* Flat, not the gradient: sticky headers inside paint var(--background) over it. */
@@ -325,9 +325,9 @@
     overflow: hidden;
   }
   :root[data-mh-skin='hardware']
-    [data-slot='sidebar-wrapper']:not(:has([data-state='expanded']))
-    [data-slot='sidebar-inset'] {
-    margin-left: 8px;
+    [data-slot='sidebar'][data-state='expanded']
+    ~ [data-slot='sidebar-inset'] {
+    margin-left: 0;
   }
 }
 :root[data-mh-skin='hardware'] [data-slot='sidebar-inset'] {

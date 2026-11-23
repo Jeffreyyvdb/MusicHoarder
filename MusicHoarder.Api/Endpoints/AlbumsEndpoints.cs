@@ -105,7 +105,7 @@ public static class AlbumsEndpoints
     {
         var scope = await scopeResolver.ResolveAsync(db, ct);
         var rows = new List<AlbumTrackRow>();
-        rows.AddRange(await OwnRowsAsync(db, scope, ct));
+        rows.AddRange(await OwnRowsAsync(db, scope, builtOnly, unreleased, ct));
 
         var (sharedSongs, _) =
             await SharedSongProjection.BuildAsync(db, scope, scope.Slices[0].GrantorUserId, ct);
@@ -123,11 +123,15 @@ public static class AlbumsEndpoints
     /// and artist all read whichever row arrives first.
     /// </summary>
     private static async Task<List<AlbumTrackRow>> OwnRowsAsync(
-        MusicHoarderDbContext db, ILibraryScope scope, CancellationToken ct)
+        MusicHoarderDbContext db, ILibraryScope scope, bool builtOnly, bool unreleased, CancellationToken ct)
     {
         var self = scope.Slices[0];
         // Stamp: every Songs row of the caller.
-        var songs = await scope.SongsFor(db, self)
+        var query = scope.SongsFor(db, self);
+        if (builtOnly)
+            query = query.Where(s => s.LibraryBuildStatus == LibraryBuildStatus.Done && s.DestinationPath != null);
+
+        var songs = await query
             .OrderBy(s => s.Artist ?? "")
             .ThenBy(s => s.Album ?? "")
             .ThenBy(s => s.TrackNumber ?? 0)
@@ -148,9 +152,15 @@ public static class AlbumsEndpoints
 
         return songs.Select(s =>
         {
-            var warnings = SongsEndpoints.DeserializeWarnings(s.MatchWarnings);
-            var classification = ReleaseClassifier
-                .Classify(s.IsUnreleased, s.EnrichmentStatus, s.MatchedBy, warnings, s.Isrc, s.SpotifyId);
+            var isUnreleased = false;
+            if (unreleased)
+            {
+                var warnings = SongsEndpoints.DeserializeWarnings(s.MatchWarnings);
+                var classification = ReleaseClassifier
+                    .Classify(s.IsUnreleased, s.EnrichmentStatus, s.MatchedBy, warnings, s.Isrc, s.SpotifyId);
+                isUnreleased = classification is ReleaseClassification.Unreleased
+                    or ReleaseClassification.LikelyUnreleased;
+            }
             return new AlbumTrackRow(
                 s.Id, s.FileName, s.DestinationPath, s.Album, s.AlbumArtist, s.Artist, s.Artists,
                 s.Title, s.TrackNumber, s.Year, s.DurationSeconds, s.FileSizeBytes,
@@ -158,8 +168,7 @@ public static class AlbumsEndpoints
                 s.HasCoverArt, s.PlayCount, s.LikedAtUtc,
                 IsAlbumFill: s.AcquisitionIntent == SongAcquisitionIntent.AlbumFill,
                 IsBuilt: s.LibraryBuildStatus == LibraryBuildStatus.Done && s.DestinationPath != null,
-                IsUnreleased: classification is ReleaseClassification.Unreleased
-                    or ReleaseClassification.LikelyUnreleased,
+                IsUnreleased: isUnreleased,
                 SpotifyAddedAtUtc: saveDates.SaveDateFor(s.Id, s.SpotifyId, saveDates.LinkFor(s.Id)?.SpotifyAddedAtUtc),
                 s.AcquiredAtUtc, s.LibraryBuiltAtUtc, s.IndexedAtUtc);
         }).ToList();

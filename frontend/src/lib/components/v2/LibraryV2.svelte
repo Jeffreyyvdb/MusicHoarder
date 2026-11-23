@@ -1,6 +1,5 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { MediaQuery } from 'svelte/reactivity';
   import { page } from '$app/state';
   import { afterNavigate } from '$app/navigation';
   import { replaceUrl } from '#lib/navigation/replace-url.ts';
@@ -33,8 +32,8 @@
   import FilterChip from '#lib/components/v2/FilterChip.svelte';
   import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
   import LibraryAlbumsGridV2 from '#lib/components/v2/LibraryAlbumsGridV2.svelte';
-  import { carryBuiltTiles, watchNearViewport } from '#lib/viewport-fill.ts';
   import LibraryArtistsGridV2 from '#lib/components/v2/LibraryArtistsGridV2.svelte';
+  import { DYNAMIC_TYPE_CHANGE, dynamicTypeScale } from '#lib/dynamic-type.ts';
   import ArtistShelvesV2 from '#lib/components/v2/ArtistShelvesV2.svelte';
   import TrackRowMenu, { activateTrack } from '#lib/components/v2/TrackRowMenu.svelte';
   import TrackRowText from '#lib/components/v2/TrackRowText.svelte';
@@ -199,9 +198,23 @@
         if (vp.scrollHeight > vp.clientHeight) vp.scrollTop = saved;
       });
     }
-    const onScroll = () => sessionSet(key, String(Math.round(vp.scrollTop)));
+    let saveTimer: ReturnType<typeof setTimeout> | null = null;
+    const flush = () => {
+      if (saveTimer) {
+        clearTimeout(saveTimer);
+        saveTimer = null;
+      }
+      sessionSet(key, String(Math.round(vp.scrollTop)));
+    };
+    const onScroll = () => {
+      if (saveTimer) clearTimeout(saveTimer);
+      saveTimer = setTimeout(flush, 150);
+    };
     vp.addEventListener('scroll', onScroll, { passive: true });
-    return () => vp.removeEventListener('scroll', onScroll);
+    return () => {
+      vp.removeEventListener('scroll', onScroll);
+      if (saveTimer) flush();
+    };
   });
 
   // ── derivations (only clean/built songs make up the library) ────────────────
@@ -300,12 +313,14 @@
   );
 
   // Provider-link status per album (linked / localOnly / pending) for the grid corner badges.
-  // One batch lookup, refreshed when the album set changes. `allAlbums` is rebuilt into fresh
-  // objects on every songs-store refresh, so the effect keys on a string of the identities it
-  // actually sends — otherwise it re-posted the whole library every time the store refetched.
+  // One batch lookup, scoped to the albums this view actually renders and refreshed when that set
+  // changes — skipped on /artists, /tracks and album drilldowns, which never show grid badges.
   let albumStatuses = $state<Map<string, AlbumStatusInfo>>(new Map());
+  const statusAlbums = $derived(
+    tab !== 'albums' || Boolean(albumKey) ? [] : isAlbumFilterActive ? scopedAlbums : allAlbums
+  );
   const albumIdentityKey = $derived(
-    allAlbums.map((a) => `${a.artist}\u0000${a.title}`).join('\u0001')
+    statusAlbums.map((a) => `${a.artist}\u0000${a.title}`).join('\u0001')
   );
   $effect(() => {
     // The status endpoint is owner-only; a friend's grid just shows no badges.
@@ -313,7 +328,7 @@
       albumStatuses = new Map();
       return;
     }
-    const pairs = untrack(() => allAlbums.map((a) => ({ artist: a.artist, album: a.title })));
+    const pairs = untrack(() => statusAlbums.map((a) => ({ artist: a.artist, album: a.title })));
     let cancelled = false;
     void fetchAlbumCanonicalStatuses(pairs)
       .then((map) => {
@@ -515,68 +530,84 @@
   const artistAlbums = $derived(isArtistView ? sortAlbums(scopedAlbums, albumSort) : []);
   const artistSongs = $derived(artistAlbums.flatMap((a) => a.songs));
 
-  // An artist's songs can be thousands of rows (2,745 for one artist in a real library), and with
-  // every one built the page was some 40,000 elements: each frame of a scroll then took the main
-  // thread long enough that the album tiles above, which are built as they come near the screen,
-  // were still empty when a flick on a phone reached them. So the rows are built the way those
-  // tiles are (`LibraryAlbumsGridV2`, `#lib/viewport-fill.ts`): every song has its row from the first
-  // frame, at its resting height, so the page keeps its full height and scroll position; the
-  // inside of a row is built for the first few, then for each one that comes within two screens.
-  // With a mouse at md and wider the rest follow in idle slices, because find-in-page only finds
-  // what has been built.
-  const ROWS_FIRST_FILL = 30;
-  const ROWS_FILL_STEP = 60;
-  const rowsFillEverything = new MediaQuery('(min-width: 768px) and (pointer: fine)');
-  // A derived that is also written to: it starts over with each artist before that artist's rows
-  // render (an effect would reset it only after they had all been built once).
-  let rowsFilled = $derived.by(() => {
-    void artistName;
-    return ROWS_FIRST_FILL;
-  });
+  // Virtualize an artist's Tracks list just like TrackList: an artist can have thousands of tracks
+  // (2,746 for one artist in a real library), and building them all into the DOM (even in idle
+  // slices on desktop) left tens of thousands of nodes and thousands of hardware-skin covers in the
+  // page, tanking scroll frames and INP. Only the rows within the viewport + overscan exist in the
+  // DOM, positioned inside a full-height <ul> so the page keeps its exact height and scrollbar.
+  let typeScale = $state(dynamicTypeScale());
   $effect(() => {
-    if (!rowsFillEverything.current || rowsFilled >= artistSongs.length) return;
-    const fill = () => (rowsFilled += ROWS_FILL_STEP);
-    if (typeof requestIdleCallback === 'function') {
-      const handle = requestIdleCallback(fill, { timeout: 200 });
-      return () => cancelIdleCallback(handle);
-    }
-    const handle = setTimeout(fill, 16);
-    return () => clearTimeout(handle);
+    const onChange = () => (typeScale = dynamicTypeScale());
+    window.addEventListener(DYNAMIC_TYPE_CHANGE, onChange);
+    return () => window.removeEventListener(DYNAMIC_TYPE_CHANGE, onChange);
   });
+  const artistRowH = $derived(compact ? Math.max(64, Math.round(64 * typeScale)) : 56);
+  const ARTIST_ROW_OVERSCAN = 8;
 
+  let artistContentEl = $state<HTMLElement | null>(null);
   let artistSongsEl = $state<HTMLElement | null>(null);
-  // Seeded with what the first frame builds by position, so the effect below finds nothing to add
-  // right after mount (a write there makes every row check again whether it is built).
-  let builtRowKeys = $state.raw<ReadonlySet<string>>(
-    carryBuiltTiles(
-      new Set(),
-      untrack(() => artistSongs).map((song) => ({ key: String(song.id) })),
-      ROWS_FIRST_FILL
-    )
+  let artistScrollTop = $state(0);
+  let artistViewportH = $state(typeof ResizeObserver === 'undefined' ? 900 : 0);
+  let artistSongsTop = $state(0);
+
+  const artistStart = $derived(
+    artistViewportH > 0
+      ? Math.max(
+          0,
+          Math.floor((artistScrollTop - artistSongsTop) / artistRowH) - ARTIST_ROW_OVERSCAN
+        )
+      : 0
   );
+  const artistEnd = $derived(
+    artistViewportH > 0
+      ? Math.min(
+          artistSongs.length,
+          Math.max(
+            0,
+            Math.ceil((artistScrollTop - artistSongsTop + artistViewportH) / artistRowH) +
+              ARTIST_ROW_OVERSCAN
+          )
+        )
+      : 0
+  );
+  const visibleArtistSongs = $derived(artistSongs.slice(artistStart, artistEnd));
+
   $effect(() => {
+    const vp = gridViewport;
+    const content = artistContentEl;
     const list = artistSongsEl;
-    const songs = artistSongs;
-    if (rowsFillEverything.current) return;
-    untrack(
-      () =>
-        (builtRowKeys = carryBuiltTiles(
-          builtRowKeys,
-          songs.map((song) => ({ key: String(song.id) })),
-          ROWS_FIRST_FILL
-        ))
-    );
-    if (!list) return;
-    // A new watcher per list: a changed list holds rows that did not exist a moment ago.
-    const watcher = watchNearViewport(list, {
-      attribute: 'data-song-row',
-      onnear: (keys) =>
-        untrack(() => {
-          const fresh = keys.filter((key) => !builtRowKeys.has(key));
-          if (fresh.length > 0) builtRowKeys = new Set([...builtRowKeys, ...fresh]);
-        })
-    });
-    return () => watcher.destroy();
+    if (!isArtistView || !vp || !content || !list) return;
+
+    const onScroll = () => {
+      artistScrollTop = vp.scrollTop;
+    };
+    vp.addEventListener('scroll', onScroll, { passive: true });
+
+    // Measure inside ResizeObserver (after layout, before paint) so we never force an early layout
+    // pass, and re-measure whenever anything above the Tracks list mounts or changes height
+    // (Popular, Discography, "Show all", the album grid, or window resizes).
+    const measure = () => {
+      const vpRect = vp.getBoundingClientRect();
+      artistViewportH = vp.clientHeight;
+      artistScrollTop = vp.scrollTop;
+      artistSongsTop = list.getBoundingClientRect().top - vpRect.top + vp.scrollTop;
+    };
+    const ro = new ResizeObserver(measure);
+    const observeAll = () => {
+      ro.disconnect();
+      ro.observe(vp);
+      ro.observe(list);
+      for (const child of content.children) ro.observe(child);
+    };
+    const mo = new MutationObserver(observeAll);
+    observeAll();
+    mo.observe(content, { childList: true });
+
+    return () => {
+      vp.removeEventListener('scroll', onScroll);
+      ro.disconnect();
+      mo.disconnect();
+    };
   });
   $effect(() => {
     if (isArtistView && artistName) tabMemory.setTitle(page.url, artistName);
@@ -625,9 +656,16 @@
   const latestRelease = $derived(
     showCatalog ? (artistPage.data?.releases.find((r) => !r.upcoming) ?? null) : null
   );
+  const artistAlbumByTitle = $derived.by(() => {
+    const map = new Map<string, AlbumSummary>();
+    for (const album of artistAlbums) {
+      const key = album.title.toLowerCase();
+      if (!map.has(key)) map.set(key, album);
+    }
+    return map;
+  });
   function releaseHref(release: ArtistRelease): string | null {
-    const name = (release.libraryAlbum ?? release.title).toLowerCase();
-    const album = artistAlbums.find((a) => a.title.toLowerCase() === name);
+    const album = artistAlbumByTitle.get((release.libraryAlbum ?? release.title).toLowerCase());
     return album ? albumHref(album) : null;
   }
 
@@ -1058,17 +1096,20 @@
   {/if}
 {/snippet}
 
-<!-- An artist's song row: the phone row design (48pt art, title over album, ⋯). Not virtualized,
-     but the Tracks list builds a row only when it comes near the screen (see `builtRowKeys`). -->
+<!-- An artist's song row: the phone row design (48pt art, title over album, ⋯). Used in flow for
+     Popular (5–10 rows) and virtually positioned inside the Tracks list (`virtual = true`). -->
 {#snippet artistSongRow(
   song: ApiSong,
   index: number,
   list: ApiSong[] = artistSongs,
-  ranked = false
+  ranked = false,
+  virtual = false
 )}
   {@const isLoaded = playerStore.currentSong?.id === song.id}
   {@const plays = ranked ? (songsStore.playStatsOf(song).playCount ?? 0) : 0}
   <li
+    aria-setsize={virtual ? list.length : undefined}
+    aria-posinset={virtual ? index + 1 : undefined}
     use:longpress={{ onlongpress: (p) => artistMenus[song.id]?.openAt(p) }}
     use:swipeRow={{
       side: 'leading',
@@ -1080,8 +1121,10 @@
       e.preventDefault();
       artistMenus[song.id]?.openAt({ x: e.clientX, y: e.clientY });
     }}
+    style={virtual ? `top: ${index * artistRowH}px; height: ${artistRowH}px;` : undefined}
     class={cn(
-      'group has-[[data-row-main]:active]:bg-accent md:hover:bg-accent relative flex min-h-16 items-center pr-1 transition-colors duration-100 md:min-h-14 md:rounded-lg',
+      'group has-[[data-row-main]:active]:bg-accent md:hover:bg-accent flex items-center pr-1 transition-colors duration-100 md:rounded-lg',
+      virtual ? 'absolute inset-x-0' : 'relative min-h-16 md:min-h-14',
       index < list.length - 1 &&
         "after:bg-separator after:absolute after:right-0 after:bottom-0 after:left-[76px] after:h-(--hairline) after:content-[''] md:after:left-[68px]",
       ranked && index < list.length - 1 && 'after:left-[104px] md:after:left-[96px]'
@@ -1092,7 +1135,10 @@
       data-row-main=""
       onclick={() => activateArtistSong(song, index, list)}
       aria-current={isLoaded ? 'true' : undefined}
-      class="focus-visible:ring-ring flex min-h-16 min-w-0 flex-1 items-center gap-3 pl-4 text-left focus-visible:ring-2 focus-visible:outline-hidden focus-visible:ring-inset md:min-h-14 md:pl-2"
+      class={cn(
+        'focus-visible:ring-ring flex min-w-0 flex-1 items-center gap-3 pl-4 text-left focus-visible:ring-2 focus-visible:outline-hidden focus-visible:ring-inset md:pl-2',
+        virtual ? 'h-full' : 'min-h-16 md:min-h-14'
+      )}
     >
       {#if ranked}
         <span
@@ -1202,7 +1248,7 @@
       {/snippet}
     </PageToolbarV2>
 
-    <div class="flex flex-col gap-7 pb-6 md:gap-8 md:px-7">
+    <div bind:this={artistContentEl} class="flex flex-col gap-7 pb-6 md:gap-8 md:px-7">
       <!-- Hero, after Spotify's artist header: a big round portrait, the name large, what you have
            of them, then the action row (Play, Shuffle, Follow, More). -->
       <div class="flex flex-col gap-5">
@@ -1369,15 +1415,14 @@
           <h2 id="artist-songs-heading" class="text-title-2 mb-1 px-4 md:px-0 md:text-lg">
             Tracks
           </h2>
-          <ul bind:this={artistSongsEl}>
-            {#each artistSongs as song, index (song.id)}
-              {#if index < rowsFilled || builtRowKeys.has(String(song.id))}
-                {@render artistSongRow(song, index)}
-              {:else}
-                <!-- Not built yet (see `builtRowKeys`): a row of the resting height, so the list
-                     is its full length from the first frame. -->
-                <li data-song-row={song.id} class="min-h-16 md:min-h-14"></li>
-              {/if}
+          <ul
+            bind:this={artistSongsEl}
+            class="relative [contain:layout_style]"
+            style="height: {artistSongs.length * artistRowH}px;"
+          >
+            {#each visibleArtistSongs as song, vi (song.id)}
+              {@const index = artistStart + vi}
+              {@render artistSongRow(song, index, artistSongs, false, true)}
             {/each}
           </ul>
         </section>
