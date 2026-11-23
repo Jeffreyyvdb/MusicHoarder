@@ -6,7 +6,9 @@ import { defineConfig } from 'vitest/config';
 // node environment keeps the suite fast and free of browser/SSR machinery. `#lib` resolves through
 // package.json `imports`, so pure-logic modules under it (e.g. api-client's album grouping) import
 // without an alias; the only browser-touching helper they pull in (webauthn-client) gates every DOM
-// access behind `typeof`.
+// access behind `typeof`. scripts/ci-checks.sh relies on this too: it runs the tests beside the
+// production build, which rewrites .svelte-kit/, and the SvelteKit plugin here would sync it again
+// at the same time.
 //
 // The one plugin we do load is vite-plugin-svelte, purely as a *resolver*: `#lib/nav.ts` holds the
 // nav's icon components alongside its routes and matchers (one source of truth for both), so

@@ -12,7 +12,8 @@
 # JSON input" or a missing ./$types: a red that depends on timing. So this script syncs once, runs
 # lint, check and test from their package.json commands with their own sync taken out, and starts
 # the build, whose Vite plugin syncs on its own, only after lint and check (the two that read the
-# generated types) have finished.
+# generated types) have finished. The tests may still overlap the build, because vitest.config.ts
+# loads no SvelteKit plugin and so vitest never reads or writes .svelte-kit/.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
