@@ -2,11 +2,12 @@
   import { MediaQuery } from 'svelte/reactivity';
   import { getSongVideoStreamUrl } from '#lib/api-client.ts';
   import { cropMatte } from '#lib/actions/crop-matte.ts';
+  import { releaseMedia } from '#lib/actions/release-media.ts';
   import { playerStore } from '#lib/stores/player.svelte.ts';
   import { videoBackdropPrefs } from '#lib/stores/video-backdrop-prefs.svelte.ts';
   import type { SongVideo } from '#lib/components/file-browser/now-playing/song-video.svelte.ts';
   import { cn } from '#lib/utils.ts';
-  import { createVideoFollower } from '#lib/video-follow.ts';
+  import { BACKDROP_GIVE_UP_MS, createVideoFollower } from '#lib/video-follow.ts';
 
   // Now Playing's background. Three layers, and no backdrop-filter anywhere (lyrics repaint every
   // frame over it): the cover, blown up and blurred into a wash; a black dim sized per cover so
@@ -47,7 +48,7 @@
     showing?: boolean;
   } = $props();
 
-  const follower = createVideoFollower();
+  const follower = createVideoFollower({ giveUpAfterMs: BACKDROP_GIVE_UP_MS });
 
   let videoEl = $state<HTMLVideoElement | null>(null);
   let videoReady = $state(false); // first frame decoded — until then the <video> paints nothing
@@ -126,6 +127,7 @@
       now: performance.now()
     });
     if (step.kind === 'seek') el.currentTime = step.to;
+    else if (step.kind === 'give-up') videoFailed = true;
     if (playerStore.isPlaying && el.paused) {
       void el.play().catch(() => {});
     }
@@ -202,6 +204,7 @@
         blurred && 'scale-125 blur-[48px]'
       )}
       use:cropMatte={{ letterbox: video.info?.letterbox, pillarbox: video.info?.pillarbox }}
+      use:releaseMedia
       onloadstart={() => (videoReady = false)}
       onloadeddata={() => {
         videoReady = true;

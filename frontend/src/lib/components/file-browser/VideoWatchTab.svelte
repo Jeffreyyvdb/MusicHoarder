@@ -38,6 +38,7 @@
   import { untrack } from 'svelte';
   import { glide } from '#lib/components/file-browser/now-playing/mode-motion.ts';
   import { createVideoFollower } from '#lib/video-follow.ts';
+  import { releaseMedia } from '#lib/actions/release-media.ts';
 
   // Watch mode for the music video: the clip fitted into all of Now Playing's middle (a phone) or
   // right column (lg) — as large as its shape allows, like Android's `fitClip` — and expandable to
@@ -505,6 +506,7 @@
       onresize={readRatio}
       onloadeddata={() => (videoLoadRetries = 0)}
       onerror={onVideoError}
+      use:releaseMedia
     ></video>
 
     <!-- Click layer under the chrome: tap the picture to play/pause, double-tap for fullscreen. -->

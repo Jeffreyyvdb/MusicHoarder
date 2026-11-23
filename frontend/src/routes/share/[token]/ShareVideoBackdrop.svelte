@@ -3,8 +3,9 @@
   import { playerStore } from '#lib/stores/player.svelte.ts';
   import { videoBackdropPrefs } from '#lib/stores/video-backdrop-prefs.svelte.ts';
   import { cropMatte } from '#lib/actions/crop-matte.ts';
+  import { releaseMedia } from '#lib/actions/release-media.ts';
   import { cn } from '#lib/utils.ts';
-  import { createVideoFollower } from '#lib/video-follow.ts';
+  import { BACKDROP_GIVE_UP_MS, createVideoFollower } from '#lib/video-follow.ts';
 
   // Read-only cousin of the in-app VideoBackdrop for the anonymous share page: the song's muted
   // music video, cross-faded in over the page's fixed ambient-artwork backdrop once the first
@@ -29,7 +30,7 @@
     pillarbox?: number | null;
   } = $props();
 
-  const follower = createVideoFollower();
+  const follower = createVideoFollower({ giveUpAfterMs: BACKDROP_GIVE_UP_MS });
 
   // Same opt-out `videoBackdropPrefs` gives the owner inside the app (and the same
   // localStorage entry — one preference per browser, whichever page set it), plus Reduce
@@ -88,6 +89,7 @@
       now: performance.now()
     });
     if (step.kind === 'seek') el.currentTime = step.to;
+    else if (step.kind === 'give-up') videoFailed = true;
     if (playerStore.isPlaying && el.paused) {
       void el.play().catch(() => {});
     }
@@ -103,7 +105,8 @@
   });
 </script>
 
-{#if backdropAllowed}
+<!-- A video that failed or could not keep up is unmounted, so it stops using the visitor's link. -->
+{#if backdropAllowed && !videoFailed}
   <!-- Decorative, always-muted backdrop; the player's audio element is the actual sound. -->
   <div
     aria-hidden="true"
@@ -121,6 +124,7 @@
       tabindex="-1"
       class="absolute inset-0 size-full object-cover"
       use:cropMatte={{ letterbox, pillarbox }}
+      use:releaseMedia
       onloadstart={() => (videoReady = false)}
       onloadeddata={() => (videoReady = true)}
       onended={() => (videoEnded = true)}
