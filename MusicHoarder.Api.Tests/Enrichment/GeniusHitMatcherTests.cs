@@ -7,11 +7,14 @@ public class GeniusHitMatcherTests
     private const double Threshold = 85;
 
     private static GeniusHit Hit(
-        int id, string title, string artist, string state = "complete", bool instrumental = false) =>
-        new(id, title, artist, state, instrumental);
+        int id, string title, string artist, string state = "complete", bool instrumental = false, int? year = null) =>
+        new(id, title, artist, state, instrumental, year);
 
     private static GeniusHit? Pick(string title, string artist, params GeniusHit[] hits) =>
-        GeniusHitMatcher.Pick(hits, title, artist, Threshold, Threshold);
+        PickIn(null, title, artist, hits);
+
+    private static GeniusHit? PickIn(int? year, string title, string artist, params GeniusHit[] hits) =>
+        GeniusHitMatcher.Pick(hits, title, artist, year, Threshold, Threshold);
 
     [Fact]
     public void TranslationPage_IsSkippedForTheOriginal()
@@ -99,6 +102,47 @@ public class GeniusHitMatcherTests
         Assert.Null(Pick("Intro", "Kanye West", Hit(120581, "Intro", "Kanye West")));
     }
 
+    [Theory]
+    [InlineData("Beyonce", "Beyoncé")]
+    [InlineData("¥$", "¥$")]
+    public void SpellingVariantsOfOneArtist_Match(string ours, string theirs)
+    {
+        Assert.Equal(1, Pick("Song", ours, Hit(1, "Song", theirs))?.Id);
+    }
+
+    [Fact]
+    public void HitWithNoArtist_IsRejected()
+    {
+        Assert.Null(Pick("Song", "Artist", Hit(1, "Song", "")));
+    }
+
+    [Theory]
+    [InlineData("Intro")]
+    [InlineData("Interlude 2")]
+    [InlineData("Skit #3")]
+    [InlineData("Outro (feat. Someone)")]
+    public void GenericTitle_TakesTheHitFromTheSameYear(string title)
+    {
+        var picked = PickIn(2004, title, "Kanye West",
+            Hit(1, title, "Kanye West", year: 2010),
+            Hit(2, title, "Kanye West"),
+            Hit(3, title, "Kanye West", year: 2004));
+
+        Assert.Equal(3, picked?.Id);
+    }
+
+    [Fact]
+    public void GenericTitle_IsRejectedWhenTheSongsYearIsUnknown()
+    {
+        Assert.Null(PickIn(null, "Intro", "Kanye West", Hit(1, "Intro", "Kanye West", year: 2004)));
+    }
+
+    [Fact]
+    public void TitleWithAGenericWordAndMore_NeedsNoYear()
+    {
+        Assert.Equal(1, Pick("Intro to the Night", "Artist", Hit(1, "Intro to the Night", "Artist", year: 1999))?.Id);
+    }
+
     [Fact]
     public void FirstAcceptableHitInGeniusOrderWins()
     {
@@ -110,7 +154,7 @@ public class GeniusHitMatcherTests
     [Fact]
     public void MissingTitleOrArtist_PicksNothing()
     {
-        Assert.Null(GeniusHitMatcher.Pick([Hit(1, "Song", "Artist")], null, "Artist", Threshold, Threshold));
-        Assert.Null(GeniusHitMatcher.Pick([Hit(1, "Song", "Artist")], "Song", " ", Threshold, Threshold));
+        Assert.Null(GeniusHitMatcher.Pick([Hit(1, "Song", "Artist")], null, "Artist", null, Threshold, Threshold));
+        Assert.Null(GeniusHitMatcher.Pick([Hit(1, "Song", "Artist")], "Song", " ", null, Threshold, Threshold));
     }
 }
