@@ -136,10 +136,15 @@ public class GeniusHitMatcherTests
         Assert.Null(PickIn(2001, title, "Artist", Hit(1, title, "Artist", year: 1994)));
     }
 
-    [Fact]
-    public void GenericTitle_NeedsTheSameNumberAsTheHit()
+    [Theory]
+    [InlineData("Interlude", "Interlude 2")]
+    [InlineData("Skit (1)", "Skit (2)")]
+    [InlineData("Skit [1]", "Skit [2]")]
+    [InlineData("Intro (Part 2)", "Intro (Part 1)")]
+    [InlineData("Intro", "Intro (Part 2)")]
+    public void GenericTitle_NeedsTheSameNumberAsTheHit(string ours, string theirs)
     {
-        Assert.Null(PickIn(2004, "Interlude", "Artist", Hit(1, "Interlude 2", "Artist", year: 2004)));
+        Assert.Null(PickIn(2004, ours, "Artist", Hit(1, theirs, "Artist", year: 2004)));
     }
 
     [Theory]
@@ -147,6 +152,8 @@ public class GeniusHitMatcherTests
     [InlineData("Interlude 2")]
     [InlineData("Interlude II")]
     [InlineData("(Intro)")]
+    [InlineData("Skit (1)")]
+    [InlineData("Intro (Part 2)")]
     [InlineData("Skit #3")]
     [InlineData("Outro (feat. Someone)")]
     public void GenericTitle_TakesTheHitFromTheSameYear(string title)

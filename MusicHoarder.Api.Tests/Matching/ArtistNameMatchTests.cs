@@ -19,6 +19,8 @@ public class ArtistNameMatchTests
     [InlineData("P!nk", "!")]
     [InlineData("Ke$ha", "$")]
     [InlineData("!!!", "!!")]
+    [InlineData("!!!!!!!", "!!!!!!")]
+    [InlineData("Radiohead", "(Radiohead)")]
     [InlineData("Joey", "Joey Bada$$")]
     [InlineData("Artist", null)]
     public void DifferentNames_AreNotTheSame(string name, string? other)
