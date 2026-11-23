@@ -1793,8 +1793,8 @@ public class EnrichmentOrchestratorTests
         var retry = song.ProviderAttempts.Single(a => a.Provider == EnrichmentProvider.MusicBrainzWeb);
         retry.RetryAfterUtc = DateTime.UtcNow.AddMinutes(-1);
         await db.SaveChangesAsync();
-        Assert.Contains(song.Id, await db.SongProviderAttempts
-            .WhereRetryableProviderAttempts(DateTime.UtcNow).ToListAsync());
+        Assert.Contains(song.Id, await EnrichmentQueries.RetryableSongIdsAsync(
+            db, orchestrator, DateTime.UtcNow, ignoreQueryFilters: true, CancellationToken.None));
 
         opts.Value.EnableTrackerProvider = false;
         orchestrator = CreateOrchestratorWithProviders(db, providers, opts);

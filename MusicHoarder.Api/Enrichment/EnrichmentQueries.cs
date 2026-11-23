@@ -1,5 +1,5 @@
 using System.Linq.Expressions;
-using MusicHoarder.Api.Auth;
+using Microsoft.EntityFrameworkCore;
 using MusicHoarder.Api.Persistence;
 
 namespace MusicHoarder.Api.Enrichment;
@@ -104,20 +104,105 @@ internal static class EnrichmentQueries
     }
 
     /// <summary>
-    /// Returns IDs of songs with a retryable provider attempt: either a rate-limited attempt
-    /// whose <see cref="SongProviderAttempt.RetryAfterUtc"/> has elapsed, or a terminal
+    /// Filters to retryable provider attempts for currently-enabled providers: either a rate-limited
+    /// attempt whose <see cref="SongProviderAttempt.RetryAfterUtc"/> has elapsed, or a terminal
     /// NoMatch/Failed attempt whose cooldown (<see cref="SongProviderAttempt.NextRetryAfterUtc"/>)
-    /// has elapsed. Manually-approved (locked) songs are excluded.
+    /// has elapsed. Deleted, synthetic, demo, and manually-approved (locked) songs are excluded.
+    ///
+    /// This is a superset of the attempts <see cref="IEnrichmentOrchestrator.ProcessSongAsync"/>
+    /// will actually advance: an enabled provider that can no longer handle the song (for example a
+    /// community tracker after the song's artist was healed or re-tagged off its allowlist) is
+    /// skipped before its attempt is looked at, and that <see cref="IEnrichmentProvider.CanHandle"/>
+    /// check is C#, so callers must narrow against
+    /// <see cref="IEnrichmentOrchestrator.GetApplicableProvidersAsync"/> via
+    /// <see cref="RetryableSongIdsAsync"/>.
     /// </summary>
-    public static IQueryable<int> WhereRetryableProviderAttempts(this IQueryable<SongProviderAttempt> query, DateTime now)
+    public static IQueryable<SongProviderAttempt> WhereRetryableProviderAttempts(
+        this IQueryable<SongProviderAttempt> query,
+        DateTime now,
+        IReadOnlyCollection<EnrichmentProvider> enabled)
     {
         return query
+            .Where(a => a.Song.DeletedAtUtc == null)
+            .Where(a => !a.Song.IsSynthetic)
+            .ExcludingDemoTenant()
             .Where(a => !a.Song.IsManuallyApproved)
+            .Where(a => enabled.Contains(a.Provider))
             .Where(a =>
                 (a.Status == ProviderAttemptStatus.RateLimited && (a.RetryAfterUtc == null || a.RetryAfterUtc <= now))
                 || ((a.Status == ProviderAttemptStatus.NoMatch || a.Status == ProviderAttemptStatus.Failed)
-                    && a.NextRetryAfterUtc != null && a.NextRetryAfterUtc <= now))
-            .Select(a => a.SongId)
-            .Distinct();
+                    && a.NextRetryAfterUtc != null && a.NextRetryAfterUtc <= now));
+    }
+
+    /// <summary>
+    /// Ids of songs with at least one due retryable attempt from a currently-enabled provider that
+    /// can still handle the song — the set <see cref="IEnrichmentOrchestrator.ProcessSongAsync"/>
+    /// will actually advance. Pages by song id and reads only
+    /// <see cref="IEnrichmentProvider.CanHandleColumns"/> so neither heavy text columns nor
+    /// unadvanceable attempts (disabled providers, trackers whose allowlist no longer matches) are
+    /// repeatedly enqueued.
+    /// </summary>
+    public static async Task<List<int>> RetryableSongIdsAsync(
+        MusicHoarderDbContext db,
+        IEnrichmentOrchestrator orchestrator,
+        DateTime now,
+        bool ignoreQueryFilters,
+        CancellationToken ct,
+        int pageSize = 1000)
+    {
+        var enabled = await orchestrator.GetEnabledProviderEnumsAsync(ct).ConfigureAwait(false);
+        if (enabled.Count == 0)
+            return [];
+
+        var attempts = (ignoreQueryFilters
+                ? db.SongProviderAttempts.IgnoreQueryFilters()
+                : db.SongProviderAttempts)
+            .AsNoTracking();
+        var songsQuery = ignoreQueryFilters
+            ? db.Songs.IgnoreQueryFilters()
+            : db.Songs;
+
+        var columns = IEnrichmentProvider.CanHandleColumns.With(nameof(SongMetadata.Id));
+        var retryable = new List<int>();
+        var afterId = 0;
+
+        while (true)
+        {
+            var pageIds = await attempts
+                .WhereRetryableProviderAttempts(now, enabled)
+                .Where(a => a.SongId > afterId)
+                .Select(a => a.SongId)
+                .Distinct()
+                .OrderBy(id => id)
+                .Take(pageSize)
+                .ToListAsync(ct);
+            if (pageIds.Count == 0)
+                return retryable;
+            afterId = pageIds[^1];
+
+            var dueBySong = (await attempts
+                    .WhereRetryableProviderAttempts(now, enabled)
+                    .Where(a => pageIds.Contains(a.SongId))
+                    .Select(a => new { a.SongId, a.Provider })
+                    .ToListAsync(ct))
+                .ToLookup(a => a.SongId, a => a.Provider);
+
+            var songs = await songsQuery
+                .Where(s => pageIds.Contains(s.Id))
+                .OrderBy(s => s.Id)
+                .WithOnly(db, columns)
+                .ToListAsync(ct);
+
+            foreach (var song in songs)
+            {
+                var applicable = await orchestrator.GetApplicableProvidersAsync(song, ct).ConfigureAwait(false);
+                // Against the sweep's own snapshot of enabled providers, which the queries above used.
+                if (dueBySong[song.Id].Any(p => enabled.Contains(p) && applicable.Contains(p)))
+                    retryable.Add(song.Id);
+            }
+
+            if (pageIds.Count < pageSize)
+                return retryable;
+        }
     }
 }
