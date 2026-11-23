@@ -6,11 +6,14 @@
  */
 export const DRIFT_TOLERANCE_S = 0.3;
 
-/** How far the audio's time may move from the wall clock between two ticks before it jumped. */
+/**
+ * How far the audio's time may move between two ticks beyond what the wall clock allows (forward by
+ * at most the time elapsed, backward not at all) before it jumped.
+ */
 const AUDIO_JUMP_S = 1;
 
-/** How long a backdrop's video may stay out of step with the audio before it is given up. */
-export const BACKDROP_GIVE_UP_MS = 5000;
+/** How much audio a backdrop's video may stay out of step for before it is given up. */
+export const BACKDROP_GIVE_UP_S = 5;
 
 export type FollowStep = { kind: 'hold' } | { kind: 'seek'; to: number } | { kind: 'give-up' };
 
@@ -35,37 +38,41 @@ export interface VideoFollower {
  * Two things keep a slow link from turning the rule into a storm of range requests (#739). A seek
  * still on its way is left to land: while it is pending the element reports its target as its
  * time, so the audio moving on past the tolerance would otherwise cancel it and send another, every
- * tick, and the video would never show a frame. And with `giveUpAfterMs`, a video that has stayed
- * out of step that long while the audio played straight through is given up (the backdrops fall
- * back to the cover): it cannot keep up, and the link it is using is the one the audio needs. A
- * jump of the audio itself (a scrub, a new track, a resume after a stall) gives it a fresh window.
+ * tick, and the video would never show a frame. And with `giveUpAfterS`, a video that has stayed
+ * out of step for that much audio is given up (the backdrops fall back to the cover): it cannot keep
+ * up, and the link it is using is the one the audio needs. The window is measured in audio played,
+ * not wall time, because a video starving that link stalls the audio (#753): a stall neither counts
+ * against the video nor restarts its window. Only a jump of the audio's position (a scrub, a new
+ * track) gives it a fresh one.
  */
 export function createVideoFollower({
-  giveUpAfterMs
-}: { giveUpAfterMs?: number } = {}): VideoFollower {
+  giveUpAfterS
+}: { giveUpAfterS?: number } = {}): VideoFollower {
   let last: { mapped: number; now: number } | null = null;
-  let outOfStepSince: number | null = null;
+  let outOfStepS: number | null = null;
 
   return {
     step({ videoTime, seeking, mapped, now }) {
+      const played = last === null ? 0 : mapped - last.mapped;
       const audioJumped =
-        last !== null && Math.abs(mapped - last.mapped - (now - last.now) / 1000) > AUDIO_JUMP_S;
+        last !== null &&
+        (played < -AUDIO_JUMP_S || played > (now - last.now) / 1000 + AUDIO_JUMP_S);
       last = { mapped, now };
-      if (audioJumped) outOfStepSince = null;
+      if (audioJumped) outOfStepS = null;
 
       if (!seeking && Math.abs(videoTime - mapped) <= DRIFT_TOLERANCE_S) {
-        outOfStepSince = null;
+        outOfStepS = null;
         return { kind: 'hold' };
       }
-      outOfStepSince ??= now;
-      if (giveUpAfterMs !== undefined && now - outOfStepSince >= giveUpAfterMs) {
+      outOfStepS = outOfStepS === null ? 0 : outOfStepS + Math.max(0, played);
+      if (giveUpAfterS !== undefined && outOfStepS >= giveUpAfterS) {
         return { kind: 'give-up' };
       }
       return seeking ? { kind: 'hold' } : { kind: 'seek', to: mapped };
     },
     reset() {
       last = null;
-      outOfStepSince = null;
+      outOfStepS = null;
     }
   };
 }

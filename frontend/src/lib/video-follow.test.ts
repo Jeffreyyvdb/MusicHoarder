@@ -46,7 +46,7 @@ describe('createVideoFollower', () => {
 
   it('gives up on a video that cannot keep up with the audio', () => {
     // The link is slower than the video: every seek lands behind the audio, then falls further.
-    const follower = createVideoFollower({ giveUpAfterMs: 5000 });
+    const follower = createVideoFollower({ giveUpAfterS: 5 });
     let target = 0;
     let landsAt = 0;
     const steps = ticks(0, 8000, 10, (now) => ({
@@ -75,7 +75,7 @@ describe('createVideoFollower', () => {
 
   it('gives a video a fresh window after the audio itself jumps', () => {
     // A scrub or a new position from the lock screen: the video was not too slow, the audio moved.
-    const follower = createVideoFollower({ giveUpAfterMs: 5000 });
+    const follower = createVideoFollower({ giveUpAfterS: 5 });
     for (const input of ticks(0, 4000, 10, () => ({ videoTime: 10, seeking: true }))) {
       follower.step(input);
     }
@@ -92,7 +92,7 @@ describe('createVideoFollower', () => {
       // that cannot keep up starves the audio into stalls. The store writes no new time while the
       // audio stands still, so the follower sees no ticks during a stall, then the audio resuming
       // where it stopped. A stall must not hand the video a fresh window.
-      const follower = createVideoFollower({ giveUpAfterMs: 5000 });
+      const follower = createVideoFollower({ giveUpAfterS: 5 });
       let now = 0;
       let audio = 10;
       let gaveUpAtAudio: number | null = null;
@@ -114,7 +114,7 @@ describe('createVideoFollower', () => {
 
   it('counts no stall against a video', () => {
     // The audio standing still is not the video falling behind: only audio played out of step does.
-    const follower = createVideoFollower({ giveUpAfterMs: 5000 });
+    const follower = createVideoFollower({ giveUpAfterS: 5 });
     for (const input of ticks(0, 4000, 10, () => ({ videoTime: 10, seeking: true }))) {
       follower.step(input);
     }
@@ -125,7 +125,7 @@ describe('createVideoFollower', () => {
   });
 
   it('forgets a slow stretch once the video is back in step', () => {
-    const follower = createVideoFollower({ giveUpAfterMs: 5000 });
+    const follower = createVideoFollower({ giveUpAfterS: 5 });
     for (const input of ticks(0, 4000, 10, () => ({ videoTime: 10, seeking: true }))) {
       follower.step(input);
     }
@@ -137,7 +137,7 @@ describe('createVideoFollower', () => {
   });
 
   it('starts a new song with a fresh window', () => {
-    const follower = createVideoFollower({ giveUpAfterMs: 5000 });
+    const follower = createVideoFollower({ giveUpAfterS: 5 });
     for (const input of ticks(0, 4000, 10, () => ({ videoTime: 10, seeking: true }))) {
       follower.step(input);
     }
