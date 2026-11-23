@@ -256,6 +256,9 @@ public class ConsensusEvaluatorTests
     [InlineData("/source/Taylor Swift/Midnights/03 Anti-Hero.mp3", "Taylor Swift", "Anti-Hero")]
     [InlineData("/source/slskd/JAY-Z - 99 Problems.mp3", "JAY-Z", "99 Problems")]
     [InlineData("/source/Queen/A Night at the Opera/11 Bohemian Rhapsody - Remastered 2011.mp3", "Queen", "Bohemian Rhapsody")]
+    [InlineData("/source/AC-DC/Back in Black/06 Back in Black.mp3", "AC/DC", "Back in Black")]
+    [InlineData("/source/Taylor Swift/Midnights/03 Antihero.mp3", "Taylor Swift", "Anti-Hero")]
+    [InlineData("/source/slskd/JayZ - Encore.mp3", "JAY-Z", "Encore")]
     public void CleanFingerprint_OfTheSongAnUntaggedPathNames_Matched(string path, string artist, string title)
     {
         var song = Song();
@@ -267,6 +270,23 @@ public class ConsensusEvaluatorTests
             song, Enabled(EnrichmentProvider.AcoustID), Opts, sourceRoot: "/source");
 
         Assert.Equal(EnrichmentStatus.Matched, r.Status);
+    }
+
+    [Theory]
+    [InlineData("/source/Jay Rock/Redemption/03 Win.mp3", "JAY-Z", "Win")]
+    [InlineData("/source/A Tribe Called Quest/Covers/01 Take On Me.mp3", "a-ha", "Take On Me")]
+    [InlineData("/source/Music/Singles/Drake - Avalon.mp3", "Roxy Music", "Avalon")]
+    public void CleanFingerprint_OfAnotherArtistsSong_NeedsReview(string path, string artist, string title)
+    {
+        var song = Song();
+        song.SourcePath = path;
+        Add(song, EnrichmentProvider.AcoustID, ProviderAttemptStatus.Matched,
+            Result(artist, title, mbid: "mb-1", conf: 0.95, recommend: EnrichmentStatus.Matched));
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.AcoustID), Opts, sourceRoot: "/source");
+
+        Assert.Equal(EnrichmentStatus.NeedsReview, r.Status);
     }
 
     [Fact]
