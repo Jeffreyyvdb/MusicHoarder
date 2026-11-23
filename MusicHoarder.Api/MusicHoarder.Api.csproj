@@ -44,6 +44,11 @@
              Relational at 10. Referenced directly so the provider matches EF Core 11; drop this once
              the Aspire integration depends on Npgsql EF 11 itself. -->
         <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="11.0.0" />
+        <!-- The Design package below raises this project's EF Core to its own version, but it is
+             private, so projects that reference this one (perf/seed, the tests) would only see the
+             lower version Npgsql asks for: the seed then fails with CS1705, and the tests run against
+             an older EF Core than this project was built with. Keep this at the Design version. -->
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="11.0.0" />
         <PackageReference Include="Fido2.AspNet" Version="4.3.3" />
         <!-- Fido2 4.3.2 depends on System.Formats.Cbor 9.0.0 (GHSA-vmv3-wvjp-wqpj). This project gets the
              patched assembly from the ASP.NET Core shared framework (hence NU1510), but the test and

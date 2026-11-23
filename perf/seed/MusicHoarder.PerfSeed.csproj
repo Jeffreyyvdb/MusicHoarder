@@ -11,9 +11,6 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <!-- Matches the EF Core version the API compiles against; its own reference is private
-             (the Design package), so it does not flow here. Bump the two together. -->
-        <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="11.0.0" />
         <ProjectReference Include="..\..\MusicHoarder.Api\MusicHoarder.Api.csproj" />
     </ItemGroup>
 
