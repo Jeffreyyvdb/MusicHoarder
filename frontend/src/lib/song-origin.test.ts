@@ -82,6 +82,8 @@ describe('isAddedByLink', () => {
     expect(isAddedByLink(song({ originSource: 'DirectUrl' }))).toBe(true);
     expect(isAddedByLink(song({ originSource: 'SpotifyLiked' }))).toBe(false);
     expect(isAddedByLink(song({ originSource: 'AlbumCompletion' }))).toBe(false);
+    // A YouTube playlist sync is not the Add-from-link dialog.
+    expect(isAddedByLink(song({ originSource: 'YouTubePlaylist' }))).toBe(false);
     expect(isAddedByLink(song({}))).toBe(false);
   });
 });
