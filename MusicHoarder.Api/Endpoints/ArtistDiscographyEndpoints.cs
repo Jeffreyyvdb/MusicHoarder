@@ -5,6 +5,7 @@ using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
 using MusicHoarder.Api.Deezer;
 using MusicHoarder.Api.Jobs;
+using MusicHoarder.Api.Listening;
 using MusicHoarder.Api.Matching;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
@@ -39,6 +40,8 @@ public static class ArtistDiscographyEndpoints
         group.MapDelete("/following/{id:int}", Unfollow);
         group.MapPost("/following/{id:int}/check", CheckOne)
             .WithSummary("Checks one followed artist for new releases now.");
+        group.MapGet("/suggestions", ListSuggestions)
+            .WithSummary("Artists the caller has been listening to lately and does not follow yet.");
 
         return app;
     }
@@ -180,6 +183,58 @@ public static class ArtistDiscographyEndpoints
             downloadsEnabled = options.Value.EnableWishlistDownloads,
         });
     }
+
+    /// <summary>
+    /// Reads only the caller's own plays and follows, and the catalog links already stored: it never
+    /// asks the catalog, so it is cheap enough for the Artists page to call on every visit. An artist
+    /// without a trusted link comes back without an id, and following it goes through its page.
+    /// </summary>
+    internal static async Task<IResult> ListSuggestions(MusicHoarderDbContext db, CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        var from = now - ArtistSuggestions.Window;
+        var plays = await db.ListeningEvents.AsNoTracking()
+            .Where(e => e.PlayedAtUtc >= from)
+            .Select(e => new ListeningEventRow(
+                e.SongId, e.PlayedAtUtc, e.Title, e.Artist, e.AlbumArtist, e.Album, e.Genre, e.DurationSeconds))
+            .ToListAsync(ct);
+        var follows = await db.FollowedArtists.AsNoTracking()
+            .Select(f => new { f.ArtistKey, f.Name, f.DeezerArtistId })
+            .ToListAsync(ct);
+        // A follow is a catalog id, so a library spelling linked to that id ("ASAP Rocky" for a follow
+        // made as "A$AP Rocky") is followed too.
+        var followedIds = follows.Select(f => f.DeezerArtistId).ToList();
+        var linkedToFollowed = await TrustedLinks(db)
+            .Where(l => l.DeezerArtistId != null && followedIds.Contains(l.DeezerArtistId))
+            .Select(l => l.ArtistKey)
+            .ToListAsync(ct);
+        var followedKeys = follows
+            .SelectMany(f => new[] { f.ArtistKey, ArtistSuggestions.KeyOf(f.Name) })
+            .Concat(linkedToFollowed)
+            .Where(k => k.Length > 0)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var ranked = ArtistSuggestions.Rank(plays, followedKeys, now);
+        if (ranked.Count == 0)
+            return Results.Ok(new ArtistSuggestionsResponse([]));
+
+        var keys = ranked.Select(r => r.Key).ToList();
+        var links = await TrustedLinks(db)
+            .Where(l => keys.Contains(l.ArtistKey))
+            .Select(l => new { l.ArtistKey, l.DeezerArtistId })
+            .ToListAsync(ct);
+        var idByKey = links
+            .GroupBy(l => l.ArtistKey, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First().DeezerArtistId, StringComparer.Ordinal);
+
+        return Results.Ok(new ArtistSuggestionsResponse(ranked
+            .Select(r => new ArtistSuggestion(r.Artist, r.Plays, r.Songs, r.LastPlayedAtUtc, idByKey.GetValueOrDefault(r.Key)))
+            .ToList()));
+    }
+
+    private static IQueryable<ArtistCatalogLink> TrustedLinks(MusicHoarderDbContext db) =>
+        db.ArtistCatalogLinks.AsNoTracking()
+            .Where(l => l.Status == ArtistCatalogLinkStatus.Linked || l.Status == ArtistCatalogLinkStatus.Chosen);
 
     public sealed record FollowRequest(string DeezerArtistId, string? Artist, IReadOnlyList<string>? ReleaseKinds, bool? AutoDownload);
 

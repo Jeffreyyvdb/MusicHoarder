@@ -5820,6 +5820,22 @@ export async function checkFollowedArtist(id: number): Promise<ArtistMonitorResu
   return requestJson<ArtistMonitorResult>(`/api/artists/following/${id}/check`, { method: 'POST' });
 }
 
+/** An artist the caller has been listening to lately and does not follow yet. */
+export interface ArtistSuggestion {
+  artist: string;
+  /** Plays in the last 90 days, and how many different songs they were of. */
+  plays: number;
+  songs: number;
+  lastPlayedAtUtc: string;
+  /** Present only when the catalog artist is already proven; otherwise follow from the artist page. */
+  deezerArtistId?: string;
+}
+
+export async function fetchArtistSuggestions(): Promise<ArtistSuggestion[]> {
+  const result = await requestJson<{ suggestions: ArtistSuggestion[] }>('/api/artists/suggestions');
+  return result.suggestions;
+}
+
 export type ListeningRange = '4w' | '6m' | '1y' | 'all';
 
 export interface ListeningTotals {

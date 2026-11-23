@@ -35,6 +35,7 @@
   import LibraryAlbumsGridV2 from '#lib/components/v2/LibraryAlbumsGridV2.svelte';
   import { carryBuiltTiles, watchNearViewport } from '#lib/viewport-fill.ts';
   import LibraryArtistsGridV2 from '#lib/components/v2/LibraryArtistsGridV2.svelte';
+  import ArtistShelvesV2 from '#lib/components/v2/ArtistShelvesV2.svelte';
   import TrackRowMenu, { activateTrack } from '#lib/components/v2/TrackRowMenu.svelte';
   import TrackRowText from '#lib/components/v2/TrackRowText.svelte';
   import ArtistActionsV2 from '#lib/components/v2/ArtistActionsV2.svelte';
@@ -363,6 +364,10 @@
       : buildArtistGroups(releaseScoped, { primaryOnly: artistMode === 'primary' })
   );
   const artistSearchIndex = $derived(indexForSearch(artistGroups, (g) => [g.label]));
+  // Following and suggestions sit above the grid for an admin (follows are admin-only), and step
+  // aside while a search is typed: then the grid is the answer.
+  const showArtistShelves = $derived(isAdmin(page.data.user) && query.trim() === '');
+  let artistShelvesInView = $state(false);
   const filteredArtists = $derived.by(() => filterBySearch(artistSearchIndex, searchTerms(query)));
 
   // Tracks tab: scope by browse filter only. Search and the chips are applied inside the view, so
@@ -1412,11 +1417,15 @@
         {/if}
       </div>
     {:else}
+      {#if showArtistShelves}
+        <ArtistShelvesV2 bind:inView={artistShelvesInView} />
+      {/if}
       <div class="pb-4 md:px-7 md:py-5">
         <LibraryArtistsGridV2
           groups={filteredArtists}
           hrefFor={artistHref}
           {isLoading}
+          indexSuppressed={showArtistShelves && artistShelvesInView}
           empty={artistsEmpty}
         />
       </div>
