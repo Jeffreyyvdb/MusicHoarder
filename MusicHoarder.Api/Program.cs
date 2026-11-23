@@ -45,10 +45,13 @@ builder.Services.AddSingleton<RebuildOnMetadataChangeInterceptor>();
 builder.Services.AddDbContext<MusicHoarderDbContext>((sp, options) =>
 {
     var configuration = sp.GetRequiredService<IConfiguration>();
-    options.UseNpgsql(configuration.GetConnectionString("musichoarderdb"));
+    options.UseNpgsql(configuration.GetConnectionString("musichoarderdb"), npgsql => npgsql.EnableRetryOnFailure());
     options.AddInterceptors(sp.GetRequiredService<RebuildOnMetadataChangeInterceptor>());
 });
-builder.EnrichNpgsqlDbContext<MusicHoarderDbContext>();
+// Retries are enabled on UseNpgsql above, not by Aspire: the 13.6.5 integration's retry setup loads
+// NpgsqlExecutionStrategy, which Npgsql EF 11 removed (TypeLoadException at startup). Hand retries
+// back to Aspire once Aspire.Npgsql.EntityFrameworkCore.PostgreSQL ships a stable build for Npgsql EF 11.
+builder.EnrichNpgsqlDbContext<MusicHoarderDbContext>(settings => settings.DisableRetry = true);
 
 builder.Services.AddOpenApi(options =>
 {
