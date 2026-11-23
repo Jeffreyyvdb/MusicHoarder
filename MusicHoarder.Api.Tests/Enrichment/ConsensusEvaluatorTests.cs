@@ -259,6 +259,7 @@ public class ConsensusEvaluatorTests
     [InlineData("/source/AC-DC/Back in Black/06 Back in Black.mp3", "AC/DC", "Back in Black")]
     [InlineData("/source/Taylor Swift/Midnights/03 Antihero.mp3", "Taylor Swift", "Anti-Hero")]
     [InlineData("/source/slskd/JayZ - Encore.mp3", "JAY-Z", "Encore")]
+    [InlineData("/source/Queen/Greatest Hits/Bohemian Rhapsody - Remastered.mp3", "Queen", "Bohemian Rhapsody")]
     public void CleanFingerprint_OfTheSongAnUntaggedPathNames_Matched(string path, string artist, string title)
     {
         var song = Song();
@@ -276,6 +277,8 @@ public class ConsensusEvaluatorTests
     [InlineData("/source/Jay Rock/Redemption/03 Win.mp3", "JAY-Z", "Win")]
     [InlineData("/source/A Tribe Called Quest/Covers/01 Take On Me.mp3", "a-ha", "Take On Me")]
     [InlineData("/source/Music/Singles/Drake - Avalon.mp3", "Roxy Music", "Avalon")]
+    [InlineData("/source/Music/Summer Mix/01 Drake - Avalon.mp3", "Roxy Music", "Avalon")]
+    [InlineData("/source/The Band/Demos/05 Intro - Live.mp3", "The xx", "Intro")]
     public void CleanFingerprint_OfAnotherArtistsSong_NeedsReview(string path, string artist, string title)
     {
         var song = Song();
