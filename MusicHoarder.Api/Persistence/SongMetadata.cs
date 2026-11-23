@@ -1240,6 +1240,8 @@ public class SongMetadata
     /// results shift over time, so a later query returning nothing (or a bare instrumental flag) for a
     /// song we already have plain lyrics for is treated as noise and ignored rather than clearing them.
     /// Anything that would leave the song unchanged returns false so the caller skips the re-tag.
+    /// LRCLIB's plain text replaces Genius's, so a song that fell back to Genius during an LRCLIB outage
+    /// is back on LRCLIB's words at its next re-check.
     /// </summary>
     public bool TryApplyLyricsUpgrade(
         string? syncedLyrics, string? plainLyrics, bool instrumental, int? lrclibId = null, double? lrclibDuration = null,
@@ -1262,7 +1264,8 @@ public class SongMetadata
         }
 
         var gainedSynced = !string.IsNullOrWhiteSpace(syncedLyrics);
-        var gainedPlain = !hasPlain && !string.IsNullOrWhiteSpace(plainLyrics);
+        var gainedPlain = (!hasPlain || (LyricsOrigin == LyricsOrigin.Genius && origin == LyricsOrigin.Lrclib))
+            && !string.IsNullOrWhiteSpace(plainLyrics);
         if (!gainedSynced && !gainedPlain)
             return false;
 

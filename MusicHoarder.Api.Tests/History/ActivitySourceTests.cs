@@ -194,6 +194,37 @@ public class ActivitySourceTests
     }
 
     [Fact]
+    public async Task Lyrics_SaysWhichSourceTheWordsCameFrom()
+    {
+        using var db = NewContext();
+        void Fetched(int n, string album, LyricsOrigin origin)
+        {
+            var song = AddSong(db, n, $"Track {n}", album);
+            song.ApplyLyricsResult(null, "words", false, origin: origin, geniusSongId: origin == LyricsOrigin.Genius ? n : null);
+            song.LyricsLastAttemptedAtUtc = Now.AddHours(-1);
+        }
+        Fetched(1, "Only LRCLIB", LyricsOrigin.Lrclib);
+        Fetched(2, "Only Genius", LyricsOrigin.Genius);
+        Fetched(3, "Both", LyricsOrigin.Lrclib);
+        Fetched(4, "Both", LyricsOrigin.Genius);
+        var missing = AddSong(db, 5, "Track 5", "Nothing");
+        missing.MarkLyricsNotFound();
+        missing.LyricsLastAttemptedAtUtc = Now.AddHours(-1);
+        db.SaveChanges();
+
+        var entries = await new LyricsActivitySource(db).CollectAsync(Window, default);
+
+        string DetailFor(string album) =>
+            Assert.Single(entries, e => e.Kind == "lyrics-added" && e.Headline.Contains(album)).Detail!;
+        Assert.Equal("From LRCLIB", DetailFor("Only LRCLIB"));
+        Assert.Equal("From Genius", DetailFor("Only Genius"));
+        Assert.Equal("From LRCLIB and Genius", DetailFor("Both"));
+        Assert.Equal(
+            "No lyrics found for 1 track of 'Nothing'",
+            Assert.Single(entries, e => e.Kind == "lyrics-missing").Headline);
+    }
+
+    [Fact]
     public async Task Lyrics_ReportsARepairedTimingWithItsShift()
     {
         using var db = NewContext();

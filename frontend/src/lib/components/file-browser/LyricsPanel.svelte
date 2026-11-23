@@ -294,7 +294,7 @@
     <FileText class="text-muted-foreground size-10" />
     <p class="text-subheadline text-muted-foreground max-w-xs text-balance">
       {#if doc.status === 'NotFound'}
-        No lyrics found in LRCLIB for this track.
+        No lyrics found for this track.
       {:else if doc.status === 'Failed'}
         Lyrics fetch encountered an error.
       {:else}
