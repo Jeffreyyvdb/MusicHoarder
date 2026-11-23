@@ -7,7 +7,7 @@
   import { videoBackdropPrefs } from '#lib/stores/video-backdrop-prefs.svelte.ts';
   import type { SongVideo } from '#lib/components/file-browser/now-playing/song-video.svelte.ts';
   import { cn } from '#lib/utils.ts';
-  import { BACKDROP_GIVE_UP_MS, createVideoFollower } from '#lib/video-follow.ts';
+  import { BACKDROP_GIVE_UP_S, createVideoFollower } from '#lib/video-follow.ts';
 
   // Now Playing's background. Three layers, and no backdrop-filter anywhere (lyrics repaint every
   // frame over it): the cover, blown up and blurred into a wash; a black dim sized per cover so
@@ -48,7 +48,7 @@
     showing?: boolean;
   } = $props();
 
-  const follower = createVideoFollower({ giveUpAfterMs: BACKDROP_GIVE_UP_MS });
+  const follower = createVideoFollower({ giveUpAfterS: BACKDROP_GIVE_UP_S });
 
   let videoEl = $state<HTMLVideoElement | null>(null);
   let videoReady = $state(false); // first frame decoded — until then the <video> paints nothing

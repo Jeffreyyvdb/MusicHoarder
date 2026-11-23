@@ -5,7 +5,7 @@
   import { cropMatte } from '#lib/actions/crop-matte.ts';
   import { releaseMedia } from '#lib/actions/release-media.ts';
   import { cn } from '#lib/utils.ts';
-  import { BACKDROP_GIVE_UP_MS, createVideoFollower } from '#lib/video-follow.ts';
+  import { BACKDROP_GIVE_UP_S, createVideoFollower } from '#lib/video-follow.ts';
 
   // Read-only cousin of the in-app VideoBackdrop for the anonymous share page: the song's muted
   // music video, cross-faded in over the page's fixed ambient-artwork backdrop once the first
@@ -30,7 +30,7 @@
     pillarbox?: number | null;
   } = $props();
 
-  const follower = createVideoFollower({ giveUpAfterMs: BACKDROP_GIVE_UP_MS });
+  const follower = createVideoFollower({ giveUpAfterS: BACKDROP_GIVE_UP_S });
 
   // Same opt-out `videoBackdropPrefs` gives the owner inside the app (and the same
   // localStorage entry — one preference per browser, whichever page set it), plus Reduce
