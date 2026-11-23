@@ -220,6 +220,26 @@ public class LyricsTimingCheckServiceTests : IDisposable
         Assert.Equal(TranscriptionStatus.NotRequested, tooLong.TranscriptionStatus);
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData(0)]
+    public async Task resync_pass_passes_over_a_song_of_unknown_length_when_the_ceiling_is_below_its_charge(int? duration)
+    {
+        await using var db = CreateDbContext();
+        var older = AddSong(db, 1, LyricsSyncStatus.Suspect, probeAttempts: 1, durationSeconds: 100);
+        var unknown = AddSong(db, 2, LyricsSyncStatus.Suspect, probeAttempts: 1, durationSeconds: duration);
+        await db.SaveChangesAsync();
+
+        var transcriber = new FakeTranscriber();
+        var opts = new LyricsTimingOptions { AudioSecondsPerHour = 250, AudioSecondsPerDay = 20_000 };
+        var service = NewService(db, transcriber, opts);
+
+        Assert.True(await service.RunResyncPassAsync(CancellationToken.None));
+
+        Assert.Equal([older.SourcePath!], transcriber.FullCalls);
+        Assert.Equal(TranscriptionStatus.NotRequested, unknown.TranscriptionStatus);
+    }
+
     [Fact]
     public async Task a_rate_limited_resync_is_not_recorded_and_gives_its_audio_back()
     {
@@ -267,7 +287,7 @@ public class LyricsTimingCheckServiceTests : IDisposable
         Guid? owner = null,
         bool deleted = false,
         bool built = false,
-        int durationSeconds = 120)
+        int? durationSeconds = 120)
     {
         var path = Path.Combine(_tmpDir.FullName, $"{id}.mp3");
         File.WriteAllBytes(path, [0x00]);
