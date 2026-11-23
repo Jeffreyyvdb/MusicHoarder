@@ -32,6 +32,17 @@ public static class AlbumCompletionEligibility
     public const string ReasonTooFewCanonicalTracks = "too-few-canonical-tracks";
 
     /// <summary>
+    /// Whether an owned track may start a fill of its album. A track that is here only because a
+    /// subscribed playlist carries it may not: following RapCaviar asks for its fifty tracks, not their
+    /// fifty albums. Liking it, here or on Spotify, makes it the owner's own, and then it may.
+    /// </summary>
+    public static bool StartsFill(ProvenanceReason reason, bool liked) => reason switch
+    {
+        ProvenanceReason.SpotifyPlaylist or ProvenanceReason.DeezerPlaylist or ProvenanceReason.YouTubePlaylist => liked,
+        _ => true,
+    };
+
+    /// <summary>
     /// Returns null when the album may be completed, otherwise the reason it was skipped (one of the
     /// <c>Reason*</c> constants, stored on <see cref="AlbumCompletionState.SkipReason"/>).
     /// </summary>
