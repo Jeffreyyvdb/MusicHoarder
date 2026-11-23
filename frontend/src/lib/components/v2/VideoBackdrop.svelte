@@ -2,10 +2,12 @@
   import { MediaQuery } from 'svelte/reactivity';
   import { getSongVideoStreamUrl } from '#lib/api-client.ts';
   import { cropMatte } from '#lib/actions/crop-matte.ts';
+  import { releaseMedia } from '#lib/actions/release-media.ts';
   import { playerStore } from '#lib/stores/player.svelte.ts';
   import { videoBackdropPrefs } from '#lib/stores/video-backdrop-prefs.svelte.ts';
   import type { SongVideo } from '#lib/components/file-browser/now-playing/song-video.svelte.ts';
   import { cn } from '#lib/utils.ts';
+  import { BACKDROP_GIVE_UP_MS, createVideoFollower } from '#lib/video-follow.ts';
 
   // Now Playing's background. Three layers, and no backdrop-filter anywhere (lyrics repaint every
   // frame over it): the cover, blown up and blurred into a wash; a black dim sized per cover so
@@ -16,10 +18,10 @@
   // across the player wherever it happened to land — through Info's section control, say.
   //
   // The audio element in the player store is the master clock: the <video> is slaved to it
-  // through the per-song sync offset (videoTime = audioTime + offsetMs/1000) with a hard resync
-  // whenever drift exceeds DRIFT_TOLERANCE_S. The store's 10 Hz currentTime writes double as the
-  // drift ticker, so no extra timer is needed; a >0.3 s divergence from seek/resume/track-change
-  // trips the same rule.
+  // through the per-song sync offset (videoTime = audioTime + offsetMs/1000) by the rule in
+  // #lib/video-follow. The store's 10 Hz currentTime writes double as the
+  // drift ticker, so no extra timer is needed; a divergence from seek/resume/track-change trips
+  // the same rule.
   //
   // What the video IS (status, offset, admin actions) lives in the shared SongVideo, which the
   // Video mode and the Manage video sheet read too — a nudge moves this backdrop live.
@@ -46,7 +48,7 @@
     showing?: boolean;
   } = $props();
 
-  const DRIFT_TOLERANCE_S = 0.3;
+  const follower = createVideoFollower({ giveUpAfterMs: BACKDROP_GIVE_UP_MS });
 
   let videoEl = $state<HTMLVideoElement | null>(null);
   let videoReady = $state(false); // first frame decoded — until then the <video> paints nothing
@@ -81,6 +83,7 @@
     videoEnded = false;
     videoFailed = false;
     videoLoadRetries = 0;
+    follower.reset();
   });
 
   // Slave the video's transport state to the audio's. Effects here only read player/pref state and
@@ -117,9 +120,14 @@
       return;
     }
 
-    if (Math.abs(el.currentTime - mapped) > DRIFT_TOLERANCE_S) {
-      el.currentTime = mapped;
-    }
+    const step = follower.step({
+      videoTime: el.currentTime,
+      seeking: el.seeking,
+      mapped,
+      now: performance.now()
+    });
+    if (step.kind === 'seek') el.currentTime = step.to;
+    else if (step.kind === 'give-up') videoFailed = true;
     if (playerStore.isPlaying && el.paused) {
       void el.play().catch(() => {});
     }
@@ -196,6 +204,7 @@
         blurred && 'scale-125 blur-[48px]'
       )}
       use:cropMatte={{ letterbox: video.info?.letterbox, pillarbox: video.info?.pillarbox }}
+      use:releaseMedia
       onloadstart={() => (videoReady = false)}
       onloadeddata={() => {
         videoReady = true;
