@@ -229,6 +229,7 @@ public sealed class LyricsTimingCheckService(
         var songs = await db.Songs
             .IgnoreQueryFilters()
             .WhereDueForAutoResync()
+            .WhereFitsBackgroundAudioCeiling(opts.BackgroundAudioCeilingSeconds)
             .OrderByDescending(s => s.Id)
             // A whole song per call: a handful per pass keeps one pass from sitting on the rate limiter.
             .Take(Math.Min(remaining, 3))
@@ -365,4 +366,8 @@ public static class LyricsTimingQueries
             .Where(s => s.TranscriptionStatus == TranscriptionStatus.NotRequested)
             .Where(s => s.IsInstrumental != true)
             .Where(s => s.PlainLyrics != null && s.PlainLyrics != string.Empty);
+
+    public static IQueryable<SongMetadata> WhereFitsBackgroundAudioCeiling(
+        this IQueryable<SongMetadata> query, int ceilingSeconds)
+        => query.Where(s => s.DurationSeconds == null || s.DurationSeconds <= ceilingSeconds);
 }
