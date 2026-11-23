@@ -41,8 +41,14 @@ class ArtistShelves {
    * Follows a suggested artist. The suggestion carries a catalog id only when one is proven; without
    * it the artist page's own lookup proves one (the same request the page makes), and when even that
    * cannot, the caller sends the person to the page to pick.
+   *
+   * `beforeMove` runs once the follow exists and just before it moves between the shelves, while the
+   * suggestion's tile is still on screen: the page's last chance to see where it was.
    */
-  async follow(suggestion: ArtistSuggestion): Promise<SuggestionFollowResult> {
+  async follow(
+    suggestion: ArtistSuggestion,
+    beforeMove?: (follow: FollowedArtist) => void
+  ): Promise<SuggestionFollowResult> {
     const { artist } = suggestion;
     this.pending = new Set([...this.pending, artist]);
     try {
@@ -59,6 +65,7 @@ class ArtistShelves {
         if (!id) return candidates > 0 ? 'needs-choice' : 'not-found';
         follow = await followArtist({ deezerArtistId: id, artist });
       }
+      beforeMove?.(follow);
       this.#adopt(follow, artist);
       return 'followed';
     } finally {

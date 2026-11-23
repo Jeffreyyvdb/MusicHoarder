@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { onMount, type Snippet } from 'svelte';
+  import { onMount, tick, type Snippet } from 'svelte';
+  import { flip } from 'svelte/animate';
   import { goto } from '$app/navigation';
   import { toast } from 'svelte-sonner';
   import { ChevronRight, Plus } from '@lucide/svelte';
@@ -8,8 +9,10 @@
   import { Spinner } from '#lib/components/ui/spinner/index.ts';
   import { getArtistImageUrl, type ArtistSuggestion } from '#lib/api-client.ts';
   import { messageOf } from '#lib/artist-discography.ts';
+  import { easeInOut, prefersReducedMotion } from '#lib/motion.ts';
   import { artistShelves } from '#lib/stores/artist-shelves.svelte.ts';
   import { cn } from '#lib/utils.ts';
+  import { land, SHELF_MOVE, takeOff, type Flight } from './follow-flight.ts';
 
   // Above the Artists grid, for an admin: the artists you follow first, then the ones your listening
   // suggests. Both stay out of the way of the grid: nothing is shown until there is something to show.
@@ -62,9 +65,38 @@
     return `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
   }
 
-  async function follow(s: ArtistSuggestion) {
+  /** Follows whose portrait is still flying to the Following shelf: their tile waits, unseen. */
+  let arriving = $state.raw<ReadonlySet<number>>(new Set());
+
+  function setArriving(id: number, on: boolean) {
+    const next = new Set(arriving);
+    if (on) next.add(id);
+    else next.delete(id);
+    arriving = next;
+  }
+
+  /** Both shelves make room, and close it, in step with the portrait's flight. */
+  function shelfMove() {
+    return { duration: prefersReducedMotion() ? 0 : SHELF_MOVE.duration, easing: easeInOut };
+  }
+
+  async function follow(s: ArtistSuggestion, tile: HTMLElement | null) {
+    let flight: Flight | null = null;
+    let followId: number | null = null;
     try {
-      const result = await artistShelves.follow(s);
+      const result = await artistShelves.follow(s, (f) => {
+        // The suggestion is still on screen: lift its portrait off before the shelves change, and
+        // keep the tile it will land in hidden from its first frame.
+        flight = takeOff(tile?.querySelector('.mh-cover'));
+        followId = f.id;
+        if (flight) setArriving(f.id, true);
+      });
+      if (result === 'followed' && flight && followId !== null) {
+        const id = followId;
+        await tick();
+        const target = root?.querySelector<HTMLElement>(`[data-follow-id="${id}"] .mh-cover`);
+        void land(flight, target ?? null, () => setArriving(id, false));
+      }
       if (result === 'followed') {
         toast.success(`Following ${s.artist}`, {
           description: 'New releases will show up under Following.'
@@ -134,7 +166,8 @@
         )}
         {#snippet followTiles()}
           {#each follows as f (f.id)}
-            <li class={TILE}>
+            {@const landing = arriving.has(f.id)}
+            <li class={TILE} data-follow-id={f.id} animate:flip={shelfMove()}>
               <a
                 href={artistHref(f.name)}
                 class="focus-visible:ring-ring flex w-full flex-col items-center gap-2 rounded-lg focus-visible:ring-2 focus-visible:outline-hidden"
@@ -147,9 +180,15 @@
                   size={136}
                   caption={false}
                   interactive
-                  class={PORTRAIT}
+                  class={cn(PORTRAIT, landing && 'opacity-0')}
                 />
-                <span class="w-full min-w-0 text-center">
+                <!-- The name settles in as the portrait lands on it. -->
+                <span
+                  class={cn(
+                    'w-full min-w-0 text-center transition-opacity duration-200 ease-out',
+                    landing && 'opacity-0'
+                  )}
+                >
                   <span
                     class="text-subheadline block truncate font-semibold md:text-[12.5px] md:font-medium"
                   >
@@ -187,7 +226,7 @@
         {#snippet suggestionTiles()}
           {#each suggestions as s (s.artist)}
             {@const busy = artistShelves.pending.has(s.artist)}
-            <li class={TILE}>
+            <li class={TILE} animate:flip={shelfMove()}>
               <a
                 href={artistHref(s.artist)}
                 class="focus-visible:ring-ring flex w-full flex-col items-center gap-2 rounded-lg focus-visible:ring-2 focus-visible:outline-hidden"
@@ -219,7 +258,7 @@
                 disabled={busy}
                 aria-busy={busy || undefined}
                 aria-label="Follow {s.artist}"
-                onclick={() => follow(s)}
+                onclick={(e) => follow(s, e.currentTarget.closest('li'))}
                 class="bg-secondary hover:bg-secondary-hover text-foreground focus-visible:ring-ring text-subheadline inline-flex min-h-11 items-center gap-1 rounded-full px-4 font-semibold transition-colors focus-visible:ring-2 focus-visible:outline-hidden disabled:opacity-60 md:min-h-7 md:px-3 md:text-xs"
               >
                 {#if busy}

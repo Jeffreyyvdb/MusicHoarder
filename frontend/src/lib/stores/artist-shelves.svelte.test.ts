@@ -85,6 +85,22 @@ describe('artist shelves', () => {
     expect(shelves.pending.size).toBe(0);
   });
 
+  it('tells the caller about the follow while the suggestion is still on its shelf', async () => {
+    const shelves = await loadShelves([], [suggestion('Abel', '7')]);
+    api.followArtist.mockResolvedValue(followed(7, 'Abel'));
+    const seen: { id: number; suggested: string[]; following: string[] }[] = [];
+
+    await shelves.follow(suggestion('Abel', '7'), (f) =>
+      seen.push({
+        id: f.id,
+        suggested: shelves.suggestions?.map((s) => s.artist) ?? [],
+        following: shelves.follows?.map((x) => x.name) ?? []
+      })
+    );
+
+    expect(seen).toEqual([{ id: 7, suggested: ['Abel'], following: [] }]);
+  });
+
   it('proves an unlinked suggestion through the artist lookup before following', async () => {
     const shelves = await loadShelves([], [suggestion('Bo')]);
     api.fetchArtistDiscography.mockResolvedValue(discography('9'));
