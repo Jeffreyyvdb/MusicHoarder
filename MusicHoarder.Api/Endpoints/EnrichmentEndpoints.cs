@@ -44,12 +44,13 @@ public static class EnrichmentEndpoints
         group.MapPost("/enrich", async (
                 EnrichmentPipelineChannel channel,
                 MusicHoarderDbContext db,
+                IEnrichmentOrchestrator orchestrator,
                 CancellationToken ct) =>
             {
                 // Enrichment is channel-fed by always-running workers (no discrete "enrich job"), so
                 // this trigger enqueues every song that's ready for enrichment plus any whose
                 // provider-attempt cooldown has elapsed. Works whether or not AutoStartPipeline is on.
-                var enqueued = await EnqueueReadyAndRetryableAsync(db, channel, "Manual enrich — all tracks", ct);
+                var enqueued = await EnqueueReadyAndRetryableAsync(db, orchestrator, channel, "Manual enrich — all tracks", ct);
                 return Results.Accepted("/api/enrichment/status", new { enqueued });
             })
             .WithName("TriggerEnrich")
@@ -657,7 +658,11 @@ public static class EnrichmentEndpoints
     }
 
     private static async Task<int> EnqueueReadyAndRetryableAsync(
-        MusicHoarderDbContext db, EnrichmentPipelineChannel channel, string? label, CancellationToken ct)
+        MusicHoarderDbContext db,
+        IEnrichmentOrchestrator orchestrator,
+        EnrichmentPipelineChannel channel,
+        string? label,
+        CancellationToken ct)
     {
         var pendingIds = await db.Songs
             .AsNoTracking()
@@ -666,10 +671,8 @@ public static class EnrichmentEndpoints
             .Select(s => s.Id)
             .ToListAsync(ct);
 
-        var retryIds = await db.SongProviderAttempts
-            .AsNoTracking()
-            .WhereRetryableProviderAttempts(DateTime.UtcNow)
-            .ToListAsync(ct);
+        var retryIds = await EnrichmentQueries.RetryableSongIdsAsync(
+            db, orchestrator, DateTime.UtcNow, ignoreQueryFilters: false, ct);
 
         var ids = pendingIds.Concat(retryIds).Distinct().ToList();
         channel.EnqueueRange(ids, label);

@@ -103,6 +103,202 @@ public class ProviderApplicabilityTests
         Assert.Equal(EnrichmentStatus.NeedsReview, (await db.Songs.AsNoTracking().SingleAsync()).EnrichmentStatus);
     }
 
+    [Theory]
+    [InlineData(ProviderAttemptStatus.NoMatch)]
+    [InlineData(ProviderAttemptStatus.Failed)]
+    [InlineData(ProviderAttemptStatus.RateLimited)]
+    public async Task RetrySweep_SkipsSong_WhoseOnlyDueAttemptIsFromADisabledProvider(ProviderAttemptStatus status)
+    {
+        await using var db = CreateDb();
+        var song = AddSong(db, EnrichmentStatus.Matched);
+        AddAttempt(song, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.Matched);
+        // Deezer is disabled in Pipeline(withDeezer: false); its due attempt can never be advanced.
+        AddAttempt(song, EnrichmentProvider.Deezer, status, retryDue: true);
+        await db.SaveChangesAsync();
+        var pipeline = new Pipeline(db);
+
+        await pipeline.Service.SweepRetryableSongsAsync(CancellationToken.None);
+
+        Assert.False(pipeline.Channel.Reader.TryRead(out _));
+    }
+
+    [Theory]
+    [InlineData(ProviderAttemptStatus.NoMatch)]
+    [InlineData(ProviderAttemptStatus.Failed)]
+    [InlineData(ProviderAttemptStatus.RateLimited)]
+    public async Task RetrySweep_SkipsSong_WhoseOnlyDueAttemptIsFromAProviderThatCannotHandleIt(ProviderAttemptStatus status)
+    {
+        await using var db = CreateDb();
+        var song = AddSong(db, EnrichmentStatus.Matched);
+        AddAttempt(song, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.Matched);
+        // YeTracker is enabled, but CanHandle returns false for this song (e.g. after a heal or
+        // re-tag moved the artist off the allowlist), so ProcessSongAsync skips it before checking
+        // the attempt and never moves its retry time forward.
+        AddAttempt(song, EnrichmentProvider.YeTracker, status, retryDue: true);
+        await db.SaveChangesAsync();
+        var pipeline = new Pipeline(db);
+
+        await pipeline.Service.SweepRetryableSongsAsync(CancellationToken.None);
+
+        Assert.False(pipeline.Channel.Reader.TryRead(out _));
+    }
+
+    [Fact]
+    public async Task RetrySweep_AdvancesApplicableAttemptOnce_AndDoesNotReenqueueOverStaleInapplicableAttempt()
+    {
+        await using var db = CreateDb();
+        var song = AddSong(db, EnrichmentStatus.NeedsReview);
+        // Both attempts are due: SpotifyAPI can handle the song, YeTracker cannot.
+        AddAttempt(song, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.NoMatch, retryDue: true);
+        AddAttempt(song, EnrichmentProvider.YeTracker, ProviderAttemptStatus.NoMatch, retryDue: true);
+        await db.SaveChangesAsync();
+        var pipeline = new Pipeline(db);
+
+        // First sweep must enqueue because SpotifyAPI is applicable and due.
+        await pipeline.Service.SweepRetryableSongsAsync(CancellationToken.None);
+        await using var reader = pipeline.Channel.ReadAllPrioritizedAsync(CancellationToken.None).GetAsyncEnumerator();
+        Assert.True(await reader.MoveNextAsync());
+        Assert.Equal(song.Id, reader.Current);
+
+        // Processing advances SpotifyAPI's cooldown but leaves YeTracker's due attempt untouched.
+        await pipeline.Orchestrator.ProcessSongAsync(song.Id);
+        pipeline.Channel.MarkProcessed();
+
+        // Second sweep must not re-enqueue the song forever over the unadvanceable YeTracker attempt.
+        await pipeline.Service.SweepRetryableSongsAsync(CancellationToken.None);
+        Assert.False(pipeline.Channel.Reader.TryRead(out _));
+    }
+
+    [Fact]
+    public async Task RetrySweep_SkipsDeletedSyntheticAndDemoSongs()
+    {
+        await using var db = CreateDb();
+        var deleted = AddSong(db, EnrichmentStatus.NeedsReview);
+        deleted.DeletedAtUtc = DateTime.UtcNow.AddHours(-1);
+        AddAttempt(deleted, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.NoMatch, retryDue: true);
+
+        var synthetic = AddSong(db, EnrichmentStatus.NeedsReview);
+        synthetic.IsSynthetic = true;
+        AddAttempt(synthetic, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.NoMatch, retryDue: true);
+
+        var demo = AddSong(db, EnrichmentStatus.NeedsReview);
+        demo.OwnerUserId = MusicHoarder.Api.Auth.WellKnownUsers.DemoId;
+        AddAttempt(demo, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.NoMatch, retryDue: true);
+
+        await db.SaveChangesAsync();
+        var pipeline = new Pipeline(db);
+
+        await pipeline.Service.SweepRetryableSongsAsync(CancellationToken.None);
+
+        Assert.False(pipeline.Channel.Reader.TryRead(out _));
+    }
+
+    [Fact]
+    public async Task StartupBackfill_SkipsRetryableAttemptsFromDisabledOrInapplicableProviders()
+    {
+        await using var db = CreateDb();
+        var disabledAttemptSong = AddSong(db, EnrichmentStatus.Matched);
+        AddAttempt(disabledAttemptSong, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.Matched);
+        AddAttempt(disabledAttemptSong, EnrichmentProvider.Deezer, ProviderAttemptStatus.NoMatch, retryDue: true);
+
+        var inapplicableAttemptSong = AddSong(db, EnrichmentStatus.Matched);
+        AddAttempt(inapplicableAttemptSong, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.Matched);
+        AddAttempt(inapplicableAttemptSong, EnrichmentProvider.YeTracker, ProviderAttemptStatus.Failed, retryDue: true);
+
+        var dueApplicableSong = AddSong(db, EnrichmentStatus.NeedsReview);
+        AddAttempt(dueApplicableSong, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.NoMatch, retryDue: true);
+
+        await db.SaveChangesAsync();
+        var pipeline = new Pipeline(db);
+
+        await pipeline.Service.BackfillPendingSongsAsync(CancellationToken.None);
+
+        Assert.True(pipeline.Channel.Reader.TryRead(out var enqueued));
+        Assert.Equal(dueApplicableSong.Id, enqueued);
+        Assert.False(pipeline.Channel.Reader.TryRead(out _));
+    }
+
+    [Fact]
+    public async Task RetryableSongIds_PagesAcrossMultipleBatches_FilteringInapplicableAttempts()
+    {
+        await using var db = CreateDb();
+        var s1 = AddSong(db, EnrichmentStatus.NeedsReview);
+        AddAttempt(s1, EnrichmentProvider.YeTracker, ProviderAttemptStatus.NoMatch, retryDue: true);
+
+        var s2 = AddSong(db, EnrichmentStatus.NeedsReview);
+        AddAttempt(s2, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.NoMatch, retryDue: true);
+
+        var s3 = AddSong(db, EnrichmentStatus.NeedsReview);
+        AddAttempt(s3, EnrichmentProvider.YeTracker, ProviderAttemptStatus.RateLimited, retryDue: true);
+
+        var s4 = AddSong(db, EnrichmentStatus.NeedsReview);
+        AddAttempt(s4, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.Failed, retryDue: true);
+
+        var s5 = AddSong(db, EnrichmentStatus.NeedsReview);
+        AddAttempt(s5, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.RateLimited, retryDue: true);
+
+        await db.SaveChangesAsync();
+        var pipeline = new Pipeline(db);
+
+        var ids = await EnrichmentQueries.RetryableSongIdsAsync(
+            db, pipeline.Orchestrator, DateTime.UtcNow, ignoreQueryFilters: true, CancellationToken.None, pageSize: 2);
+
+        Assert.Equal([s2.Id, s4.Id, s5.Id], ids);
+    }
+
+    [Fact]
+    public async Task RetrySweep_SkipsRealTrackerAttempt_AfterArtistMovesOffAllowlist()
+    {
+        await using var db = CreateDb();
+        // Song previously matched YeTracker's allowlist ("Kanye West") and got a NoMatch whose
+        // cooldown has since elapsed, then a heal/re-tag changed its artist off the allowlist.
+        var offAllowlist = AddSong(db, EnrichmentStatus.Matched);
+        offAllowlist.Artist = "Daft Punk";
+        AddAttempt(offAllowlist, EnrichmentProvider.YeTracker, ProviderAttemptStatus.NoMatch, retryDue: true);
+
+        var onAllowlist = AddSong(db, EnrichmentStatus.NeedsReview);
+        onAllowlist.Artist = "Kanye West";
+        AddAttempt(onAllowlist, EnrichmentProvider.YeTracker, ProviderAttemptStatus.NoMatch, retryDue: true);
+
+        await db.SaveChangesAsync();
+
+        var options = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
+        {
+            SourceDirectory = "/source",
+            DestinationDirectory = "/dest",
+            AutoStartPipeline = false,
+            EnableAcoustIdProvider = false,
+            EnableMusicBrainzWebProvider = false,
+            EnableSpotifyApiProvider = false,
+            EnableTrackerProvider = false,
+            EnableYeTrackerProvider = true,
+            EnableDeezerProvider = false,
+            EnableAppleMusicProvider = false,
+            YeTrackerArtistAllowlist = ["Kanye West"],
+        });
+        IEnrichmentProvider[] providers =
+        [
+            new YeTrackerEnrichmentProvider(null!, options, NullLogger<YeTrackerEnrichmentProvider>.Instance),
+        ];
+        var scopes = new DbScopeFactory(db);
+        var jobs = new JobManager();
+        var channel = new EnrichmentPipelineChannel(jobs, new EnrichmentProgressTracker());
+        var meterFactory = new ServiceCollection().AddMetrics().BuildServiceProvider().GetRequiredService<IMeterFactory>();
+        var orchestrator = new EnrichmentOrchestrator(
+            scopes, providers, new NoLyrics(), new NoLyrics(), options,
+            new FixedRuntimeSettings(options.Value), new PipelineMetrics(meterFactory),
+            NullLogger<EnrichmentOrchestrator>.Instance);
+        var service = new EnrichmentBackgroundService(
+            scopes, jobs, new EnrichmentProgressTracker(), channel, orchestrator, options,
+            NullLogger<EnrichmentBackgroundService>.Instance);
+
+        await service.SweepRetryableSongsAsync(CancellationToken.None);
+
+        Assert.True(channel.Reader.TryRead(out var enqueued));
+        Assert.Equal(onAllowlist.Id, enqueued);
+        Assert.False(channel.Reader.TryRead(out _));
+    }
+
     [Fact]
     public async Task Worker_RecordsATerminalOutcome_WhenASongReachesOne()
     {
@@ -208,12 +404,12 @@ public class ProviderApplicabilityTests
             [
                 Provider("SpotifyAPI", canHandle: true),
                 Provider("YeTracker", canHandle: false),
-                .. withDeezer ? [Provider("Deezer", canHandle: true)] : Array.Empty<IEnrichmentProvider>(),
+                Provider("Deezer", canHandle: true),
             ];
             var scopes = new DbScopeFactory(db);
             Metrics = new PipelineMetrics(_meterFactory);
             Channel = new EnrichmentPipelineChannel(_jobs, new EnrichmentProgressTracker());
-            var orchestrator = new EnrichmentOrchestrator(
+            Orchestrator = new EnrichmentOrchestrator(
                 scopes,
                 providers,
                 new NoLyrics(),
@@ -223,12 +419,13 @@ public class ProviderApplicabilityTests
                 Metrics,
                 NullLogger<EnrichmentOrchestrator>.Instance);
             Service = new EnrichmentBackgroundService(
-                scopes, _jobs, new EnrichmentProgressTracker(), Channel, orchestrator, options,
+                scopes, _jobs, new EnrichmentProgressTracker(), Channel, Orchestrator, options,
                 NullLogger<EnrichmentBackgroundService>.Instance);
         }
 
         public PipelineMetrics Metrics { get; }
         public EnrichmentPipelineChannel Channel { get; }
+        public EnrichmentOrchestrator Orchestrator { get; }
         public EnrichmentBackgroundService Service { get; }
 
         /// <summary>Runs one song through the worker loop and returns the terminal outcomes recorded.</summary>
@@ -292,7 +489,10 @@ public class ProviderApplicabilityTests
             Provider = provider,
             Status = status,
             AttemptedAtUtc = DateTime.UtcNow,
-            NextRetryAfterUtc = status == ProviderAttemptStatus.NoMatch
+            RetryAfterUtc = status == ProviderAttemptStatus.RateLimited
+                ? DateTime.UtcNow.AddMinutes(retryDue ? -1 : 30)
+                : null,
+            NextRetryAfterUtc = status is ProviderAttemptStatus.NoMatch or ProviderAttemptStatus.Failed
                 ? DateTime.UtcNow.AddDays(retryDue ? -1 : 30)
                 : null,
         });

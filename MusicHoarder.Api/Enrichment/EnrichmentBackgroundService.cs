@@ -288,7 +288,7 @@ public class EnrichmentBackgroundService(
         }
     }
 
-    private async Task BackfillPendingSongsAsync(CancellationToken ct)
+    internal async Task BackfillPendingSongsAsync(CancellationToken ct)
     {
         try
         {
@@ -321,11 +321,8 @@ public class EnrichmentBackgroundService(
                     queued + queuedPriority, pending.Count, queuedPriority);
             }
 
-            var retryIds = await db.SongProviderAttempts
-                .IgnoreQueryFilters()
-                .AsNoTracking()
-                .WhereRetryableProviderAttempts(DateTime.UtcNow)
-                .ToListAsync(ct);
+            var retryIds = await EnrichmentQueries.RetryableSongIdsAsync(
+                db, orchestrator, DateTime.UtcNow, ignoreQueryFilters: true, ct, SweepPageSize);
 
             if (retryIds.Count > 0)
             {
@@ -339,6 +336,24 @@ public class EnrichmentBackgroundService(
         }
     }
 
+    internal async Task SweepRetryableSongsAsync(CancellationToken ct)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+
+        var retryIds = await EnrichmentQueries.RetryableSongIdsAsync(
+            db, orchestrator, DateTime.UtcNow, ignoreQueryFilters: true, ct, SweepPageSize);
+
+        if (retryIds.Count > 0)
+        {
+            var queued = pipelineChannel.EnqueueRange(retryIds);
+            if (queued > 0)
+                logger.LogInformation(
+                    "Retry sweep enqueued {Queued} retryable songs ({Waiting} waiting in the enrichment queue)",
+                    queued, pipelineChannel.Waiting);
+        }
+    }
+
     private async Task RunRetrySweepLoopAsync(CancellationToken ct)
     {
         var interval = TimeSpan.FromSeconds(options.Value.EnrichmentRetrySweepIntervalSeconds);
@@ -349,24 +364,7 @@ public class EnrichmentBackgroundService(
             {
                 await Task.Delay(interval, ct);
 
-                using var scope = scopeFactory.CreateScope();
-                var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
-
-                var retryIds = await db.SongProviderAttempts
-                    .IgnoreQueryFilters()
-                    .AsNoTracking()
-                    .WhereRetryableProviderAttempts(DateTime.UtcNow)
-                    .ToListAsync(ct);
-
-                if (retryIds.Count > 0)
-                {
-                    var queued = pipelineChannel.EnqueueRange(retryIds);
-                    if (queued > 0)
-                        logger.LogInformation(
-                            "Retry sweep enqueued {Queued} retryable songs ({Waiting} waiting in the enrichment queue)",
-                            queued, pipelineChannel.Waiting);
-                }
-
+                await SweepRetryableSongsAsync(ct);
                 await BackfillMissingLyricsAsync(ct);
                 await RecheckStaleLyricsAsync(ct);
             }

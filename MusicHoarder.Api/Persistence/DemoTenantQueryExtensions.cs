@@ -22,4 +22,7 @@ public static class DemoTenantQueryExtensions
 
     public static IQueryable<WishlistItem> ExcludingDemoTenant(this IQueryable<WishlistItem> items) =>
         items.Where(w => w.OwnerUserId != WellKnownUsers.DemoId);
+
+    public static IQueryable<SongProviderAttempt> ExcludingDemoTenant(this IQueryable<SongProviderAttempt> attempts) =>
+        attempts.Where(a => a.Song.OwnerUserId != WellKnownUsers.DemoId);
 }

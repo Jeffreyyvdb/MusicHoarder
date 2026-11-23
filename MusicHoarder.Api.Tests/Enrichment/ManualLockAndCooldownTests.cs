@@ -54,7 +54,8 @@ public class ManualLockAndCooldownTests
         await db.SaveChangesAsync();
 
         var ids = await db.SongProviderAttempts
-            .WhereRetryableProviderAttempts(DateTime.UtcNow)
+            .WhereRetryableProviderAttempts(DateTime.UtcNow, [EnrichmentProvider.AcoustID])
+            .Select(a => a.SongId)
             .ToListAsync();
 
         Assert.Contains(song.Id, ids);
@@ -79,7 +80,8 @@ public class ManualLockAndCooldownTests
         await db.SaveChangesAsync();
 
         var ids = await db.SongProviderAttempts
-            .WhereRetryableProviderAttempts(DateTime.UtcNow)
+            .WhereRetryableProviderAttempts(DateTime.UtcNow, [EnrichmentProvider.AcoustID])
+            .Select(a => a.SongId)
             .ToListAsync();
 
         Assert.DoesNotContain(song.Id, ids);
@@ -103,7 +105,8 @@ public class ManualLockAndCooldownTests
         await db.SaveChangesAsync();
 
         var ids = await db.SongProviderAttempts
-            .WhereRetryableProviderAttempts(DateTime.UtcNow)
+            .WhereRetryableProviderAttempts(DateTime.UtcNow, [EnrichmentProvider.AcoustID])
+            .Select(a => a.SongId)
             .ToListAsync();
 
         Assert.DoesNotContain(song.Id, ids);

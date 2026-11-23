@@ -34,6 +34,33 @@ public class DemoTenantQueryExtensionsTests
         Assert.Equal(WellKnownUsers.OwnerId, item.OwnerUserId);
     }
 
+    [Fact]
+    public async Task ExcludingDemoTenant_DropsDemoProviderAttempts_KeepsOwnerAttempts()
+    {
+        await using var db = NewDb();
+        var ownerSong = Song(WellKnownUsers.OwnerId, "/owner/a.mp3");
+        var demoSong = Song(WellKnownUsers.DemoId, "/demo/b.mp3");
+        ownerSong.ProviderAttempts.Add(new SongProviderAttempt
+        {
+            Provider = EnrichmentProvider.SpotifyAPI,
+            Status = ProviderAttemptStatus.NoMatch,
+            AttemptedAtUtc = DateTime.UtcNow,
+        });
+        demoSong.ProviderAttempts.Add(new SongProviderAttempt
+        {
+            Provider = EnrichmentProvider.SpotifyAPI,
+            Status = ProviderAttemptStatus.NoMatch,
+            AttemptedAtUtc = DateTime.UtcNow,
+        });
+        db.Songs.AddRange(ownerSong, demoSong);
+        await db.SaveChangesAsync();
+
+        var kept = await db.SongProviderAttempts.IgnoreQueryFilters().ExcludingDemoTenant().ToListAsync();
+
+        var attempt = Assert.Single(kept);
+        Assert.Equal(ownerSong.Id, attempt.SongId);
+    }
+
     private static SongMetadata Song(Guid owner, string path) => new()
     {
         OwnerUserId = owner,
