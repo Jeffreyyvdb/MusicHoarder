@@ -238,6 +238,21 @@ public class ConsensusEvaluatorTests
     }
 
     [Fact]
+    public void FailedAttemptOfAProviderThatNoLongerApplies_IsNotFailed()
+    {
+        // The tracker errored while the song's artist was on its list; it has since been retagged.
+        var song = Song();
+        Add(song, EnrichmentProvider.AcoustID, ProviderAttemptStatus.NoMatch, null);
+        Add(song, EnrichmentProvider.Tracker, ProviderAttemptStatus.Failed, null);
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.AcoustID, EnrichmentProvider.Tracker), Opts,
+            applicableProviders: Enabled(EnrichmentProvider.AcoustID));
+
+        Assert.Equal(EnrichmentStatus.NeedsReview, r.Status);
+    }
+
+    [Fact]
     public void TrackerAndSpotifyAgree_StillCorroboratesAsCluster()
     {
         var song = Song();
