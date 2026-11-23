@@ -320,24 +320,29 @@
       </div>
     {/if}
 
+    <!-- The loading and empty messages carry the rows' data-mh-tracks too: the hardware skin draws
+         the column head as the top of a screen whose body is that element. -->
     {#if isLoading && view.songs.length === 0}
       <div
+        data-mh-tracks={compact ? 'compact' : 'wide'}
         class="text-muted-foreground text-subheadline flex items-center justify-center p-8 md:text-sm"
       >
         Loading tracks…
       </div>
     {:else if sorted.length === 0}
-      {#if empty}
-        {@render empty()}
-      {:else}
-        <EmptyState
-          icon={ListMusic}
-          title="No tracks match"
-          action={view.hasFilters
-            ? { label: 'Clear filters', onclick: () => view.clearFilters() }
-            : undefined}
-        />
-      {/if}
+      <div data-mh-tracks={compact ? 'compact' : 'wide'}>
+        {#if empty}
+          {@render empty()}
+        {:else}
+          <EmptyState
+            icon={ListMusic}
+            title="No tracks match"
+            action={view.hasFilters
+              ? { label: 'Clear filters', onclick: () => view.clearFilters() }
+              : undefined}
+          />
+        {/if}
+      </div>
     {:else}
       <!-- On a phone the rows are a list of two-control items; on desktop each row is itself a
            button (the table's row selection). -->
