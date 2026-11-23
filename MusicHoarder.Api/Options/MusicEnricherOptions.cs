@@ -638,7 +638,7 @@ public class MusicEnricherOptions
 
     /// <summary>
     /// Max Genius requests per second, across every worker. A song costs up to two (search, then its
-    /// page), and Cloudflare refuses a burst outright.
+    /// page).
     /// </summary>
     [Range(1, 5)]
     public int GeniusRequestsPerSecond { get; set; } = 1;
