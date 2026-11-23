@@ -739,7 +739,153 @@ public class AlbumCompletionSweepTests
         Assert.Null(result.IdleReason);
     }
 
+    // ── Playlist subscriptions ─────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData(WishlistSourceType.Playlist)]
+    [InlineData(WishlistSourceType.SpotifyArchivePlaylist)]
+    [InlineData(WishlistSourceType.DeezerPlaylist)]
+    [InlineData(WishlistSourceType.YouTubePlaylist)]
+    public async Task Sweep_TrackDownloadedOnlyForAPlaylist_DoesNotFillItsAlbum(WishlistSourceType sourceType)
+    {
+        await using var db = NewContext();
+        AddCanonicalAlbum(db, Artist, Album, "One", "Two", "Three");
+        var song = Song("/downloads/one.mp3", Artist, Album, title: "One", track: 1);
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+        LinkToSource(db, song, sourceType);
+        await db.SaveChangesAsync();
+
+        var result = await CreateSweep(db).SweepAsync(CancellationToken.None);
+
+        Assert.Equal(0, result.TracksQueued);
+        Assert.Equal(AlbumCompletionSweepResult.IdleNoCandidates, result.IdleReason);
+        Assert.Empty(await db.AlbumCompletionStates.IgnoreQueryFilters().ToListAsync());
+    }
+
+    [Fact]
+    public async Task Sweep_PlaylistTrackLikedHere_FillsItsAlbum()
+    {
+        await using var db = NewContext();
+        AddCanonicalAlbum(db, Artist, Album, "One", "Two", "Three");
+        var song = Song("/downloads/one.mp3", Artist, Album, title: "One", track: 1);
+        song.LikedAtUtc = DateTime.UtcNow;
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+        LinkToSource(db, song, WishlistSourceType.Playlist);
+        await db.SaveChangesAsync();
+
+        var result = await CreateSweep(db).SweepAsync(CancellationToken.None);
+
+        Assert.Equal(2, result.TracksQueued);
+    }
+
+    [Fact]
+    public async Task Sweep_PlaylistTrackLaterLikedOnSpotify_FillsItsAlbum()
+    {
+        // The playlist synced first, so the wishlist item stays credited to it; the like shows up only
+        // in the liked-songs match cache.
+        await using var db = NewContext();
+        AddCanonicalAlbum(db, Artist, Album, "One", "Two", "Three");
+        var song = Song("/downloads/one.mp3", Artist, Album, title: "One", track: 1);
+        song.SpotifyId = "spotify-one";
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+        LinkToSource(db, song, WishlistSourceType.Playlist);
+        db.SpotifyTrackLibraryMatches.Add(new SpotifyTrackLibraryMatch
+        {
+            OwnerUserId = WellKnownUsers.OwnerId,
+            SpotifyTrackId = "spotify-one",
+            Source = MusicHoarder.Api.Spotify.SpotifyLibraryComparisonService.SourceLikedSync,
+            SpotifyAddedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        var result = await CreateSweep(db).SweepAsync(CancellationToken.None);
+
+        Assert.Equal(2, result.TracksQueued);
+    }
+
+    [Fact]
+    public async Task Sweep_TrackDownloadedFromLikedSongs_FillsItsAlbum()
+    {
+        await using var db = NewContext();
+        AddCanonicalAlbum(db, Artist, Album, "One", "Two", "Three");
+        var song = Song("/downloads/one.mp3", Artist, Album, title: "One", track: 1);
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+        LinkToSource(db, song, WishlistSourceType.LikedSongs);
+        await db.SaveChangesAsync();
+
+        var result = await CreateSweep(db).SweepAsync(CancellationToken.None);
+
+        Assert.Equal(2, result.TracksQueued);
+    }
+
+    [Fact]
+    public async Task Sweep_LocalFileThatIsAlsoOnAPlaylist_FillsItsAlbum()
+    {
+        // The playlist found it already here (SkippedOwned); it did not bring it.
+        await using var db = NewContext();
+        AddCanonicalAlbum(db, Artist, Album, "One", "Two", "Three");
+        var song = Song("/src/one.mp3", Artist, Album, title: "One", track: 1);
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+        LinkToSource(db, song, WishlistSourceType.Playlist, WishlistItemStatus.SkippedOwned);
+        await db.SaveChangesAsync();
+
+        var result = await CreateSweep(db).SweepAsync(CancellationToken.None);
+
+        Assert.Equal(2, result.TracksQueued);
+    }
+
+    [Fact]
+    public async Task Sweep_PlaylistTrackBesideALikedOne_CountsAsOwned()
+    {
+        await using var db = NewContext();
+        AddCanonicalAlbum(db, Artist, Album, "One", "Two", "Three");
+        var fromPlaylist = Song("/downloads/two.mp3", Artist, Album, title: "Two", track: 2);
+        db.Songs.Add(Song("/src/one.mp3", Artist, Album, title: "One", track: 1));
+        db.Songs.Add(fromPlaylist);
+        await db.SaveChangesAsync();
+        LinkToSource(db, fromPlaylist, WishlistSourceType.Playlist);
+        await db.SaveChangesAsync();
+
+        var result = await CreateSweep(db).SweepAsync(CancellationToken.None);
+
+        Assert.Equal(1, result.TracksQueued);
+        var queued = await db.WishlistItems.IgnoreQueryFilters()
+            .Where(w => w.Origin == WishlistItemOrigin.AlbumCompletion)
+            .SingleAsync();
+        Assert.Equal("Three", queued.Title);
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────────────
+
+    private static void LinkToSource(
+        MusicHoarderDbContext db,
+        SongMetadata song,
+        WishlistSourceType sourceType,
+        WishlistItemStatus status = WishlistItemStatus.Downloaded)
+    {
+        var source = new WishlistSource
+        {
+            OwnerUserId = WellKnownUsers.OwnerId,
+            SourceType = sourceType,
+            Name = "RapCaviar",
+        };
+        db.WishlistSources.Add(source);
+        db.WishlistItems.Add(new WishlistItem
+        {
+            OwnerUserId = WellKnownUsers.OwnerId,
+            WishlistSource = source,
+            Title = song.Title ?? string.Empty,
+            Artist = song.Artist ?? string.Empty,
+            Status = status,
+            DownloadedSongId = song.Id,
+        });
+    }
 
     private static async Task AssertSkipped(MusicHoarderDbContext db, string reason)
     {
@@ -815,6 +961,7 @@ public class AlbumCompletionSweepTests
             new StubRuntimeSettings(runtimeEnabled && opts.EnableAlbumCompletion),
             identityResolver ?? new StubIdentityResolver(),
             Microsoft.Extensions.Options.Options.Create(opts),
+            Microsoft.Extensions.Options.Options.Create(new SyncOptions()),
             NullLogger<AlbumCompletionSweep>.Instance);
     }
 

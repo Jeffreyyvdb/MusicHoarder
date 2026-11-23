@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
+using MusicHoarder.Api.Library;
 using MusicHoarder.Api.Matching;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
@@ -54,6 +55,11 @@ public readonly record struct AlbumCompletionSweepResult(
 /// downloader, the staging directory, the scanner, enrichment, the builder — is the existing wishlist
 /// pipeline, unchanged.
 /// <para>
+/// An album is filled only when one of its owned tracks may start a fill
+/// (<see cref="AlbumCompletionEligibility.StartsFill"/>). A track a subscribed playlist brought in does
+/// not, until it is liked; it still counts as owned, so it is never downloaded a second time.
+/// </para>
+/// <para>
 /// Each queued track is handed to <see cref="IAlbumCompletionIdentityResolver"/> first: a canonical
 /// track carries no streaming id, and without one the lossless provider cannot acquire it and the fill
 /// silently degrades to the yt-dlp floor.
@@ -71,6 +77,7 @@ public class AlbumCompletionSweep(
     IRuntimeSettingsService runtimeSettings,
     IAlbumCompletionIdentityResolver identityResolver,
     IOptions<MusicEnricherOptions> options,
+    IOptions<SyncOptions> syncOptions,
     ILogger<AlbumCompletionSweep> logger)
 {
     /// <summary>Owned-song fields the sweep needs, projected before grouping.</summary>
@@ -85,7 +92,11 @@ public class AlbumCompletionSweep(
         string? Title,
         bool IsCompilation,
         string? ReleaseTypes,
-        EnrichmentStatus EnrichmentStatus);
+        EnrichmentStatus EnrichmentStatus,
+        string SourcePath,
+        string? SpotifyId,
+        SongAcquisitionIntent Intent,
+        DateTime? LikedAtUtc);
 
     /// <summary>Queues the missing tracks of eligible albums and reports what it decided.</summary>
     public async Task<AlbumCompletionSweepResult> SweepAsync(CancellationToken ct)
@@ -133,7 +144,8 @@ public class AlbumCompletionSweep(
                 && s.Album != null && s.Album != "")
             .Select(s => new SongRow(
                 s.Id, s.AlbumArtist, s.Artist, s.Album, s.MusicBrainzId, s.DiscNumber, s.TrackNumber,
-                s.Title, s.IsCompilation, s.ReleaseTypes, s.EnrichmentStatus))
+                s.Title, s.IsCompilation, s.ReleaseTypes, s.EnrichmentStatus,
+                s.SourcePath, s.SpotifyId, s.AcquisitionIntent, s.LikedAtUtc))
             .ToListAsync(ct);
 
         if (songs.Count == 0)
@@ -180,7 +192,10 @@ public class AlbumCompletionSweep(
         if (linked.Count == 0)
             return AlbumCompletionSweepResult.Idle(AlbumCompletionSweepResult.IdleNoCanonicalAlbums);
 
+        var seeds = await LoadFillSeedsAsync(songs, opts, ct);
+
         var candidates = linked
+            .Where(x => x.Group.Any(s => seeds.Contains(s.Song.Id)))
             .Where(x => NeedsSweep(x.Canonical!, markerByAlbumId.GetValueOrDefault(x.Canonical!.Id), now))
             // Closest to complete first, so a multi-day drain finishes albums instead of scattering.
             .OrderByDescending(x => x.Group.Count())
@@ -235,6 +250,33 @@ public class AlbumCompletionSweep(
             AlbumsFilled: filled,
             AlbumsSkipped: skipped,
             AlbumsAlreadyComplete: alreadyComplete);
+    }
+
+    /// <summary>
+    /// The owned songs that may start a fill (<see cref="AlbumCompletionEligibility.StartsFill"/>), read
+    /// through the same provenance the album page shows, so "why is this here" and "why was its album
+    /// filled" cannot disagree.
+    /// </summary>
+    private async Task<HashSet<int>> LoadFillSeedsAsync(
+        IReadOnlyList<SongRow> songs, MusicEnricherOptions opts, CancellationToken ct)
+    {
+        // Hosted scope: the ambient owner filter resolves to no one, so read past it. Song ids are
+        // global, and every row here is the owner's.
+        var saveDates = await SpotifySaveDates.LoadAsync(db, ct, allTenants: true);
+        var seeds = new HashSet<int>();
+        foreach (var song in songs)
+        {
+            var origin = SongOriginResolver.Resolve(
+                song.SourcePath, saveDates.LinkFor(song.Id), opts.DownloadDirectory,
+                syncOptions.Value.SyncedSourceDirectory);
+            var reason = SongProvenanceService.ReasonFor(song.Intent, origin);
+            var liked = song.LikedAtUtc is not null
+                || saveDates.SaveDateFor(song.Id, song.SpotifyId, linkAdded: null) is not null;
+            if (AlbumCompletionEligibility.StartsFill(reason, liked))
+                seeds.Add(song.Id);
+        }
+
+        return seeds;
     }
 
     /// <summary>
