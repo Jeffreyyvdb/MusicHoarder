@@ -369,5 +369,6 @@ public static class LyricsTimingQueries
 
     public static IQueryable<SongMetadata> WhereFitsBackgroundAudioCeiling(
         this IQueryable<SongMetadata> query, int ceilingSeconds)
-        => query.Where(s => s.DurationSeconds == null || s.DurationSeconds <= ceilingSeconds);
+        => query.Where(s => (s.DurationSeconds > 0 ? s.DurationSeconds.Value : TranscriptionAudioBudget.UnknownDurationSeconds)
+            <= ceilingSeconds);
 }
