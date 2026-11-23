@@ -47,6 +47,11 @@ public static class ConsensusEvaluator
     /// <summary>Max time a song waits on a rate-limited provider before finalizing on the rest.</summary>
     public static readonly TimeSpan DefaultRateLimitDeferral = TimeSpan.FromMinutes(30);
 
+    /// <param name="applicableProviders">The enabled providers that can act on this song, which are
+    /// the ones that must have had their turn before the picture is complete. A community tracker
+    /// records no attempt on a song outside its artist allowlist, so waiting on every enabled
+    /// provider would keep such a song incomplete forever. Defaults to
+    /// <paramref name="enabledProviders"/>.</param>
     public static ConsensusResult Evaluate(
         SongMetadata song,
         IReadOnlySet<EnrichmentProvider> enabledProviders,
@@ -55,14 +60,15 @@ public static class ConsensusEvaluator
         bool preferOriginalRelease = true,
         DateTime? utcNow = null,
         TimeSpan? maxRateLimitDeferral = null,
-        bool relaxDownloadDurationMismatch = false)
+        bool relaxDownloadDurationMismatch = false,
+        IReadOnlySet<EnrichmentProvider>? applicableProviders = null)
     {
         var now = utcNow ?? DateTime.UtcNow;
         var deferralWindow = maxRateLimitDeferral ?? DefaultRateLimitDeferral;
 
         var verdict = EvaluateInternal(
-            song, enabledProviders, identityOptions, corroborationFloor, preferOriginalRelease, now, deferralWindow,
-            relaxDownloadDurationMismatch);
+            song, enabledProviders, applicableProviders ?? enabledProviders, identityOptions, corroborationFloor,
+            preferOriginalRelease, now, deferralWindow, relaxDownloadDurationMismatch);
 
         // A confident verdict the answered providers already reached stands — never block a build
         // waiting on a provider that may never recover (e.g. iTunes throttling a shared IP). A
@@ -90,6 +96,7 @@ public static class ConsensusEvaluator
     private static ConsensusResult EvaluateInternal(
         SongMetadata song,
         IReadOnlySet<EnrichmentProvider> enabledProviders,
+        IReadOnlySet<EnrichmentProvider> applicableProviders,
         IdentityMatchOptions identityOptions,
         double corroborationFloor,
         bool preferOriginalRelease,
@@ -125,7 +132,7 @@ public static class ConsensusEvaluator
         // A provider has "had its turn" once it reached a terminal status — or once its rate-limit
         // has gone stale (waiting longer won't help), so the picture is treated as complete and a
         // terminal verdict (NeedsReview/Failed) can be reached instead of deferring indefinitely.
-        var allAttempted = enabledProviders.All(p =>
+        var allAttempted = applicableProviders.All(p =>
             attempts.Any(a => a.Provider == p &&
                 (a.Status is ProviderAttemptStatus.Matched
                     or ProviderAttemptStatus.NoMatch

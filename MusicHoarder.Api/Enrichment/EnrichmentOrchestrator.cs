@@ -133,7 +133,8 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         // ConsensusEvaluator then saw two providers sharing an identifier and auto-matched the wrong
         // identity. Independence is the whole point of consensus — so two providers now only share an
         // MBID/ISRC when each arrived at it on its own.
-        foreach (var (provider, providerEnum) in ApplicableProviders(enabledProviders, song))
+        var applicableProviders = ApplicableProviders(enabledProviders, song).ToList();
+        foreach (var (provider, providerEnum) in applicableProviders)
         {
             if (existingAttempts.TryGetValue(providerEnum, out var existing))
             {
@@ -174,7 +175,8 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
             && IsDownloadOrigin(song, _options.Value.DownloadDirectory);
         var consensus = ConsensusEvaluator.Evaluate(
             song, enabledEnums, BuildIdentityOptions(), _options.Value.ConsensusCorroborationFloor,
-            _options.Value.PreferOriginalRelease, now, deferralWindow, relaxDownloadDuration);
+            _options.Value.PreferOriginalRelease, now, deferralWindow, relaxDownloadDuration,
+            applicableProviders.Select(p => p.Enum).ToHashSet());
 
         // Visibility safety net: a Pending verdict that isn't waiting on a *fresh* rate-limited
         // provider means no enabled provider can act on this song at all (e.g. no fingerprint and
