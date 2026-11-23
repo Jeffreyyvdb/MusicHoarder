@@ -73,6 +73,11 @@ jobs:
       - name: Build
         run: dotnet build MusicHoarder.Api.Tests/MusicHoarder.Api.Tests.csproj --no-restore -c Release
 
+      # Not in the solution, so nothing else compiles it; a build that breaks here otherwise shows up
+      # only when someone next runs `bun perf up`.
+      - name: Build perf seed
+        run: dotnet build perf/seed/MusicHoarder.PerfSeed.csproj -c Release
+
       - name: Test
         run: dotnet test MusicHoarder.Api.Tests/MusicHoarder.Api.Tests.csproj --no-build -c Release --verbosity normal
         env:
