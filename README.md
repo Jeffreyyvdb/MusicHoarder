@@ -16,6 +16,15 @@ If you've ever ended up with thousands of files like `track_047.mp3`, duplicate 
 bitrates, missing artwork, and inconsistent folder names, this is for you. Point it at your source
 library, let it run, and review anything it isn't sure about.
 
+> [!NOTE]
+> **MusicHoarder is not a finished product, and it changes quickly.** It's under heavy, daily
+> development: many changes land every week, some of them large, and screens, features and
+> behaviour can look different from one weekly release to the next. It runs a real library every
+> day, and it never modifies your original files, but expect rough edges. Read the
+> [release notes](https://github.com/Jeffreyyvdb/MusicHoarder/releases) before you update,
+> [back up your database](docs/SELF_HOSTING.md#backups), and
+> [pin a version](docs/SELF_HOSTING.md#updating) if you'd rather things stay put.
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="frontend/static/screenshots/hero-dark.webp">
   <img alt="MusicHoarder on the desktop and on an iPhone — the Albums grid of a real library next to Now Playing, with Sade's Kiss of Life showing time-synced lyrics over its own music video" src="frontend/static/screenshots/hero.webp">
