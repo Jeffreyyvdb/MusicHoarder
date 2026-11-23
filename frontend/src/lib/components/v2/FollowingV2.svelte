@@ -14,6 +14,7 @@
     checkFollowedArtist,
     fetchFollowing,
     followArtist,
+    getArtistImageUrl,
     searchCatalogArtists,
     unfollowArtist,
     updateFollow,
@@ -298,7 +299,8 @@
                 <Cover
                   artist={f.name}
                   title={f.name}
-                  coverUrl={f.pictureUrl}
+                  coverUrl={getArtistImageUrl(f.name)}
+                  fallbackUrl={f.pictureUrl}
                   size={56}
                   corner={28}
                   caption={false}

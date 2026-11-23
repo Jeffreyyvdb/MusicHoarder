@@ -142,8 +142,8 @@
                 <Cover
                   artist={f.name}
                   title={f.name}
-                  coverUrl={f.pictureUrl ?? getArtistImageUrl(f.name)}
-                  fallbackUrl={f.pictureUrl ? getArtistImageUrl(f.name) : null}
+                  coverUrl={getArtistImageUrl(f.name)}
+                  fallbackUrl={f.pictureUrl}
                   size={136}
                   caption={false}
                   interactive

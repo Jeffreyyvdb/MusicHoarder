@@ -394,7 +394,7 @@ public class MusicEnricherOptions
     // --- Artist images ---
 
     /// <summary>
-    /// Resolve artist portrait images from Deezer (then Spotify) for the frontend artists views,
+    /// Resolve artist portrait images from Spotify (then Deezer) for the frontend artists views,
     /// cached in the database by normalized artist name.
     /// </summary>
     public bool EnableArtistImages { get; set; } = true;

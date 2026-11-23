@@ -20,7 +20,7 @@ public class ArtistImage
     /// <summary>Portrait CDN URL; null = no provider had a verified portrait (negative cache).</summary>
     public string? ImageUrl { get; set; }
 
-    /// <summary>Provider the portrait came from: <c>deezer</c> | <c>spotify</c>; null when not found.</summary>
+    /// <summary>Provider the portrait came from: <c>spotify</c> | <c>deezer</c>; null when not found.</summary>
     public string? Source { get; set; }
 
     public DateTime FetchedAtUtc { get; set; }
