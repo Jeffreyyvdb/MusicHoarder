@@ -221,6 +221,23 @@ public class ConsensusEvaluatorTests
     }
 
     [Fact]
+    public void CleanFingerprint_TrackerUnsureOfAnotherSong_NeedsReview()
+    {
+        // A leak the fingerprint mistakes for a released song: the tracker's doubt about the leak
+        // still contradicts the fingerprint, so neither may stand alone.
+        var song = Song();
+        Add(song, EnrichmentProvider.AcoustID, ProviderAttemptStatus.Matched,
+            Result("Juice WRLD", "Lucid Dreams", mbid: "mb-1", conf: 0.95, recommend: EnrichmentStatus.Matched));
+        Add(song, EnrichmentProvider.Tracker, ProviderAttemptStatus.Matched,
+            Result("Juice WRLD", "Some Leak", conf: 0.72, recommend: EnrichmentStatus.NeedsReview));
+
+        var r = ConsensusEvaluator.Evaluate(
+            song, Enabled(EnrichmentProvider.AcoustID, EnrichmentProvider.Tracker), Opts);
+
+        Assert.Equal(EnrichmentStatus.NeedsReview, r.Status);
+    }
+
+    [Fact]
     public void TrackerAndSpotifyAgree_StillCorroboratesAsCluster()
     {
         var song = Song();
