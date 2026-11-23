@@ -1511,6 +1511,77 @@ public class EnrichmentOrchestratorTests
         Assert.Equal(EnrichmentStatus.NeedsReview, updated.EnrichmentStatus);
     }
 
+    // A community tracker handles only its allowlisted artists and records no attempt on any other
+    // song, so it must not stop the rest of the providers' answers from being the whole picture.
+    [Fact]
+    public async Task ProcessSong_TrackerCannotHandleSong_CleanFingerprintMatchesAlone()
+    {
+        await using var db = CreateDb();
+        var song = AddPendingSong(db, artist: "Some Artist", title: "Some Song");
+        await db.SaveChangesAsync();
+
+        var acoustId = new AcoustIdEnrichmentProvider(
+            new StubAcoustIdService(_ => Task.FromResult<AcoustIdMatch?>(
+                new AcoustIdMatch("mb-123", "acoust-123", "Some Song", "Some Artist", "Some Artist", 0.95f, 240_000))),
+            new AcoustIdMatchValidator(), NullLogger<AcoustIdEnrichmentProvider>.Instance);
+        var orchestrator = CreateOrchestratorWithProviders(db, [acoustId, TrackerForOtherArtists()], TrackerEnabled());
+
+        var outcome = await orchestrator.ProcessSongAsync(song.Id);
+
+        Assert.Equal(EnrichmentOutcome.Matched, outcome);
+        Assert.Equal("AcoustID", song.MatchedBy);
+        Assert.Equal("mb-123", song.MusicBrainzId);
+    }
+
+    [Fact]
+    public async Task ProcessSong_TrackerCannotHandleSong_ReviewKeepsTheBestCandidate()
+    {
+        await using var db = CreateDb();
+        var song = AddPendingSong(db, artist: "Some Artist", title: "Some Song");
+        await db.SaveChangesAsync();
+
+        var acoustId = new StubEnrichmentProvider("AcoustID", 100, canHandle: _ => true,
+            enrich: _ => Task.FromResult<ProviderOutcome>(new ProviderMatched(new EnrichmentProviderResult(
+                "Some Artist", "Some Artist", "Some Song", null, null,
+                "mb-123", null, null, "acoust-123", null, "AcoustID", 0.95,
+                ["multiple_candidates"], EnrichmentStatus.Matched))));
+        var orchestrator = CreateOrchestratorWithProviders(db, [acoustId, TrackerForOtherArtists()], TrackerEnabled());
+
+        var outcome = await orchestrator.ProcessSongAsync(song.Id);
+
+        Assert.Equal(EnrichmentOutcome.NeedsReview, outcome);
+        Assert.Equal("AcoustID", song.MatchedBy);
+        Assert.Equal(0.95, song.MatchConfidence);
+    }
+
+    [Fact]
+    public async Task ProcessSong_TrackerCannotHandleSong_ProviderErrorIsFailed()
+    {
+        await using var db = CreateDb();
+        var song = AddPendingSong(db, artist: "Some Artist", title: "Some Song");
+        await db.SaveChangesAsync();
+
+        var acoustId = new StubEnrichmentProvider("AcoustID", 100, canHandle: _ => true,
+            enrich: _ => throw new HttpRequestException("connection refused"));
+        var orchestrator = CreateOrchestratorWithProviders(db, [acoustId, TrackerForOtherArtists()], TrackerEnabled());
+
+        var outcome = await orchestrator.ProcessSongAsync(song.Id);
+
+        Assert.Equal(EnrichmentOutcome.Failed, outcome);
+        Assert.Equal(EnrichmentStatus.Failed, song.EnrichmentStatus);
+    }
+
+    private static StubEnrichmentProvider TrackerForOtherArtists() =>
+        new("Tracker", 50, canHandle: _ => false,
+            enrich: _ => throw new InvalidOperationException("the tracker cannot handle this song"));
+
+    private static IOptions<MusicEnricherOptions> TrackerEnabled()
+    {
+        var opts = CreateOptions();
+        opts.Value.EnableTrackerProvider = true;
+        return opts;
+    }
+
     // Spotify reporting 2019 leaves the year a tie the row's current year breaks, so the healer's
     // correction changes the verdict itself.
     [Theory]
