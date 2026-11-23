@@ -2820,11 +2820,11 @@ function isOwnCoverUrl(url: string): boolean {
 }
 
 /**
- * Artist portrait endpoint: redirects to a verified Deezer/Spotify portrait (cached server-side by
+ * Artist portrait endpoint: redirects to a verified Spotify/Deezer portrait (cached server-side by
  * normalized name) or 404s — callers fall back to an album cover / initials tile on error.
  */
 export function getArtistImageUrl(name: string): string {
-  return `${API_PREFIX}/api/artists/image?name=${encodeURIComponent(name)}`;
+  return `${API_PREFIX}/api/artists/image?name=${encodeURIComponent(name)}&v=2`;
 }
 
 /**

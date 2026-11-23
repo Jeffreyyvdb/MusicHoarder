@@ -10,7 +10,7 @@ public static class ArtistsEndpoints
         // RequireAuthMiddleware, and the portrait cache is catalog data with no tenant scope.
         app.MapGet("/api/artists/image", GetArtistImage)
             .WithName("GetArtistImage")
-            .WithSummary("Redirects to the artist's portrait (Deezer → Spotify, cached by normalized name); 404 when no provider has a verified portrait.")
+            .WithSummary("Redirects to the artist's portrait (Spotify → Deezer, cached by normalized name); 404 when no provider has a verified portrait.")
             .WithTags("Library");
 
         return app;

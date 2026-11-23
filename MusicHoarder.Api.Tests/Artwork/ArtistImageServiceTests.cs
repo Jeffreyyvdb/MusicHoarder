@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using MusicHoarder.Api.Artwork;
 using MusicHoarder.Api.Deezer;
+using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Spotify;
@@ -11,52 +12,147 @@ namespace MusicHoarder.Api.Tests.Artwork;
 public class ArtistImageServiceTests
 {
     [Fact]
-    public async Task VerifiedDeezerHitWinsAndIsCached()
+    public async Task VerifiedSpotifyHitWinsOverDeezerAndIsCached()
     {
         using var db = CreateDbContext();
         SeedLibraryArtist(db, "Daft Punk");
         var deezer = new StubDeezer { Candidates = [new DeezerArtistCandidate("Daft Punk", "https://cdn.deezer.example/dp.jpg")] };
-        var service = CreateService(db, deezer);
+        var spotify = new StubSpotify { Candidates = [new SpotifyArtistCandidate("Daft Punk", "https://i.scdn.example/dp.jpg")] };
+        var service = CreateService(db, deezer, spotify);
 
         var url = await service.GetImageUrlAsync("Daft Punk");
 
-        Assert.Equal("https://cdn.deezer.example/dp.jpg", url);
+        Assert.Equal("https://i.scdn.example/dp.jpg", url);
         var row = Assert.Single(db.ArtistImages);
-        Assert.Equal("deezer", row.Source);
+        Assert.Equal("spotify", row.Source);
         Assert.Equal("daft punk", row.NormalizedName);
+        Assert.Equal(1, spotify.SearchCalls);
+        Assert.Equal(0, deezer.SearchCalls);
 
         // Second call is served from the cache — no provider round-trip.
         await service.GetImageUrlAsync("Daft Punk");
-        Assert.Equal(1, deezer.SearchCalls);
+        Assert.Equal(1, spotify.SearchCalls);
+        Assert.Equal(0, deezer.SearchCalls);
     }
 
     [Fact]
-    public async Task UnverifiedDeezerHitFallsThroughToSpotify()
+    public async Task UnverifiedSpotifyHitFallsThroughToDeezer()
     {
         using var db = CreateDbContext();
         SeedLibraryArtist(db, "Drake");
-        var deezer = new StubDeezer { Candidates = [new DeezerArtistCandidate("Drake Bell", "https://cdn.deezer.example/wrong.jpg")] };
-        var spotify = new StubSpotify { Candidates = [new SpotifyArtistCandidate("Drake", "https://i.scdn.example/drake.jpg")] };
+        var spotify = new StubSpotify { Candidates = [new SpotifyArtistCandidate("Drake Bell", "https://i.scdn.example/wrong.jpg")] };
+        var deezer = new StubDeezer { Candidates = [new DeezerArtistCandidate("Drake", "https://cdn.deezer.example/drake.jpg")] };
         var service = CreateService(db, deezer, spotify);
 
         var url = await service.GetImageUrlAsync("Drake");
 
-        Assert.Equal("https://i.scdn.example/drake.jpg", url);
-        Assert.Equal("spotify", Assert.Single(db.ArtistImages).Source);
+        Assert.Equal("https://cdn.deezer.example/drake.jpg", url);
+        Assert.Equal("deezer", Assert.Single(db.ArtistImages).Source);
     }
 
     [Fact]
-    public async Task SpotifyIsSkippedWithoutCredentials()
+    public async Task SpotifyIsSkippedWithoutCredentialsAndFallsBackToDeezer()
     {
         using var db = CreateDbContext();
         SeedLibraryArtist(db, "Drake");
         var spotify = new StubSpotify { Candidates = [new SpotifyArtistCandidate("Drake", "https://i.scdn.example/drake.jpg")] };
-        var service = CreateService(db, new StubDeezer(), spotify, hasSpotifyCredentials: false);
+        var deezer = new StubDeezer { Candidates = [new DeezerArtistCandidate("Drake", "https://cdn.deezer.example/drake.jpg")] };
+        var service = CreateService(db, deezer, spotify, hasSpotifyCredentials: false);
 
         var url = await service.GetImageUrlAsync("Drake");
 
-        Assert.Null(url);
+        Assert.Equal("https://cdn.deezer.example/drake.jpg", url);
+        Assert.Equal("deezer", Assert.Single(db.ArtistImages).Source);
         Assert.Equal(0, spotify.SearchCalls);
+        Assert.Equal(1, deezer.SearchCalls);
+    }
+
+    [Fact]
+    public async Task InvalidatedDeezerRowUpgradesToSpotifyEvenWhenPeriodicRefreshIsDisabled()
+    {
+        using var db = CreateDbContext();
+        SeedLibraryArtist(db, "Daft Punk");
+        db.ArtistImages.Add(new ArtistImage
+        {
+            NormalizedName = "daft punk",
+            DisplayName = "Daft Punk",
+            ImageUrl = "https://cdn.deezer.example/dp.jpg",
+            Source = "deezer",
+            FetchedAtUtc = DateTime.UnixEpoch,
+        });
+        await db.SaveChangesAsync();
+
+        var spotify = new StubSpotify { Candidates = [new SpotifyArtistCandidate("Daft Punk", "https://i.scdn.example/dp.jpg")] };
+        var deezer = new StubDeezer { Candidates = [new DeezerArtistCandidate("Daft Punk", "https://cdn.deezer.example/dp.jpg")] };
+        var service = CreateService(db, deezer, spotify, configure: o => o.ArtistImageRefreshDays = 0);
+
+        var url = await service.GetImageUrlAsync("Daft Punk");
+
+        Assert.Equal("https://i.scdn.example/dp.jpg", url);
+        var row = Assert.Single(db.ArtistImages);
+        Assert.Equal("spotify", row.Source);
+        Assert.Equal("https://i.scdn.example/dp.jpg", row.ImageUrl);
+        Assert.True(row.FetchedAtUtc > DateTime.UtcNow.AddMinutes(-1));
+        Assert.Equal(0, deezer.SearchCalls);
+    }
+
+    [Fact]
+    public async Task SpotifyRateLimitKeepsInvalidatedDeezerRowEligibleForUpgrade()
+    {
+        using var db = CreateDbContext();
+        SeedLibraryArtist(db, "Daft Punk");
+        db.ArtistImages.Add(new ArtistImage
+        {
+            NormalizedName = "daft punk",
+            DisplayName = "Daft Punk",
+            ImageUrl = "https://cdn.deezer.example/dp.jpg",
+            Source = "deezer",
+            FetchedAtUtc = DateTime.UnixEpoch,
+        });
+        await db.SaveChangesAsync();
+
+        var spotify = new StubSpotify { RateLimited = true };
+        var deezer = new StubDeezer();
+        var service = CreateService(db, deezer, spotify);
+
+        // Rate-limited attempt serves the existing cached portrait without hammering Deezer or
+        // advancing FetchedAtUtc.
+        Assert.Equal("https://cdn.deezer.example/dp.jpg", await service.GetImageUrlAsync("Daft Punk"));
+        Assert.Equal(0, deezer.SearchCalls);
+        Assert.Equal(DateTime.UnixEpoch, Assert.Single(db.ArtistImages).FetchedAtUtc);
+
+        // Once the rate limit clears, the next lookup upgrades to Spotify.
+        spotify.RateLimited = false;
+        spotify.Candidates = [new SpotifyArtistCandidate("Daft Punk", "https://i.scdn.example/dp.jpg")];
+
+        Assert.Equal("https://i.scdn.example/dp.jpg", await service.GetImageUrlAsync("Daft Punk"));
+        var row = Assert.Single(db.ArtistImages);
+        Assert.Equal("spotify", row.Source);
+        Assert.True(row.FetchedAtUtc > DateTime.UtcNow.AddMinutes(-1));
+    }
+
+    [Fact]
+    public async Task SpotifyRateLimitOnUncachedArtistServesDeezerAndUpgradesOnceCleared()
+    {
+        using var db = CreateDbContext();
+        SeedLibraryArtist(db, "Daft Punk");
+        var spotify = new StubSpotify { RateLimited = true };
+        var deezer = new StubDeezer { Candidates = [new DeezerArtistCandidate("Daft Punk", "https://cdn.deezer.example/dp.jpg")] };
+        var service = CreateService(db, deezer, spotify);
+
+        Assert.Equal("https://cdn.deezer.example/dp.jpg", await service.GetImageUrlAsync("Daft Punk"));
+        var row = Assert.Single(db.ArtistImages);
+        Assert.Equal("deezer", row.Source);
+        Assert.Equal(DateTime.UnixEpoch, row.FetchedAtUtc);
+
+        // Once Spotify recovers, the next call upgrades to Spotify without touching Deezer again.
+        spotify.RateLimited = false;
+        spotify.Candidates = [new SpotifyArtistCandidate("Daft Punk", "https://i.scdn.example/dp.jpg")];
+
+        Assert.Equal("https://i.scdn.example/dp.jpg", await service.GetImageUrlAsync("Daft Punk"));
+        Assert.Equal("spotify", row.Source);
+        Assert.Equal("https://i.scdn.example/dp.jpg", row.ImageUrl);
+        Assert.Equal(1, deezer.SearchCalls);
     }
 
     [Fact]
@@ -64,12 +160,14 @@ public class ArtistImageServiceTests
     {
         using var db = CreateDbContext();
         SeedLibraryArtist(db, "Unknown Artist");
+        var spotify = new StubSpotify();
         var deezer = new StubDeezer();
-        var service = CreateService(db, deezer);
+        var service = CreateService(db, deezer, spotify);
 
         Assert.Null(await service.GetImageUrlAsync("Unknown Artist"));
         Assert.Null(await service.GetImageUrlAsync("Unknown Artist"));
 
+        Assert.Equal(1, spotify.SearchCalls);
         Assert.Equal(1, deezer.SearchCalls);
         var row = Assert.Single(db.ArtistImages);
         Assert.Null(row.ImageUrl);
@@ -77,10 +175,11 @@ public class ArtistImageServiceTests
         // Age the row past the not-found retry window: the next call fetches again.
         row.FetchedAtUtc = DateTime.UtcNow.AddDays(-15);
         await db.SaveChangesAsync();
-        deezer.Candidates = [new DeezerArtistCandidate("Unknown Artist", "https://cdn.deezer.example/ua.jpg")];
+        spotify.Candidates = [new SpotifyArtistCandidate("Unknown Artist", "https://i.scdn.example/ua.jpg")];
 
-        Assert.Equal("https://cdn.deezer.example/ua.jpg", await service.GetImageUrlAsync("Unknown Artist"));
-        Assert.Equal(2, deezer.SearchCalls);
+        Assert.Equal("https://i.scdn.example/ua.jpg", await service.GetImageUrlAsync("Unknown Artist"));
+        Assert.Equal(2, spotify.SearchCalls);
+        Assert.Equal(1, deezer.SearchCalls);
     }
 
     [Fact]
@@ -110,10 +209,12 @@ public class ArtistImageServiceTests
     public async Task DisabledFeatureReturnsNullWithoutFetching()
     {
         using var db = CreateDbContext();
+        var spotify = new StubSpotify { Candidates = [new SpotifyArtistCandidate("Daft Punk", "https://i.scdn.example/dp.jpg")] };
         var deezer = new StubDeezer { Candidates = [new DeezerArtistCandidate("Daft Punk", "https://cdn.deezer.example/dp.jpg")] };
-        var service = CreateService(db, deezer, configure: o => o.EnableArtistImages = false);
+        var service = CreateService(db, deezer, spotify, configure: o => o.EnableArtistImages = false);
 
         Assert.Null(await service.GetImageUrlAsync("Daft Punk"));
+        Assert.Equal(0, spotify.SearchCalls);
         Assert.Equal(0, deezer.SearchCalls);
     }
 
@@ -206,11 +307,14 @@ public class ArtistImageServiceTests
     private sealed class StubSpotify : ISpotifyCatalogSearchService
     {
         public IReadOnlyList<SpotifyArtistCandidate> Candidates { get; set; } = [];
+        public bool RateLimited { get; set; }
         public int SearchCalls { get; private set; }
 
         public Task<IReadOnlyList<SpotifyArtistCandidate>> SearchArtistCandidatesAsync(string clientId, string clientSecret, string name, CancellationToken ct = default)
         {
             SearchCalls++;
+            if (RateLimited)
+                throw new ProviderRateLimitedException(TimeSpan.FromMinutes(10));
             return Task.FromResult(Candidates);
         }
 

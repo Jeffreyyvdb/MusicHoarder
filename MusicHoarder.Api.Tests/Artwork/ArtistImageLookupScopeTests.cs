@@ -92,6 +92,45 @@ public class ArtistImageLookupScopeTests
         Assert.Equal("daft punk", Assert.Single(db.ArtistImages).NormalizedName);
     }
 
+    [Fact]
+    public async Task FollowedArtistsGetALookupEvenWithoutOwnedSongs()
+    {
+        var options = new DbContextOptionsBuilder<MusicHoarderDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
+            .Options;
+        using (var seed = new MusicHoarderDbContext(options))
+        {
+            seed.FollowedArtists.Add(new FollowedArtist
+            {
+                OwnerUserId = TestUsers.OwnerId,
+                DeezerArtistId = "27",
+                Name = "Daft Punk",
+                ArtistKey = "daft punk",
+                FollowedAtUtc = DateTime.UtcNow,
+            });
+            seed.FollowedArtists.Add(new FollowedArtist
+            {
+                OwnerUserId = TestUsers.FriendId,
+                DeezerArtistId = "99",
+                Name = "Someone Else",
+                ArtistKey = "someone else",
+                FollowedAtUtc = DateTime.UtcNow,
+            });
+            seed.SaveChanges();
+        }
+
+        var owner = TestCurrentUserAccessor.OwnerUser;
+        using var db = new MusicHoarderDbContext(options, new TestCurrentUserAccessor(owner));
+        var spotify = new CountingSpotify();
+        var service = CreateService(db, new CountingDeezer(), spotify, owner);
+
+        await service.GetImageUrlAsync("Daft Punk");
+        await service.GetImageUrlAsync("Someone Else");
+
+        Assert.Equal(1, spotify.Calls);
+        Assert.Equal("daft punk", Assert.Single(db.ArtistImages).NormalizedName);
+    }
+
     private static void SeedArtist(MusicHoarderDbContext db, string artist, string? artists = null, Guid? ownerId = null)
     {
         db.Songs.Add(new SongMetadata
