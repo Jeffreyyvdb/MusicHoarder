@@ -176,7 +176,7 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         var consensus = ConsensusEvaluator.Evaluate(
             song, enabledEnums, BuildIdentityOptions(), _options.Value.ConsensusCorroborationFloor,
             _options.Value.PreferOriginalRelease, now, deferralWindow, relaxDownloadDuration,
-            applicableProviders.Select(p => p.Enum).ToHashSet());
+            applicableProviders.Select(p => p.Enum).ToHashSet(), _options.Value.SourceDirectory);
 
         // Visibility safety net: a Pending verdict that isn't waiting on a *fresh* rate-limited
         // provider means no enabled provider can act on this song at all (e.g. no fingerprint and

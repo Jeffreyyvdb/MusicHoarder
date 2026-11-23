@@ -52,6 +52,9 @@ public static class ConsensusEvaluator
     /// records no attempt on a song outside its artist allowlist, so waiting on every enabled
     /// provider would keep such a song incomplete forever. Defaults to
     /// <paramref name="enabledProviders"/>.</param>
+    /// <param name="sourceRoot">The library's source directory. When given, a lone fingerprint may only
+    /// stand alone on an untagged file whose path names the same song (see
+    /// <see cref="TrySoloFingerprintMatch"/>).</param>
     public static ConsensusResult Evaluate(
         SongMetadata song,
         IReadOnlySet<EnrichmentProvider> enabledProviders,
@@ -61,14 +64,15 @@ public static class ConsensusEvaluator
         DateTime? utcNow = null,
         TimeSpan? maxRateLimitDeferral = null,
         bool relaxDownloadDurationMismatch = false,
-        IReadOnlySet<EnrichmentProvider>? applicableProviders = null)
+        IReadOnlySet<EnrichmentProvider>? applicableProviders = null,
+        string? sourceRoot = null)
     {
         var now = utcNow ?? DateTime.UtcNow;
         var deferralWindow = maxRateLimitDeferral ?? DefaultRateLimitDeferral;
 
         var verdict = EvaluateInternal(
             song, enabledProviders, applicableProviders ?? enabledProviders, identityOptions, corroborationFloor,
-            preferOriginalRelease, now, deferralWindow, relaxDownloadDurationMismatch);
+            preferOriginalRelease, now, deferralWindow, relaxDownloadDurationMismatch, sourceRoot);
 
         // A confident verdict the answered providers already reached stands — never block a build
         // waiting on a provider that may never recover (e.g. iTunes throttling a shared IP). A
@@ -102,7 +106,8 @@ public static class ConsensusEvaluator
         bool preferOriginalRelease,
         DateTime now,
         TimeSpan deferralWindow,
-        bool relaxDownloadDurationMismatch)
+        bool relaxDownloadDurationMismatch,
+        string? sourceRoot)
     {
         if (enabledProviders.Count == 0)
             return new ConsensusResult(EnrichmentStatus.NeedsReview, null, 0, []);
@@ -160,7 +165,7 @@ public static class ConsensusEvaluator
         return TryMultiProviderConsensus(
                 strong, song, identityOptions, preferOriginalRelease, relaxDownloadDurationMismatch)
             ?? TrySoloNameBasedMatch(strong, identityOptions)
-            ?? (allAttempted ? TrySoloFingerprintMatch(strong, identityOptions) : null)
+            ?? (allAttempted ? TrySoloFingerprintMatch(strong, song, identityOptions, sourceRoot) : null)
             ?? FinalizeReviewOrPending(candidates, allAttempted);
     }
 
@@ -317,10 +322,14 @@ public static class ConsensusEvaluator
     /// turn, so a corroborator/contradictor already got the chance to weigh in. Requires a
     /// single candidate (an ambiguous fingerprint that resolved to several recordings — flagged
     /// multiple_candidates — still goes to review) and no other strong candidate landing on a
-    /// different identity. Abstains (returns null) otherwise.
+    /// different identity. An untagged file's artist and title come from its path: a fingerprint naming
+    /// something else doesn't contradict that guess, but it can't stand alone on it either, or a leak the
+    /// fingerprint mistakes for a released song is silently retitled. This is judged here, against the
+    /// row as it is now, because a stored fingerprint match is kept and never re-validated. Abstains
+    /// (returns null) otherwise.
     /// </summary>
     private static ConsensusResult? TrySoloFingerprintMatch(
-        List<Candidate> strong, IdentityMatchOptions identityOptions)
+        List<Candidate> strong, SongMetadata song, IdentityMatchOptions identityOptions, string? sourceRoot)
     {
         var soloFingerprint = strong
             .Where(c => !c.IsNameBased
@@ -338,11 +347,23 @@ public static class ConsensusEvaluator
             c.Provider != soloFingerprint.Provider
             && !c.Identity.AgreesWith(soloFingerprint.Identity, identityOptions));
 
-        return contradictedByOther
-            ? null
-            : new ConsensusResult(
-                EnrichmentStatus.Matched, soloFingerprint.Result, soloFingerprint.Confidence,
-                [soloFingerprint.Provider]);
+        if (contradictedByOther)
+            return null;
+
+        if (sourceRoot is not null
+            && !PathNamesTheMatch(SongSearchText.ResolveDetailed(song, sourceRoot), soloFingerprint.Result))
+            return null;
+
+        return new ConsensusResult(
+            EnrichmentStatus.Matched, soloFingerprint.Result, soloFingerprint.Confidence,
+            [soloFingerprint.Provider]);
+    }
+
+    private static bool PathNamesTheMatch(SongSearchText.Resolved source, EnrichmentProviderResult match)
+    {
+        var path = source.PathQuery;
+        return (!source.TitleFromPath || CandidateTextMatch.AllPresent(match.Title, path))
+            && (!source.ArtistFromPath || CandidateTextMatch.Containment(match.Artist, path) > 0);
     }
 
     /// <summary>
