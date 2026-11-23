@@ -11,11 +11,17 @@ public static class ArtistNameMatch
     /// </summary>
     public static bool SameSpelling(string? name, string? other, double threshold)
     {
-        var left = TitleNormalizer.NormalizeForSearch(name);
-        var right = TitleNormalizer.NormalizeForSearch(other);
-        if (left.Length == 0 || right.Length == 0)
-            return FuzzyTextMatch.Ratio(name, other) >= threshold;
+        if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(other))
+            return false;
 
+        var left = SpellingKey(name);
+        var right = SpellingKey(other);
         return left == right || Fuzz.Ratio(left, right) >= threshold;
+    }
+
+    private static string SpellingKey(string name)
+    {
+        var normalized = TitleNormalizer.NormalizeForSearch(name);
+        return normalized.Length > 0 ? normalized : name.Trim().ToLowerInvariant();
     }
 }
