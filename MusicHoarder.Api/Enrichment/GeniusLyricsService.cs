@@ -59,6 +59,7 @@ public sealed partial class GeniusLyricsService(
                 hits, song.Title, song.Artist, song.Year, opts.IdentityTitleThreshold, opts.IdentityArtistThreshold);
             if (hit is null)
             {
+                _refusals.Answered();
                 logger.LogDebug("Genius has no confident match for SongId={SongId}", song.Id);
                 return null;
             }
@@ -67,6 +68,7 @@ public sealed partial class GeniusLyricsService(
             if (!Succeeded(page, "song page", song.Id))
                 return null;
 
+            _refusals.Answered();
             var plain = GeniusLyricsParser.Parse(await page.Content.ReadAsStringAsync(ct));
             if (plain is null)
             {
@@ -95,8 +97,11 @@ public sealed partial class GeniusLyricsService(
             return null;
 
         var response = await httpClient.GetAsync(path, ct);
+        if (!GeniusRefusalGate.IsRefusal(response.StatusCode))
+            return response;
+
         var now = time.GetUtcNow();
-        if (_refusals.Record(response.StatusCode, RetryAfterHeader.Read(response, now), now) is { } trip)
+        if (_refusals.Refused(response.StatusCode, RetryAfterHeader.Read(response, now), now) is { } trip)
         {
             logger.LogWarning(
                 "Genius refused {Refusals} requests in a row, last with {Status}; not asking it again until {Until}",

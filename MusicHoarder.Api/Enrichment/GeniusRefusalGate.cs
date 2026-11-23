@@ -9,8 +9,9 @@ internal readonly record struct GeniusRefusalTrip(int ConsecutiveRefusals, HttpS
 /// Stops asking Genius once it keeps refusing. Cloudflare answers a refused address with 403 or 429 to
 /// every request, so after <see cref="RefusalsToTrip"/> in a row the gate closes for an hour, doubling on
 /// each further trip up to a day, and never for less than a <c>Retry-After</c> asked for. Once it
-/// reopens, the next refusal closes it again at once with the doubled cool-down; any 2xx answer starts
-/// over. Other failures (a 5xx, a timeout) say nothing about being refused and change nothing.
+/// reopens, the next refusal closes it again at once with the doubled cool-down. Only a fetch Genius
+/// answered in full starts over: an answered search followed by a refused song page is still a refusal.
+/// Other failures (a 5xx, a timeout) say nothing about being refused and change nothing.
 /// </summary>
 internal sealed class GeniusRefusalGate
 {
@@ -31,21 +32,20 @@ internal sealed class GeniusRefusalGate
         lock (_lock) return now < _closedUntil;
     }
 
-    /// <summary>Records one answer; returns the trip when this answer closed the gate.</summary>
-    public GeniusRefusalTrip? Record(HttpStatusCode status, TimeSpan? retryAfter, DateTimeOffset now)
+    public void Answered()
     {
         lock (_lock)
         {
-            if ((int)status is >= 200 and < 300)
-            {
-                _consecutiveRefusals = 0;
-                _lastCooldown = TimeSpan.Zero;
-                return null;
-            }
+            _consecutiveRefusals = 0;
+            _lastCooldown = TimeSpan.Zero;
+        }
+    }
 
-            if (!IsRefusal(status))
-                return null;
-
+    /// <summary>Records one refusal; returns the trip when it closed the gate.</summary>
+    public GeniusRefusalTrip? Refused(HttpStatusCode status, TimeSpan? retryAfter, DateTimeOffset now)
+    {
+        lock (_lock)
+        {
             _consecutiveRefusals++;
             // Requests already in flight when the gate closed must not each double the cool-down.
             if (_consecutiveRefusals < RefusalsToTrip || now < _closedUntil)
