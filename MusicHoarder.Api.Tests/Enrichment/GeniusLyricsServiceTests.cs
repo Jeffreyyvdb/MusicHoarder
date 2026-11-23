@@ -226,6 +226,49 @@ public class GeniusLyricsServiceTests
     }
 
     [Fact]
+    public async Task NoMatchSearches_DoNotStartARunOfRefusedSongPagesOver()
+    {
+        var handler = new Handler(r => r.RequestUri!.AbsolutePath.StartsWith("/api/search")
+            ? Ok(SearchJson)
+            : Status(HttpStatusCode.Forbidden));
+        var service = Create(handler);
+        var noMatch = Song("Someone Else", "Other Song");
+
+        foreach (var song in new[] { Song(), Song(), noMatch, Song(), Song(), noMatch, Song() })
+            await service.FetchLyricsAsync(song);
+        var sentBeforeTheGateClosed = handler.Requests.Count;
+        await service.FetchLyricsAsync(Song());
+
+        Assert.Equal(12, sentBeforeTheGateClosed);
+        Assert.Equal(12, handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task OneRefusalWithRetryAfter_PausesGeniusForThatLong()
+    {
+        var clock = new ManualTimeProvider(Start);
+        var handler = Answering(() => Status(HttpStatusCode.TooManyRequests, TimeSpan.FromMinutes(10)), () => Ok(SearchJson));
+        var service = Create(handler, clock);
+        await FetchTimes(service, 2);
+        Assert.Single(handler.Requests);
+
+        clock.Advance(TimeSpan.FromMinutes(10));
+        Assert.NotNull(await service.FetchLyricsAsync(Song()));
+    }
+
+    [Fact]
+    public async Task RetryAfter_NeverClosesTheGateForMoreThanADay()
+    {
+        var clock = new ManualTimeProvider(Start);
+        var handler = Answering([.. Refusals(4), () => Status(HttpStatusCode.TooManyRequests, TimeSpan.FromDays(30)), () => Ok(SearchJson)]);
+        var service = Create(handler, clock);
+        await FetchTimes(service, 5);
+
+        clock.Advance(TimeSpan.FromHours(24));
+        Assert.NotNull(await service.FetchLyricsAsync(Song()));
+    }
+
+    [Fact]
     public async Task ServerErrors_NeitherCountNorStartTheCountOver()
     {
         var handler = Answering([.. Refusals(4), .. Refusals(10, HttpStatusCode.BadGateway), .. Refusals(1)]);

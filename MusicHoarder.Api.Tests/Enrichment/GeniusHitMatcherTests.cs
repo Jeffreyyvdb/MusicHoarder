@@ -117,8 +117,36 @@ public class GeniusHitMatcherTests
     }
 
     [Theory]
+    [InlineData("P!nk", "!")]
+    [InlineData("Ke$ha", "$")]
+    [InlineData("$$", "Ke$$a")]
+    [InlineData("AC/DC", "/")]
+    public void SymbolsFromInsideAName_AreNotThatArtist(string ours, string theirs)
+    {
+        Assert.Null(Pick("Song", ours, Hit(1, "Song", theirs)));
+    }
+
+    [Theory]
+    [InlineData("The Intro")]
+    [InlineData("Interlude II")]
+    [InlineData("Intro Pt. 2")]
+    [InlineData("(Intro)")]
+    public void GenericTitleSpellings_AlsoNeedTheSameYear(string title)
+    {
+        Assert.Null(PickIn(2001, title, "Artist", Hit(1, title, "Artist", year: 1994)));
+    }
+
+    [Fact]
+    public void GenericTitle_NeedsTheSameNumberAsTheHit()
+    {
+        Assert.Null(PickIn(2004, "Interlude", "Artist", Hit(1, "Interlude 2", "Artist", year: 2004)));
+    }
+
+    [Theory]
     [InlineData("Intro")]
     [InlineData("Interlude 2")]
+    [InlineData("Interlude II")]
+    [InlineData("(Intro)")]
     [InlineData("Skit #3")]
     [InlineData("Outro (feat. Someone)")]
     public void GenericTitle_TakesTheHitFromTheSameYear(string title)
