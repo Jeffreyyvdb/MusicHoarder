@@ -199,6 +199,27 @@ public class LyricsTimingCheckServiceTests : IDisposable
         Assert.Equal(200, Assert.Single(await db.TranscriptionAudioSpends.ToListAsync()).AudioSeconds, precision: 3);
     }
 
+    [Theory]
+    [InlineData(1_000, 20_000)]
+    [InlineData(6_000, 1_000)]
+    public async Task resync_pass_passes_over_a_song_longer_than_the_background_ceiling(int perHour, int perDay)
+    {
+        await using var db = CreateDbContext();
+        var older = AddSong(db, 1, LyricsSyncStatus.Suspect, probeAttempts: 1, durationSeconds: 200);
+        var tooLong = AddSong(db, 2, LyricsSyncStatus.Suspect, probeAttempts: 1, durationSeconds: 1_200);
+        await db.SaveChangesAsync();
+
+        var transcriber = new FakeTranscriber();
+        var opts = new LyricsTimingOptions { AudioSecondsPerHour = perHour, AudioSecondsPerDay = perDay };
+        var service = NewService(db, transcriber, opts);
+
+        Assert.True(await service.RunResyncPassAsync(CancellationToken.None));
+
+        Assert.Equal([older.SourcePath!], transcriber.FullCalls);
+        Assert.Equal(TranscriptionStatus.Completed, older.TranscriptionStatus);
+        Assert.Equal(TranscriptionStatus.NotRequested, tooLong.TranscriptionStatus);
+    }
+
     [Fact]
     public async Task a_rate_limited_resync_is_not_recorded_and_gives_its_audio_back()
     {
