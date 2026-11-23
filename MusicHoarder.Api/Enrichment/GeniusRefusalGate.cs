@@ -2,17 +2,8 @@ using System.Net;
 
 namespace MusicHoarder.Api.Enrichment;
 
-/// <summary>A run of refusals that closed the gate, for the one warning it is worth.</summary>
 internal readonly record struct GeniusRefusalTrip(int ConsecutiveRefusals, HttpStatusCode LastStatus, DateTimeOffset Until);
 
-/// <summary>
-/// Stops asking Genius once it keeps refusing. Cloudflare answers a refused address with 403 or 429 to
-/// every request, so after <see cref="RefusalsToTrip"/> in a row the gate closes for an hour, doubling on
-/// each further trip up to a day, and never for less than a <c>Retry-After</c> asked for. Once it
-/// reopens, the next refusal closes it again at once with the doubled cool-down. Only a fetch Genius
-/// answered in full starts over: an answered search followed by a refused song page is still a refusal.
-/// Other failures (a 5xx, a timeout) say nothing about being refused and change nothing.
-/// </summary>
 internal sealed class GeniusRefusalGate
 {
     private const int RefusalsToTrip = 5;
@@ -24,6 +15,7 @@ internal sealed class GeniusRefusalGate
     private TimeSpan _lastCooldown = TimeSpan.Zero;
     private DateTimeOffset _closedUntil = DateTimeOffset.MinValue;
 
+    // Cloudflare answers a refused address with 403 (a challenge or block) or 429 (a rate limit rule).
     public static bool IsRefusal(HttpStatusCode status) =>
         status is HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests;
 
@@ -41,13 +33,11 @@ internal sealed class GeniusRefusalGate
         }
     }
 
-    /// <summary>Records one refusal; returns the trip when it closed the gate.</summary>
     public GeniusRefusalTrip? Refused(HttpStatusCode status, TimeSpan? retryAfter, DateTimeOffset now)
     {
         lock (_lock)
         {
             _consecutiveRefusals++;
-            // Requests already in flight when the gate closed must not each double the cool-down.
             if (_consecutiveRefusals < RefusalsToTrip || now < _closedUntil)
                 return null;
 

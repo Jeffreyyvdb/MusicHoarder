@@ -193,7 +193,6 @@ public sealed class LyricsActivitySource(MusicHoarderDbContext db) : IActivitySo
             g => g[0].Detail is { } lang ? $"Translated from {lang}" : null).ToList();
     }
 
-    /// <summary>Genius text is never synced, so "timed line by line" can only be LRCLIB's.</summary>
     private static string SourceLine(IReadOnlyList<LyricsOrigin> origins, bool allSynced) => origins switch
     {
         [LyricsOrigin.Lrclib] when allSynced => "From LRCLIB, timed line by line",

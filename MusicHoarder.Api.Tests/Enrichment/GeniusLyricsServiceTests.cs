@@ -40,7 +40,6 @@ public class GeniusLyricsServiceTests
 
     private static readonly DateTimeOffset Start = new(2026, 11, 23, 12, 0, 0, TimeSpan.Zero);
 
-    // Throttling is off in most tests: at the default 1 request a second every refusal test takes seconds.
     private static GeniusLyricsService Create(Handler handler, TimeProvider? clock = null, int requestsPerSecond = 1000) => new(
         new HttpClient(handler) { BaseAddress = new Uri("https://genius.com/") },
         Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions { GeniusRequestsPerSecond = requestsPerSecond }),
@@ -57,7 +56,6 @@ public class GeniusLyricsServiceTests
         return response;
     }
 
-    /// <summary>Answers each search with the next response in line, and every page with lyrics.</summary>
     private static Handler Answering(params Func<HttpResponseMessage>[] searches)
     {
         var next = new Queue<Func<HttpResponseMessage>>(searches);

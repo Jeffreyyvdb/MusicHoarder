@@ -16,10 +16,9 @@ public sealed record GeniusHit(
 /// Chooses which of Genius's search hits, if any, is the page for a song. A search always answers, and
 /// the first hit is often another page: a translation ("Genius English Translations"), a remix, an
 /// unreleased cut. A hit counts only when its primary artist is the song's artist by spelling (the full
-/// credit or its primary artist; "The Beat" is not "Fenix Flexin, Purps On The Beat"), its title is the
-/// song's title, and the two agree on version (live, remix, …). A generic title ("Intro", "Skit #3")
-/// names a track on most of an artist's albums, and a hit carries no album, so there the release year
-/// must be known on both sides and agree.
+/// credit or its primary artist), its title is the song's title, and the two agree on version (live,
+/// remix, …). For a generic title ("Intro", "Skit #3") the release year must be known on both sides and
+/// agree.
 /// </summary>
 public static class GeniusHitMatcher
 {

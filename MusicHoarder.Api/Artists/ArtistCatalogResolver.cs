@@ -107,8 +107,6 @@ public sealed class ArtistCatalogResolver(
     private async Task<IReadOnlyList<DeezerArtistCandidate>> CandidatesAsync(string artistName, CancellationToken ct)
     {
         var key = TitleNormalizer.NormalizeForSearch(artistName);
-        // Links are stored under this key, and every symbol-only name ("¥$") shares the empty one, so a
-        // link made for one would answer for all of them.
         if (key.Length == 0)
             return [];
 

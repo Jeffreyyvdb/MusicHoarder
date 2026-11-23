@@ -21,8 +21,8 @@ public interface IGeniusLyricsService
 /// Reads lyrics from Genius's public pages. The official API needs a token and never returns lyrics, so
 /// this uses the site's own search endpoint and song page. Both sit behind Cloudflare, which may refuse
 /// a datacenter address; every failure is reported as "nothing". Requests are throttled to
-/// <see cref="MusicEnricherOptions.GeniusRequestsPerSecond"/> across every caller (this is a singleton),
-/// and a run of refusals stops them for a while (<see cref="GeniusRefusalGate"/>).
+/// <see cref="MusicEnricherOptions.GeniusRequestsPerSecond"/> across every caller, and a run of refusals
+/// stops them for a while (<see cref="GeniusRefusalGate"/>).
 /// </summary>
 public sealed partial class GeniusLyricsService(
     HttpClient httpClient,
@@ -89,7 +89,6 @@ public sealed partial class GeniusLyricsService(
         }
     }
 
-    /// <summary>One throttled request, or null when the gate closed while it waited for its turn.</summary>
     private async Task<HttpResponseMessage?> SendAsync(string path, CancellationToken ct)
     {
         using var lease = await _rateLimiter.AcquireAsync(options.Value.GeniusRequestsPerSecond, ct);
