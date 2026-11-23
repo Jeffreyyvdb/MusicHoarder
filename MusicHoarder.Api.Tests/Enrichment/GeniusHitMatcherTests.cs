@@ -82,6 +82,24 @@ public class GeniusHitMatcherTests
     }
 
     [Fact]
+    public void ArtistNamedInsideACombinedCredit_IsRejected()
+    {
+        Assert.Null(Pick("On Sight", "Fenix Flexin, Purps On The Beat", Hit(1, "On Sight", "The Beat")));
+    }
+
+    [Fact]
+    public void ShortNameInsideALongerArtistName_IsRejected()
+    {
+        Assert.Null(Pick("Waves", "Joey", Hit(1, "Waves", "Joey Bada$$")));
+    }
+
+    [Fact]
+    public void GenericTitleWithoutAKnownYear_IsRejected()
+    {
+        Assert.Null(Pick("Intro", "Kanye West", Hit(120581, "Intro", "Kanye West")));
+    }
+
+    [Fact]
     public void FirstAcceptableHitInGeniusOrderWins()
     {
         var picked = Pick("Song", "Artist", Hit(1, "Song", "Artist"), Hit(2, "Song", "Artist"));

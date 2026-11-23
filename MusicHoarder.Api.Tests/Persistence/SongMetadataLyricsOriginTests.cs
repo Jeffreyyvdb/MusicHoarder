@@ -61,6 +61,19 @@ public class SongMetadataLyricsOriginTests
     }
 
     [Fact]
+    public void LrclibPlainText_ReplacesGeniusPlainText()
+    {
+        var song = NewSong();
+        song.ApplyLyricsResult(null, "genius words", false, origin: LyricsOrigin.Genius, geniusSongId: 42);
+
+        Assert.True(song.TryApplyLyricsUpgrade(null, "lrclib words", false, lrclibId: 9));
+
+        Assert.Equal("lrclib words", song.PlainLyrics);
+        Assert.Equal(LyricsOrigin.Lrclib, song.LyricsOrigin);
+        Assert.Null(song.GeniusSongId);
+    }
+
+    [Fact]
     public void ResetAndNotFound_ForgetTheGeniusOrigin()
     {
         var reset = NewSong();

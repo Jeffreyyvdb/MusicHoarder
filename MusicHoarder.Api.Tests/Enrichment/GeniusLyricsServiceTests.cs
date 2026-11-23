@@ -89,6 +89,18 @@ public class GeniusLyricsServiceTests
     }
 
     [Fact]
+    public async Task FiveRefusalsInARow_StopTheNextFetchFromAskingGenius()
+    {
+        var handler = new Handler(_ => new HttpResponseMessage(HttpStatusCode.Forbidden));
+        var service = Create(handler);
+
+        for (var i = 0; i < 6; i++)
+            Assert.Null(await service.FetchLyricsAsync(Song()));
+
+        Assert.Equal(5, handler.Requests.Count);
+    }
+
+    [Fact]
     public async Task PageRefusedOrUnreadable_IsNull()
     {
         var refused = new Handler(r => r.RequestUri!.AbsolutePath.StartsWith("/api/search")
