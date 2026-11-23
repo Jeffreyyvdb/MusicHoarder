@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using MusicHoarder.Api.Matching;
 using MusicHoarder.Api.Persistence;
 
@@ -17,7 +18,7 @@ namespace MusicHoarder.Api.Enrichment;
 /// it must be corroborated to promote.</item>
 /// </list>
 /// </summary>
-public static class ConsensusEvaluator
+public static partial class ConsensusEvaluator
 {
     /// <summary>Minimum own-confidence for a candidate to act as a corroborating vote.</summary>
     public const double DefaultCorroborationFloor = 0.5;
@@ -359,12 +360,20 @@ public static class ConsensusEvaluator
             [soloFingerprint.Provider]);
     }
 
+    // The path query folds dashes to spaces, so the fingerprint's names are folded the same way.
+    // The artist may be the folder even when the filename alone is the query ("Title - Remastered").
     private static bool PathNamesTheMatch(SongSearchText.Resolved source, EnrichmentProviderResult match)
     {
-        var path = source.PathQuery;
-        return (!source.TitleFromPath || CandidateTextMatch.AllPresent(match.Title, path))
-            && (!source.ArtistFromPath || CandidateTextMatch.Containment(match.Artist, path) > 0);
+        var path = FoldDashes(source.PathQuery);
+        return (!source.TitleFromPath || CandidateTextMatch.AllPresent(FoldDashes(match.Title), path))
+            && (!source.ArtistFromPath
+                || CandidateTextMatch.Containment(FoldDashes(match.Artist), $"{path} {FoldDashes(source.Artist)}") > 0);
     }
+
+    private static string? FoldDashes(string? value) => value is null ? null : Dash().Replace(value, " ");
+
+    [GeneratedRegex(@"\p{Pd}")]
+    private static partial Regex Dash();
 
     /// <summary>
     /// Tier 4 — no tier above reached a verdict. Once every provider has had its turn the song needs
