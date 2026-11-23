@@ -213,6 +213,19 @@ public class GeniusLyricsServiceTests
     }
 
     [Fact]
+    public async Task RefusedSongPages_CloseTheGateThoughEverySearchIsAnswered()
+    {
+        var handler = new Handler(r => r.RequestUri!.AbsolutePath.StartsWith("/api/search")
+            ? Ok(SearchJson)
+            : Status(HttpStatusCode.Forbidden));
+        var service = Create(handler);
+
+        await FetchTimes(service, 6);
+
+        Assert.Equal(10, handler.Requests.Count);
+    }
+
+    [Fact]
     public async Task ServerErrors_NeitherCountNorStartTheCountOver()
     {
         var handler = Answering([.. Refusals(4), .. Refusals(10, HttpStatusCode.BadGateway), .. Refusals(1)]);
