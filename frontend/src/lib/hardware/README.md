@@ -40,8 +40,8 @@ on another device keeps the case and the remote-device status.
 - **Components do not read the flag** (Oxlint, `no-restricted-imports`). `hardwareMode` and
   `skinActive` may be imported in this folder, and `hardwareMode` by the three places that switch
   the skin (the root layout, the account menu, the command palette). Everything else asks for a look value:
-  `skinLook(plain, skinned)` returns a class, an attribute value or a size (TrackList's row height,
-  Now Playing's surface), `mediaAppearance()` is the class for Now Playing's media appearance (its overlay and the menus
+  `skinLook(plain, skinned)` returns a class, an attribute value or a size (Now Playing's
+  surface), `mediaAppearance()` is the class for Now Playing's media appearance (its overlay and the menus
   opened from it), and `skinHousing(frame)` hands a component a snippet that draws _around_
   content it still renders. These checks stop the usual ways; a determined bypass (a dynamic
   import, `data-mh-skin` read off `<html>`) is what the comparison below is for.
@@ -106,7 +106,7 @@ with its dim. Everything else is restyled, never hidden.
   there too. A music video behind it plays as a CRT (`VideoBackdrop`'s `data-mh-crt`); while it is
   up the overlay carries `data-mh-tv-on`, which gives it the skin's dark tokens in either theme so
   the ink reads over the picture, and the `theme-surface` store's `tv` claim turns `theme-color`
-  to the skin's dark body. TrackList's desktop rows are 40px instead of 56px.
+  to the skin's dark body.
 - `HardwareVideo.svelte` — the MH-2: the bezel, plate, sync LCD and fullscreen key around Video
   mode's picture. It is a _housing_ for `VideoWatchTab` (its `housing` prop), which keeps the
   picture, its sync and fullscreen, renders the frame as the bezel's `display-screen`, and fits the

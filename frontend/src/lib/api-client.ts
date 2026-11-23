@@ -248,11 +248,6 @@ export type SongOriginSource =
 
 export type SongAcquisitionIntent = 'Explicit' | 'AlbumFill';
 
-/** True when a wishlist link ties this track to Spotify — drives the per-row Source marker. */
-export function isSpotifySourced(s: ApiSong): boolean {
-  return s.originSource === 'SpotifyLiked' || s.originSource === 'SpotifyPlaylist';
-}
-
 /**
  * True when this track is in your Spotify Liked Songs.
  *
@@ -338,56 +333,6 @@ export function songLikedTime(s: ApiSong): number {
   const iso = oldestIso([s.spotifyLikedAtUtc ?? s.spotifyAddedAtUtc, s.likedAtUtc]);
   const ms = iso ? Date.parse(iso) : NaN;
   return Number.isNaN(ms) ? 0 : ms;
-}
-
-/** Short label + long tooltip for the Source column. */
-export function songOriginLabel(s: ApiSong): { label: string; title: string } | null {
-  const detail = nonEmpty(s.originDetail);
-  switch (s.originSource) {
-    case 'SpotifyLiked':
-    case 'SpotifyPlaylist':
-      return {
-        label: 'Spotify',
-        title: `From your Spotify ${detail ?? 'library'}${
-          s.originKind === 'Downloaded'
-            ? ' — downloaded by MusicHoarder'
-            : ' — already in your library'
-        }`
-      };
-    case 'DeezerPlaylist':
-      return { label: 'Deezer', title: `From the Deezer playlist ${detail ?? '(unnamed)'}` };
-    case 'YouTubePlaylist':
-      return { label: 'YouTube', title: `From the YouTube playlist ${detail ?? '(unnamed)'}` };
-    case 'DirectUrl':
-      return { label: 'Link', title: `Added from a URL${detail ? ` (${detail})` : ''}` };
-    case 'ArtistRequest':
-      return {
-        label: 'Artist',
-        title: `You asked for ${detail ?? 'this release'} on the artist's page`
-      };
-    case 'FollowedArtist':
-      return {
-        label: 'Following',
-        title: `A new release${detail ? ` (${detail})` : ''} from an artist you follow`
-      };
-    case 'AlbumCompletion':
-      return {
-        label: 'Album fill',
-        title: `Added to complete ${detail ?? 'an album you already owned part of'} — nobody asked for it directly`
-      };
-    default:
-      break;
-  }
-  switch (s.originKind) {
-    case 'Downloaded':
-      return { label: 'Download', title: 'Downloaded by MusicHoarder' };
-    case 'Synced':
-      return { label: 'Synced', title: 'Received from another MusicHoarder instance' };
-    case 'Scanned':
-      return { label: 'Library', title: 'Found in your source library by a scan' };
-    default:
-      return null;
-  }
 }
 
 interface SongsResponse {

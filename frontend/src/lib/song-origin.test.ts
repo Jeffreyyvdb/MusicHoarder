@@ -5,8 +5,6 @@ import {
   isLocalFile,
   isMyMusic,
   isSpotifyLiked,
-  isSpotifySourced,
-  songOriginLabel,
   spotifyAddedTime,
   type ApiSong
 } from './api-client';
@@ -14,24 +12,6 @@ import {
 function song(over: Partial<ApiSong>): ApiSong {
   return { id: 1, fileName: 'track.flac', ...over } as ApiSong;
 }
-
-describe('isSpotifySourced', () => {
-  it('covers liked songs and playlists, whether or not the file was downloaded', () => {
-    expect(isSpotifySourced(song({ originSource: 'SpotifyLiked', originKind: 'Downloaded' }))).toBe(
-      true
-    );
-    expect(isSpotifySourced(song({ originSource: 'SpotifyPlaylist', originKind: 'Scanned' }))).toBe(
-      true
-    );
-  });
-
-  it('excludes every other origin', () => {
-    expect(isSpotifySourced(song({ originSource: 'DeezerPlaylist' }))).toBe(false);
-    expect(isSpotifySourced(song({ originSource: 'DirectUrl' }))).toBe(false);
-    expect(isSpotifySourced(song({ originSource: 'None', originKind: 'Scanned' }))).toBe(false);
-    expect(isSpotifySourced(song({}))).toBe(false);
-  });
-});
 
 describe('spotifyAddedTime', () => {
   it("reads Spotify's save date, not the local like", () => {
@@ -55,63 +35,6 @@ describe('spotifyAddedTime', () => {
       spotifyLikedAtUtc: '2025-06-06T00:00:00Z'
     });
     expect(spotifyAddedTime(s)).toBe(Date.parse('2025-06-06T00:00:00Z'));
-  });
-});
-
-describe('songOriginLabel', () => {
-  it('names the collection in the tooltip and stays terse in the pill', () => {
-    const s = song({
-      originSource: 'SpotifyPlaylist',
-      originDetail: 'Late Night',
-      originKind: 'Downloaded'
-    });
-    const label = songOriginLabel(s);
-    expect(label?.label).toBe('Spotify');
-    expect(label?.title).toContain('Late Night');
-    expect(label?.title).toContain('downloaded by MusicHoarder');
-  });
-
-  it('distinguishes an already-owned Spotify track from a downloaded one', () => {
-    const owned = songOriginLabel(song({ originSource: 'SpotifyLiked', originKind: 'Scanned' }));
-    expect(owned?.title).toContain('already in your library');
-  });
-
-  it('falls back to how the file arrived when no collection asked for it', () => {
-    expect(songOriginLabel(song({ originKind: 'Scanned', originSource: 'None' }))?.label).toBe(
-      'Library'
-    );
-    expect(songOriginLabel(song({ originKind: 'Downloaded', originSource: 'None' }))?.label).toBe(
-      'Download'
-    );
-    expect(songOriginLabel(song({ originKind: 'Synced', originSource: 'None' }))?.label).toBe(
-      'Synced'
-    );
-  });
-
-  it('returns null for a row the API never annotated', () => {
-    expect(songOriginLabel(song({}))).toBeNull();
-  });
-
-  it('names the YouTube playlist a synced video came from, and does not call it a link', () => {
-    const s = song({
-      originSource: 'YouTubePlaylist',
-      originDetail: 'Cool music',
-      originKind: 'Downloaded'
-    });
-    const label = songOriginLabel(s);
-    expect(label?.label).toBe('YouTube');
-    expect(label?.title).toContain('Cool music');
-    // "Added by link" is the Add-from-link dialog; a playlist sync is not that.
-    expect(isAddedByLink(s)).toBe(false);
-    expect(isSpotifySourced(s)).toBe(false);
-  });
-
-  it('names the album an album-fill track was completing', () => {
-    const label = songOriginLabel(
-      song({ originSource: 'AlbumCompletion', originDetail: 'Discovery', originKind: 'Downloaded' })
-    );
-    expect(label?.label).toBe('Album fill');
-    expect(label?.title).toContain('Discovery');
   });
 });
 
@@ -159,6 +82,8 @@ describe('isAddedByLink', () => {
     expect(isAddedByLink(song({ originSource: 'DirectUrl' }))).toBe(true);
     expect(isAddedByLink(song({ originSource: 'SpotifyLiked' }))).toBe(false);
     expect(isAddedByLink(song({ originSource: 'AlbumCompletion' }))).toBe(false);
+    // A YouTube playlist sync is not the Add-from-link dialog.
+    expect(isAddedByLink(song({ originSource: 'YouTubePlaylist' }))).toBe(false);
     expect(isAddedByLink(song({}))).toBe(false);
   });
 });
