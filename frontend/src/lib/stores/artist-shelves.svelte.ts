@@ -7,8 +7,11 @@ import {
   type FollowedArtist
 } from '#lib/api-client.ts';
 
-/** What following a suggestion came to. `needs-choice`: the catalog artist is unproven, so its page asks. */
-export type SuggestionFollowResult = 'followed' | 'needs-choice';
+/**
+ * What following a suggestion came to. `needs-choice`: the catalog lists more than one artist of the
+ * name and none is proven, so its page asks. `not-found`: the catalog has no artist of that name.
+ */
+export type SuggestionFollowResult = 'followed' | 'needs-choice' | 'not-found';
 
 /**
  * The two shelves above the Artists grid (admin only): the artists you follow, and the ones your
@@ -45,13 +48,15 @@ class ArtistShelves {
     try {
       let id = suggestion.deezerArtistId ?? null;
       let follow: FollowedArtist | null = null;
+      let candidates = 0;
       if (!id) {
         const discography = await fetchArtistDiscography(artist);
         follow = discography.follow;
         id = discography.catalog.deezerArtistId;
+        candidates = discography.candidates.length;
       }
       if (!follow) {
-        if (!id) return 'needs-choice';
+        if (!id) return candidates > 0 ? 'needs-choice' : 'not-found';
         follow = await followArtist({ deezerArtistId: id, artist });
       }
       this.#adopt(follow, artist);
@@ -64,6 +69,8 @@ class ArtistShelves {
   }
 
   #adopt(follow: FollowedArtist, artist: string) {
+    // A refresh still in flight was asked before this follow existed; its answer would undo it.
+    this.#token++;
     const others = (this.follows ?? []).filter((f) => f.id !== follow.id);
     this.follows = [...others, follow].sort((a, b) =>
       a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })

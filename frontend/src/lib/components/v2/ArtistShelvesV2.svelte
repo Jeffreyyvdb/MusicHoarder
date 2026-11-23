@@ -5,6 +5,7 @@
   import { ChevronRight, Plus } from '@lucide/svelte';
   import Cover from '#lib/components/file-browser/Cover.svelte';
   import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
+  import { Spinner } from '#lib/components/ui/spinner/index.ts';
   import { getArtistImageUrl, type ArtistSuggestion } from '#lib/api-client.ts';
   import { messageOf } from '#lib/artist-discography.ts';
   import { artistShelves } from '#lib/stores/artist-shelves.svelte.ts';
@@ -13,12 +14,45 @@
   // Above the Artists grid, for an admin: the artists you follow first, then the ones your listening
   // suggests. Both stay out of the way of the grid: nothing is shown until there is something to show.
 
+  type Props = {
+    /** True while the shelves are on screen: the phone's A–Z index stays away from them. */
+    inView?: boolean;
+  };
+  let { inView = $bindable(false) }: Props = $props();
+
+  /** A shelf is a preview: the rest of the follows are one tap away under "See all". */
+  const FOLLOWING_SHELF_SIZE = 12;
+
+  let mounted = true;
   onMount(() => {
     void artistShelves.load();
+    return () => {
+      mounted = false;
+    };
   });
 
-  const follows = $derived(artistShelves.follows ?? []);
+  const allFollows = $derived(artistShelves.follows ?? []);
+  // The ones with news first, so a long follow list still opens on what changed.
+  const follows = $derived(
+    [...allFollows]
+      .sort((a, b) => b.newReleaseCount - a.newReleaseCount)
+      .slice(0, FOLLOWING_SHELF_SIZE)
+  );
   const suggestions = $derived(artistShelves.suggestions ?? []);
+
+  let root = $state<HTMLElement>();
+  $effect(() => {
+    const el = root;
+    if (!el) {
+      inView = false;
+      return;
+    }
+    const observer = new IntersectionObserver(([entry]) => {
+      inView = entry?.isIntersecting ?? false;
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  });
 
   function artistHref(name: string): string {
     return `/library?artist=${encodeURIComponent(name)}`;
@@ -35,11 +69,16 @@
         toast.success(`Following ${s.artist}`, {
           description: 'New releases will show up under Following.'
         });
+      } else if (result === 'not-found') {
+        toast(`No catalog artist goes by ${s.artist}`, {
+          description: 'There is nothing to follow for new releases.'
+        });
       } else {
         toast(`Which ${s.artist}?`, {
           description: 'The catalog has more than one. Pick yours on the artist page to follow it.'
         });
-        await goto(artistHref(s.artist));
+        // The lookup can take a while; someone who has since left the page keeps where they went.
+        if (mounted) await goto(artistHref(s.artist));
       }
     } catch (err) {
       toast.error(messageOf(err, `Could not follow ${s.artist}.`));
@@ -84,13 +123,13 @@
 {/snippet}
 
 {#if follows.length > 0 || suggestions.length > 0}
-  <div class="flex flex-col gap-5 pt-2 pb-4 md:pt-5">
+  <div bind:this={root} class="flex flex-col gap-5 pt-2 pb-4 md:pt-5">
     {#if follows.length > 0}
       <section aria-labelledby="artists-following">
         {@render header(
           'Following',
           'artists-following',
-          plural(follows.length, 'artist'),
+          plural(allFollows.length, 'artist'),
           '/following'
         )}
         {#snippet followTiles()}
@@ -104,6 +143,7 @@
                   artist={f.name}
                   title={f.name}
                   coverUrl={f.pictureUrl ?? getArtistImageUrl(f.name)}
+                  fallbackUrl={f.pictureUrl ? getArtistImageUrl(f.name) : null}
                   size={136}
                   caption={false}
                   interactive
@@ -118,7 +158,9 @@
                   <span
                     class={cn(
                       'text-footnote block truncate md:text-[11px]',
-                      f.newReleaseCount > 0 ? 'text-primary' : 'text-muted-foreground'
+                      f.newReleaseCount > 0
+                        ? 'text-foreground font-medium'
+                        : 'text-muted-foreground'
                     )}
                   >
                     {f.newReleaseCount > 0
@@ -175,12 +217,17 @@
               <button
                 type="button"
                 disabled={busy}
+                aria-busy={busy || undefined}
                 aria-label="Follow {s.artist}"
                 onclick={() => follow(s)}
                 class="bg-secondary hover:bg-secondary-hover text-foreground focus-visible:ring-ring text-subheadline inline-flex min-h-11 items-center gap-1 rounded-full px-4 font-semibold transition-colors focus-visible:ring-2 focus-visible:outline-hidden disabled:opacity-60 md:min-h-7 md:px-3 md:text-xs"
               >
-                <Plus class="size-3.5" aria-hidden="true" />
-                {busy ? 'Following…' : 'Follow'}
+                {#if busy}
+                  <Spinner class="size-3.5" />
+                {:else}
+                  <Plus class="size-3.5" aria-hidden="true" />
+                {/if}
+                Follow
               </button>
             </li>
           {/each}

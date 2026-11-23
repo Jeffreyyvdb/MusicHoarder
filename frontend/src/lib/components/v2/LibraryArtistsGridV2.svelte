@@ -27,8 +27,14 @@
      * empty desktop letter is told apart from it here: that one offers "Show all".
      */
     empty?: Snippet;
+    /**
+     * Hides the phone's A–Z index while something above the list is on screen (the Artists page's
+     * shelves): the index is fixed down the trailing edge and would sit over it, taking its taps and
+     * sideways swipes. It returns once that has scrolled away and the list fills the screen.
+     */
+    indexSuppressed?: boolean;
   };
-  const { groups, hrefFor, isLoading = false, empty }: Props = $props();
+  const { groups, hrefFor, isLoading = false, empty, indexSuppressed = false }: Props = $props();
 
   const isMobile = new IsMobile();
   const compact = $derived(isMobile.current);
@@ -182,7 +188,7 @@
       {/each}
     </div>
 
-    {#if showIndex}
+    {#if showIndex && !indexSuppressed}
       <!-- The index: fixed to the trailing edge between the nav bar and the tab bar, a 44pt-wide
            hit column. touch-none so a scrub moves the list rather than the page. -->
       <nav

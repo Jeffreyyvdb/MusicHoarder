@@ -199,18 +199,28 @@ public static class ArtistDiscographyEndpoints
                 e.SongId, e.PlayedAtUtc, e.Title, e.Artist, e.AlbumArtist, e.Album, e.Genre, e.DurationSeconds))
             .ToListAsync(ct);
         var follows = await db.FollowedArtists.AsNoTracking()
-            .Select(f => new { f.ArtistKey, f.Name })
+            .Select(f => new { f.ArtistKey, f.Name, f.DeezerArtistId })
+            .ToListAsync(ct);
+        // A follow is a catalog id, so a library spelling linked to that id ("ASAP Rocky" for a follow
+        // made as "A$AP Rocky") is followed too.
+        var followedIds = follows.Select(f => f.DeezerArtistId).ToList();
+        var linkedToFollowed = await TrustedLinks(db)
+            .Where(l => l.DeezerArtistId != null && followedIds.Contains(l.DeezerArtistId))
+            .Select(l => l.ArtistKey)
             .ToListAsync(ct);
         var followedKeys = follows
             .SelectMany(f => new[] { f.ArtistKey, ArtistSuggestions.KeyOf(f.Name) })
+            .Concat(linkedToFollowed)
             .Where(k => k.Length > 0)
             .ToHashSet(StringComparer.Ordinal);
 
         var ranked = ArtistSuggestions.Rank(plays, followedKeys, now);
+        if (ranked.Count == 0)
+            return Results.Ok(new ArtistSuggestionsResponse([]));
+
         var keys = ranked.Select(r => r.Key).ToList();
-        var links = await db.ArtistCatalogLinks.AsNoTracking()
-            .Where(l => keys.Contains(l.ArtistKey)
-                && (l.Status == ArtistCatalogLinkStatus.Linked || l.Status == ArtistCatalogLinkStatus.Chosen))
+        var links = await TrustedLinks(db)
+            .Where(l => keys.Contains(l.ArtistKey))
             .Select(l => new { l.ArtistKey, l.DeezerArtistId })
             .ToListAsync(ct);
         var idByKey = links
@@ -221,6 +231,10 @@ public static class ArtistDiscographyEndpoints
             .Select(r => new ArtistSuggestion(r.Artist, r.Plays, r.Songs, r.LastPlayedAtUtc, idByKey.GetValueOrDefault(r.Key)))
             .ToList()));
     }
+
+    private static IQueryable<ArtistCatalogLink> TrustedLinks(MusicHoarderDbContext db) =>
+        db.ArtistCatalogLinks.AsNoTracking()
+            .Where(l => l.Status == ArtistCatalogLinkStatus.Linked || l.Status == ArtistCatalogLinkStatus.Chosen);
 
     public sealed record FollowRequest(string DeezerArtistId, string? Artist, IReadOnlyList<string>? ReleaseKinds, bool? AutoDownload);
 

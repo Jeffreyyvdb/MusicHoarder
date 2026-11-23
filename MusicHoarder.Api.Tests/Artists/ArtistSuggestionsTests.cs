@@ -46,25 +46,44 @@ public class ArtistSuggestionsTests
     }
 
     [Fact]
-    public void Followed_artists_featured_credits_and_various_artists_are_handled_by_name_key()
+    public void A_play_counts_for_its_lead_artist_whole_names_kept_and_placeholders_skipped()
     {
         var plays = new[]
         {
-            Play(1, "Kanye West feat. Ty Dolla $ign", 1), Play(2, "Kanye West", 2), Play(3, "Kanye West", 3),
-            Play(4, "Ty Dolla $ign", 4), Play(5, "TY DOLLA $IGN", 5),
-            Play(6, "Various Artists", 1), Play(7, "Various Artists", 2), Play(8, "Various Artists", 3),
+            Play(1, "Tyler, The Creator", 1), Play(2, "Tyler, The Creator", 2), Play(3, "Tyler, The Creator", 3),
+            Play(4, "Simon & Garfunkel feat. Someone", 1), Play(5, "Simon & Garfunkel", 2), Play(6, "Simon & Garfunkel", 3),
+            Play(7, "Guest", 1, albumArtist: "Kanye West"), Play(8, "Ye; Guest", 2, albumArtist: "Kanye West"),
+            Play(9, "Kanye West", 3),
+            Play(10, "Unknown Artist", 1), Play(11, "Unknown Artist", 2), Play(12, "Unknown Artist", 3),
+            Play(13, "Compiled One", 1, albumArtist: "Various Artists"), Play(14, "Compiled One", 2, albumArtist: "Various Artists"),
+            Play(15, "Compiled One", 3, albumArtist: "Various Artists"),
         };
-        var followed = new HashSet<string>(StringComparer.Ordinal) { ArtistSuggestions.KeyOf("Kanye West") };
 
-        var ranked = ArtistSuggestions.Rank(plays, followed, Now);
+        var ranked = ArtistSuggestions.Rank(plays, NoFollows, Now);
 
-        var only = Assert.Single(ranked);
-        Assert.Equal("Ty Dolla $ign", only.Artist);
-        Assert.Equal(3, only.Plays);
+        Assert.Equal(
+            ["Compiled One", "Kanye West", "Simon & Garfunkel", "Tyler, The Creator"],
+            ranked.Select(r => r.Artist).Order(StringComparer.Ordinal));
+        Assert.All(ranked, r => Assert.Equal(3, r.Plays));
     }
 
     [Fact]
-    public async Task Endpoint_reads_the_callers_own_plays_and_names_only_a_trusted_catalog_artist()
+    public void Followed_artists_are_left_out_by_name_key_and_the_list_is_capped()
+    {
+        var plays = Enumerable.Range(0, ArtistSuggestions.Limit + 3)
+            .SelectMany(a => new[] { Play(a * 10, $"Artist {a}", 1), Play(a * 10 + 1, $"Artist {a}", 2), Play(a * 10 + 2, $"Artist {a}", 3) })
+            .Concat([Play(900, "Beyoncé", 1), Play(901, "Beyonce", 1), Play(902, "BEYONCÉ", 1)])
+            .ToList();
+        var followed = new HashSet<string>(StringComparer.Ordinal) { ArtistSuggestions.KeyOf("Beyonce") };
+
+        var ranked = ArtistSuggestions.Rank(plays, followed, Now);
+
+        Assert.Equal(ArtistSuggestions.Limit, ranked.Count);
+        Assert.DoesNotContain(ranked, r => r.Key == "beyonce");
+    }
+
+    [Fact]
+    public async Task Endpoint_reads_the_callers_own_plays_and_follows_and_names_only_a_trusted_catalog_artist()
     {
         var options = new DbContextOptionsBuilder<MusicHoarderDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
@@ -77,14 +96,20 @@ public class ArtistSuggestionsTests
                 seed.ListeningEvents.Add(Event(TestUsers.OwnerId, 10 + i, "Unproven", at));
                 seed.ListeningEvents.Add(Event(TestUsers.OwnerId, 20 + i, "Followed", at));
                 seed.ListeningEvents.Add(Event(TestUsers.FriendId, 30 + i, "Someone Else's", at));
+                seed.ListeningEvents.Add(Event(TestUsers.OwnerId, 40 + i, "ASAP Rocky", at));
+                seed.ListeningEvents.Add(Event(TestUsers.OwnerId, 50 + i, "Followed By A Friend", at));
             }
             seed.ArtistCatalogLinks.AddRange(
                 new ArtistCatalogLink { ArtistKey = "linked one", Status = ArtistCatalogLinkStatus.Linked, DeezerArtistId = "42" },
-                new ArtistCatalogLink { ArtistKey = "unproven", Status = ArtistCatalogLinkStatus.Unconfirmed, DeezerArtistId = "7" });
-            seed.FollowedArtists.Add(new FollowedArtist
-            {
-                OwnerUserId = TestUsers.OwnerId, DeezerArtistId = "9", Name = "Followed", ArtistKey = "followed",
-            });
+                new ArtistCatalogLink { ArtistKey = "unproven", Status = ArtistCatalogLinkStatus.Unconfirmed, DeezerArtistId = "7" },
+                new ArtistCatalogLink { ArtistKey = "asap rocky", Status = ArtistCatalogLinkStatus.Chosen, DeezerArtistId = "1519461" });
+            seed.FollowedArtists.AddRange(
+                new FollowedArtist { OwnerUserId = TestUsers.OwnerId, DeezerArtistId = "9", Name = "Followed", ArtistKey = "followed" },
+                new FollowedArtist { OwnerUserId = TestUsers.OwnerId, DeezerArtistId = "1519461", Name = "A$AP Rocky", ArtistKey = "aap rocky" },
+                new FollowedArtist
+                {
+                    OwnerUserId = TestUsers.FriendId, DeezerArtistId = "11", Name = "Followed By A Friend", ArtistKey = "followed by a friend",
+                });
             await seed.SaveChangesAsync();
         }
 
@@ -93,13 +118,13 @@ public class ArtistSuggestionsTests
         var result = await ArtistDiscographyEndpoints.ListSuggestions(db, CancellationToken.None);
 
         var suggestions = Assert.IsType<Ok<ArtistSuggestionsResponse>>(result).Value!.Suggestions;
-        Assert.Equal(["Linked One", "Unproven"], suggestions.Select(s => s.Artist).Order());
+        Assert.Equal(["Followed By A Friend", "Linked One", "Unproven"], suggestions.Select(s => s.Artist).Order());
         Assert.Equal("42", suggestions.Single(s => s.Artist == "Linked One").DeezerArtistId);
         Assert.Null(suggestions.Single(s => s.Artist == "Unproven").DeezerArtistId);
     }
 
-    private static ListeningEventRow Play(int songId, string artist, int daysAgo) =>
-        new(songId, Now.AddDays(-daysAgo), $"Song {songId}", artist, null, null, null, 200);
+    private static ListeningEventRow Play(int songId, string artist, int daysAgo, string? albumArtist = null) =>
+        new(songId, Now.AddDays(-daysAgo), $"Song {songId}", artist, albumArtist, null, null, 200);
 
     private static ListeningEvent Event(Guid user, int songId, string artist, DateTime at) => new()
     {

@@ -367,6 +367,7 @@
   // Following and suggestions sit above the grid for an admin (follows are admin-only), and step
   // aside while a search is typed: then the grid is the answer.
   const showArtistShelves = $derived(isAdmin(page.data.user) && query.trim() === '');
+  let artistShelvesInView = $state(false);
   const filteredArtists = $derived.by(() => filterBySearch(artistSearchIndex, searchTerms(query)));
 
   // Tracks tab: scope by browse filter only. Search and the chips are applied inside the view, so
@@ -1417,13 +1418,14 @@
       </div>
     {:else}
       {#if showArtistShelves}
-        <ArtistShelvesV2 />
+        <ArtistShelvesV2 bind:inView={artistShelvesInView} />
       {/if}
       <div class="pb-4 md:px-7 md:py-5">
         <LibraryArtistsGridV2
           groups={filteredArtists}
           hrefFor={artistHref}
           {isLoading}
+          indexSuppressed={showArtistShelves && artistShelvesInView}
           empty={artistsEmpty}
         />
       </div>
