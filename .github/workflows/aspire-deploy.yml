@@ -11,6 +11,9 @@
 #     rebuilds at that version, tags :X.Y.Z, :X.Y, :X and :latest — what self-hosters pull. It does
 #     not redeploy: our instance already runs that code from the edge build of the same commit.
 #
+# The optional spotiflac sidecar image (ghcr.io/<owner>/musichoarder/spotiflac, sidecars/spotiflac/)
+# is built here too, by its own job, on a different tag scheme — see the `sidecar` job.
+#
 # Why this exists: building these linux/amd64 images locally on an Apple Silicon Mac runs the
 # frontend's Vite build under x86 emulation and is painfully slow. GitHub's ubuntu runners are
 # native amd64, so the build is fast here and never touches a developer machine.
@@ -155,11 +158,72 @@ jobs:
             echo "Tagged ${img}:${IMAGE_TAG} -> ${tags[*]}"
           done
 
+  # The spotiflac sidecar keeps its own tags: both stacks pull ${SPOTIFLAC_VERSION:-latest}, and :latest
+  # follows main (an edge run points it at main's sidecar), while a release only adds :X.Y.Z so
+  # SPOTIFLAC_VERSION can pin one. An image is built once per content of sidecars/spotiflac, keyed by
+  # that folder's git tree hash (:tree-<hash>), so a merge that leaves the sidecar alone pushes nothing
+  # new and :latest keeps its digest — and since it compares content, not "what changed since the last
+  # run", an edge run that queueing dropped cannot lose a change.
+  sidecar:
+    name: spotiflac sidecar → GHCR
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ inputs.version != '' && format('v{0}', inputs.version) || '' }}
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Find the image for this content
+        id: tree
+        run: |
+          set -euo pipefail
+          img="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/musichoarder/spotiflac"
+          tree=$(git rev-parse HEAD:sidecars/spotiflac)
+          echo "img=${img}" >> "$GITHUB_OUTPUT"
+          echo "ref=${img}:tree-${tree::12}" >> "$GITHUB_OUTPUT"
+          if docker buildx imagetools inspect "${img}:tree-${tree::12}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "${img}:tree-${tree::12} already built."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and push
+        if: steps.tree.outputs.exists != 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: ./sidecars/spotiflac
+          push: true
+          tags: ${{ steps.tree.outputs.ref }}
+          cache-from: type=gha,scope=spotiflac
+          cache-to: type=gha,mode=max,scope=spotiflac
+
+      - name: Tag
+        env:
+          IMG: ${{ steps.tree.outputs.img }}
+          REF: ${{ steps.tree.outputs.ref }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          tag="${VERSION:+${VERSION#v}}"   # a release: 1.4.2; an edge run: latest
+          docker buildx imagetools create -t "${IMG}:${tag:-latest}" "${REF}"
+          echo "Tagged ${REF} -> ${IMG}:${tag:-latest}"
+
   deploy:
     name: Redeploy Dokploy
-    needs: push
+    # Waits for the sidecar so the stack deploy pulls its new :latest, but never on its success: a
+    # failed sidecar build must not hold back the app.
+    needs: [push, sidecar]
     # Only edge builds deploy: our instance runs :edge, so retagging a release changes nothing there.
-    if: needs.push.outputs.kind == 'edge'
+    if: ${{ !cancelled() && needs.push.result == 'success' && needs.push.outputs.kind == 'edge' }}
     runs-on: ubuntu-latest
     steps:
       # GHCR doesn't fire push webhooks, so we trigger the redeploy ourselves — here, AFTER the new

@@ -62,7 +62,9 @@ ENABLE_WISHLIST_DOWNLOADS=true               # only needed if that instance down
 ```
 
 The stack deploy runs with `--resolve-image always`, so the mutable `:latest` tag re-pulls on every
-release; pin `SPOTIFLAC_VERSION` to a release tag to freeze it instead.
+deploy. `:latest` follows `main`; each weekly release also tags the sidecar as of that release
+(`X.Y.Z`, no `v`), so pin `SPOTIFLAC_VERSION` to one to freeze it instead. Both are built by
+`.github/workflows/aspire-deploy.yml`.
 
 **Build from source** instead of pulling the image: layer the build override, which adds `build:` to
 this folder — `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`
