@@ -453,7 +453,7 @@ const detailAlbums = $derived(hydrateAlbums(detailAlbumDtos, songsById));
 // down as you leave it. `retainViews` is that watcher, held by the app shell for as long as it lives.
 /** Songs built into the library — what the album and artist grids are made of. */
 const builtSongs = $derived(songs.filter(isBuiltSong));
-/** What the Tracks list covers (see `isTrackListSong`). */
+/** What My tracks covers (see `isTrackListSong`). */
 const trackListSongs = $derived(songs.filter(isTrackListSong));
 /** The Artists grid's default: built songs grouped by lead artist. */
 const leadArtistGroups = $derived(buildArtistGroups(builtSongs, { primaryOnly: true }));

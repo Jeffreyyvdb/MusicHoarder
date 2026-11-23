@@ -3,13 +3,13 @@ import {
   hasMusicVideo,
   isAddedByLink,
   isLocalFile,
-  isMyMusic,
   isSpotifyLiked,
   mapEnrichmentStatus,
   songAddedTime,
   songLikedTime,
   spotifyAddedTime,
-  type ApiSong
+  type ApiSong,
+  type SongOriginSource
 } from '#lib/api-client.ts';
 import { isBuiltSong } from '#lib/album-sections.ts';
 import {
@@ -105,26 +105,53 @@ export function matchValue(s: ApiSong): number | null {
 }
 
 /**
- * What the Tracks list covers: the music you asked for — everything built, plus your own source
- * files still waiting on review.
+ * Whether the pipeline fetched a track for one of its own collections rather than because you asked
+ * for that track. A table, so a new origin cannot reach My tracks without a decision here.
  *
- * Wider than the album/artist grids in one direction and narrower in another, both deliberate.
- * Wider: the grids show what the builder produced, but the "Local files" chip has to be able to
- * answer "what is on my share", and a scanned file sitting at NeedsReview is already yours — it
- * has a playable file (the stream endpoint falls back to the source path), and the Inbox is where
- * you *act* on it, not where you find it. Narrower: album completion's tracks are excluded —
- * otherwise the one flat list of what you chose fills up with records you never asked for a track
- * from. They are still in Albums, on the album page and on the Overview's "New to you" shelf — the
- * places where a complete album is the point — and liking one promotes it into this list.
+ * `None` is a download with no wishlist link left. That is mostly a local file a quality upgrade
+ * moved into the download root, or a link add whose wishlist row was deleted, so it stays yours.
+ */
+const FETCHED_FOR_A_COLLECTION: Record<SongOriginSource, boolean> = {
+  None: false,
+  SpotifyLiked: false,
+  DirectUrl: false,
+  SpotifyPlaylist: true,
+  DeezerPlaylist: true,
+  YouTubePlaylist: true,
+  AlbumCompletion: true,
+  ArtistRequest: true,
+  FollowedArtist: true
+};
+
+/**
+ * What My tracks covers: the music you chose yourself. That is your own source files, tracks you
+ * liked on Spotify, tracks you hearted here, and tracks you added from a link. What the pipeline
+ * fetches for its collections (playlists, discographies, followed artists' releases, album
+ * completion) and what another instance synced stay out of this one flat list. They are still in
+ * Albums, Artists, Playlists and search, where a whole record or playlist is the point, and a heart
+ * moves any of them in here.
  *
- * Doing both here, rather than letting a chip add or remove rows, is what keeps every chip a pure
- * narrowing of one stated base. It lives here (not in LibraryV2) so the Overview's Library rows
+ * A local file counts before it is built: a scanned file at NeedsReview is already yours and has a
+ * playable file (the stream endpoint falls back to the source path), and the Inbox is where you act
+ * on it, not where you find it.
+ *
+ * A row shared with you keeps the older rule, every built song, because the shared projection
+ * carries no origin and no Spotify date to sort it by (#758).
+ *
+ * Doing all of this here, rather than letting a chip add or remove rows, is what keeps every chip a
+ * pure narrowing of one stated base. It lives here (not in LibraryV2) so the Overview's Library rows
  * count exactly the list they open.
  */
 export function isTrackListSong(s: ApiSong): boolean {
-  if (!isMyMusic(s)) return false;
-  if (isBuiltSong(s)) return true;
-  return isLocalFile(s) && mapEnrichmentStatus(s.enrichmentStatus) === 'needsreview';
+  if (s.sharedByUserId) return isBuiltSong(s);
+  if (isLocalFile(s)) {
+    return isBuiltSong(s) || mapEnrichmentStatus(s.enrichmentStatus) === 'needsreview';
+  }
+  if (!isBuiltSong(s)) return false;
+  if (s.likedAtUtc || isSpotifyLiked(s)) return true;
+  if (s.originKind === 'Synced' || s.isAlbumFill || s.acquisitionIntent === 'AlbumFill')
+    return false;
+  return !FETCHED_FOR_A_COLLECTION[s.originSource ?? 'None'];
 }
 
 /**

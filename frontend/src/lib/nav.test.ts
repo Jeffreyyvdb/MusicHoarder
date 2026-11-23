@@ -588,7 +588,7 @@ describe('backFor', () => {
     for (const user of [admin, member]) {
       expect(back('/library?album=abc', user)).toEqual({ label: 'Albums', href: '/library' });
       expect(back('/library?artist=Björk', user)).toEqual({ label: 'Artists', href: '/artists' });
-      expect(back('/track/42', user)).toEqual({ label: 'Tracks', href: '/tracks' });
+      expect(back('/track/42', user)).toEqual({ label: 'My tracks', href: '/tracks' });
       expect(back('/playlists/7', user)).toEqual({ label: 'Playlists', href: '/playlists' });
     }
     expect(back('/playlists', admin)).toEqual({ label: 'Listen', href: '/overview' });

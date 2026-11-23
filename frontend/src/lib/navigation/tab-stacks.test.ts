@@ -362,7 +362,10 @@ describe('backTargetFor', () => {
       ['enter', '/tracks'],
       ['link', '/settings']
     ]);
-    expect(backTargetFor(s, u('/settings'), member)).toEqual({ label: 'Tracks', href: '/tracks' });
+    expect(backTargetFor(s, u('/settings'), member)).toEqual({
+      label: 'My tracks',
+      href: '/tracks'
+    });
     // Reached any other way, it falls back to the Overview.
     const cold = replay(member, [['enter', '/settings']]);
     expect(backTargetFor(cold, u('/settings'), member)).toEqual({
