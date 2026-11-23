@@ -492,19 +492,23 @@
               <!-- title + sub. From @4xl the wrapper drops out of the box tree, so the title and
                    the artist line are two cells of the grid: the Title and Artist columns. -->
               <div class="min-w-0 @4xl:contents" data-mh-track-title>
-                <div class={cn('truncate text-[15px] font-medium', isLoaded && 'text-primary')}>
-                  {#if isLoaded}<span class="sr-only">Now playing, </span>{/if}{titleOf(song)}
+                <!-- The Review badge is about the track, so it follows the title: in front of the
+                     artist it read as part of the name once the artist had its own column. -->
+                <div class="flex min-w-0 items-center gap-2">
+                  <span class={cn('truncate text-[15px] font-medium', isLoaded && 'text-primary')}>
+                    {#if isLoaded}<span class="sr-only">Now playing, </span>{/if}{titleOf(song)}
+                  </span>
+                  {#if needsReview}
+                    <Badge
+                      variant="warning"
+                      class="min-h-0 shrink-0 px-1.5 py-px"
+                      title="Enrichment uncertain — needs review">Review</Badge
+                    >
+                  {/if}
                 </div>
                 <div
                   class="text-muted-foreground mt-0.5 flex min-w-0 items-center gap-2 text-[13px] @4xl:mt-0"
                 >
-                  {#if needsReview}
-                    <Badge
-                      variant="warning"
-                      class="min-h-0 px-1.5 py-px"
-                      title="Enrichment uncertain — needs review">Review</Badge
-                    >
-                  {/if}
                   <a
                     href={artistHref(song)}
                     onclick={(e) => e.stopPropagation()}
