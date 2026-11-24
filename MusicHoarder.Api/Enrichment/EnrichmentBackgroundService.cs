@@ -72,36 +72,42 @@ public class EnrichmentBackgroundService(
                 return;
 
             var flipped = new List<int>();
+            var flippedCount = 0;
             foreach (var page in (await SongIdsMissingAnApplicableProviderAsync(db, enabled, ct)).Chunk(SweepPageSize))
             {
-                var candidates = await db.Songs
+                var toFlip = (await db.Songs
+                        .IgnoreQueryFilters()
+                        .AsNoTracking()
+                        .Include(s => s.ProviderAttempts)
+                        .Where(s => page.Contains(s.Id) && s.EnrichmentStatus != EnrichmentStatus.Pending)
+                        // Again here: a song approved or deleted since its id was collected must not flip.
+                        .Where(s => !s.IsManuallyApproved && s.DeletedAtUtc == null)
+                        .ToListAsync(ct))
+                    .Where(s => s.ComputeSummaryStatus(enabled) == EnrichmentStatus.Pending)
+                    .Select(s => s.Id)
+                    .ToList();
+                if (toFlip.Count == 0)
+                    continue;
+
+                // And once more in the write itself, for an approval or delete made after the load:
+                // Postgres re-checks this WHERE against the row's latest version, so the person wins
+                // whichever commits first. Saving the loaded rows would write Pending over it.
+                flippedCount += await db.Songs
                     .IgnoreQueryFilters()
-                    .Include(s => s.ProviderAttempts)
-                    .Where(s => page.Contains(s.Id) && s.EnrichmentStatus != EnrichmentStatus.Pending)
-                    // Again here: a song approved or deleted since its id was collected must not flip.
-                    .Where(s => !s.IsManuallyApproved && s.DeletedAtUtc == null)
-                    .ToListAsync(ct);
-
-                foreach (var song in candidates)
-                {
-                    if (song.ComputeSummaryStatus(enabled) != EnrichmentStatus.Pending)
-                        continue;
-
-                    song.EnrichmentStatus = EnrichmentStatus.Pending;
-                    song.EnrichmentError = null;
-                    flipped.Add(song.Id);
-                }
-
-                await db.SaveChangesAsync(ct);
-                db.ChangeTracker.Clear();
+                    .Where(s => toFlip.Contains(s.Id) && !s.IsManuallyApproved && s.DeletedAtUtc == null)
+                    .ExecuteUpdateAsync(u => u
+                        .SetProperty(s => s.EnrichmentStatus, EnrichmentStatus.Pending)
+                        .SetProperty(s => s.EnrichmentError, (string?)null), ct);
+                flipped.AddRange(toFlip);
             }
 
-            if (flipped.Count > 0)
+            if (flippedCount > 0)
             {
+                // A song that lost the race above is enqueued too; the orchestrator skips it as locked.
                 pipelineChannel.EnqueueRange(flipped);
                 logger.LogInformation(
                     "Refresh sweep flipped {Count} songs to Pending after provider-set change",
-                    flipped.Count);
+                    flippedCount);
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

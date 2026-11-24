@@ -14,10 +14,11 @@ namespace MusicHoarder.Api.Tests.Enrichment;
 
 public class EnrichmentRetrySweepTests
 {
-    [Fact]
+    [PostgresFact]
     public async Task Refresh_FlipsToPending_WhenNewProviderEnabled()
     {
-        await using var db = CreateDb();
+        await using var database = await PostgresTestDatabase.CreateAsync();
+        await using var db = database.NewContext();
         var song = AddSong(db, EnrichmentStatus.NeedsReview);
         song.ProviderAttempts.Add(new SongProviderAttempt
         {
