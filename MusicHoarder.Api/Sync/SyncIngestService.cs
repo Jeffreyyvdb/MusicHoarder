@@ -131,6 +131,9 @@ public sealed class SyncIngestService(
             payload.DurationSeconds,
             payload.DurationMs);
         ApplyPayloadMetadata(existing, payload);
+        // Written even when the row was already Matched at load and EF sees no change: the enrichment
+        // refresh sweep may have flipped it to Pending since, and the lock alone would strand it there.
+        db.Entry(existing).Property(s => s.EnrichmentStatus).IsModified = true;
         existing.ResetLibraryBuild();
         await db.SaveChangesAsync(ct);
 
