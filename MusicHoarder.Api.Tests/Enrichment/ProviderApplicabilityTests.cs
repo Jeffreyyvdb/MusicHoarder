@@ -53,10 +53,11 @@ public class ProviderApplicabilityTests
         Assert.Equal(song.Id, enqueued);
     }
 
-    [Fact]
+    [PostgresFact]
     public async Task Refresh_LeavesReviewSong_WhoseOnlyMissingProviderCannotHandleIt()
     {
-        await using var db = CreateDb();
+        await using var database = await PostgresTestDatabase.CreateAsync();
+        await using var db = database.NewContext();
         var song = AddSong(db, EnrichmentStatus.NeedsReview);
         AddAttempt(song, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.NoMatch);
         await db.SaveChangesAsync();
@@ -69,10 +70,11 @@ public class ProviderApplicabilityTests
         Assert.False(pipeline.Channel.Reader.TryRead(out _));
     }
 
-    [Fact]
+    [PostgresFact]
     public async Task Refresh_FlipsReviewSong_MissingAProviderThatCanHandleIt()
     {
-        await using var db = CreateDb();
+        await using var database = await PostgresTestDatabase.CreateAsync();
+        await using var db = database.NewContext();
         var song = AddSong(db, EnrichmentStatus.NeedsReview);
         AddAttempt(song, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.NoMatch);
         await db.SaveChangesAsync();

@@ -1,4 +1,6 @@
+using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -6,15 +8,17 @@ using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Tests.Persistence;
 
 namespace MusicHoarder.Api.Tests.Enrichment;
 
 public class EnrichmentRetrySweepTests
 {
-    [Fact]
+    [PostgresFact]
     public async Task Refresh_FlipsToPending_WhenNewProviderEnabled()
     {
-        await using var db = CreateDb();
+        await using var database = await PostgresTestDatabase.CreateAsync();
+        await using var db = database.NewContext();
         var song = AddSong(db, EnrichmentStatus.NeedsReview);
         song.ProviderAttempts.Add(new SongProviderAttempt
         {
@@ -38,10 +42,11 @@ public class EnrichmentRetrySweepTests
         Assert.Equal(song.Id, enqueued);
     }
 
-    [Fact]
+    [PostgresFact]
     public async Task Refresh_LeavesStatus_WhenAllEnabledProvidersTerminal()
     {
-        await using var db = CreateDb();
+        await using var database = await PostgresTestDatabase.CreateAsync();
+        await using var db = database.NewContext();
         var song = AddSong(db, EnrichmentStatus.NeedsReview);
         song.ProviderAttempts.Add(new SongProviderAttempt
         {
@@ -71,12 +76,13 @@ public class EnrichmentRetrySweepTests
         Assert.False(channel.Reader.TryRead(out _));
     }
 
-    [Fact]
+    [PostgresFact]
     public async Task Refresh_SkipsManuallyApprovedSong_EvenWhenMissingProvider()
     {
         // A locked song missing a newly-enabled provider must NOT be flipped to Pending — the
         // orchestrator skips manually-approved songs, so flipping it would strand it in Pending.
-        await using var db = CreateDb();
+        await using var database = await PostgresTestDatabase.CreateAsync();
+        await using var db = database.NewContext();
         var song = AddSong(db, EnrichmentStatus.Matched);
         song.IsManuallyApproved = true;
         song.ProviderAttempts.Add(new SongProviderAttempt
@@ -100,13 +106,14 @@ public class EnrichmentRetrySweepTests
         Assert.False(channel.Reader.TryRead(out _));
     }
 
-    [Fact]
+    [PostgresFact]
     public async Task Refresh_SkipsDemoSong_EvenWithZeroAttempts()
     {
         // Real-file demo rows are seeded terminal-Matched with NO provider attempts, so without the
         // demo exclusion the refresh sweep would see them as "missing every provider", flip them to
         // Pending and re-enrich them — overwriting the curated demo metadata on every boot.
-        await using var db = CreateDb();
+        await using var database = await PostgresTestDatabase.CreateAsync();
+        await using var db = database.NewContext();
         var song = AddSong(db, EnrichmentStatus.Matched, owner: MusicHoarder.Api.Auth.WellKnownUsers.DemoId);
         await db.SaveChangesAsync();
 
@@ -122,10 +129,11 @@ public class EnrichmentRetrySweepTests
         Assert.False(channel.Reader.TryRead(out _));
     }
 
-    [Fact]
+    [PostgresFact]
     public async Task Refresh_LeavesSongApprovedWhileTheSweepRuns()
     {
-        await using var db = CreateDb();
+        await using var database = await PostgresTestDatabase.CreateAsync();
+        await using var db = database.NewContext();
         var song = AddSong(db, EnrichmentStatus.NeedsReview);
         song.ProviderAttempts.Add(new SongProviderAttempt
         {
@@ -153,6 +161,70 @@ public class EnrichmentRetrySweepTests
         var stored = await db.Songs.AsNoTracking().SingleAsync();
         Assert.Equal(EnrichmentStatus.Matched, stored.EnrichmentStatus);
         Assert.False(channel.Reader.TryRead(out _));
+    }
+
+    /// <summary>
+    /// A person approves the song after the sweep has read it and before the sweep writes. The
+    /// approval must survive: a locked song left in Pending is skipped by the orchestrator forever.
+    /// Only a real database shows it, since the race is between two connections.
+    /// </summary>
+    [PostgresFact]
+    public async Task Refresh_KeepsAnApprovalMadeBetweenItsLoadAndItsWrite()
+    {
+        await using var database = await PostgresTestDatabase.CreateAsync();
+        int songId;
+        await using (var seed = database.NewContext())
+        {
+            var song = AddSong(seed, EnrichmentStatus.NeedsReview);
+            song.ProviderAttempts.Add(new SongProviderAttempt
+            {
+                Provider = EnrichmentProvider.AcoustID,
+                Status = ProviderAttemptStatus.NoMatch,
+                AttemptedAtUtc = DateTime.UtcNow,
+            });
+            await seed.SaveChangesAsync();
+            songId = song.Id;
+        }
+
+        var approveAfterLoad = new AfterCandidateLoad(async ct =>
+        {
+            await using var reviewer = database.NewContext();
+            var row = await reviewer.Songs.IgnoreQueryFilters().SingleAsync(s => s.Id == songId, ct);
+            row.EnrichmentStatus = EnrichmentStatus.Matched;
+            row.EnrichmentError = null;
+            row.LockManualApproval();
+            await reviewer.SaveChangesAsync(ct);
+        });
+        await using var sweepDb = database.NewContext(interceptors: approveAfterLoad);
+        var channel = new EnrichmentPipelineChannel(new JobManager(), new EnrichmentProgressTracker());
+        var service = CreateService(
+            sweepDb, channel,
+            enabled: new HashSet<EnrichmentProvider> { EnrichmentProvider.AcoustID, EnrichmentProvider.SpotifyAPI });
+
+        await service.RefreshStaleStatusesAsync(CancellationToken.None);
+
+        Assert.True(approveAfterLoad.Fired, "the approval ran after the sweep loaded its candidates");
+        await using var read = database.NewContext();
+        var stored = await read.Songs.IgnoreQueryFilters().AsNoTracking().SingleAsync(s => s.Id == songId);
+        Assert.True(stored.IsManuallyApproved);
+        Assert.Equal(EnrichmentStatus.Matched, stored.EnrichmentStatus);
+    }
+
+    /// <summary>Runs an action once, right after the sweep's query that loads songs with their attempts.</summary>
+    private sealed class AfterCandidateLoad(Func<CancellationToken, Task> action) : DbCommandInterceptor
+    {
+        public bool Fired { get; private set; }
+
+        public override async ValueTask<DbDataReader> ReaderExecutedAsync(
+            DbCommand command, CommandExecutedEventData eventData, DbDataReader result, CancellationToken ct = default)
+        {
+            if (!Fired && command.CommandText.Contains("LEFT JOIN \"SongProviderAttempts\""))
+            {
+                Fired = true;
+                await action(ct);
+            }
+            return result;
+        }
     }
 
     [Fact]
@@ -580,7 +652,7 @@ public class EnrichmentRetrySweepTests
         return new MusicHoarderDbContext(options);
     }
 
-    private static EnrichmentBackgroundService CreateService(
+    internal static EnrichmentBackgroundService CreateService(
         MusicHoarderDbContext db,
         EnrichmentPipelineChannel channel,
         IReadOnlySet<EnrichmentProvider> enabled,
