@@ -38,7 +38,7 @@ public sealed class TranscriptionAudioBudget(
         => song.DurationSeconds is > 0 ? song.DurationSeconds.Value : UnknownDurationSeconds;
 
     public static bool IsBackground(TranscriptionPurpose purpose)
-        => purpose is TranscriptionPurpose.TimingProbe or TranscriptionPurpose.AutoResync;
+        => purpose is TranscriptionPurpose.TimingProbe or TranscriptionPurpose.AutoResync or TranscriptionPurpose.AutoSync;
 
     /// <summary>
     /// Makes one transcription request on the meter. The audio is recorded before the request goes out, so
@@ -71,6 +71,22 @@ public sealed class TranscriptionAudioBudget(
             var spend = await LoadAsync(ct);
             Prune(spend, DateTime.UtcNow);
             return spend.Count(e => e.Purpose == purpose);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>How many audio-seconds requests for <paramref name="purpose"/> sent in the last day.</summary>
+    public async Task<double> SecondsLastDayAsync(TranscriptionPurpose purpose, CancellationToken ct)
+    {
+        await _gate.WaitAsync(ct);
+        try
+        {
+            var spend = await LoadAsync(ct);
+            Prune(spend, DateTime.UtcNow);
+            return spend.Where(e => e.Purpose == purpose).Sum(e => e.AudioSeconds);
         }
         finally
         {

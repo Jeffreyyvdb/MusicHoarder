@@ -14,6 +14,9 @@ public enum TranscriptionPurpose
 
     /// <summary>Someone asked for one song's timing to be verified.</summary>
     ManualTimingProbe = 3,
+
+    /// <summary>The background sweep giving AI-timed lyrics to a song that has no LRC.</summary>
+    AutoSync = 4,
 }
 
 /// <summary>

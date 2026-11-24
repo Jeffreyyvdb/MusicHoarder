@@ -31,6 +31,9 @@ public class LyricsTimingCheckServiceTests : IDisposable
 
     private const string AlignedLrc = "[00:12.00]line 0 words here\n[00:17.00]line 1 words here";
 
+    private const string HeardLrc =
+        "[00:12.00]these are the words the model heard\n[00:17.00]in a song nobody wrote the lyrics down for";
+
     // --- Probe pass: which songs get a window ---
 
     [Fact]
@@ -336,7 +339,221 @@ public class LyricsTimingCheckServiceTests : IDisposable
         Assert.Single(transcriber.FullCalls);
     }
 
+    // --- Probe share ---
+
+    [Fact]
+    public async Task probe_pass_stops_at_its_daily_share_of_the_audio()
+    {
+        await using var db = CreateDbContext();
+        for (var id = 1; id <= 5; id++)
+            AddSong(db, id, LyricsSyncStatus.Suspect);
+        await db.SaveChangesAsync();
+
+        var transcriber = new FakeTranscriber();
+        var service = NewService(db, transcriber, new LyricsTimingOptions { ProbeAudioSecondsPerDay = 60, ProbeWindowSeconds = 30 });
+
+        await service.RunProbePassAsync(CancellationToken.None);
+        Assert.False(await service.RunProbePassAsync(CancellationToken.None));
+
+        Assert.Equal(2, transcriber.ClipCalls.Count);
+    }
+
+    // --- AI sync pass ---
+
+    [Fact]
+    public async Task ai_sync_pass_works_inwards_from_the_newest_and_the_oldest_songs()
+    {
+        await using var db = CreateDbContext();
+        for (var id = 1; id <= 6; id++)
+            AddUnsynced(db, id, acquiredDaysAgo: 10 - id);
+        await db.SaveChangesAsync();
+
+        var transcriber = new FakeTranscriber();
+        var service = NewService(db, transcriber, new LyricsTimingOptions());
+
+        Assert.True(await service.RunAutoSyncPassAsync(CancellationToken.None));
+        Assert.True(await service.RunAutoSyncPassAsync(CancellationToken.None));
+        Assert.False(await service.RunAutoSyncPassAsync(CancellationToken.None));
+
+        Assert.Equal([PathOf(6), PathOf(1), PathOf(5), PathOf(2), PathOf(4), PathOf(3)], transcriber.FullCalls);
+    }
+
+    [Fact]
+    public async Task ai_sync_pass_times_official_words_and_shows_them()
+    {
+        await using var db = CreateDbContext();
+        var song = AddUnsynced(db, 1, built: true);
+        await db.SaveChangesAsync();
+
+        await NewService(db, new FakeTranscriber(), new LyricsTimingOptions()).RunAutoSyncPassAsync(CancellationToken.None);
+
+        Assert.Equal(AlignedLrc, song.DisplaySyncedLyrics);
+        Assert.Equal(LyricsProvenance.AiEnhanced, song.LyricsProvenance);
+        Assert.Equal(LibraryBuildStatus.Pending, song.LibraryBuildStatus);
+        Assert.Equal(1, await db.TranscriptionAudioSpends.CountAsync(e => e.Purpose == TranscriptionPurpose.AutoSync));
+    }
+
+    [Fact]
+    public async Task ai_sync_pass_shows_the_ai_words_for_a_song_with_no_official_lyrics()
+    {
+        await using var db = CreateDbContext();
+        var song = AddUnsynced(db, 1, plainLyrics: null, lyricsStatus: LyricsStatus.NotFound);
+        await db.SaveChangesAsync();
+
+        var transcriber = new FakeTranscriber { Aligned = false };
+        await NewService(db, transcriber, new LyricsTimingOptions()).RunAutoSyncPassAsync(CancellationToken.None);
+
+        Assert.Equal(HeardLrc, song.DisplaySyncedLyrics);
+        Assert.Equal(LyricsProvenance.AiGenerated, song.LyricsProvenance);
+    }
+
+    [Fact]
+    public async Task ai_sync_pass_shows_nothing_when_no_words_were_sung_and_does_not_try_again()
+    {
+        await using var db = CreateDbContext();
+        var song = AddUnsynced(db, 1, plainLyrics: null, lyricsStatus: LyricsStatus.NotFound);
+        await db.SaveChangesAsync();
+
+        var transcriber = new FakeTranscriber { Aligned = false, Heard = "[00:12.00]Thank you." };
+        var service = NewService(db, transcriber, new LyricsTimingOptions());
+
+        await service.RunAutoSyncPassAsync(CancellationToken.None);
+
+        Assert.Equal(TranscriptionStatus.Failed, song.TranscriptionStatus);
+        Assert.Null(song.DisplaySyncedLyrics);
+        Assert.False(await service.RunAutoSyncPassAsync(CancellationToken.None));
+        Assert.Single(transcriber.FullCalls);
+    }
+
+    [Fact]
+    public async Task ai_sync_pass_takes_only_songs_without_an_lrc_that_were_never_transcribed()
+    {
+        await using var db = CreateDbContext();
+        await AssertAutoSyncTakesOnlyDueSongs(db);
+    }
+
+    [PostgresFact]
+    public async Task ai_sync_pass_takes_only_songs_without_an_lrc_that_were_never_transcribed_on_postgres()
+    {
+        await using var database = await PostgresTestDatabase.CreateAsync();
+        await using var db = database.NewContext();
+        await AssertAutoSyncTakesOnlyDueSongs(db);
+    }
+
+    private async Task AssertAutoSyncTakesOnlyDueSongs(MusicHoarderDbContext db)
+    {
+        AddUnsynced(db, 1);
+        AddUnsynced(db, 2, plainLyrics: null, lyricsStatus: LyricsStatus.NotFound);
+        AddUnsynced(db, 3, plainLyrics: null, lyricsStatus: LyricsStatus.NotFetched, title: null);
+        AddSong(db, 4, LyricsSyncStatus.Ok);
+        AddUnsynced(db, 5, transcription: TranscriptionStatus.Completed);
+        AddUnsynced(db, 6, transcription: TranscriptionStatus.Failed);
+        AddUnsynced(db, 7, plainLyrics: null, lyricsStatus: LyricsStatus.Instrumental, instrumental: true);
+        AddUnsynced(db, 8, plainLyrics: null, lyricsStatus: LyricsStatus.NotFetched);
+        AddUnsynced(db, 9, owner: WellKnownUsers.DemoId);
+        AddUnsynced(db, 10, deleted: true);
+        AddUnsynced(db, 11, enrichment: EnrichmentStatus.Pending);
+        AddUnsynced(db, 12, fileMissing: true);
+        await db.SaveChangesAsync();
+
+        var transcriber = new FakeTranscriber();
+        var service = NewService(db, transcriber, new LyricsTimingOptions());
+        while (await service.RunAutoSyncPassAsync(CancellationToken.None))
+        {
+        }
+
+        Assert.Equal(
+            [PathOf(1), PathOf(2), PathOf(3)],
+            transcriber.FullCalls.Order(StringComparer.Ordinal).ToList());
+    }
+
+    [Fact]
+    public async Task ai_sync_pass_retimes_ai_words_once_a_recheck_brings_official_ones()
+    {
+        await using var db = CreateDbContext();
+        var song = AddUnsynced(db, 1, plainLyrics: null, lyricsStatus: LyricsStatus.NotFound);
+        await db.SaveChangesAsync();
+
+        var guessing = NewService(db, new FakeTranscriber { Aligned = false }, new LyricsTimingOptions());
+        await guessing.RunAutoSyncPassAsync(CancellationToken.None);
+        Assert.Equal(LyricsProvenance.AiGenerated, song.LyricsProvenance);
+        Assert.False(await guessing.RunAutoSyncPassAsync(CancellationToken.None));
+
+        Assert.True(song.TryApplyLyricsUpgrade(null, "line 0 words here\nline 1 words here", instrumental: false));
+        await db.SaveChangesAsync();
+
+        var aligning = new FakeTranscriber();
+        Assert.True(await NewService(db, aligning, new LyricsTimingOptions()).RunAutoSyncPassAsync(CancellationToken.None));
+
+        Assert.Single(aligning.FullCalls);
+        Assert.Equal(AlignedLrc, song.DisplaySyncedLyrics);
+        Assert.Equal(LyricsProvenance.AiEnhanced, song.LyricsProvenance);
+    }
+
+    [Fact]
+    public async Task ai_sync_pass_does_nothing_when_switched_off()
+    {
+        await using var db = CreateDbContext();
+        AddUnsynced(db, 1);
+        await db.SaveChangesAsync();
+
+        var transcriber = new FakeTranscriber();
+        Assert.False(await NewService(db, transcriber, new LyricsTimingOptions { EnableAutoSync = false })
+            .RunAutoSyncPassAsync(CancellationToken.None));
+        Assert.Empty(transcriber.FullCalls);
+    }
+
+    [Fact]
+    public async Task ai_sync_pass_waits_when_the_background_audio_is_spent_and_records_nothing()
+    {
+        await using var db = CreateDbContext();
+        var first = AddUnsynced(db, 1, durationSeconds: 200);
+        var second = AddUnsynced(db, 2, durationSeconds: 200);
+        await db.SaveChangesAsync();
+
+        var transcriber = new FakeTranscriber();
+        var service = NewService(db, transcriber, new LyricsTimingOptions { AudioSecondsPerHour = 300, AudioSecondsPerDay = 300 });
+
+        await service.RunAutoSyncPassAsync(CancellationToken.None);
+
+        Assert.Single(transcriber.FullCalls);
+        Assert.Equal(
+            [TranscriptionStatus.NotRequested, TranscriptionStatus.Completed],
+            new[] { first, second }.Select(s => s.TranscriptionStatus).Order().ToArray());
+        Assert.False(await service.RunAutoSyncPassAsync(CancellationToken.None));
+    }
+
     // --- Helpers ---
+
+    private string PathOf(int id) => Path.Combine(_tmpDir.FullName, $"{id}.mp3");
+
+    private SongMetadata AddUnsynced(
+        MusicHoarderDbContext db,
+        int id,
+        string? plainLyrics = "line 0 words here\nline 1 words here",
+        LyricsStatus lyricsStatus = LyricsStatus.Fetched,
+        TranscriptionStatus transcription = TranscriptionStatus.NotRequested,
+        string? title = "Song",
+        bool instrumental = false,
+        Guid? owner = null,
+        bool deleted = false,
+        bool built = false,
+        int? durationSeconds = 120,
+        bool fileMissing = false,
+        double acquiredDaysAgo = 1,
+        EnrichmentStatus enrichment = EnrichmentStatus.Matched)
+    {
+        var song = AddSong(
+            db, id, LyricsSyncStatus.NotChecked, transcription: transcription, plainLyrics: plainLyrics,
+            instrumental: instrumental, owner: owner, deleted: deleted, built: built,
+            durationSeconds: durationSeconds, fileMissing: fileMissing);
+        song.SyncedLyrics = null;
+        song.LyricsStatus = lyricsStatus;
+        song.Title = title;
+        song.EnrichmentStatus = enrichment;
+        song.AcquiredAtUtc = DateTime.UtcNow.AddDays(-acquiredDaysAgo);
+        return song;
+    }
 
     private SongMetadata AddSong(
         MusicHoarderDbContext db,
@@ -408,6 +625,7 @@ public class LyricsTimingCheckServiceTests : IDisposable
     private sealed class FakeTranscriber : ILyricsTranscriptionService
     {
         public bool Aligned { get; init; } = true;
+        public string Heard { get; init; } = HeardLrc;
         public Exception? Throw { get; init; }
         public List<string> ClipCalls { get; } = [];
         public List<string> FullCalls { get; } = [];
@@ -421,7 +639,7 @@ public class LyricsTimingCheckServiceTests : IDisposable
                 throw Throw;
             return Task.FromResult(Aligned
                 ? new TranscriptionResult(AlignedLrc, "line 0 words here\nline 1 words here", "whisper-test", AlignedToReference: true)
-                : new TranscriptionResult("[00:12.00]something else", "something else", "whisper-test"));
+                : new TranscriptionResult(Heard, null, "whisper-test"));
         }
 
         // An instrumental window: the probe records an attempt with an inconclusive verdict, which is all the

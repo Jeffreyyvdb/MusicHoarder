@@ -410,6 +410,13 @@ public class SongMetadata
     /// </summary>
     public DateTime? LyricsNextRecheckAfterUtc { get; set; }
 
+    /// <summary>
+    /// When the official lyric text (<see cref="PlainLyrics"/>) last changed to new words. A transcription made
+    /// before it was timed against other words, or against none, so the timing sweep transcribes the song again
+    /// to align the new ones. Null on rows whose text predates the column.
+    /// </summary>
+    public DateTime? LyricsTextChangedAtUtc { get; set; }
+
     // --- AI lyrics transcription (experimental; stored SEPARATELY from the LRCLIB lyrics above) ---
     //
     // An AI transcription of the song's audio (OpenAI whisper-1) kept apart from SyncedLyrics/PlainLyrics
@@ -1159,8 +1166,11 @@ public class SongMetadata
             return;
         }
 
+        var previousPlain = PlainLyrics;
         SyncedLyrics = string.IsNullOrWhiteSpace(syncedLyrics) ? null : syncedLyrics;
         PlainLyrics = string.IsNullOrWhiteSpace(plainLyrics) ? null : plainLyrics;
+        if (PlainLyrics is not null && PlainLyrics != previousPlain)
+            LyricsTextChangedAtUtc = DateTime.UtcNow;
 
         if (SyncedLyrics is null && PlainLyrics is null)
         {

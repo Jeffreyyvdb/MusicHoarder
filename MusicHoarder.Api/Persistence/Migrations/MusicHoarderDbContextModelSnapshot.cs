@@ -16,7 +16,7 @@ partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261123183954_InvalidateDeezerArtistImages";
+    public override string LastMigrationId => "20261124164413_AddLyricsTextChangedAt";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -1980,6 +1980,9 @@ partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
 
                 b.Property<int>("LyricsSyncStatus")
                     .HasColumnType("integer");
+
+                b.Property<DateTime?>("LyricsTextChangedAtUtc")
+                    .HasColumnType("timestamp with time zone");
 
                 b.Property<DateTime?>("LyricsTranslatedAtUtc")
                     .HasColumnType("timestamp with time zone");
