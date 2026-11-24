@@ -45,7 +45,10 @@ concurrency:
 
 jobs:
   testflight:
-    runs-on: macos-latest
+    # App Store Connect takes uploads only from the iOS SDK it names (ITMS-90725), which moves up
+    # each year. macos-latest stays on the previous Xcode for months after a new one ships, so the
+    # job names the Xcode image itself, and the SDK step below refuses anything older.
+    runs-on: xcode-27
     defaults:
       run:
         working-directory: mobile
@@ -100,6 +103,19 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "build=$RUN_NUMBER" >> "$GITHUB_OUTPUT"
           echo "Building $VERSION ($RUN_NUMBER)"
+
+      - name: Check the iOS SDK
+        if: steps.preflight.outputs.ok == 'true'
+        run: |
+          set -euo pipefail
+          MIN_SDK=27
+          SDK="$(xcrun --sdk iphoneos --show-sdk-version)"
+          xcodebuild -version
+          if [ "${SDK%%.*}" -lt "$MIN_SDK" ]; then
+            echo "::error title=iOS TestFlight::This runner's iOS SDK is $SDK; App Store Connect wants $MIN_SDK or later. Move runs-on to a newer Xcode image."
+            exit 1
+          fi
+          echo "Building with the iOS $SDK SDK."
 
       - uses: oven-sh/setup-bun@v2
         if: steps.preflight.outputs.ok == 'true'
