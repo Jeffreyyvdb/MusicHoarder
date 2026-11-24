@@ -59,8 +59,8 @@ public sealed partial class LyricsTimingCheckService(
     private const int AutoSyncSongsPerPass = 4;
 
     /// <summary>
-    /// Fewer words than this in a transcription with no official text to align to means nobody sang: Whisper
-    /// fills a silent or instrumental track with a stock phrase or two, which must not be shown as lyrics.
+    /// Fewer words than this in a transcription of a song with no official lyrics means nobody sang: Whisper
+    /// fills an instrumental with a stock phrase or two, which must not be shown as lyrics.
     /// </summary>
     private const int MinHeardWords = 12;
 
@@ -364,11 +364,15 @@ public sealed partial class LyricsTimingCheckService(
                     TranscriptionAudioBudget.WholeSongSeconds(song),
                     () => transcriber.TranscribeAsync(song, path, ct),
                     ct);
-                if (!result.AlignedToReference && CountLrcWords(result.SyncedLyrics) < MinHeardWords)
+                if (!result.AlignedToReference
+                    && string.IsNullOrWhiteSpace(song.PlainLyrics)
+                    && CountLrcWords(result.SyncedLyrics) < MinHeardWords)
                 {
-                    song.MarkTranscriptionFailed("No sung words were heard in the audio.");
+                    song.ApplyHeardNoSinging(result.Model);
                     logger.LogInformation(
-                        "Lyrics AI sync for {Track} (SongId={SongId}): no sung words heard.", song.TrackLabel, song.Id);
+                        "Lyrics AI sync for {Track} (SongId={SongId}): no singing heard, marked instrumental.",
+                        song.TrackLabel,
+                        song.Id);
                 }
                 else
                 {

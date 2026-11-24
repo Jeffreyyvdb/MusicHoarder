@@ -408,7 +408,7 @@ public class LyricsTimingCheckServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ai_sync_pass_shows_nothing_when_no_words_were_sung_and_does_not_try_again()
+    public async Task ai_sync_pass_marks_a_song_nobody_sings_in_instrumental_and_does_not_try_again()
     {
         await using var db = CreateDbContext();
         var song = AddUnsynced(db, 1, plainLyrics: null, lyricsStatus: LyricsStatus.NotFound);
@@ -419,10 +419,44 @@ public class LyricsTimingCheckServiceTests : IDisposable
 
         await service.RunAutoSyncPassAsync(CancellationToken.None);
 
-        Assert.Equal(TranscriptionStatus.Failed, song.TranscriptionStatus);
+        Assert.True(song.IsInstrumental);
+        Assert.Equal(TranscriptionStatus.Completed, song.TranscriptionStatus);
         Assert.Null(song.DisplaySyncedLyrics);
+        Assert.Null(song.DisplayPlainLyrics);
+        Assert.True(song.IsLyricsRecheckCandidate);
         Assert.False(await service.RunAutoSyncPassAsync(CancellationToken.None));
         Assert.Single(transcriber.FullCalls);
+    }
+
+    [Fact]
+    public async Task ai_sync_pass_syncs_a_song_it_heard_no_singing_in_once_a_recheck_finds_lyrics()
+    {
+        await using var db = CreateDbContext();
+        var song = AddUnsynced(db, 1, plainLyrics: null, lyricsStatus: LyricsStatus.NotFound);
+        await db.SaveChangesAsync();
+
+        await NewService(db, new FakeTranscriber { Aligned = false, Heard = "[00:12.00]Thank you." }, new LyricsTimingOptions())
+            .RunAutoSyncPassAsync(CancellationToken.None);
+        Assert.True(song.TryApplyLyricsUpgrade(null, "line 0 words here\nline 1 words here", instrumental: false));
+        await db.SaveChangesAsync();
+
+        Assert.False(song.IsInstrumental);
+        Assert.True(await NewService(db, new FakeTranscriber(), new LyricsTimingOptions()).RunAutoSyncPassAsync(CancellationToken.None));
+        Assert.Equal(AlignedLrc, song.DisplaySyncedLyrics);
+    }
+
+    [Fact]
+    public async Task ai_sync_pass_never_marks_a_song_with_official_words_instrumental()
+    {
+        await using var db = CreateDbContext();
+        var song = AddUnsynced(db, 1);
+        await db.SaveChangesAsync();
+
+        await NewService(db, new FakeTranscriber { Aligned = false, Heard = "[00:12.00]Thank you." }, new LyricsTimingOptions())
+            .RunAutoSyncPassAsync(CancellationToken.None);
+
+        Assert.False(song.IsInstrumental);
+        Assert.Equal("line 0 words here\nline 1 words here", song.DisplayPlainLyrics);
     }
 
     [Fact]

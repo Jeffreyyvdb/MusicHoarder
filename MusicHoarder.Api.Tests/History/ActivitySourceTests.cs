@@ -261,6 +261,24 @@ public class ActivitySourceTests
         Assert.Contains("AI Enhanced", Assert.Single(entries, e => e.Kind == "lyrics-realigned").Detail);
     }
 
+    [Fact]
+    public async Task Lyrics_ReportsATrackTheAiHeardNoSingingInAsInstrumental()
+    {
+        using var db = NewContext();
+        var song = AddSong(db, 1, "Interlude");
+        song.LyricsStatus = LyricsStatus.NotFound;
+        song.ApplyHeardNoSinging("whisper-large-v3");
+        song.TranscribedAtUtc = Now.AddHours(-1);
+        db.SaveChanges();
+
+        var entries = await new LyricsActivitySource(db).CollectAsync(Window, default);
+
+        var entry = Assert.Single(entries, e => e.Kind == "lyrics-instrumental");
+        Assert.Contains("no singing", entry.Headline);
+        Assert.Contains("Marked instrumental by AI", entry.Detail);
+        Assert.DoesNotContain(entries, e => e.Kind is "lyrics-transcribed" or "lyrics-transcription-failed");
+    }
+
     // --- Music video -------------------------------------------------------------------------
 
     [Fact]

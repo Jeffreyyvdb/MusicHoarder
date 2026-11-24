@@ -1322,6 +1322,17 @@ public class SongMetadata
         TranscriptionAlignedToReference = alignedToReference;
     }
 
+    /// <summary>
+    /// Records a transcription that heard no singing in a song nobody has published lyrics for, and marks the
+    /// song instrumental on that evidence. <see cref="LyricsStatus"/> is left as it is, so the lyrics re-check
+    /// keeps asking, and lyrics it finds later clear the mark (<see cref="ApplyLyricsResult"/>).
+    /// </summary>
+    public void ApplyHeardNoSinging(string model)
+    {
+        ApplyTranscriptionResult(null, null, model);
+        IsInstrumental = true;
+    }
+
     public void MarkTranscriptionFailed(string error)
     {
         TranscriptionStatus = TranscriptionStatus.Failed;
