@@ -90,8 +90,8 @@ public class EnrichmentBackgroundService(
                     continue;
 
                 // And once more in the write itself, for an approval or delete made after the load:
-                // Postgres re-checks this WHERE against the row's latest version, so the person wins
-                // whichever commits first. Saving the loaded rows would write Pending over it.
+                // Postgres re-checks this WHERE against the row's latest version, waiting for one still
+                // in flight. Saving the loaded rows would write Pending over it.
                 flippedCount += await db.Songs
                     .IgnoreQueryFilters()
                     .Where(s => toFlip.Contains(s.Id) && !s.IsManuallyApproved && s.DeletedAtUtc == null)
