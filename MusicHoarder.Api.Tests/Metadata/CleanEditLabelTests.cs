@@ -52,22 +52,30 @@ public class CleanEditLabelTests
         ];
 
         var flags = results
-            .Select(t => CleanEditLabel.IsUnrequestedCleanEdit(t, "Kid Cudi Make Her Say"))
+            .Select(t => CleanEditLabel.IsUnrequestedCleanEdit(t, "Kid Cudi", "Make Her Say"))
             .ToArray();
 
         Assert.Equal([true, false, false, false], flags);
     }
 
     [Theory]
-    [InlineData("Make Her Say CLEAN", "Kid Cudi Make Her Say", true)]
-    [InlineData("Kid Cudi - Make Her Say (Censored)", "Kid Cudi Make Her Say", true)]
-    [InlineData("Heart Of A Lion (Edited)", "Kid Cudi Heart Of A Lion", true)]
-    [InlineData("OutKast - So Fresh, So Clean", "OutKast So Fresh, So Clean", false)]
-    [InlineData("Clean Bandit - Rather Be", "Clean Bandit Rather Be", false)]
-    [InlineData("Some Artist - Song (feat. Clean Bandit)", "Some Artist Song (feat. Clean Bandit)", false)]
-    // A request that itself carries the label has it stripped, so a clean hit is still unrequested:
-    // the original is always preferred.
-    [InlineData("Kid Cudi - Make Her Say (Clean)", "Kid Cudi Make Her Say (Clean)", true)]
-    public void IsUnrequestedCleanEdit_ComparesAgainstTheRequest(string candidate, string requested, bool expected) =>
-        Assert.Equal(expected, CleanEditLabel.IsUnrequestedCleanEdit(candidate, requested));
+    [InlineData("Make Her Say CLEAN", "Kid Cudi", "Make Her Say", true)]
+    [InlineData("Kid Cudi - Make Her Say (Censored)", "Kid Cudi", "Make Her Say", true)]
+    [InlineData("Heart Of A Lion (Edited)", "Kid Cudi", "Heart Of A Lion", true)]
+    [InlineData("OutKast - So Fresh, So Clean", "OutKast", "So Fresh, So Clean", false)]
+    [InlineData("Clean Bandit - Rather Be", "Clean Bandit", "Rather Be", false)]
+    [InlineData("Some Artist - Song (feat. Clean Bandit)", "Some Artist", "Song (feat. Clean Bandit)", false)]
+    [InlineData("Taylor Swift - Clean", "Taylor Swift", "Clean", false)]
+    // A bracketed label marks a clean edit even when the title contains the word for real.
+    [InlineData("OutKast - So Fresh, So Clean (Clean Version)", "OutKast", "So Fresh, So Clean", true)]
+    [InlineData("Clean Bandit - Rather Be [Clean]", "Clean Bandit", "Rather Be", true)]
+    // A request that itself carries the label still prefers the original.
+    [InlineData("Kid Cudi - Make Her Say (Clean)", "Kid Cudi", "Make Her Say (Clean)", true)]
+    [InlineData("Kid Cudi - Make Her Say CLEAN", "Kid Cudi", "Make Her Say (Clean)", true)]
+    // Not clean edits: a video editor's credit, and an upload that says it is uncensored.
+    [InlineData("Juice WRLD - Lucid Dreams (Official Video) [Shot & Edited by Cole Bennett]", "Juice WRLD", "Lucid Dreams", false)]
+    [InlineData("Kid Cudi - Make Her Say (Un-censored)", "Kid Cudi", "Make Her Say", false)]
+    [InlineData("Kid Cudi - Make Her Say (Uncensored)", "Kid Cudi", "Make Her Say", false)]
+    public void IsUnrequestedCleanEdit_ComparesAgainstTheRequest(string candidate, string artist, string title, bool expected) =>
+        Assert.Equal(expected, CleanEditLabel.IsUnrequestedCleanEdit(candidate, artist, title));
 }

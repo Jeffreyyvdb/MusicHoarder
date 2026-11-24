@@ -226,6 +226,8 @@ public class YtDlpDownloadProvider(
     internal static string BuildSearchQuery(DownloadRequest req)
     {
         var title = CleanEditLabel.Strip(req.Title);
+        if (title.Length == 0)
+            title = req.Title.Trim();
         var terms = string.IsNullOrWhiteSpace(req.Artist) ? title : $"{req.Artist} {title}";
         return $"ytsearch{SearchResultCount}:{terms.Trim()}";
     }
@@ -237,11 +239,10 @@ public class YtDlpDownloadProvider(
     internal static (MusicVideoDownloader.SearchCandidate? Picked, List<MusicVideoDownloader.SearchCandidate> Skipped) PickCandidate(
         IEnumerable<MusicVideoDownloader.SearchCandidate> candidates, DownloadRequest req)
     {
-        var requested = $"{req.Artist} {req.Title}".Trim();
         var skipped = new List<MusicVideoDownloader.SearchCandidate>();
         foreach (var candidate in candidates)
         {
-            if (!CleanEditLabel.IsUnrequestedCleanEdit(candidate.Title, requested))
+            if (!CleanEditLabel.IsUnrequestedCleanEdit(candidate.Title, req.Artist, req.Title))
                 return (candidate, skipped);
             skipped.Add(candidate);
         }
@@ -266,7 +267,7 @@ public class YtDlpDownloadProvider(
 
         if (candidates.Count == 0)
         {
-            if (exitCode == 0 || stderr.Length == 0 || LooksLikeNoResults(stderr))
+            if (exitCode == 0 || LooksLikeNoResults(stderr))
             {
                 logger.LogInformation("yt-dlp found no result for '{Query}': {Error}", LogSanitizer.ForLog(query), LogSanitizer.ForLog(YtDlpErrors.Tail(stderr)));
                 return (null, DownloadResult.Missing(stderr.Length == 0 ? "no results" : YtDlpErrors.Tail(stderr)));
