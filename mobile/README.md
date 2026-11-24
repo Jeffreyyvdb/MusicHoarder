@@ -79,7 +79,8 @@ App Store Connect, where it appears in TestFlight. It runs on GitHub's `xcode-27
 `macos-latest`, because App Store Connect requires the current iOS SDK (ITMS-90725: from April 2027,
 the iOS 27 SDK) and `macos-latest` keeps the previous Xcode for months. When Apple raises the
 minimum, move `runs-on` in this workflow and in `mobile.yml` to the next `xcode-NN` image and raise
-`MIN_SDK` in the "Check the iOS SDK" step, which fails the run before archiving with an older SDK. `release.yml` starts it on every release, and
+`MIN_SDK` in the "Check the iOS SDK" step, which reads the SDK the archived app records and fails
+the run before anything is uploaded. `release.yml` starts it on every release, and
 you can start it by hand: **Actions → iOS TestFlight → Run workflow**, or
 `gh workflow run ios-testflight.yml` (blank version: the latest `v*` tag). Without its secrets it
 skips itself. It needs the paid Apple Developer Program, and this setup once (an account set up
