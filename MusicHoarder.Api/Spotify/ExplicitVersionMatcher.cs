@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using MusicHoarder.Api.Matching;
 using MusicHoarder.Api.Metadata;
 
@@ -11,7 +10,7 @@ namespace MusicHoarder.Api.Spotify;
 /// Anything that acquires audio by Spotify id gets whichever edition that id names, so a clean id
 /// quietly yields a censored file.
 /// </summary>
-public static partial class ExplicitVersionMatcher
+public static class ExplicitVersionMatcher
 {
     /// <summary>
     /// How far apart two editions' lengths may be. A clean edit mutes words in place, so it runs as long
@@ -24,7 +23,7 @@ public static partial class ExplicitVersionMatcher
     public static string SearchQuery(SpotifyCatalogTrack track)
     {
         var artist = MultiValue.Split(track.Artists).FirstOrDefault() ?? track.Artist;
-        return $"track:{StripCleanMarker(track.Title)} artist:{artist}".Trim();
+        return $"track:{CleanEditLabel.Strip(track.Title)} artist:{artist}".Trim();
     }
 
     /// <summary>
@@ -61,13 +60,5 @@ public static partial class ExplicitVersionMatcher
     private static int DurationDelta(SpotifyCatalogTrack a, SpotifyCatalogTrack b) =>
         a.DurationMs > 0 && b.DurationMs > 0 ? Math.Abs(a.DurationMs - b.DurationMs) : int.MaxValue;
 
-    private static string NormalizeTitle(string title) => TitleNormalizer.NormalizeForSearch(StripCleanMarker(title));
-
-    private static string StripCleanMarker(string title) => CleanMarkerPattern().Replace(title, "").Trim();
-
-    // "Song (Clean)", "Song [Edited Version]", "Song - Clean": the clean edition's own label, which the
-    // explicit edition never carries.
-    [GeneratedRegex(@"\s*(?:[\(\[]\s*(?:clean|edited|censored)(?:\s+version)?\s*[\)\]]|\s-\s(?:clean|edited|censored)(?:\s+version)?\s*$)",
-        RegexOptions.IgnoreCase)]
-    private static partial Regex CleanMarkerPattern();
+    private static string NormalizeTitle(string title) => TitleNormalizer.NormalizeForSearch(CleanEditLabel.Strip(title));
 }
