@@ -16,6 +16,12 @@ public static class LyricsResync
 {
     public static TranscriptionApplied Apply(SongMetadata song, TranscriptionResult result)
     {
+        // The transcriber looks the words up on LRCLIB itself when the song holds none. Words it found and
+        // aligned to are the song's official lyrics now; without this the next lyrics re-check would bring
+        // the same words as new and the AI sync pass would transcribe the song again to align them.
+        if (result.AlignedToReference && string.IsNullOrWhiteSpace(song.PlainLyrics))
+            song.TryApplyLyricsUpgrade(null, result.PlainLyrics, instrumental: false);
+
         // Stored separately from SyncedLyrics/PlainLyrics so it never clobbers the LRCLIB version.
         song.ApplyTranscriptionResult(result.SyncedLyrics, result.PlainLyrics, result.Model, result.AlignedToReference);
 

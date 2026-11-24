@@ -177,7 +177,7 @@ export function createAiLyrics(opts: {
   const canTranslate = $derived(
     isOwner &&
       translationFeatureEnabled &&
-      song.isInstrumental !== true &&
+      !isConfirmedInstrumental(song) &&
       (hasLyrics || transcription != null)
   );
   const canEnhance = $derived(canTranscribe || canTranslate);
@@ -251,7 +251,7 @@ export function createAiLyrics(opts: {
 
   // The mobile lyrics card / fullscreen overlay present the same source as the big viewer.
   const expandable = $derived(
-    song.isInstrumental !== true &&
+    !isConfirmedInstrumental(song) &&
       (showAiInViewer ? Boolean(transcription?.synced || transcription?.plain) : hasLyrics)
   );
 

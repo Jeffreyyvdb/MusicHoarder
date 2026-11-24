@@ -468,6 +468,15 @@ describe('capability and label rules', () => {
     expect(ai.canTranscribe).toBe(true);
   });
 
+  it('translates and expands lyrics a song gained after the AI heard no singing in it', () => {
+    const { ai } = setup({
+      song: songWithLyrics({ isInstrumental: true, lyricsStatus: 'NotFound' })
+    });
+    ai.syncToSong();
+    expect(ai.canTranslate).toBe(true);
+    expect(ai.expandable).toBe(true);
+  });
+
   it('only offers translation once there are lyrics to work from', () => {
     const { ai } = setup({ song: makeSong(), lyricsFeature: false });
     ai.syncToSong();
@@ -631,7 +640,9 @@ describe('viewer document selection', () => {
   });
 
   it('collapses expandability for an instrumental and for an AI viewer with no document', () => {
-    const instrumental = setup({ song: songWithLyrics({ isInstrumental: true }) });
+    const instrumental = setup({
+      song: songWithLyrics({ isInstrumental: true, lyricsStatus: 'Instrumental' })
+    });
     instrumental.ai.syncToSong();
     expect(instrumental.ai.expandable).toBe(false);
     const withLyrics = setup();

@@ -351,8 +351,8 @@ public sealed partial class LyricsTimingCheckService(
                 .SelectMany(pair => pair)
                 .Concat(newest.Skip(oldest.Count))
                 .Concat(oldest.Skip(newest.Count))
+                .DistinctBy(p => p.Song.Id)
                 .Select(p => (p.Song.Id, p.Path))
-                .Distinct()
                 .ToList();
         }
 
@@ -395,6 +395,7 @@ public sealed partial class LyricsTimingCheckService(
         if (song is null)
             return false;
 
+        var wordsBefore = (song.PlainLyrics, song.LyricsTextChangedAtUtc);
         TranscriptionResult? result = null;
         string? failure = null;
         try
@@ -412,8 +413,12 @@ public sealed partial class LyricsTimingCheckService(
             failure = ex.Message;
         }
 
+        // New official words make the result stale even when the song is still due: it was made without
+        // them, and storing it would stamp the song transcribed after they arrived, so they would never be
+        // aligned.
         await db.Entry(song).ReloadAsync(ct);
-        if (!await due.AnyAsync(s => s.Id == id, ct))
+        if (!await due.AnyAsync(s => s.Id == id, ct)
+            || (song.PlainLyrics, song.LyricsTextChangedAtUtc) != wordsBefore)
         {
             logger.LogInformation(
                 "Lyrics AI sync for SongId={SongId} dropped: the song changed while it was transcribed.", id);
@@ -442,12 +447,6 @@ public sealed partial class LyricsTimingCheckService(
                 song.Id);
             return;
         }
-
-        // The transcriber looks the words up on LRCLIB itself when the song holds none. Words it found and
-        // aligned to are the song's official lyrics now; without this the next lyrics re-check would bring
-        // the same words as new and the song would be transcribed a second time to align them again.
-        if (result.AlignedToReference && string.IsNullOrWhiteSpace(song.PlainLyrics))
-            song.TryApplyLyricsUpgrade(null, result.PlainLyrics, instrumental: false);
 
         LyricsResync.Apply(song, result);
         logger.LogInformation(

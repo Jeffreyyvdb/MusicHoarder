@@ -68,6 +68,7 @@
   import type { DetailMode as RequestedDetailMode } from '#lib/stores/song-detail.svelte.ts';
   import { isAdmin } from '#lib/auth/capabilities.ts';
   import { cn } from '#lib/utils.ts';
+  import { isConfirmedInstrumental } from '#lib/lyrics/instrumental.ts';
   import { DYNAMIC_TYPE_CHANGE, dynamicTypeScale } from '#lib/dynamic-type.ts';
 
   /**
@@ -193,7 +194,7 @@
     lyricsAvailability({
       hasLyrics: viewerDoc.hasAny,
       busy: ai.enhanceBusy,
-      instrumental: song.isInstrumental === true,
+      instrumental: isConfirmedInstrumental(song),
       canRecheck: isOwner,
       canEnhance: ai.canEnhance
     })

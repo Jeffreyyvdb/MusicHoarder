@@ -497,6 +497,52 @@ public class LyricsTimingCheckServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ai_sync_pass_drops_a_guess_made_before_official_words_arrived_and_aligns_them_next()
+    {
+        await using var db = CreateDbContext();
+        var song = AddUnsynced(db, 1, plainLyrics: null, lyricsStatus: LyricsStatus.NotFound);
+        await db.SaveChangesAsync();
+
+        var guessing = new FakeTranscriber
+        {
+            Aligned = false,
+            During = transcribing =>
+            {
+                transcribing.TryApplyLyricsUpgrade(null, "line 0 words here\nline 1 words here", instrumental: false);
+                db.SaveChanges();
+            },
+        };
+        await NewService(db, guessing, new LyricsTimingOptions()).RunAutoSyncPassAsync(CancellationToken.None);
+        Assert.Equal(TranscriptionStatus.NotRequested, song.TranscriptionStatus);
+
+        await NewService(db, new FakeTranscriber(), new LyricsTimingOptions()).RunAutoSyncPassAsync(CancellationToken.None);
+        Assert.Equal(AlignedLrc, song.DisplaySyncedLyrics);
+        Assert.Equal(LyricsProvenance.AiEnhanced, song.LyricsProvenance);
+    }
+
+    [Fact]
+    public void a_transcription_aligned_to_words_the_song_did_not_hold_adopts_them_as_its_lyrics()
+    {
+        var song = new SongMetadata
+        {
+            SourcePath = "/x.mp3",
+            FileName = "x.mp3",
+            Extension = ".mp3",
+            FileSizeBytes = 1,
+            LastModifiedUtc = DateTime.UtcNow,
+            IndexedAtUtc = DateTime.UtcNow,
+            LyricsStatus = LyricsStatus.NotFound,
+        };
+
+        LyricsResync.Apply(song, new TranscriptionResult(AlignedLrc, "line 0 words here", "whisper-test", AlignedToReference: true));
+
+        Assert.Equal("line 0 words here", song.PlainLyrics);
+        Assert.Equal(LyricsStatus.Fetched, song.LyricsStatus);
+        Assert.Equal(PreferredLyricsSource.Transcribed, song.PreferredLyricsSource);
+        Assert.True(song.TranscribedAtUtc >= song.LyricsTextChangedAtUtc);
+    }
+
+    [Fact]
     public async Task ai_sync_pass_keeps_the_words_the_transcriber_found_so_a_recheck_does_not_sync_them_again()
     {
         await using var db = CreateDbContext();
