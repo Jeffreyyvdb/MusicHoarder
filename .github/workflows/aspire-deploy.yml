@@ -72,8 +72,9 @@ jobs:
             echo "image_tag=${version}" >> "$GITHUB_OUTPUT"
             echo "mh_version=${version}" >> "$GITHUB_OUTPUT"
           else
-            # A pre-release of the last release: /api/version shows what is running, and the update
-            # check strips the suffix, so an edge instance is never told to "update" to its own base.
+            # A pre-release of the last release: /api/version shows what is running. A release is often
+            # tagged on a commit already running here as `<previous>-edge`, so the update check asks
+            # GitHub whether this commit holds the latest release rather than trusting the number.
             last=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || echo v0.0.0)
             echo "kind=edge" >> "$GITHUB_OUTPUT"
             echo "image_tag=edge" >> "$GITHUB_OUTPUT"

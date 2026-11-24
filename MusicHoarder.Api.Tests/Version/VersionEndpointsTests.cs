@@ -31,7 +31,7 @@ public class VersionEndpointsTests
         Assert.Equal(publishedAt, GetProperty<DateTime?>(value, "publishedAt"));
         // updateAvailable must be the comparer's verdict on the *actual* running version (whatever the
         // test assembly resolves to) vs the snapshot's latest — confirms the endpoint wires them together.
-        var expected = SemVerComparer.IsUpdateAvailable(EnrichmentSnapshotService.ResolveVersion(null), "9.9.9");
+        var expected = SemVerComparer.IsUpdateAvailable(EnrichmentSnapshotService.ResolveVersion(null), snapshot);
         Assert.Equal(expected, GetProperty<bool>(value, "updateAvailable"));
     }
 

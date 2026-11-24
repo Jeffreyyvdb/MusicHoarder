@@ -40,7 +40,7 @@ public static class VersionEndpoints
         {
             current,
             latest = snapshot.LatestVersion,
-            updateAvailable = SemVerComparer.IsUpdateAvailable(current, snapshot.LatestVersion),
+            updateAvailable = SemVerComparer.IsUpdateAvailable(current, snapshot),
             releaseUrl = snapshot.ReleaseUrl,
             publishedAt = snapshot.PublishedAt,
         });

@@ -3,15 +3,23 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Options;
+using MusicHoarder.Api.Snapshots;
 
 namespace MusicHoarder.Api.Version;
 
 /// <summary>Cached result of the most recent GitHub "latest release" lookup.</summary>
+/// <param name="LatestTag">The release's tag as published (<c>v2.7.0</c>), for the commit comparison.</param>
+/// <param name="RunningBuildHasLatest">
+/// For an edge build only: whether its commit already holds the latest release (GitHub's compare
+/// answered identical or ahead). Null when not asked or when GitHub could not answer.
+/// </param>
 public record ReleaseUpdateSnapshot(
     string? LatestVersion,
     string? ReleaseUrl,
     DateTime? PublishedAt,
-    DateTime CheckedAtUtc);
+    DateTime CheckedAtUtc,
+    string? LatestTag = null,
+    bool? RunningBuildHasLatest = null);
 
 public interface IReleaseUpdateMonitor
 {
@@ -45,6 +53,9 @@ public class ReleaseUpdateMonitor(
 
     public ReleaseUpdateSnapshot Current => _current;
 
+    /// <summary>The running build's version; settable so tests can stand in an edge build.</summary>
+    internal string RunningVersion { get; init; } = EnrichmentSnapshotService.ResolveVersion(null);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (!options.Value.EnableUpdateCheck)
@@ -75,7 +86,13 @@ public class ReleaseUpdateMonitor(
         }
     }
 
-    private async Task RefreshAsync(CancellationToken cancellationToken)
+    internal async Task RefreshAsync(CancellationToken cancellationToken)
+    {
+        await RefreshLatestReleaseAsync(cancellationToken);
+        await CheckRunningBuildAsync(cancellationToken);
+    }
+
+    private async Task RefreshLatestReleaseAsync(CancellationToken cancellationToken)
     {
         var repo = options.Value.UpdateCheckRepo;
         var client = httpClientFactory.CreateClient(HttpClientName);
@@ -121,6 +138,59 @@ public class ReleaseUpdateMonitor(
         }
     }
 
+    /// <summary>
+    /// An edge build carries the previous release's number until the next build after a release, though
+    /// the release may have been cut from the very commit it runs. Ask GitHub how the commit relates to
+    /// the latest release's tag, once per release: the answer cannot change while this process runs.
+    /// Any failure leaves the answer unknown (no banner) and is tried again on the next cycle.
+    /// </summary>
+    private async Task CheckRunningBuildAsync(CancellationToken cancellationToken)
+    {
+        var snapshot = _current;
+        if (snapshot.RunningBuildHasLatest is not null || string.IsNullOrEmpty(snapshot.LatestTag)) return;
+        var commit = SemVerComparer.EdgeCommit(RunningVersion);
+        if (commit is null || !SemVerComparer.IsUpdateAvailable(RunningVersion, snapshot.LatestVersion)) return;
+
+        var repo = options.Value.UpdateCheckRepo;
+        var client = httpClientFactory.CreateClient(HttpClientName);
+        var path = $"repos/{repo}/compare/{Uri.EscapeDataString(snapshot.LatestTag)}...{commit}?per_page=1";
+
+        string? status;
+        try
+        {
+            using var response = await client.GetAsync(path, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                logger.LogWarning(
+                    "GitHub compare of {Tag} with running commit {Commit} returned {StatusCode}",
+                    snapshot.LatestTag, commit, (int)response.StatusCode);
+                return;
+            }
+
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+            status = doc.RootElement.TryGetProperty("status", out var statusEl) ? statusEl.GetString() : null;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Could not compare {Tag} with running commit {Commit}", snapshot.LatestTag, commit);
+            return;
+        }
+
+        // "ahead" / "identical": the running commit descends from the tag. "behind" / "diverged": it does not.
+        bool? hasLatest = status switch
+        {
+            "identical" or "ahead" => true,
+            "behind" or "diverged" => false,
+            _ => null,
+        };
+        if (hasLatest is null) return;
+
+        // Only this loop writes _current, so the snapshot read above is still the current one.
+        _current = snapshot with { RunningBuildHasLatest = hasLatest };
+        logger.LogInformation(
+            "Running edge commit {Commit} is {Status} of {Tag}", commit, status, snapshot.LatestTag);
+    }
+
     private static bool TryParseRelease(string json, out ReleaseUpdateSnapshot snapshot)
     {
         snapshot = null!;
@@ -143,7 +213,7 @@ public class ReleaseUpdateMonitor(
                     ? dt.ToUniversalTime()
                     : null;
 
-            snapshot = new ReleaseUpdateSnapshot(latest, releaseUrl, publishedAt, DateTime.UtcNow);
+            snapshot = new ReleaseUpdateSnapshot(latest, releaseUrl, publishedAt, DateTime.UtcNow, tag.Trim());
             return true;
         }
         catch (JsonException)
