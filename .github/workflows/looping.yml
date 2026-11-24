@@ -60,7 +60,7 @@ jobs:
             '{mcpServers: {looping: {type: "http", url: $url, headers: {Authorization: $auth}}}}' \
             > "$RUNNER_TEMP/looping-mcp.json"
 
-      - uses: anthropics/claude-code-action@v1.0.275
+      - uses: anthropics/claude-code-action@v1.0.283
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
