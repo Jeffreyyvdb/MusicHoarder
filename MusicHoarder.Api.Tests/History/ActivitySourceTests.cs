@@ -247,12 +247,14 @@ public class ActivitySourceTests
         using var db = NewContext();
         var generated = AddSong(db, 1, "Nobody wrote these down");
         generated.TranscriptionStatus = TranscriptionStatus.Completed;
+        generated.TranscribedSyncedLyrics = "[00:01.00]words the AI heard";
         generated.TranscribedAtUtc = Now.AddHours(-2);
         generated.TranscriptionModel = "whisper-1";
         var enhanced = AddSong(db, 2, "Official words, re-timed");
         enhanced.TranscriptionStatus = TranscriptionStatus.Completed;
         enhanced.TranscribedAtUtc = Now.AddHours(-1);
         enhanced.TranscriptionAlignedToReference = true;
+        enhanced.TranscribedSyncedLyrics = "[00:01.00]official words";
         db.SaveChanges();
 
         var entries = await new LyricsActivitySource(db).CollectAsync(Window, default);
@@ -277,6 +279,28 @@ public class ActivitySourceTests
         Assert.Contains("no singing", entry.Headline);
         Assert.Contains("Marked instrumental by AI", entry.Detail);
         Assert.DoesNotContain(entries, e => e.Kind is "lyrics-transcribed" or "lyrics-transcription-failed");
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Lyrics_SaysNothingOfAnAiInstrumentalMarkThatWasLaterLifted(bool lrclibConfirmed)
+    {
+        using var db = NewContext();
+        var song = AddSong(db, 1, "Interlude");
+        song.LyricsStatus = LyricsStatus.NotFound;
+        song.ApplyHeardNoSinging("whisper-large-v3");
+        song.TranscribedAtUtc = Now.AddHours(-1);
+        if (lrclibConfirmed)
+            song.ApplyLyricsResult(null, null, instrumental: true);
+        else
+            song.ApplyLyricsResult(null, "official words", instrumental: false);
+        db.SaveChanges();
+
+        var entries = await new LyricsActivitySource(db).CollectAsync(Window, default);
+
+        Assert.DoesNotContain(entries, e => e.Kind is "lyrics-transcribed" or "lyrics-realigned"
+            || (e.Kind == "lyrics-instrumental" && e.Headline.Contains("no singing")));
     }
 
     // --- Music video -------------------------------------------------------------------------

@@ -454,10 +454,18 @@ describe('capability and label rules', () => {
     expect(ai.canEnhance).toBe(false);
   });
 
-  it('never offers either stage for an instrumental', () => {
-    const { ai } = setup({ song: songWithLyrics({ isInstrumental: true }) });
+  it('never offers either stage for a song LRCLIB calls instrumental', () => {
+    const { ai } = setup({
+      song: songWithLyrics({ isInstrumental: true, lyricsStatus: 'Instrumental' })
+    });
     ai.syncToSong();
     expect(ai.canEnhance).toBe(false);
+  });
+
+  it('still offers a transcription for a song only the AI heard no singing in', () => {
+    const { ai } = setup({ song: makeSong({ isInstrumental: true, lyricsStatus: 'NotFound' }) });
+    ai.syncToSong();
+    expect(ai.canTranscribe).toBe(true);
   });
 
   it('only offers translation once there are lyrics to work from', () => {

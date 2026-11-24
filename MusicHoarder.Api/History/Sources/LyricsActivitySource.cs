@@ -133,8 +133,8 @@ public sealed class LyricsActivitySource(MusicHoarderDbContext db) : IActivitySo
             {
                 s.Id, s.Title, s.Album, s.AlbumArtist, s.Artist, s.TranscriptionStatus, s.TranscriptionModel,
                 s.TranscriptionError, s.TranscriptionAlignedToReference,
-                HeardNoSinging = s.IsInstrumental == true && s.LyricsStatus != LyricsStatus.Instrumental
-                    && s.TranscribedSyncedLyrics == null && s.TranscribedPlainLyrics == null,
+                HasTranscript = s.TranscribedSyncedLyrics != null || s.TranscribedPlainLyrics != null,
+                HeardNoSinging = s.IsInstrumental == true && s.LyricsStatus != LyricsStatus.Instrumental,
                 At = s.TranscribedAtUtc!.Value,
             })
             .ToListAsync(ct);
@@ -143,7 +143,10 @@ public sealed class LyricsActivitySource(MusicHoarderDbContext db) : IActivitySo
 
         // Aligned to a reference = the song's real words, re-timed (AI Enhanced). Otherwise the AI wrote
         // the words too (AI Generated) — a meaningful difference to anyone reading along.
-        foreach (var s in rows.Where(r => r.TranscriptionStatus == TranscriptionStatus.Completed && r.HeardNoSinging))
+        // A completed transcription with no text heard no singing. It is reported while the song still carries
+        // that instrumental mark; once lyrics arrive or LRCLIB confirms it, there is nothing left to say.
+        foreach (var s in rows.Where(r =>
+            r.TranscriptionStatus == TranscriptionStatus.Completed && !r.HasTranscript && r.HeardNoSinging))
         {
             summaries.Add(ActivityText.Summary(
                 ActivityCategory.Lyrics,
@@ -155,7 +158,7 @@ public sealed class LyricsActivitySource(MusicHoarderDbContext db) : IActivitySo
                 items: [new ActivityItem(s.Id, s.Title, s.Album, s.AlbumArtist ?? s.Artist, s.At)]));
         }
 
-        foreach (var s in rows.Where(r => r.TranscriptionStatus == TranscriptionStatus.Completed && !r.HeardNoSinging))
+        foreach (var s in rows.Where(r => r.TranscriptionStatus == TranscriptionStatus.Completed && r.HasTranscript))
         {
             summaries.Add(ActivityText.Summary(
                 ActivityCategory.Lyrics,

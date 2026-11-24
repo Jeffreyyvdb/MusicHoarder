@@ -1297,6 +1297,7 @@ public class SongMetadata
         LyricsLastAttemptedAtUtc = null;
         LyricsFetchAttempts = 0;
         LyricsNextRecheckAfterUtc = null;
+        LyricsTextChangedAtUtc = null;
         LrclibDurationSeconds = null;
         ResetLyricsSyncCheck();
         // The pronunciation/translation was generated from these lyrics — resetting them makes it stale.
@@ -1320,12 +1321,21 @@ public class SongMetadata
         TranscriptionModel = model;
         TranscriptionError = null;
         TranscriptionAlignedToReference = alignedToReference;
+
+        // Words heard now outweigh an earlier transcription that heard none. A song LRCLIB calls instrumental
+        // keeps that verdict.
+        if (IsInstrumental == true && LyricsStatus != LyricsStatus.Instrumental
+            && (TranscribedSyncedLyrics is not null || TranscribedPlainLyrics is not null))
+        {
+            IsInstrumental = false;
+        }
     }
 
     /// <summary>
     /// Records a transcription that heard no singing in a song nobody has published lyrics for, and marks the
     /// song instrumental on that evidence. <see cref="LyricsStatus"/> is left as it is, so the lyrics re-check
-    /// keeps asking, and lyrics it finds later clear the mark (<see cref="ApplyLyricsResult"/>).
+    /// keeps asking, and lyrics it finds later clear the mark (<see cref="ApplyLyricsResult"/>), as does a
+    /// later transcription that hears words. That status is also how the apps tell this mark from LRCLIB's.
     /// </summary>
     public void ApplyHeardNoSinging(string model)
     {

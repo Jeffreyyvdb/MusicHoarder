@@ -12,6 +12,7 @@ import {
 import { isRefusal } from '#lib/refusal.ts';
 import { toast } from 'svelte-sonner';
 import { computeLyricsProvenance } from '#lib/lyrics/provenance.ts';
+import { isConfirmedInstrumental } from '#lib/lyrics/instrumental.ts';
 import type { LyricsProvenance, LyricsStatus } from '#lib/types.ts';
 
 export type LyricsSource = 'lrclib' | 'transcribed';
@@ -172,7 +173,7 @@ export function createAiLyrics(opts: {
   // the two stages (a demo row with no file on disk fails stage 1 and falls through to stage 2).
   // Owner-gated: these are server writes on the owner's rows; friends still SEE existing
   // pronunciation/translation documents (hasTranslation), they just can't generate them.
-  const canTranscribe = $derived(isOwner && lyricsFeatureEnabled && song.isInstrumental !== true);
+  const canTranscribe = $derived(isOwner && lyricsFeatureEnabled && !isConfirmedInstrumental(song));
   const canTranslate = $derived(
     isOwner &&
       translationFeatureEnabled &&

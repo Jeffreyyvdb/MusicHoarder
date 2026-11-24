@@ -446,6 +446,90 @@ public class LyricsTimingCheckServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ai_sync_pass_hears_singing_in_a_language_written_without_spaces()
+    {
+        await using var db = CreateDbContext();
+        var song = AddUnsynced(db, 1, plainLyrics: null, lyricsStatus: LyricsStatus.NotFound);
+        await db.SaveChangesAsync();
+
+        var japanese = string.Join('\n', Enumerable.Range(0, 6).Select(i => $"[00:{10 + (i * 5):00}.00]君のことが好きだよ"));
+        await NewService(db, new FakeTranscriber { Aligned = false, Heard = japanese }, new LyricsTimingOptions())
+            .RunAutoSyncPassAsync(CancellationToken.None);
+
+        Assert.False(song.IsInstrumental);
+        Assert.Equal(japanese, song.DisplaySyncedLyrics);
+    }
+
+    [Fact]
+    public async Task ai_sync_pass_hears_singing_in_a_transcript_that_came_back_without_timestamps()
+    {
+        await using var db = CreateDbContext();
+        var song = AddUnsynced(db, 1, plainLyrics: null, lyricsStatus: LyricsStatus.NotFound);
+        await db.SaveChangesAsync();
+
+        var transcriber = new FakeTranscriber { Aligned = false, Heard = null, HeardPlain = "these are the words the model heard in a song nobody wrote the lyrics down for" };
+        await NewService(db, transcriber, new LyricsTimingOptions()).RunAutoSyncPassAsync(CancellationToken.None);
+
+        Assert.False(song.IsInstrumental);
+        Assert.Equal(TranscriptionStatus.Completed, song.TranscriptionStatus);
+    }
+
+    [Fact]
+    public async Task ai_sync_pass_drops_its_result_when_the_song_gained_an_lrc_while_it_was_transcribed()
+    {
+        await using var db = CreateDbContext();
+        var song = AddUnsynced(db, 1, plainLyrics: null, lyricsStatus: LyricsStatus.NotFound);
+        await db.SaveChangesAsync();
+
+        var transcriber = new FakeTranscriber
+        {
+            Aligned = false,
+            During = transcribing =>
+            {
+                transcribing.TryApplyLyricsUpgrade(Lrc, "line 0 words here", instrumental: false);
+                db.SaveChanges();
+            },
+        };
+        Assert.True(await NewService(db, transcriber, new LyricsTimingOptions()).RunAutoSyncPassAsync(CancellationToken.None));
+
+        Assert.Equal(TranscriptionStatus.NotRequested, song.TranscriptionStatus);
+        Assert.Equal(Lrc, song.DisplaySyncedLyrics);
+    }
+
+    [Fact]
+    public async Task ai_sync_pass_keeps_the_words_the_transcriber_found_so_a_recheck_does_not_sync_them_again()
+    {
+        await using var db = CreateDbContext();
+        var song = AddUnsynced(db, 1, plainLyrics: null, lyricsStatus: LyricsStatus.NotFound);
+        await db.SaveChangesAsync();
+
+        var transcriber = new FakeTranscriber();
+        var service = NewService(db, transcriber, new LyricsTimingOptions());
+        await service.RunAutoSyncPassAsync(CancellationToken.None);
+
+        Assert.Equal("line 0 words here\nline 1 words here", song.PlainLyrics);
+        Assert.Equal(AlignedLrc, song.DisplaySyncedLyrics);
+        Assert.False(song.TryApplyLyricsUpgrade(null, "line 0 words here\nline 1 words here", instrumental: false));
+        Assert.False(await service.RunAutoSyncPassAsync(CancellationToken.None));
+        Assert.Single(transcriber.FullCalls);
+    }
+
+    [Fact]
+    public async Task a_transcription_that_hears_words_lifts_the_ai_instrumental_mark_but_not_lrclibs()
+    {
+        await using var db = CreateDbContext();
+        var heardNothing = AddUnsynced(db, 1, plainLyrics: null, lyricsStatus: LyricsStatus.NotFound);
+        var lrclibSays = AddUnsynced(db, 2, plainLyrics: null, lyricsStatus: LyricsStatus.Instrumental, instrumental: true);
+        heardNothing.ApplyHeardNoSinging("whisper-test");
+
+        heardNothing.ApplyTranscriptionResult(HeardLrc, null, "whisper-test");
+        lrclibSays.ApplyTranscriptionResult(HeardLrc, null, "whisper-test");
+
+        Assert.False(heardNothing.IsInstrumental);
+        Assert.True(lrclibSays.IsInstrumental);
+    }
+
+    [Fact]
     public async Task ai_sync_pass_never_marks_a_song_with_official_words_instrumental()
     {
         await using var db = CreateDbContext();
@@ -488,6 +572,8 @@ public class LyricsTimingCheckServiceTests : IDisposable
         AddUnsynced(db, 10, deleted: true);
         AddUnsynced(db, 11, enrichment: EnrichmentStatus.Pending);
         AddUnsynced(db, 12, fileMissing: true);
+        AddUnsynced(db, 13).IsDuplicate = true;
+        AddUnsynced(db, 14, plainLyrics: null, lyricsStatus: LyricsStatus.Failed);
         await db.SaveChangesAsync();
 
         var transcriber = new FakeTranscriber();
@@ -497,7 +583,7 @@ public class LyricsTimingCheckServiceTests : IDisposable
         }
 
         Assert.Equal(
-            [PathOf(1), PathOf(2), PathOf(3)],
+            new[] { 1, 2, 3, 14 }.Select(PathOf).Order(StringComparer.Ordinal).ToList(),
             transcriber.FullCalls.Order(StringComparer.Ordinal).ToList());
     }
 
@@ -659,7 +745,9 @@ public class LyricsTimingCheckServiceTests : IDisposable
     private sealed class FakeTranscriber : ILyricsTranscriptionService
     {
         public bool Aligned { get; init; } = true;
-        public string Heard { get; init; } = HeardLrc;
+        public string? Heard { get; init; } = HeardLrc;
+        public string? HeardPlain { get; init; }
+        public Action<SongMetadata>? During { get; init; }
         public Exception? Throw { get; init; }
         public List<string> ClipCalls { get; } = [];
         public List<string> FullCalls { get; } = [];
@@ -669,11 +757,12 @@ public class LyricsTimingCheckServiceTests : IDisposable
         public Task<TranscriptionResult> TranscribeAsync(SongMetadata song, string audioFilePath, CancellationToken ct = default)
         {
             FullCalls.Add(audioFilePath);
+            During?.Invoke(song);
             if (Throw is not null)
                 throw Throw;
             return Task.FromResult(Aligned
                 ? new TranscriptionResult(AlignedLrc, "line 0 words here\nline 1 words here", "whisper-test", AlignedToReference: true)
-                : new TranscriptionResult(Heard, null, "whisper-test"));
+                : new TranscriptionResult(Heard, HeardPlain, "whisper-test"));
         }
 
         // An instrumental window: the probe records an attempt with an inconclusive verdict, which is all the

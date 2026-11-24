@@ -770,7 +770,9 @@ public static class SongsEndpoints
         if (song.IsSynthetic)
             return Results.UnprocessableEntity(new { message = "Demo songs have no audio file on disk to transcribe." });
 
-        if (song.IsInstrumental == true)
+        // Only LRCLIB's verdict is final. A song the AI heard no singing in may be transcribed again, in case it
+        // was wrong.
+        if (song.LyricsStatus == LyricsStatus.Instrumental)
             return Results.UnprocessableEntity(new { message = "Track is marked instrumental — nothing to transcribe." });
 
         var filePath = ResolveAudioFilePath(song);
