@@ -42,10 +42,11 @@ public class EnrichmentRetrySweepTests
         Assert.Equal(song.Id, enqueued);
     }
 
-    [Fact]
+    [PostgresFact]
     public async Task Refresh_LeavesStatus_WhenAllEnabledProvidersTerminal()
     {
-        await using var db = CreateDb();
+        await using var database = await PostgresTestDatabase.CreateAsync();
+        await using var db = database.NewContext();
         var song = AddSong(db, EnrichmentStatus.NeedsReview);
         song.ProviderAttempts.Add(new SongProviderAttempt
         {
@@ -75,12 +76,13 @@ public class EnrichmentRetrySweepTests
         Assert.False(channel.Reader.TryRead(out _));
     }
 
-    [Fact]
+    [PostgresFact]
     public async Task Refresh_SkipsManuallyApprovedSong_EvenWhenMissingProvider()
     {
         // A locked song missing a newly-enabled provider must NOT be flipped to Pending — the
         // orchestrator skips manually-approved songs, so flipping it would strand it in Pending.
-        await using var db = CreateDb();
+        await using var database = await PostgresTestDatabase.CreateAsync();
+        await using var db = database.NewContext();
         var song = AddSong(db, EnrichmentStatus.Matched);
         song.IsManuallyApproved = true;
         song.ProviderAttempts.Add(new SongProviderAttempt
@@ -104,13 +106,14 @@ public class EnrichmentRetrySweepTests
         Assert.False(channel.Reader.TryRead(out _));
     }
 
-    [Fact]
+    [PostgresFact]
     public async Task Refresh_SkipsDemoSong_EvenWithZeroAttempts()
     {
         // Real-file demo rows are seeded terminal-Matched with NO provider attempts, so without the
         // demo exclusion the refresh sweep would see them as "missing every provider", flip them to
         // Pending and re-enrich them — overwriting the curated demo metadata on every boot.
-        await using var db = CreateDb();
+        await using var database = await PostgresTestDatabase.CreateAsync();
+        await using var db = database.NewContext();
         var song = AddSong(db, EnrichmentStatus.Matched, owner: MusicHoarder.Api.Auth.WellKnownUsers.DemoId);
         await db.SaveChangesAsync();
 
@@ -126,10 +129,11 @@ public class EnrichmentRetrySweepTests
         Assert.False(channel.Reader.TryRead(out _));
     }
 
-    [Fact]
+    [PostgresFact]
     public async Task Refresh_LeavesSongApprovedWhileTheSweepRuns()
     {
-        await using var db = CreateDb();
+        await using var database = await PostgresTestDatabase.CreateAsync();
+        await using var db = database.NewContext();
         var song = AddSong(db, EnrichmentStatus.NeedsReview);
         song.ProviderAttempts.Add(new SongProviderAttempt
         {
