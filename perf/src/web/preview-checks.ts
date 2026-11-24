@@ -110,6 +110,46 @@ function scriptErrors(errors: string[]): string[] {
   return errors.filter((e) => !/Failed to load resource/.test(e))
 }
 
+async function backAfterDeployStaysInDocument(context: BrowserContext, cut: 'hang' | 'offline'): Promise<void> {
+  const phone = await context.newPage()
+  await phone.setViewportSize({ width: 393, height: 852 })
+  await phone.addInitScript(() => Object.defineProperty(navigator, 'standalone', { value: true }))
+  const overview = phone.locator('[data-mh-content] a[href="/tracks"]').first()
+  let deployNoticed = false
+  const result = await (async () => {
+    await phone.goto(base + '/overview', { waitUntil: 'networkidle' })
+    await overview.evaluate((el) => (el as HTMLElement).click())
+    await phone.waitForURL('**/tracks')
+    await phone.route('**/_app/version.json', (route) => route.fulfill({ json: { version: 'newer-deploy' } }))
+    await Promise.all([
+      phone.waitForRequest('**/_app/version.json'),
+      phone.evaluate(() => dispatchEvent(new Event('focus'))),
+    ])
+    await phone.getByText('A new version of MusicHoarder is ready').waitFor({ timeout: 5000 })
+    deployNoticed = true
+    await phone.evaluate(() => {
+      Object.assign(window, { __mhSameDocument: true })
+    })
+    if (cut === 'hang') await phone.route('**/*', () => {})
+    else await context.setOffline(true)
+    await phone.evaluate(() => history.back())
+    await overview.waitFor({ timeout: 5000 })
+    if (cut === 'offline') await phone.waitForTimeout(3000)
+    return phone.evaluate(() => ({
+      path: location.pathname,
+      sameDocument: '__mhSameDocument' in window,
+      offlinePage: document.title.startsWith('Offline'),
+    }))
+  })().catch((e: unknown) => ({ error: e instanceof Error ? e.message.split('\n')[0] : String(e) }))
+  check(
+    `Back with requests ${cut === 'hang' ? 'hanging' : 'failing (offline)'} after a deploy lands on the loaded Overview`,
+    !('error' in result) && result.path === '/overview' && result.sameDocument && !result.offlinePage,
+    deployNoticed ? JSON.stringify(result) : `the faked deploy never raised the update toast: ${JSON.stringify(result)}`,
+  )
+  await context.setOffline(false)
+  await phone.close()
+}
+
 // ── 3. Landing and login, light and dark ─────────────────────────────────────────────────────────
 for (const scheme of ['light', 'dark'] as const) {
   const context = await browser.newContext({ colorScheme: scheme, viewport: { width: 1280, height: 900 } })
@@ -406,6 +446,8 @@ for (const forcedColors of ['none', 'active'] as const) {
   check('no script errors on app pages', scriptErrors(errors).length === 0, scriptErrors(errors).slice(0, 6).join(' | '))
   const failedLoads = errors.length - scriptErrors(errors).length
   if (failedLoads) console.log(`note: ${failedLoads} failed resource loads (not counted)`)
+
+  for (const cut of ['hang', 'offline'] as const) await backAfterDeployStaysInDocument(context, cut)
   await context.close()
 }
 
