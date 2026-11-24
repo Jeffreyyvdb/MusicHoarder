@@ -13,7 +13,7 @@
         "@opentelemetry/exporter-trace-otlp-proto": "^0.301.2",
         "@opentelemetry/sdk-node": "^0.301.2",
         "@opentelemetry/sdk-trace": "^3.1.1",
-        "@ui-sdk/core": "0.1.0-beta.2",
+        "@ui-sdk/core": "0.1.0-beta.13",
         "@ui-sdk/svelte": "0.1.0-beta.2",
         "bits-ui": "^2.21.0",
         "clsx": "^2.1.1",
@@ -561,7 +561,7 @@
 
     "@typescript/typescript-win32-x64": ["@typescript/typescript-win32-x64@7.0.2", "", { "os": "win32", "cpu": "x64" }, "sha512-0BQ3HkAHHlKLSp1qRvf3SUhGpGsDuhB/jgFw75guyqbxJqEaS0Cw/VFO8i2nHglJUzQCRtMMR/IBAKE3ETMC4g=="],
 
-    "@ui-sdk/core": ["@ui-sdk/core@0.1.0-beta.2", "", {}, "sha512-y89M4OKL2Oy1IvFS8FEozn/44BJD9FoRjfecWA4XwFhkSuQADcEcI+eoLdfRK1hkrJZhKkHvhJf4Jtfp1y7aJw=="],
+    "@ui-sdk/core": ["@ui-sdk/core@0.1.0-beta.13", "", {}, "sha512-URjk9hqdc/cZKDtw6Gb9NqjY48U8l0EgoP4d5ghlooa3av+GrR0iSmsav133UU4oelcuKIO1ZPJ4j7gIPMr1Vg=="],
 
     "@ui-sdk/svelte": ["@ui-sdk/svelte@0.1.0-beta.2", "", { "peerDependencies": { "@ui-sdk/core": "^0.1.0-beta.2", "svelte": ">=5.33" } }, "sha512-LhjaeAIHUNuwKbQoBLT0urV7MaHU2yJqB12S4Q24iPm6tORv9j+0ONaY34+pPz7DpjQs9b3JJovaqyRjcdn0Dg=="],
 
