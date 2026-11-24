@@ -500,14 +500,14 @@ internal static class ComposeFileExtensions
     /// start-first alone still drops requests: Traefik's swarm provider (Dokploy's Traefik uses it)
     /// routes to task IPs it re-reads only every 15s, so after the old task stops it keeps sending
     /// requests to a dead IP until the next poll (502s and hung requests). <c>traefik.swarm.lbswarm</c>
-    /// routes to the service's virtual IP instead, which swarm repoints the moment the old task is
-    /// shut down and only ever points at a task that passed its healthcheck.
+    /// routes to the service's virtual IP instead: swarm adds the new task to it once its healthcheck
+    /// passes and takes the old one out before stopping it.
     /// </para>
     /// </summary>
     public static Service WithRollingUpdate(this Service service)
     {
         service.Deploy = SwarmUpdate("start-first");
-        service.Deploy.Labels = new() { ["traefik.swarm.lbswarm"] = "true" };
+        (service.Deploy.Labels ??= new())["traefik.swarm.lbswarm"] = "true";
         return service;
     }
 
