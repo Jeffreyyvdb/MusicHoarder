@@ -75,11 +75,11 @@ public class YtDlpDownloadProviderTests
     public void BuildSearchQuery_PrefixesYtsearch_NeutralizingFlagInjection()
     {
         // A malicious-looking title must remain a single positional arg that can't be parsed as a flag,
-        // because the ytsearch1: prefix means the value never starts with '-'.
+        // because the ytsearchN: prefix means the value never starts with '-'.
         var req = new DownloadRequest("--exec rm -rf", "; whoami", null, null, 1000, "/tmp");
         var query = YtDlpDownloadProvider.BuildSearchQuery(req);
 
-        Assert.StartsWith("ytsearch1:", query);
+        Assert.StartsWith("ytsearch5:", query);
         Assert.DoesNotContain('\n', query);
     }
 
@@ -87,25 +87,73 @@ public class YtDlpDownloadProviderTests
     public void BuildSearchQuery_UsesTitleOnly_WhenArtistBlank()
     {
         var req = new DownloadRequest("", "Some Song", null, null, 1000, "/tmp");
-        Assert.Equal("ytsearch1:Some Song", YtDlpDownloadProvider.BuildSearchQuery(req));
+        Assert.Equal("ytsearch5:Some Song", YtDlpDownloadProvider.BuildSearchQuery(req));
     }
 
     [Fact]
-    public void BuildTarget_UsesSourceUrlDirectly_ForUrlImports()
+    public void BuildSearchQuery_DropsTheCleanEditLabel_FromTheTitle()
+    {
+        var req = new DownloadRequest("Kid Cudi", "Heart Of A Lion (Kid Cudi Theme Music) (Album Version Edited)", null, null, 1000, "/tmp");
+        Assert.Equal("ytsearch5:Kid Cudi Heart Of A Lion (Kid Cudi Theme Music)", YtDlpDownloadProvider.BuildSearchQuery(req));
+    }
+
+    [Fact]
+    public void DirectUrl_UsesSourceUrlDirectly_ForUrlImports()
     {
         // A single-track URL import must download that exact URL, not an artist/title search — the only
         // way to acquire a specific YouTube remix that has no streaming-service equivalent.
         var req = new DownloadRequest("DJ Cool", "Summer Remix", null, null, 1000, "/tmp",
-            SourceUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+            SourceUrl: " https://www.youtube.com/watch?v=dQw4w9WgXcQ ");
 
-        Assert.Equal("https://www.youtube.com/watch?v=dQw4w9WgXcQ", YtDlpDownloadProvider.BuildTarget(req));
+        Assert.Equal("https://www.youtube.com/watch?v=dQw4w9WgXcQ", YtDlpDownloadProvider.DirectUrl(req));
     }
 
     [Fact]
-    public void BuildTarget_FallsBackToSearch_WhenNoSourceUrl()
+    public void DirectUrl_IsNull_WhenNoSourceUrl_SoTheRequestIsSearched()
     {
         var req = new DownloadRequest("Artist", "Song", null, null, 1000, "/tmp");
-        Assert.Equal("ytsearch1:Artist Song", YtDlpDownloadProvider.BuildTarget(req));
+        Assert.Null(YtDlpDownloadProvider.DirectUrl(req));
+    }
+
+    private static MusicVideoDownloader.SearchCandidate Hit(string id, string title) => new(id, title, "channel", 200);
+
+    private static readonly DownloadRequest MakeHerSay =
+        new("Kid Cudi", "Make Her Say", null, null, 1000, "/tmp");
+
+    [Fact]
+    public void PickCandidate_SkipsTheCleanEdit_YouTubeListsFirst()
+    {
+        var (picked, skipped) = YtDlpDownloadProvider.PickCandidate(
+        [
+            Hit("Xt22KvnRSL4", "Kid Cudi - Make Her Say (Clean Version) ft. Kanye West, Common"),
+            Hit("N4yOHlNKcxs", "Kid Cudi - Make Her Say (Dirty Official Video)"),
+            Hit("SiF4cJSE5As", "Kid CuDi Make Her Say"),
+            Hit("PFRSTHeyOnc", "Make Her Say"),
+        ], MakeHerSay);
+
+        Assert.Equal("N4yOHlNKcxs", picked?.Id);
+        Assert.Equal(["Xt22KvnRSL4"], skipped.Select(s => s.Id));
+    }
+
+    [Fact]
+    public void PickCandidate_RejectsABareCleanUpload_ButAcceptsATitleThatIsAboutBeingClean()
+    {
+        var (bare, _) = YtDlpDownloadProvider.PickCandidate([Hit("a", "Make Her Say CLEAN"), Hit("b", "Make Her Say")], MakeHerSay);
+        Assert.Equal("b", bare?.Id);
+
+        var outkast = new DownloadRequest("OutKast", "So Fresh, So Clean", null, null, 1000, "/tmp");
+        var (picked, _) = YtDlpDownloadProvider.PickCandidate([Hit("c", "OutKast - So Fresh, So Clean")], outkast);
+        Assert.Equal("c", picked?.Id);
+    }
+
+    [Fact]
+    public void PickCandidate_PicksNothing_WhenEveryHitIsACleanEdit()
+    {
+        var (picked, skipped) = YtDlpDownloadProvider.PickCandidate(
+            [Hit("a", "Make Her Say (Clean)"), Hit("b", "Make Her Say Censored")], MakeHerSay);
+
+        Assert.Null(picked);
+        Assert.Equal(2, skipped.Count);
     }
 
     [Fact]
