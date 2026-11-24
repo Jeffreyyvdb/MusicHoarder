@@ -14,7 +14,7 @@
         "@opentelemetry/sdk-node": "^0.301.2",
         "@opentelemetry/sdk-trace": "^3.1.1",
         "@ui-sdk/core": "0.1.0-beta.13",
-        "@ui-sdk/svelte": "0.1.0-beta.2",
+        "@ui-sdk/svelte": "0.1.0-beta.13",
         "bits-ui": "^2.21.0",
         "clsx": "^2.1.1",
         "import-in-the-middle": "^3.6.0",
@@ -563,7 +563,7 @@
 
     "@ui-sdk/core": ["@ui-sdk/core@0.1.0-beta.13", "", {}, "sha512-URjk9hqdc/cZKDtw6Gb9NqjY48U8l0EgoP4d5ghlooa3av+GrR0iSmsav133UU4oelcuKIO1ZPJ4j7gIPMr1Vg=="],
 
-    "@ui-sdk/svelte": ["@ui-sdk/svelte@0.1.0-beta.2", "", { "peerDependencies": { "@ui-sdk/core": "^0.1.0-beta.2", "svelte": ">=5.33" } }, "sha512-LhjaeAIHUNuwKbQoBLT0urV7MaHU2yJqB12S4Q24iPm6tORv9j+0ONaY34+pPz7DpjQs9b3JJovaqyRjcdn0Dg=="],
+    "@ui-sdk/svelte": ["@ui-sdk/svelte@0.1.0-beta.13", "", { "peerDependencies": { "@ui-sdk/core": "^0.1.0-beta.13", "svelte": ">=5.33" } }, "sha512-2yGep6KtTUNBSKnoXzyD1pwI3pywJjT5aZ23gyOthNFXHOVLaGyv1qJVWKjTQ14x/iMDA/d9iztmxyBxH36Nuw=="],
 
     "@vitest/mocker": ["@vitest/mocker@5.1.1", "", { "dependencies": { "@jridgewell/trace-mapping": "0.3.31", "@vitest/spy": "5.1.1", "estree-walker": "^3.0.3", "magic-string": "^1.4.5" }, "peerDependencies": { "msw": "^2.4.9 || ^3.0.0", "vite": "^6.0.0 || ^7.0.0 || ^8.0.0" }, "optionalPeers": ["msw", "vite"] }, "sha512-b2OgTB4+3ImWIVafXKazJXwLKwQxUNnix6b3xUvUTMh7RyXlrtzoxfZr8aEz9zkHOMAS4K5lu3TvFWoiVeVTQg=="],
 
