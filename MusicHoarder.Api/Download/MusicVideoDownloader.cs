@@ -3,6 +3,8 @@ using System.Text.Json;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Import;
 using MusicHoarder.Api.Logging;
+using MusicHoarder.Api.Matching;
+using MusicHoarder.Api.Metadata;
 using MusicHoarder.Api.Options;
 
 namespace MusicHoarder.Api.Download;
@@ -172,7 +174,7 @@ public class MusicVideoDownloader(
         }
 
         var candidates = await SearchCandidatesAsync(request.Artist, request.Title, cookiesPath, ct);
-        var ranked = RankCandidates(candidates, request.DurationMs, TitleTokens(request.Artist, request.Title));
+        var ranked = RankCandidates(candidates, request.DurationMs, SongTarget.For(request.Artist, request.Title));
 
         var best = rejectStatic
             ? await PickWatchableAsync(ranked, options.Value.MusicVideoProbeCandidates, request, ct)
@@ -234,9 +236,9 @@ public class MusicVideoDownloader(
         var cookiesPath = YtDlpCookies.PrepareWritableCopy(opts.YtDlpCookiesPath, logger);
         try
         {
-            var titleTokens = TitleTokens(request.Artist, request.Title);
+            var target = SongTarget.For(request.Artist, request.Title);
             var candidates = await SearchCandidatesAsync(request.Artist, request.Title, cookiesPath, ct);
-            var ranked = RankCandidates(candidates, request.DurationMs, titleTokens);
+            var ranked = RankCandidates(candidates, request.DurationMs, target);
 
             // A pinned video is the audio's own source: offer it alongside the search hits (first,
             // since it is the only one guaranteed to be in sync) rather than hiding it. The search
@@ -253,7 +255,7 @@ public class MusicVideoDownloader(
                 c.Title,
                 c.Channel,
                 c.DurationSeconds is > 0 ? (int)c.DurationSeconds.Value : null,
-                ScoreCandidate(c, request.DurationMs, titleTokens),
+                ScoreCandidate(c, request.DurationMs, target),
                 c.ThumbnailUrl))];
         }
         finally
@@ -502,24 +504,128 @@ public class MusicVideoDownloader(
             .ToHashSet();
 
     /// <summary>
-    /// Scores a search candidate as "how likely is this the actual music video for THIS song".
-    /// Song-title token overlap dominates (zero overlap ≈ a different song — heavy penalty); real
-    /// videos score up; audio-only markers score hard down; duration is sanity-checked against the
-    /// song when known (videos legitimately run longer — intros/outros — so the upper bound is
-    /// looser). Candidates below zero are rejected outright by <see cref="PickBestCandidate"/>.
+    /// What a candidate is checked against: the song title's distinctive tokens
+    /// (<see cref="TitleTokens"/>) and the credited artists' name keys (<see cref="ArtistKeys"/>).
     /// </summary>
-    internal static int ScoreCandidate(
-        SearchCandidate candidate, int? songDurationMs, IReadOnlyCollection<string> titleTokens)
+    internal sealed record SongTarget(IReadOnlyCollection<string> TitleTokens, IReadOnlyCollection<string> ArtistKeys)
+    {
+        public static SongTarget For(string artist, string title) =>
+            new(MusicVideoDownloader.TitleTokens(artist, title), MusicVideoDownloader.ArtistKeys(artist));
+    }
+
+    /// <summary>
+    /// Name keys for every artist the credit names: the whole credit plus each artist it splits into
+    /// ("Clipse, Pusha T &amp; Malice" → the whole string, "Clipse, Pusha T", "Clipse", "Pusha T",
+    /// "Malice"). The split repeats because <see cref="ArtistCreditNormalizer.SplitArtists"/> splits
+    /// on one kind of joiner at a time. The whole credit stays in, so a name that only looks joined
+    /// ("Earth, Wind &amp; Fire") still matches as itself. Empty when no name has letters or digits.
+    /// </summary>
+    internal static IReadOnlyCollection<string> ArtistKeys(string artist)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        if (string.IsNullOrWhiteSpace(artist))
+            return names;
+
+        var pending = new Queue<string>([artist.Trim()]);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        while (pending.TryDequeue(out var name))
+        {
+            if (!seen.Add(name))
+                continue;
+            if (NameKey(name) is { Length: > 0 } key)
+                names.Add(key);
+            var parts = ArtistCreditNormalizer.SplitArtists(name);
+            if (parts.Count > 1)
+                foreach (var part in parts)
+                    pending.Enqueue(part);
+        }
+        return names;
+    }
+
+    /// <summary>
+    /// Whether the candidate's title or channel names one of the song's artists, as a run of whole
+    /// words ("NAV" never matches "navigate"). Null when the song has no artist to look for, which
+    /// is no evidence either way.
+    /// </summary>
+    internal static bool? NamesAnArtist(SearchCandidate candidate, IReadOnlyCollection<string> artistKeys)
+    {
+        if (artistKeys.Count == 0)
+            return null;
+
+        var title = $" {NameKey(candidate.Title)} ";
+        var channel = ChannelKey(candidate.Channel);
+        var paddedChannel = $" {channel} ";
+        var squashedChannel = channel.Replace(" ", "", StringComparison.Ordinal);
+        return artistKeys.Any(key =>
+            title.Contains($" {key} ", StringComparison.Ordinal)
+            || paddedChannel.Contains($" {key} ", StringComparison.Ordinal)
+            // "PoohShiestyVEVO", "JuiceWRLD": a channel name often runs the words together.
+            || (squashedChannel.Length > 0
+                && squashedChannel == key.Replace(" ", "", StringComparison.Ordinal)));
+    }
+
+    /// <summary>
+    /// A name folded the way artist identities are compared (<see cref="TitleNormalizer.NormalizeArtistKey"/>:
+    /// case, diacritics, punctuation), with a "$" inside a word read as the "s" it stands in for
+    /// ("A$AP" = "ASAP", "$ign" = "Sign"). A "$" beside no letter is a symbol, and goes with the rest
+    /// of the punctuation: "¥$" has no name to look for.
+    /// </summary>
+    private static string NameKey(string? name) =>
+        TitleNormalizer.NormalizeArtistKey(
+            name is null ? null : System.Text.RegularExpressions.Regex.Replace(name, @"(?<=\p{L})\$|\$(?=\p{L})", "s"));
+
+    /// <summary>
+    /// A channel's name key without the words a channel adds to the artist's name: YouTube's
+    /// " - Topic", and a leading or trailing "Official" or "VEVO" ("DrakeVEVO", "Gucci Mane Official").
+    /// </summary>
+    private static string ChannelKey(string? channel)
+    {
+        var raw = channel?.Trim() ?? "";
+        if (raw.EndsWith(" - Topic", StringComparison.OrdinalIgnoreCase))
+            raw = raw[..^" - Topic".Length];
+        var key = NameKey(raw);
+        string previous;
+        do
+        {
+            previous = key;
+            foreach (var affix in ChannelAffixes)
+            {
+                if (key.EndsWith(affix, StringComparison.Ordinal) && key.Length > affix.Length)
+                    key = key[..^affix.Length].TrimEnd();
+                if (key.StartsWith(affix, StringComparison.Ordinal) && key.Length > affix.Length)
+                    key = key[affix.Length..].TrimStart();
+            }
+        } while (key != previous);
+        return key;
+    }
+
+    private static readonly string[] ChannelAffixes = ["vevo", "official"];
+
+    /// <summary>
+    /// Scores a search candidate as "how likely is this the actual music video for THIS song".
+    /// Song-title token overlap dominates (zero overlap ≈ a different song — heavy penalty); so does
+    /// the artist: a title or channel that names none of the song's artists is someone else's song
+    /// of the same name ("DDG - Trickin'" for Offset's "Trickin'"), penalized as hard as a wrong
+    /// title, so it can never rank at all. Naming the artist earns nothing: it is a gate, not a
+    /// signal, and the best right-artist score stays 75. Real videos score up; audio-only markers
+    /// score hard down; duration is sanity-checked against the song when known (videos legitimately
+    /// run longer — intros/outros — so the upper bound is looser). Candidates below zero are
+    /// rejected outright by <see cref="RankCandidates"/>.
+    /// </summary>
+    internal static int ScoreCandidate(SearchCandidate candidate, int? songDurationMs, SongTarget target)
     {
         var score = 0;
         var t = candidate.Title.ToLowerInvariant();
 
+        var titleTokens = target.TitleTokens;
         if (titleTokens.Count > 0)
         {
             var matched = titleTokens.Count(token => t.Contains(token));
             if (matched == 0) score -= 80; // wrong song
             else score += 30 * matched / titleTokens.Count;
         }
+
+        if (NamesAnArtist(candidate, target.ArtistKeys) is false) score -= 80; // someone else's song
 
         if (t.Contains("official music video") || t.Contains("official video")) score += 30;
         else if (t.Contains("music video") || t.Contains("(video)") || t.Contains("[video]")) score += 20;
@@ -544,18 +650,18 @@ public class MusicVideoDownloader(
     }
 
     internal static SearchCandidate? PickBestCandidate(
-        List<SearchCandidate> candidates, int? songDurationMs, IReadOnlyCollection<string> titleTokens) =>
-        RankCandidates(candidates, songDurationMs, titleTokens).FirstOrDefault();
+        List<SearchCandidate> candidates, int? songDurationMs, SongTarget target) =>
+        RankCandidates(candidates, songDurationMs, target).FirstOrDefault();
 
     /// <summary>
     /// The plausible candidates, best first. Separate from <see cref="PickBestCandidate"/> because
     /// the probe needs to walk past a static top hit, and the candidate picker shows the whole list.
     /// </summary>
     internal static List<SearchCandidate> RankCandidates(
-        List<SearchCandidate> candidates, int? songDurationMs, IReadOnlyCollection<string> titleTokens) =>
+        List<SearchCandidate> candidates, int? songDurationMs, SongTarget target) =>
         candidates
-            .Select((c, i) => (Candidate: c, Score: ScoreCandidate(c, songDurationMs, titleTokens), Index: i))
-            .Where(x => x.Score >= 0) // negative = wrong song / audio-only / degraded — not worth 100MB
+            .Select((c, i) => (Candidate: c, Score: ScoreCandidate(c, songDurationMs, target), Index: i))
+            .Where(x => x.Score >= 0) // negative = wrong song / wrong artist / audio-only / degraded — not worth 100MB
             .OrderByDescending(x => x.Score)
             .ThenBy(x => x.Index) // ties → YouTube's own relevance order
             .Select(x => x.Candidate)

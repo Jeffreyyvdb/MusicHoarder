@@ -43,12 +43,22 @@ public class MusicVideoCandidateCache(
     public const string NoCandidatesError = "the search found no candidates";
 
     /// <summary>
+    /// How candidates are ranked. A stored list carries the scores and the order of the ranking that
+    /// searched it, so a change to <see cref="MusicVideoDownloader.ScoreCandidate"/> that should reach
+    /// stored lists bumps this: every list then fails <see cref="IsServable"/> and is searched again
+    /// (the picker on open, the prefetch for recent songs), keeping the probes already measured.
+    /// 2: a candidate must name one of the song's artists (lists from before carry no version).
+    /// </summary>
+    internal const int RankingVersion = 2;
+
+    /// <summary>
     /// The search a list answers: what <see cref="IMusicVideoDownloader.SuggestAsync"/> is given about
-    /// the song. Re-enrichment that renames a song changes it, and the old list is then not served.
+    /// the song, and the <see cref="RankingVersion"/> that ranked it. Re-enrichment that renames a song
+    /// changes it, and the old list is then not served.
     /// </summary>
     public static string QueryKeyFor(SongMetadata song)
     {
-        var text = $"{song.Artist}\n{song.Title}\n{song.DurationMs ?? song.DurationSeconds * 1000}";
+        var text = $"{song.Artist}\n{song.Title}\n{song.DurationMs ?? song.DurationSeconds * 1000}\nranking {RankingVersion}";
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
     }
 

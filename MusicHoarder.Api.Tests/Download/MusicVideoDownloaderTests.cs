@@ -69,6 +69,9 @@ public class MusicVideoDownloaderTests
     private static IReadOnlyCollection<string> Tokens(string artist, string title) =>
         MusicVideoDownloader.TitleTokens(artist, title);
 
+    private static MusicVideoDownloader.SongTarget Target(string artist, string title) =>
+        MusicVideoDownloader.SongTarget.For(artist, title);
+
     [Fact]
     public void PickBestCandidate_PrefersOfficialVideoOverOfficialAudio()
     {
@@ -76,13 +79,13 @@ public class MusicVideoDownloaderTests
         // one), but the scorer must still pick the actual music video.
         var candidates = new List<MusicVideoDownloader.SearchCandidate>
         {
-            new("aud", "Riley N Lamilton (Lunchbreak Freestyle) [Official Audio]", "Lyrical Lemonade", 212),
-            new("vid", "Riley N Lamilton (Lunchbreak Freestyle) [Official Video]", "Lyrical Lemonade", 231),
-            new("lyr", "Riley N Lamilton - Lyrics", "LyricsHub", 212),
+            new("aud", "BabyChiefDoit - Riley N Lamilton (Lunchbreak Freestyle) [Official Audio]", "Lyrical Lemonade", 212),
+            new("vid", "BabyChiefDoit - Riley N Lamilton (Lunchbreak Freestyle) [Official Video]", "Lyrical Lemonade", 231),
+            new("lyr", "BabyChiefDoit - Riley N Lamilton - Lyrics", "LyricsHub", 212),
         };
-        var tokens = Tokens("BabyChiefDoit", "Riley N Lamilton (Lunchbreak Freestyle)");
+        var target = Target("BabyChiefDoit", "Riley N Lamilton (Lunchbreak Freestyle)");
 
-        Assert.Equal("vid", MusicVideoDownloader.PickBestCandidate(candidates, 212_000, tokens)?.Id);
+        Assert.Equal("vid", MusicVideoDownloader.PickBestCandidate(candidates, 212_000, target)?.Id);
     }
 
     [Fact]
@@ -95,10 +98,10 @@ public class MusicVideoDownloaderTests
             new("aud", "Lyrical Lemonade, BabyChiefDoit - Riley N Lamilton (Lunchbreak Freestyle) [Official Audio]", "Lyrical Lemonade", 145),
             new("wrong", "BabyChiefDoit - WENT WEST (Official Music Video)", "Lyrical Lemonade", 163),
         };
-        var tokens = Tokens(
+        var target = Target(
             "BabyChiefDoit", "Lyrical Lemonade, BabyChiefDoit - Riley N Lamilton (Lunchbreak Freestyle) [Official Audio]");
 
-        Assert.Null(MusicVideoDownloader.PickBestCandidate(candidates, 145_000, tokens));
+        Assert.Null(MusicVideoDownloader.PickBestCandidate(candidates, 145_000, target));
     }
 
     [Fact]
@@ -110,9 +113,8 @@ public class MusicVideoDownloaderTests
             new("sped", "Song Name (sped up)", "NightcoreHub", 150),
             new("plain", "Song Name", "Artist", 220),
         };
-        var tokens = Tokens("Artist", "Song Name");
-
-        Assert.Equal("plain", MusicVideoDownloader.PickBestCandidate(candidates, 212_000, tokens)?.Id);
+        Assert.Equal("plain",
+            MusicVideoDownloader.PickBestCandidate(candidates, 212_000, Target("Artist", "Song Name"))?.Id);
     }
 
     [Fact]
@@ -125,13 +127,13 @@ public class MusicVideoDownloaderTests
         };
 
         Assert.Equal("first",
-            MusicVideoDownloader.PickBestCandidate(candidates, 212_000, Tokens("Artist", "Song"))?.Id);
+            MusicVideoDownloader.PickBestCandidate(candidates, 212_000, Target("Artist", "Song"))?.Id);
     }
 
     [Fact]
     public void PickBestCandidate_EmptyList_ReturnsNull()
     {
-        Assert.Null(MusicVideoDownloader.PickBestCandidate([], 200_000, Tokens("Artist", "Song")));
+        Assert.Null(MusicVideoDownloader.PickBestCandidate([], 200_000, Target("Artist", "Song")));
     }
 
     [Theory]
@@ -141,11 +143,11 @@ public class MusicVideoDownloaderTests
     [InlineData("Song Name Discovery", false)]
     public void ScoreCandidate_PenalizesLiveAndCovers_ButNotSubstrings(string title, bool penalized)
     {
-        var tokens = Tokens("Artist", "Song Name");
+        var target = Target("Artist", "Song Name");
         var candidate = new MusicVideoDownloader.SearchCandidate("x", title, "Artist", 212);
         var baseline = new MusicVideoDownloader.SearchCandidate("y", "Song Name", "Artist", 212);
-        var delta = MusicVideoDownloader.ScoreCandidate(candidate, 212_000, tokens)
-            - MusicVideoDownloader.ScoreCandidate(baseline, 212_000, tokens);
+        var delta = MusicVideoDownloader.ScoreCandidate(candidate, 212_000, target)
+            - MusicVideoDownloader.ScoreCandidate(baseline, 212_000, target);
         // The official-video variants gain a bonus; the point is they are not penalized.
         Assert.Equal(penalized, delta < 0);
     }
@@ -153,13 +155,111 @@ public class MusicVideoDownloaderTests
     [Fact]
     public void ScoreCandidate_DurationNearSong_ScoresAboveWildMismatch()
     {
-        var tokens = Tokens("Artist", "Song");
+        var target = Target("Artist", "Song");
         var near = new MusicVideoDownloader.SearchCandidate("a", "Song", "Artist", 225);
         var wild = new MusicVideoDownloader.SearchCandidate("b", "Song", "Artist", 700);
 
         Assert.True(
-            MusicVideoDownloader.ScoreCandidate(near, 212_000, tokens)
-                > MusicVideoDownloader.ScoreCandidate(wild, 212_000, tokens));
+            MusicVideoDownloader.ScoreCandidate(near, 212_000, target)
+                > MusicVideoDownloader.ScoreCandidate(wild, 212_000, target));
+    }
+
+    // Production, 2026-11-24: a same-title song by someone else took full title credit, the
+    // official-video bonus and the length bonus, and won the ranking.
+    [Theory]
+    [InlineData("Yung Miami", "Blink Twice", "Rose Gray - Blink Twice (Official Video)", "Rose Gray")]
+    [InlineData("Offset", "Trickin'", "DDG - Trickin' [Official Video]", "DDG")]
+    [InlineData("Westside Gunn", "DON PISTOLA", "Guelo Star - Don Pistola (Official Video)", "MusicFireVEVO")]
+    [InlineData("Gucci Mane", "Get the F Out My Face",
+        "Rich Homie Quan - Get TF Out My Face ft. Young Thug (Official Video)", "RichHomieQuanVEVO")]
+    [InlineData("Offset", "Pop Shit", "Gunna - pop it [Official Video]", "Gunna")]
+    [InlineData("Offset", "5 Star", "Wiz Khalifa - 5 Star (feat. Gunna) [Official Music Video]", "Wiz Khalifa")]
+    [InlineData("Jack Harlow", "PRESSURE", "mgk - PRESSURE (Official Music Video)", "mgk")]
+    public void RankCandidates_DropsAnotherArtistsSongOfTheSameTitle(
+        string artist, string title, string videoTitle, string channel)
+    {
+        var wrong = new MusicVideoDownloader.SearchCandidate("wrong", videoTitle, channel, 200);
+
+        Assert.True(MusicVideoDownloader.ScoreCandidate(wrong, 200_000, Target(artist, title)) < 0);
+        Assert.Empty(MusicVideoDownloader.RankCandidates([wrong], 200_000, Target(artist, title)));
+    }
+
+    [Fact]
+    public void PickBestCandidate_PrefersTheArtistsVideoOverAnotherArtistsSameTitle()
+    {
+        // The wrong one ranks first on YouTube and is the "better" upload by every other signal.
+        var candidates = new List<MusicVideoDownloader.SearchCandidate>
+        {
+            new("ddg", "DDG - Trickin' [Official Video]", "DDG", 200),
+            new("offset", "Offset - Trickin' (Visual)", "OffsetVEVO", 260),
+        };
+
+        Assert.Equal("offset",
+            MusicVideoDownloader.PickBestCandidate(candidates, 200_000, Target("Offset", "Trickin'"))?.Id);
+    }
+
+    // The common case, which must keep its full score: the artist named in the title (however it is
+    // punctuated or joined to the song title), in the channel, or as a featured guest.
+    [Theory]
+    [InlineData("Belly Gang Kushington", "No Jewelry",
+        "Belly Gang Kushington - No Jewelry (Official Music Video)", "Belly Gang Kushington")]
+    [InlineData("Pooh Shiesty", "Last Man Breathin",
+        "Pooh Shiesty- Last Man Breathing(Official Video)#308xmc#poohshiesty", "308XMC")]
+    [InlineData("Casanova", "Set Trippin",
+        "Casanova \"Set Trippin\" (WSHH Exclusive - Official Music Video)", "WORLDSTARHIPHOP")]
+    [InlineData("Offset, Don Toliver", "Every Night",
+        "Offset ft. Don Toliver – Every Night (Official Music Video)", "Midnight Rap")]
+    [InlineData("Gucci Mane", "All I Have", "BIG30 ft. Gucci Mane - All I Have [Official Video]", "BIG30")]
+    [InlineData("Clipse, Pusha T & Malice", "The Birds Don't Sing",
+        "Clipse, John Legend, Voices of Fire - The Birds Don't Sing (Official Video)", "Clipse")]
+    [InlineData("Malice", "The Birds Don't Sing", "The Birds Don't Sing (Official Video)", "Clipse, Pusha T & Malice")]
+    [InlineData("A$AP Rocky", "Praise The Lord (Da Shine)",
+        "A$AP Rocky - Praise The Lord (Da Shine) (Official Video) ft. Skepta", "ASAPROCKYUPTOWN")]
+    [InlineData("A$AP Rocky", "Praise The Lord (Da Shine)",
+        "Praise The Lord (Da Shine) (Official Video)", "AsapRockyVEVO")]
+    [InlineData("Yeat", "Gët Busy", "Yëat - Gët Busy (Official Video)", "Lyrical Lemonade")]
+    [InlineData("Tay-K", "The Race", "Tay-K - The Race (Official Video)", "Tay-K")]
+    [InlineData("NAV", "Myself", "Myself (Official Music Video)", "NAV - Official")]
+    [InlineData("Juice WRLD", "Lucid Dreams", "Lucid Dreams (Official Music Video)", "JuiceWRLDVEVO")]
+    public void ScoreCandidate_TheArtistsOwnVideo_KeepsItsFullScore(
+        string artist, string title, string videoTitle, string channel)
+    {
+        var right = new MusicVideoDownloader.SearchCandidate("right", videoTitle, channel, 200);
+
+        Assert.Equal(75, MusicVideoDownloader.ScoreCandidate(right, 200_000, Target(artist, title)));
+    }
+
+    [Theory]
+    [InlineData("NAV", "Navigate The Night (Official Video)", "Navigation Records")] // a word, not a substring
+    [InlineData("Future", "Song (Official Video)", "Futures Market")]
+    [InlineData("Gucci Mane", "Natasha - Song (Official Video)", "Gucci")] // part of a name is not the name
+    public void NamesAnArtist_MatchesWholeWordsOnly(string artist, string videoTitle, string channel)
+    {
+        var candidate = new MusicVideoDownloader.SearchCandidate("x", videoTitle, channel, 200);
+
+        Assert.False(MusicVideoDownloader.NamesAnArtist(candidate, MusicVideoDownloader.ArtistKeys(artist)));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("¥$")]
+    public void NamesAnArtist_NoArtistToLookFor_IsNoEvidence(string artist)
+    {
+        var candidate = new MusicVideoDownloader.SearchCandidate("x", "Song (Official Video)", "Someone", 200);
+
+        Assert.Null(MusicVideoDownloader.NamesAnArtist(candidate, MusicVideoDownloader.ArtistKeys(artist)));
+        Assert.Equal(75, MusicVideoDownloader.ScoreCandidate(candidate, 200_000, Target(artist, "Song")));
+    }
+
+    [Fact]
+    public void ArtistKeys_SplitsEveryJoinerOfACreditAndKeepsTheWholeName()
+    {
+        Assert.Equal(
+            ["clipse", "clipse pusha t", "clipse pusha t malice", "malice", "pusha t"],
+            MusicVideoDownloader.ArtistKeys("Clipse, Pusha T & Malice").Order().ToArray());
+        Assert.Equal(
+            ["drake", "drake feat future", "future"],
+            MusicVideoDownloader.ArtistKeys("Drake feat. Future").Order().ToArray());
     }
 
     [Fact]

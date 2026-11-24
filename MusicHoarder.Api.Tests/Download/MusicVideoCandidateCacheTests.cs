@@ -168,6 +168,38 @@ public class MusicVideoCandidateCacheTests
     }
 
     [Fact]
+    public async Task A_list_ranked_before_the_artist_rule_is_searched_again_keeping_its_probes()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+        var song = Song(1);
+        db.Songs.Add(song);
+        // Stored before candidates had to name the artist: the key carried no ranking version.
+        var unversioned = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes($"{song.Artist}\n{song.Title}\n{song.DurationSeconds * 1000}")));
+        db.SongVideoCandidateSets.Add(new SongVideoCandidateSet
+        {
+            SongId = 1,
+            QueryKey = unversioned,
+            SearchedAtUtc = Now.AddDays(-1),
+            CandidatesJson = System.Text.Json.JsonSerializer.Serialize(
+                new[] { new CachedVideoCandidate("vid-aaaaa", "Song (Official Video)", "Artist", 200, 75, true,
+                    MusicVideoMotion.RealVideo, 40_000_000, false) },
+                new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)),
+        });
+        await db.SaveChangesAsync();
+
+        Assert.Null(await Cache().GetAsync(db, song, default));
+        Assert.Equal(1, await Prefetch(db).RunAsync(default));
+
+        // The video already measured is not probed again.
+        Assert.Equal(["vid-bbbbb"], _probe.Calls);
+        var list = await Cache().GetAsync(db, song, default);
+        Assert.NotNull(list);
+        Assert.Equal(40_000_000, list.Candidates[0].EstimatedBytes);
+    }
+
+    [Fact]
     public async Task A_list_older_than_the_cache_days_is_not_served()
     {
         await using var db = NewContext();
