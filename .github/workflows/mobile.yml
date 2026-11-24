@@ -28,7 +28,9 @@ concurrency:
 
 jobs:
   ios:
-    runs-on: macos-latest
+    # The same Xcode image as ios-testflight.yml, so a PR finds what the new SDK breaks before a
+    # release does.
+    runs-on: xcode-27
     defaults:
       run:
         working-directory: mobile

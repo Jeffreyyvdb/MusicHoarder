@@ -45,7 +45,10 @@ concurrency:
 
 jobs:
   testflight:
-    runs-on: macos-latest
+    # App Store Connect takes uploads only from the iOS SDK it names (ITMS-90725), which moves up
+    # each year. macos-latest stays on the previous Xcode for months after a new one ships, so the
+    # job names the Xcode image itself, and the SDK check below refuses an app built with an older one.
+    runs-on: xcode-27
     defaults:
       run:
         working-directory: mobile
@@ -149,6 +152,22 @@ jobs:
             MARKETING_VERSION="$VERSION" \
             CURRENT_PROJECT_VERSION="$BUILD" \
             | tail -n 40
+
+      # App Store Connect reads the SDK from the built app's Info.plist (ITMS-90725), so this
+      # reads it there too, before anything is signed or uploaded.
+      - name: Check the iOS SDK
+        if: steps.preflight.outputs.ok == 'true'
+        run: |
+          set -euo pipefail
+          MIN_SDK=27
+          PLIST="$RUNNER_TEMP/App.xcarchive/Products/Applications/App.app/Info.plist"
+          SDK="$(/usr/libexec/PlistBuddy -c 'Print :DTPlatformVersion' "$PLIST")"
+          xcodebuild -version
+          echo "The archived app records $(/usr/libexec/PlistBuddy -c 'Print :DTSDKName' "$PLIST") (Xcode $(/usr/libexec/PlistBuddy -c 'Print :DTXcode' "$PLIST"))."
+          if [ "${SDK%%.*}" -lt "$MIN_SDK" ]; then
+            echo "::error title=iOS TestFlight::The app was built with the iOS $SDK SDK; App Store Connect wants $MIN_SDK or later. Move runs-on to a newer Xcode image."
+            exit 1
+          fi
 
       # Inside out, as codesign seals a bundle over the code nested in it: the embedded
       # frameworks, the widget extension, then the app. "-" is an ad hoc signature: no identity,
