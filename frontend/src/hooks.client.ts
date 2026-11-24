@@ -1,19 +1,11 @@
 import type { HandleClientError } from '@sveltejs/kit/hooks';
-import {
-  isStaleChunkError,
-  recoverFromStaleChunk,
-  registerStaleChunkRecovery
-} from '#lib/stale-chunk-recovery.ts';
-
-// Catch the stale-chunk failures that escape SvelteKit's client error hook
-// (unhandled rejections / vite:preloadError). See stale-chunk-recovery.ts.
-registerStaleChunkRecovery();
+import { isChunkLoadError } from '#lib/chunk-load-error.ts';
 
 export const handleError: HandleClientError = ({ kind, error }) => {
-  // A new deploy replaced the content-hashed chunks this tab references — reload
-  // (with backoff) to pull the fresh build rather than show a dead error page.
-  if (isStaleChunkError(error) && recoverFromStaleChunk()) {
-    return { message: 'Updating…' };
+  // SvelteKit gets here with a route's code missing only after its version check found no newer
+  // build to load instead: offline, a hung request, or the seconds a redeploy takes to come up.
+  if (isChunkLoadError(error)) {
+    return { message: 'Couldn’t load this page. Check your connection and try again.' };
   }
 
   // Since SvelteKit 3 this hook also sees expected errors: `error(404, …)` from a load ('app')

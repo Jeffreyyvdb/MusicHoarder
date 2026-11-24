@@ -34,8 +34,10 @@ under forced colors, and, signed in as the demo account, one `<main>` and native
 the app pages, with no CSP violations or script errors anywhere. It also loads the tracks list and
 Now Playing (a song playing, and one only browsed) with the hardware skin off and on, and fails when
 a control or a column head is there without the skin and gone with it (a skin changes look, never
-what is reachable). It prints one PASS/FAIL line per check and exits 1 when any fails. The PR
-preview workflow runs it after every preview deploy.
+what is reachable). It also checks that, once a newer build is known, Back to a page already loaded
+lands without a reload while requests hang and while the network is off. It prints one PASS/FAIL
+line per check and exits 1 when any fails. The PR preview workflow runs it after every preview
+deploy.
 
 ```bash
 cd perf && bun install

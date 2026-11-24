@@ -3,12 +3,10 @@
   import type { Snippet } from 'svelte';
   import { ModeWatcher, mode } from 'mode-watcher';
   import { onMount } from 'svelte';
-  import { afterNavigate, beforeNavigate } from '$app/navigation';
   import { page, updated } from '$app/state';
   import { toast } from 'svelte-sonner';
   import { Toaster } from '#lib/components/ui/sonner/index.ts';
   import Analytics from '#lib/components/Analytics.svelte';
-  import { clearStaleChunkRecovery } from '#lib/stale-chunk-recovery.ts';
   import { installBottomInsetTracker } from '#lib/hooks/viewport-insets.svelte.ts';
   import { installDynamicType } from '#lib/dynamic-type.ts';
   import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
@@ -24,26 +22,6 @@
   type Props = { children: Snippet };
   const { children }: Props = $props();
 
-  // A new version is live (detected via version polling). Do a full-page
-  // navigation instead of client-side routing so we fetch the fresh build's
-  // chunks rather than the deleted ones this tab still references. This still
-  // fires silently on the next tap — it's the fallback that lands on the
-  // destination the user actually chose and avoids a stale-chunk failure — but
-  // the effect below announces the update as soon as it's known, so the reload
-  // is chosen (tap Refresh) rather than suffered mid-tap (F28).
-  beforeNavigate((nav) => {
-    if (nav.shallow && nav.type === 'goto') return;
-
-    if (updated.current && nav.to?.url && !nav.willUnload) {
-      nav.cancel();
-      location.href = nav.to.url.href;
-    }
-  });
-
-  // Distinct from VersionUpdateBanner (which watches the Docker image tag): this is SvelteKit's
-  // own build-hash poll, and it's what the `beforeNavigate` guard above acts on. A toast rather
-  // than a banner — it needs no shell real estate and stays visible across the eventual navigation
-  // — persistent and shown once per session so it doesn't re-stack on every subsequent check.
   let announcedUpdate = false;
   $effect(() => {
     if (!updated.current || announcedUpdate) return;
@@ -52,13 +30,6 @@
       duration: Infinity,
       action: { label: 'Refresh', onClick: () => location.reload() }
     });
-  });
-
-  // A navigation completed without a stale-chunk failure, so chunks are loading
-  // fine — reset the stale-chunk reload budget for the next deploy.
-  afterNavigate(({ shallow, type }) => {
-    if (shallow && type === 'goto') return;
-    clearStaleChunkRecovery();
   });
 
   // Track the browser's bottom chrome (e.g. Chrome Android's bottom address bar)

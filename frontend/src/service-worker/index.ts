@@ -15,8 +15,8 @@ import { self } from '$app/service-worker';
  *
  * What it deliberately does NOT do: cache HTML, API responses, audio, or the build's JS/CSS.
  * The app is a thin client over its own API (nothing works offline anyway), `/_app/immutable/*`
- * already ships with `Cache-Control: immutable` so the HTTP cache covers it, and the root layout's
- * version poll + stale-chunk recovery assume HTML always comes from the server. A caching layer
+ * already ships with `Cache-Control: immutable` so the HTTP cache covers it, and SvelteKit's
+ * version check assumes HTML always comes from the server. A caching layer
  * here would turn every deploy into a stale-shell bug — keep it this small.
  */
 const sw = self;
