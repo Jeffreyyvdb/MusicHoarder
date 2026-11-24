@@ -652,7 +652,7 @@ public class EnrichmentRetrySweepTests
         return new MusicHoarderDbContext(options);
     }
 
-    private static EnrichmentBackgroundService CreateService(
+    internal static EnrichmentBackgroundService CreateService(
         MusicHoarderDbContext db,
         EnrichmentPipelineChannel channel,
         IReadOnlySet<EnrichmentProvider> enabled,

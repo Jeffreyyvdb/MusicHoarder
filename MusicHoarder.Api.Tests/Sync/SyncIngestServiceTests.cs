@@ -1,11 +1,15 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
+using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Sync;
+using MusicHoarder.Api.Tests.Enrichment;
+using MusicHoarder.Api.Tests.Persistence;
 
 namespace MusicHoarder.Api.Tests.Sync;
 
@@ -417,6 +421,69 @@ public class SyncIngestServiceTests : IDisposable
         Assert.Null(song.DestinationPath);
         Assert.Equal("/dest/Old Artist/song.opus", song.PreviousDestinationPath);
         Assert.True(File.Exists(song.SourcePath));
+    }
+
+    /// <summary>
+    /// The enrichment refresh sweep flips the matched song to Pending after the upload loaded it and
+    /// before it saves. The upload's approval must still leave the song Matched: a locked song left in
+    /// Pending is skipped by the orchestrator forever. Two connections, so Postgres only.
+    /// </summary>
+    [PostgresFact]
+    public async Task Ingest_Replace_KeepsTheSongMatched_WhenTheRefreshSweepFlipsItBeforeTheSave()
+    {
+        await using var database = await PostgresTestDatabase.CreateAsync();
+        int songId;
+        await using (var seed = database.NewContext())
+        {
+            var song = Song(0, "/lib/a.opus", extension: ".opus", bitrate: 128,
+                fingerprint: "FP-old", acoustId: "AC1", durationMs: 200_000);
+            song.DurationSeconds = 200;
+            song.ProviderAttempts.Add(new SongProviderAttempt
+            {
+                Provider = EnrichmentProvider.AcoustID,
+                Status = ProviderAttemptStatus.Matched,
+                AttemptedAtUtc = DateTime.UtcNow,
+            });
+            seed.Songs.Add(song);
+            await seed.SaveChangesAsync();
+            songId = song.Id;
+        }
+
+        var channel = new EnrichmentPipelineChannel(new JobManager(), new EnrichmentProgressTracker());
+        await using var sweepDb = database.NewContext();
+        var sweep = EnrichmentRetrySweepTests.CreateService(
+            sweepDb, channel,
+            enabled: new HashSet<EnrichmentProvider> { EnrichmentProvider.AcoustID, EnrichmentProvider.SpotifyAPI });
+        var sweepBeforeSave = new BeforeFirstSave(sweep.RefreshStaleStatusesAsync);
+        await using var db = database.NewContext(interceptors: sweepBeforeSave);
+
+        var response = await CreateService(db).IngestAsync(
+            Payload(fingerprint: "FP-new", acoustId: "AC1", extension: ".flac", bitrate: 900), Bytes(128), default);
+
+        Assert.Equal(SyncUploadOutcome.Replaced, response.Outcome);
+        Assert.True(channel.Reader.TryRead(out var flipped), "the sweep flipped the song before the upload saved");
+        Assert.Equal(songId, flipped);
+        await using var read = database.NewContext();
+        var stored = await read.Songs.IgnoreQueryFilters().AsNoTracking().SingleAsync(s => s.Id == songId);
+        Assert.True(stored.IsManuallyApproved);
+        Assert.Equal(EnrichmentStatus.Matched, stored.EnrichmentStatus);
+    }
+
+    /// <summary>Runs an action once, as the context starts its first save.</summary>
+    private sealed class BeforeFirstSave(Func<CancellationToken, Task> action) : SaveChangesInterceptor
+    {
+        private bool _fired;
+
+        public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData, InterceptionResult<int> result, CancellationToken ct = default)
+        {
+            if (!_fired)
+            {
+                _fired = true;
+                await action(ct);
+            }
+            return result;
+        }
     }
 
     [Fact]
