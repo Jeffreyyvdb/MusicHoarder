@@ -138,6 +138,8 @@ services:
       restart_policy:
         condition: "any"
         delay: "5s"
+      labels:
+        traefik.swarm.lbswarm: "true"
     healthcheck:
       test:
         - "CMD-SHELL"
@@ -186,6 +188,8 @@ services:
       restart_policy:
         condition: "any"
         delay: "5s"
+      labels:
+        traefik.swarm.lbswarm: "true"
     healthcheck:
       test:
         - "CMD-SHELL"

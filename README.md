@@ -415,7 +415,10 @@ The prod compose (`MusicHoarder.AppHost/aspire-output/docker-compose.yaml`) decl
 services. To get zero-downtime rollouts you must run the stack as a **Docker Stack (Swarm)** — in
 Dokploy set the Compose service's **Compose Type to "Docker Stack"**. Swarm then starts the new task,
 waits for its healthcheck to pass, and only then removes the old one, so there is no 502 window.
-(Because Swarm ignores `pull_policy`, the stack deploy must run with `--resolve-image always` so the
+Both services also carry `traefik.swarm.lbswarm=true`, so Traefik sends requests to the service's
+Swarm virtual IP rather than to task IPs it re-reads only every 15 seconds. Without it, Traefik keeps
+routing to the old task for up to 15 seconds after it stops, which looks like a few seconds of 502s
+on every deploy. (Because Swarm ignores `pull_policy`, the stack deploy must run with `--resolve-image always` so the
 unchanged `:edge` (or `:latest`) reference still re-pulls the newest digest.)
 
 These keys are inert under plain `docker compose up` (Compose ignores `deploy.update_config`), so the
