@@ -112,7 +112,8 @@ internal static class ComposeFileExtensions
         // `docker compose up`. (The api listens on ${API_PORT} (HTTP_PORTS), so probe that.)
         //
         // Both services use start-first (zero-downtime: the new task must pass its healthcheck before
-        // the old one is removed). The frontend is a stateless SSR/proxy, so overlap is free.
+        // the old one is removed), and route through the swarm VIP (see WithRollingUpdate). The
+        // frontend is a stateless SSR/proxy, so overlap is free.
         //
         // The api hosts the singleton pipeline (Scanner / Fingerprint / Enrichment / LibraryBuilder),
         // which is NOT designed to run as two concurrent processes — workers don't claim DB rows
@@ -495,10 +496,18 @@ internal static class ComposeFileExtensions
     /// Swarm rolling update for a stateless request-path service: <c>start-first</c> keeps the old
     /// task serving until the new one passes its healthcheck (zero-downtime), rolling back if it
     /// never goes healthy.
+    /// <para>
+    /// start-first alone still drops requests: Traefik's swarm provider (Dokploy's Traefik uses it)
+    /// routes to task IPs it re-reads only every 15s, so after the old task stops it keeps sending
+    /// requests to a dead IP until the next poll (502s and hung requests). <c>traefik.swarm.lbswarm</c>
+    /// routes to the service's virtual IP instead: swarm adds the new task to it once its healthcheck
+    /// passes and takes the old one out before stopping it.
+    /// </para>
     /// </summary>
     public static Service WithRollingUpdate(this Service service)
     {
         service.Deploy = SwarmUpdate("start-first");
+        (service.Deploy.Labels ??= new())["traefik.swarm.lbswarm"] = "true";
         return service;
     }
 
