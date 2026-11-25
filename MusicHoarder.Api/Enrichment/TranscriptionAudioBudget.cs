@@ -46,8 +46,11 @@ public sealed class TranscriptionAudioBudget(
 
     /// <summary>The audio a whole-song transcription of <paramref name="song"/> sends.</summary>
     public static double WholeSongSeconds(SongMetadata song)
-        => song.DurationSeconds is > 0 ? song.DurationSeconds.Value
-            : song.DurationMs is > 0 ? song.DurationMs.Value / 1000.0
+        => WholeSongSeconds(song.DurationSeconds, song.DurationMs);
+
+    public static double WholeSongSeconds(int? durationSeconds, int? durationMs)
+        => durationSeconds is > 0 ? durationSeconds.Value
+            : durationMs is > 0 ? durationMs.Value / 1000.0
             : UnknownDurationSeconds;
 
     public static bool IsBackground(TranscriptionPurpose purpose)
