@@ -44,12 +44,12 @@ public sealed class DedupActionHistoryService(
 {
     /// <summary>Sources this history covers; order is irrelevant.</summary>
     public static readonly string[] DedupSources =
-        ["artist-merge", "album-merge", "artist-credit-split", "album-identity-heal"];
+        [SongChangeAudit.ArtistMerge, SongChangeAudit.AlbumMerge, SongChangeAudit.ArtistCreditSplit, SongChangeAudit.AlbumIdentityHeal];
 
     /// <summary>Heals are convergence passes, not user decisions: reverting one would only make the
     /// next idle heal re-apply it (that ping-pong is exactly the oscillation class this codebase has
     /// been bitten by before), so the history lists them for transparency but refuses to revert.</summary>
-    public const string NonRevertibleSource = "album-identity-heal";
+    public const string NonRevertibleSource = SongChangeAudit.AlbumIdentityHeal;
 
     // Reads go through the per-user query filter on SongMetadataChanges (mirrors Songs), so an
     // endpoint-scoped context only ever sees the caller's own history.
@@ -164,7 +164,7 @@ public sealed class DedupActionHistoryService(
         // Reverting a merge must also retire its aliases, otherwise the split-heal and enrichment
         // keep mapping the variants back onto the canonical spelling and the revert un-does itself.
         var aliasesRemoved = 0;
-        if (source is "artist-merge")
+        if (source is SongChangeAudit.ArtistMerge)
         {
             var canonicals = changes
                 .Select(c => c.NewValue)

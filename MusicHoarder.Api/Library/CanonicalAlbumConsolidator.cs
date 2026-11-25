@@ -94,17 +94,8 @@ public sealed class CanonicalAlbumConsolidator(
                 corrected++;
                 foreach (var (field, oldValue, newValue) in changes)
                 {
-                    db.SongMetadataChanges.Add(new SongMetadataChange
-                    {
-                        SongId = song.Id,
-                        FieldName = field,
-                        OldValue = oldValue,
-                        NewValue = newValue,
-                        Source = "canonical-album",
-                        Confidence = 1.0,
-                        CreatedAtUtc = now,
-                        AppliedAtUtc = now,
-                    });
+                    SongChangeAudit.Record(
+                        db, SongChangeAudit.CanonicalAlbum, now, song.Id, field, oldValue, newValue);
                 }
             }
 

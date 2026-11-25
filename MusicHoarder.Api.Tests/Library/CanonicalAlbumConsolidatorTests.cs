@@ -144,6 +144,25 @@ public class CanonicalAlbumConsolidatorTests
             c => c.FieldName == nameof(SongMetadata.AlbumArtist) && c.NewValue == "Ms. Lauryn Hill");
     }
 
+    [Fact]
+    public async Task ConsolidateAsync_AuditsEveryCorrectionAsOneAppliedBatch()
+    {
+        await using var db = NewContext();
+        SeedCanonical(db);
+        db.Songs.AddRange(
+            OwnedSong("/i-love-you.flac", title: "I Love You", trackNumber: 1, year: 2020),
+            OwnedSong("/leray.flac", title: "Leray", trackNumber: 1, year: 2019));
+        await db.SaveChangesAsync();
+
+        await Consolidator().ConsolidateAsync(db, "Trippie Redd", "A Love Letter to You 4", CancellationToken.None);
+        await db.SaveChangesAsync();
+
+        var changes = await db.SongMetadataChanges.ToListAsync();
+        Assert.All(changes, c => Assert.Equal("canonical-album", c.Source));
+        Assert.Contains(changes, c => c.FieldName == nameof(SongMetadata.TrackNumber) && c.NewValue == "9");
+        AuditBatchAssert.OneAppliedBatch(changes, await db.Songs.ToListAsync());
+    }
+
     private static void SeedCanonical(MusicHoarderDbContext db) => db.CanonicalAlbums.Add(new CanonicalAlbum
     {
         ArtistKey = "trippie redd",

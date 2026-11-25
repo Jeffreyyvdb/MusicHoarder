@@ -12,8 +12,8 @@ namespace MusicHoarder.Api.Library;
 
 /// <summary>
 /// One field a credit repair would write: which repair (its audit <see cref="SongMetadataChange.Source"/>,
-/// one of the <c>ArtistCreditRepairHealer.*Source</c> constants), the value the song holds now and the
-/// value the repair restores.
+/// one of the <c>SongChangeAudit.*Repair</c> constants), the value the song holds now and the value the
+/// repair restores.
 /// </summary>
 public sealed record ArtistCreditRepair(
     int SongId,
@@ -35,17 +35,17 @@ public interface IArtistCreditRepairHealer
     /// Repairs artist credits the first artist-dedup release damaged, from state the rows already
     /// carry — no provider calls:
     /// <list type="bullet">
-    /// <item><b>Collab album artist</b> (<see cref="ArtistCreditRepairHealer.AlbumArtistSource"/>): an
+    /// <item><b>Collab album artist</b> (<see cref="SongChangeAudit.AlbumArtistRepair"/>): an
     /// album artist that is the joined credit of the song's own discrete list ("Hef met Jayh" over
     /// [Hef, Jayh], written by a MusicBrainz mapping that knew only English join phrases while it took
     /// the LEAD's id), or that carries a featuring clause ("Nas (featuring AZ)", the scanner's fallback
     /// before brackets were understood), becomes the lead artist.</item>
-    /// <item><b>Merge</b> (<see cref="ArtistCreditRepairHealer.MergeSource"/>): a display credit an
+    /// <item><b>Merge</b> (<see cref="SongChangeAudit.ArtistMergeRepair"/>): a display credit an
     /// artist merge rewrote to the lead ("Nas (featuring AZ)" → "Nas") gets its old value back.</item>
-    /// <item><b>Credit split</b> (<see cref="ArtistCreditRepairHealer.SplitSource"/>): the phantom
+    /// <item><b>Credit split</b> (<see cref="SongChangeAudit.CreditSplitRepair"/>): the phantom
     /// "feat." artist a split wrote into Artists is dropped, and a split that landed on a row whose
     /// credit never named those artists (a solo "Kanye West" row) is undone.</item>
-    /// <item><b>Alias</b> (<see cref="ArtistCreditRepairHealer.AliasSource"/>): a featuring credit
+    /// <item><b>Alias</b> (<see cref="SongChangeAudit.ArtistAliasRepair"/>): a featuring credit
     /// enrichment wrote as its lead because a merge alias keyed on the lead matched it gets the
     /// provider's own credit back.</item>
     /// </list>
@@ -62,21 +62,11 @@ public sealed class ArtistCreditRepairHealer(
     IOptions<MusicEnricherOptions> options,
     ILogger<ArtistCreditRepairHealer> logger) : IArtistCreditRepairHealer
 {
-    public const string AlbumArtistSource = "album-artist-repair";
-    public const string MergeSource = "artist-merge-repair";
-    public const string SplitSource = "credit-split-repair";
-    public const string AliasSource = "artist-alias-repair";
-
     private static readonly HashSet<string> RepairSources = new(StringComparer.Ordinal)
     {
-        AlbumArtistSource, MergeSource, SplitSource, AliasSource,
+        SongChangeAudit.AlbumArtistRepair, SongChangeAudit.ArtistMergeRepair,
+        SongChangeAudit.CreditSplitRepair, SongChangeAudit.ArtistAliasRepair,
     };
-
-    // The sources whose rows these repairs read. Spelled out rather than borrowed from
-    // ArtistDuplicateService: they name rows already in the database, so they must not move if that
-    // service ever renames its own constants.
-    private const string ArtistMergeSource = "artist-merge";
-    private const string CreditSplitSource = "artist-credit-split";
 
     // Writers whose AlbumArtist is an ALBUM-level decision: the split-album heal's election (canonical
     // overlay, member majority, oscillation freeze, merge alias), the canonical-album consolidation, a
@@ -84,7 +74,8 @@ public sealed class ArtistCreditRepairHealer(
     // defers — fighting it is the ping-pong AlbumArtistOscillationTests exists for.
     private static readonly HashSet<string> AlbumLevelSources = new(StringComparer.Ordinal)
     {
-        "album-identity-heal", "canonical-album", ArtistMergeSource, "album-merge",
+        SongChangeAudit.AlbumIdentityHeal, SongChangeAudit.CanonicalAlbum,
+        SongChangeAudit.ArtistMerge, SongChangeAudit.AlbumMerge,
     };
 
     // Enrichment audits its writes under the winning provider's MatchedBy, which is the provider name.
@@ -120,17 +111,8 @@ public sealed class ArtistCreditRepairHealer(
         {
             foreach (var change in changes)
             {
-                db.SongMetadataChanges.Add(new SongMetadataChange
-                {
-                    SongId = song.Id,
-                    FieldName = change.Field,
-                    OldValue = change.OldValue,
-                    NewValue = change.NewValue,
-                    Source = change.Source,
-                    Confidence = 1.0,
-                    CreatedAtUtc = now,
-                    AppliedAtUtc = now,
-                });
+                SongChangeAudit.Record(
+                    db, change.Source, now, song.Id, change.Field, change.OldValue, change.NewValue);
                 fields++;
             }
 
@@ -162,8 +144,8 @@ public sealed class ArtistCreditRepairHealer(
             .IgnoreQueryFilters()
             .AsNoTracking()
             .Where(c => c.AppliedAtUtc != null && c.RevertedAtUtc == null)
-            .Where(c => (c.Source == ArtistMergeSource && c.FieldName == Artist)
-                || (c.Source == CreditSplitSource && c.FieldName == Artists))
+            .Where(c => (c.Source == SongChangeAudit.ArtistMerge && c.FieldName == Artist)
+                || (c.Source == SongChangeAudit.ArtistCreditSplit && c.FieldName == Artists))
             .Select(c => c.SongId)
             .Distinct()
             .ToListAsync(ct);
@@ -275,7 +257,7 @@ public sealed class ArtistCreditRepairHealer(
     {
         var last = LastApplied(history, Artist);
         if (last is null
-            || last.Source != ArtistMergeSource
+            || last.Source != SongChangeAudit.ArtistMerge
             || !string.Equals(last.NewValue, song.Artist, StringComparison.Ordinal)
             || string.IsNullOrWhiteSpace(last.OldValue)
             || string.Equals(last.OldValue, last.NewValue, StringComparison.Ordinal)
@@ -286,7 +268,7 @@ public sealed class ArtistCreditRepairHealer(
         if (!IsMultiArtistCredit(last.OldValue, DiscreteCredit(song.Artists, song.ArtistMusicBrainzIds).Names))
             return false;
 
-        Apply(song, Artist, last.OldValue, MergeSource, changes);
+        Apply(song, Artist, last.OldValue, SongChangeAudit.ArtistMergeRepair, changes);
         return true;
     }
 
@@ -331,7 +313,7 @@ public sealed class ArtistCreditRepairHealer(
         if (!aliased || !IsMultiArtistCredit(credit, DiscreteCredit(song.Artists, song.ArtistMusicBrainzIds).Names))
             return;
 
-        Apply(song, Artist, credit, AliasSource, changes);
+        Apply(song, Artist, credit, SongChangeAudit.ArtistAliasRepair, changes);
     }
 
     // (c) Two split defects. The featuring regex's capturing group made Regex.Split return the
@@ -341,7 +323,7 @@ public sealed class ArtistCreditRepairHealer(
     private static void TryRepairSplitCredit(SongMetadata song, List<ChangeRow> history, List<PlannedChange> changes)
     {
         var split = history.LastOrDefault(c =>
-            c.Source == CreditSplitSource && c.FieldName == Artists && c.Applied && !c.Reverted);
+            c.Source == SongChangeAudit.ArtistCreditSplit && c.FieldName == Artists && c.Applied && !c.Reverted);
         if (split is null
             || string.IsNullOrWhiteSpace(song.Artists)
             || AlreadyRepairedAway(history, Artists, song.Artists)
@@ -359,7 +341,7 @@ public sealed class ArtistCreditRepairHealer(
             && string.Equals(song.Artists, split.NewValue, StringComparison.Ordinal);
         if (untouched && !ArtistCreditNormalizer.IsJoinedCreditOf(song.Artist, parts))
         {
-            Apply(song, Artists, split.OldValue, SplitSource, changes);
+            Apply(song, Artists, split.OldValue, SongChangeAudit.CreditSplitRepair, changes);
             return;
         }
 
@@ -369,9 +351,9 @@ public sealed class ArtistCreditRepairHealer(
             || !MultiValue.Split(split.NewValue).Any(ArtistCreditNormalizer.IsDelimiterToken))
             return;
 
-        Apply(song, Artists, MultiValue.Join(parts), SplitSource, changes);
+        Apply(song, Artists, MultiValue.Join(parts), SongChangeAudit.CreditSplitRepair, changes);
         if (alignedIds is not null)
-            Apply(song, ArtistMusicBrainzIds, MultiValue.Join(alignedIds), SplitSource, changes);
+            Apply(song, ArtistMusicBrainzIds, MultiValue.Join(alignedIds), SongChangeAudit.CreditSplitRepair, changes);
     }
 
     // (a) The album artist is the lead of the credit. The MusicBrainz mapping took the NAME from the
@@ -442,11 +424,11 @@ public sealed class ArtistCreditRepairHealer(
             || CanonicalAlbumPullsBack(song, target, current, context.CanonicalArtists))
             return;
 
-        Apply(song, AlbumArtist, target, AlbumArtistSource, changes);
+        Apply(song, AlbumArtist, target, SongChangeAudit.AlbumArtistRepair, changes);
         if (!string.IsNullOrWhiteSpace(leadMbid)
             && TitleNormalizer.NormalizeForSearch(target) == TitleNormalizer.NormalizeForSearch(lead)
             && !string.Equals(song.AlbumArtistMusicBrainzId, leadMbid, StringComparison.Ordinal))
-            Apply(song, AlbumArtistMusicBrainzId, leadMbid, AlbumArtistSource, changes);
+            Apply(song, AlbumArtistMusicBrainzId, leadMbid, SongChangeAudit.AlbumArtistRepair, changes);
     }
 
     // Mirrors AlbumSplitHealer.OverlayCanonicalArtist for the logical album the repaired row lands in:
