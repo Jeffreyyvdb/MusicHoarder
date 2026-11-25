@@ -63,6 +63,7 @@ internal static class AlbumProjection
     /// name after every uppercase one, and "Ólafur" past "Z".
     /// </summary>
     private static readonly StringComparer Names = StringComparer.InvariantCulture;
+    private static readonly StringComparer NamesIgnoreCase = StringComparer.InvariantCultureIgnoreCase;
 
     /// <summary>
     /// Group <paramref name="rows"/> into album cards.
@@ -97,20 +98,28 @@ internal static class AlbumProjection
         var order = new List<Entry>();
         var byKey = new Dictionary<string, Entry>(StringComparer.Ordinal);
 
-        // Most recent added-date over ALL tracks, kept aside as the fallback for an album with none
-        // of the owner's own — see AlbumSummaryDto.AddedAtUtc. Not a field on the card: nothing
-        // outside this method needs it, and one meaning per field is what keeps the sorts honest.
-        var anyTrackAdded = new Dictionary<string, DateTime>(StringComparer.Ordinal);
-
         foreach (var row in rows)
         {
-            var title = NonEmpty(row.Album) ?? UnknownAlbum;
-            var artist = NonEmpty(row.AlbumArtist) ?? NonEmpty(row.Artist) ?? UnknownArtist;
-            var nameKey = NameKey(artist, title);
-            var key = DestinationFolderOf(row) ?? nameKey;
+            var folder = DestinationFolderOf(row);
+            string? title = null, artist = null, nameKey = null;
+            string key;
+            if (folder is not null)
+            {
+                key = folder;
+            }
+            else
+            {
+                title = NonEmpty(row.Album) ?? UnknownAlbum;
+                artist = NonEmpty(row.AlbumArtist) ?? NonEmpty(row.Artist) ?? UnknownArtist;
+                nameKey = NameKey(artist, title);
+                key = nameKey;
+            }
 
             if (!byKey.TryGetValue(key, out var entry))
             {
+                title ??= NonEmpty(row.Album) ?? UnknownAlbum;
+                artist ??= NonEmpty(row.AlbumArtist) ?? NonEmpty(row.Artist) ?? UnknownArtist;
+                nameKey ??= NameKey(artist, title);
                 entry = new Entry
                 {
                     Key = key,
@@ -130,8 +139,7 @@ internal static class AlbumProjection
             var added = AddedAt(row);
             if (added is { } addedAt)
             {
-                DateTime? seenAny = anyTrackAdded.TryGetValue(key, out var any) ? any : null;
-                if (IsLater(addedAt, seenAny)) anyTrackAdded[key] = addedAt;
+                if (IsLater(addedAt, entry.AnyTrackAddedAtUtc)) entry.AnyTrackAddedAtUtc = addedAt;
                 if (IsMyMusic(row) && IsLater(addedAt, entry.AddedAtUtc)) entry.AddedAtUtc = addedAt;
             }
 
@@ -154,7 +162,7 @@ internal static class AlbumProjection
             entry.Tracks = SortTracks(entry.Tracks);
             // Nothing of the owner's own in this album — completion filled one in whole, or its owned
             // tracks were soft-deleted. Date it from what is there so it still sorts.
-            if (entry.AddedAtUtc is null && anyTrackAdded.TryGetValue(entry.Key, out var fallback))
+            if (entry.AddedAtUtc is null && entry.AnyTrackAddedAtUtc is { } fallback)
                 entry.AddedAtUtc = fallback;
         }
 
@@ -255,7 +263,7 @@ internal static class AlbumProjection
     /// </summary>
     private static List<AlbumTrackRow> SortTracks(List<AlbumTrackRow> tracks) => tracks
         .OrderBy(t => t.TrackNumber ?? int.MaxValue)
-        .ThenBy(t => (t.Title ?? t.FileName).ToLowerInvariant(), Names)
+        .ThenBy(t => t.Title ?? t.FileName, NamesIgnoreCase)
         .ToList();
 
     /// <summary>
@@ -330,6 +338,7 @@ internal static class AlbumProjection
         public string? MusicBrainzReleaseId { get; set; }
         public int? CoverSongId { get; set; }
         public DateTime? AddedAtUtc { get; set; }
+        public DateTime? AnyTrackAddedAtUtc { get; set; }
         public int PlayCount { get; set; }
         public List<AlbumTrackRow> Tracks { get; set; } = [];
 

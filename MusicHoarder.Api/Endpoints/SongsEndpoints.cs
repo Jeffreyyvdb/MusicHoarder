@@ -315,11 +315,6 @@ public static class SongsEndpoints
         var syncedSourceDirectory = syncOptions.Value.SyncedSourceDirectory;
 
         var songs = await query
-            .OrderBy(s => s.Artist ?? "")
-            .ThenBy(s => s.Album ?? "")
-            .ThenBy(s => s.TrackNumber ?? 0)
-            .ThenBy(s => s.Title ?? "")
-            .ThenBy(s => s.FileName)
             .Select(s => new
             {
                 s.Id,
@@ -341,9 +336,9 @@ public static class SongsEndpoints
                 s.DurationMs,
                 s.Bitrate,
                 s.HasCoverArt,
-                // A flag, not the value: a Chromaprint fingerprint is a few kilobytes per song, and
-                // was half of this response. One track's fingerprint is in its enrichment detail.
-                HasFingerprint = s.Fingerprint != null && s.Fingerprint != string.Empty,
+                // Stored boolean flags: avoids detoasting multi-KB Chromaprint fingerprints and
+                // lyrics blobs across the whole library in PostgreSQL.
+                s.HasFingerprint,
                 s.Isrc,
                 s.MusicBrainzId,
                 s.MusicBrainzReleaseId,
@@ -365,18 +360,12 @@ public static class SongsEndpoints
                 s.LibraryBuiltAtUtc,
                 s.DestinationPath,
                 s.LyricsStatus,
-                // Only what the list says about the lyrics, decided in the database: the text itself
-                // (kilobytes per song) is fetched per track by GetTrackLyrics.
-                HasSyncedLyrics = s.SyncedLyrics != null && s.SyncedLyrics != string.Empty,
-                HasPlainLyrics = s.PlainLyrics != null && s.PlainLyrics != string.Empty,
-                SyncedLyricsBlank = string.IsNullOrWhiteSpace(s.SyncedLyrics),
-                PlainLyricsBlank = string.IsNullOrWhiteSpace(s.PlainLyrics),
+                s.HasSyncedLyrics,
+                s.HasPlainLyrics,
+                SyncedLyricsBlank = !s.HasNonBlankSyncedLyrics,
+                PlainLyricsBlank = !s.HasNonBlankPlainLyrics,
                 s.IsInstrumental,
-                // Lightweight transcription flags only — the (potentially large) AI lyric text is fetched
-                // on demand via GetTrackLyrics, not shipped with every row in the songs list.
-                HasTranscribedLyrics =
-                    (s.TranscribedSyncedLyrics != null && s.TranscribedSyncedLyrics != string.Empty)
-                    || (s.TranscribedPlainLyrics != null && s.TranscribedPlainLyrics != string.Empty),
+                s.HasTranscribedLyrics,
                 s.PreferredLyricsSource,
                 s.TranscriptionAlignedToReference,
                 s.LyricsSyncStatus,
@@ -396,7 +385,26 @@ public static class SongsEndpoints
                     && s.MusicVideo.Status == MusicVideoStatus.Ready
                     && s.MusicVideo.FilePath != null,
             })
-            .ToListAsync();
+            .ToListAsync(ct);
+
+        // Sort in memory rather than in PostgreSQL: an unindexed 5-column COALESCE ORDER BY over
+        // 10k+ wide tuples spends ~150ms sorting in Postgres. InvariantCulture matches the
+        // locale-aware alphabetical ordering used by AlbumProjection.Names, and Id provides a
+        // deterministic final tie-breaker since List.Sort is unstable and SQL returns unordered rows.
+        var names = StringComparer.InvariantCulture;
+        songs.Sort((a, b) =>
+        {
+            var cmp = names.Compare(a.Artist ?? string.Empty, b.Artist ?? string.Empty);
+            if (cmp != 0) return cmp;
+            cmp = names.Compare(a.Album ?? string.Empty, b.Album ?? string.Empty);
+            if (cmp != 0) return cmp;
+            cmp = (a.TrackNumber ?? 0).CompareTo(b.TrackNumber ?? 0);
+            if (cmp != 0) return cmp;
+            cmp = names.Compare(a.Title ?? string.Empty, b.Title ?? string.Empty);
+            if (cmp != 0) return cmp;
+            cmp = names.Compare(a.FileName, b.FileName);
+            return cmp != 0 ? cmp : a.Id.CompareTo(b.Id);
+        });
 
         var projected = songs.Select(s =>
         {
@@ -1231,66 +1239,105 @@ public static class SongsEndpoints
         int? size,
         CancellationToken ct)
     {
-        var found = await scopeResolver.ResolveSongAsync(db, id, ct);
+        var found = await scopeResolver.ResolveSongMediaAsync(db, id, ct);
         var song = found?.Song;
 
         // Synthetic (demo) rows have no real file on disk — nothing to resolve.
         if (song is null || song.IsSynthetic)
             return Results.NotFound();
 
-        // A song with an attached music video keeps its YouTube thumbnail next to the mp4
-        // (<stem>.jpg) — the fallback cover for artless downloads until real art arrives.
-        //
-        // Filter bypassed deliberately: SongMusicVideo is scoped by its parent song's owner, so an
-        // ambient-filtered read returns nothing for a grantee and every shared track silently loses
-        // its thumbnail fallback. Safe because the song was already authorized above.
-        string? videoThumbnail = null;
+        // Only query SongMusicVideos if no folder/embedded cover exists — avoids an extra DB query
+        // on 99% of cover requests. Filter bypassed deliberately: SongMusicVideo is scoped by its
+        // parent song's owner, and the song was already authorized above.
+        Task<string?> FallbackVideoThumbAsync() => FindMusicVideoThumbnailAsync(db, song.Id, ct);
+
+        return await ServeCoverAsync(song, coverArtResolver, thumbnails, http, size, FallbackVideoThumbAsync);
+    }
+
+    private static async Task<string?> FindMusicVideoThumbnailAsync(
+        MusicHoarderDbContext db, int songId, CancellationToken ct)
+    {
         var videoFilePath = await db.SongMusicVideos.IgnoreQueryFilters().AsNoTracking()
-            .Where(v => v.SongId == song.Id)
+            .Where(v => v.SongId == songId)
             .Select(v => v.FilePath)
             .FirstOrDefaultAsync(ct);
-        if (videoFilePath is not null)
-        {
-            var candidate = Path.ChangeExtension(videoFilePath, ".jpg");
-            if (File.Exists(candidate))
-                videoThumbnail = candidate;
-        }
+        if (videoFilePath is null)
+            return null;
 
-        return await ServeCoverAsync(song, coverArtResolver, thumbnails, http, size, videoThumbnail);
+        var candidate = Path.ChangeExtension(videoFilePath, ".jpg");
+        return File.Exists(candidate) ? candidate : null;
     }
 
     /// <summary>
     /// Resolve + serve a song's cover (thumbnailed when <paramref name="size"/> is set) for a row
     /// the caller has already authorized (also used by the anonymous share endpoints).
     /// </summary>
-    internal static async Task<IResult> ServeCoverAsync(
+    internal static Task<IResult> ServeCoverAsync(
         SongMetadata song,
         ICoverArtResolver coverArtResolver,
         ICoverThumbnailService thumbnails,
         HttpContext http,
         int? size,
-        string? musicVideoThumbnailPath = null)
+        string? musicVideoThumbnailPath = null) =>
+        ServeCoverAsync(
+            new SongMediaRef(song.Id, song.IsSynthetic, song.SourcePath, song.DestinationPath),
+            coverArtResolver,
+            thumbnails,
+            http,
+            size,
+            musicVideoThumbnailPath is null ? null : () => Task.FromResult<string?>(musicVideoThumbnailPath));
+
+    internal static async Task<IResult> ServeCoverAsync(
+        SongMediaRef song,
+        ICoverArtResolver coverArtResolver,
+        ICoverThumbnailService thumbnails,
+        HttpContext http,
+        int? size,
+        Func<Task<string?>>? resolveMusicVideoThumbnail = null)
     {
-        var filePath = ResolveAudioFilePath(song);
+        var filePath = ResolveAudioFilePath(song.DestinationPath, song.SourcePath);
 
         if (filePath is null)
             return Results.NotFound();
 
-        var cover = coverArtResolver.Resolve(filePath);
+        // Fast path for ?size= requests: check folder art first (Navidrome priority) and probe the
+        // on-disk WebP thumbnail cache BEFORE calling TagLib.File.Create to extract embedded bytes.
+        ResolvedCover? folderCover = null;
+        if (size is int requestedFast && requestedFast > 0)
+        {
+            folderCover = coverArtResolver.ResolveFolderCover(filePath);
+            var fastIdentity = folderCover?.FilePath ?? filePath;
+            var cached = thumbnails.TryGetCachedThumbnail(fastIdentity, requestedFast);
+            if (cached?.FilePath is not null)
+            {
+                http.Response.Headers.CacheControl = "private, max-age=604800";
+                return Results.File(cached.FilePath, contentType: cached.ContentType);
+            }
+        }
+
+        var cover = folderCover ?? coverArtResolver.Resolve(filePath);
+        var coverSourceAudioPath = filePath;
 
         // An artless source still gets a destination cover from the external fetch — serve that
-        // rather than 404ing just because the (preferred) source file resolved nothing.
+        // rather than 404ing just because the (preferred) source file resolved nothing. Track which
+        // audio file supplied embedded bytes so the thumbnail cache keys on that file's mtime.
         if (cover is null
             && filePath == song.SourcePath
             && !string.IsNullOrEmpty(song.DestinationPath)
             && File.Exists(song.DestinationPath))
         {
             cover = coverArtResolver.Resolve(song.DestinationPath);
+            if (cover is not null)
+                coverSourceAudioPath = song.DestinationPath;
         }
 
         // Last resort: the music video's YouTube thumbnail (real art always wins when present).
-        if (cover is null && musicVideoThumbnailPath is not null)
-            cover = new ResolvedCover { FilePath = musicVideoThumbnailPath, ContentType = "image/jpeg" };
+        if (cover is null && resolveMusicVideoThumbnail is not null)
+        {
+            var videoThumb = await resolveMusicVideoThumbnail();
+            if (videoThumb is not null)
+                cover = new ResolvedCover { FilePath = videoThumb, ContentType = "image/jpeg" };
+        }
 
         if (cover is null)
             return Results.NotFound();
@@ -1299,7 +1346,7 @@ public static class SongsEndpoints
         // this is what the album grid uses so scrolling doesn't download full-resolution art.
         if (size is int requested && requested > 0)
         {
-            var identity = cover.FilePath ?? filePath;
+            var identity = cover.FilePath ?? coverSourceAudioPath;
             var thumb = await thumbnails.GetThumbnailAsync(cover, identity, requested, http.RequestAborted);
             if (thumb?.FilePath is not null)
             {
@@ -1327,14 +1374,44 @@ public static class SongsEndpoints
             .Where(l => l.Status == DuplicateLinkStatus.Active)
             .ToListAsync();
 
+        if (links.Count == 0)
+            return Results.Ok(new DuplicateGroupsReport(0, 0, []));
+
         var songIds = links
             .SelectMany(l => new[] { l.SongIdLow, l.SongIdHigh })
             .Distinct()
             .ToList();
 
+        // Project ONLY the columns DuplicateGroupProjection and keeper ranking read (avoids loading
+        // lyrics, translations, and tag snapshots while preserving the full Fingerprint contract).
         var songs = await db.Songs
             .AsNoTracking()
             .Where(s => songIds.Contains(s.Id) && s.DeletedAtUtc == null)
+            .Select(s => new SongMetadata
+            {
+                Id = s.Id,
+                SourcePath = s.SourcePath,
+                FileName = s.FileName,
+                Extension = s.Extension,
+                FileSizeBytes = s.FileSizeBytes,
+                LastModifiedUtc = s.LastModifiedUtc,
+                IndexedAtUtc = s.IndexedAtUtc,
+                Artist = s.Artist,
+                AlbumArtist = s.AlbumArtist,
+                Album = s.Album,
+                Title = s.Title,
+                Year = s.Year,
+                TrackNumber = s.TrackNumber,
+                DurationSeconds = s.DurationSeconds,
+                Bitrate = s.Bitrate,
+                Fingerprint = s.Fingerprint,
+                IsDuplicate = s.IsDuplicate,
+                DuplicateOfId = s.DuplicateOfId,
+                EnrichmentStatus = s.EnrichmentStatus,
+                LibraryBuildStatus = s.LibraryBuildStatus,
+                DestinationPath = s.DestinationPath,
+                DuplicateKeeperPinnedAtUtc = s.DuplicateKeeperPinnedAtUtc,
+            })
             .ToDictionaryAsync(s => s.Id);
 
         return Results.Ok(DuplicateGroupProjection.Build(links, songs));

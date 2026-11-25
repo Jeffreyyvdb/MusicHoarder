@@ -332,6 +332,25 @@ public class ListDuplicatesEndpointTests
 
     // --- helpers ---------------------------------------------------------------------------------
 
+    [Fact]
+    public async Task Fingerprint_PreservesFullStoredStringBeyond32Characters()
+    {
+        using var db = NewContext();
+        var longFp = new string('A', 64) + "TAIL";
+        var s1 = Song(1, ".flac");
+        s1.Fingerprint = longFp;
+        var s2 = Song(2, ".mp3", bitrate: 320);
+        s2.Fingerprint = longFp;
+        db.Songs.AddRange(s1, s2);
+        db.SongDuplicateLinks.Add(Link(1, 2, DuplicateMatchReason.ExactFingerprint, DuplicateConfidence.Confirmed));
+        db.SaveChanges();
+
+        var group = Assert.Single(Json(await SongsEndpoints.ListDuplicates(db))
+            .GetProperty("DuplicateGroups").EnumerateArray());
+        var keeper = group.GetProperty("Keeper");
+        Assert.Equal(longFp, keeper.GetProperty("Fingerprint").GetString());
+    }
+
     private static MusicHoarderDbContext NewContext() =>
         new(new DbContextOptionsBuilder<MusicHoarderDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString("N")).Options);

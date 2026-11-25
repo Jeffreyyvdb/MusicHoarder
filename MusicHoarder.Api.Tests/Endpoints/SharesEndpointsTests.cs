@@ -351,6 +351,33 @@ public class SharesEndpointsTests
     }
 
     [Fact]
+    public async Task ResolveSongMediaInScopeAsync_MatchesAlbumScopeAndRejectsOutOfScopeAndDuplicates()
+    {
+        var options = NewOptions();
+        await using (var seed = new MusicHoarderDbContext(options))
+        {
+            seed.Songs.Add(Song(1, TestUsers.OwnerId, "Discovery", "Daft Punk", title: "One More Time", trackNumber: 1));
+            seed.Songs.Add(Song(2, TestUsers.OwnerId, "discovery", "daft punk", title: "Aerodynamic", trackNumber: 2));
+            var dup = Song(3, TestUsers.OwnerId, "Discovery", "Daft Punk", title: "Dup", trackNumber: 3);
+            dup.IsDuplicate = true;
+            seed.Songs.Add(dup);
+            seed.Songs.Add(Song(4, TestUsers.OwnerId, "Homework", "Daft Punk", title: "Around the World", trackNumber: 1));
+            seed.SongShares.Add(Share(1, songId: 1, ShareScope.Album, "album-tok"));
+            seed.SongShares.Add(Share(2, songId: 1, ShareScope.Song, "song-tok"));
+            await seed.SaveChangesAsync();
+        }
+
+        await using var db = AnonymousContext(options);
+        Assert.Equal(1, (await SharesEndpoints.ResolveSongMediaInScopeAsync(db, "album-tok", 1, CancellationToken.None))?.Id);
+        Assert.Equal(2, (await SharesEndpoints.ResolveSongMediaInScopeAsync(db, "album-tok", 2, CancellationToken.None))?.Id);
+        Assert.Null(await SharesEndpoints.ResolveSongMediaInScopeAsync(db, "album-tok", 3, CancellationToken.None));
+        Assert.Null(await SharesEndpoints.ResolveSongMediaInScopeAsync(db, "album-tok", 4, CancellationToken.None));
+
+        Assert.Equal(1, (await SharesEndpoints.ResolveSongMediaInScopeAsync(db, "song-tok", 1, CancellationToken.None))?.Id);
+        Assert.Null(await SharesEndpoints.ResolveSongMediaInScopeAsync(db, "song-tok", 2, CancellationToken.None));
+    }
+
+    [Fact]
     public async Task RevokeShare_DisablesTheLink()
     {
         var options = NewOptions();

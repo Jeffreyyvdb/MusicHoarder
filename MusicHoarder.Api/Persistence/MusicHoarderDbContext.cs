@@ -67,6 +67,58 @@ public class MusicHoarderDbContext : DbContext
         optionsBuilder.ReplaceService<IModelCacheKeyFactory, UserAwareModelCacheKeyFactory>();
     }
 
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        SyncSongPresenceFlags();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        SyncSongPresenceFlags();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    /// <summary>
+    /// Ensures every UPDATE that modifies a large text column (fingerprint or lyrics) also writes
+    /// its derived presence boolean(s) in the same SQL statement. Prevents concurrent writes
+    /// (e.g. non-empty → cleared → non-empty across two contexts where the second context's
+    /// tracked boolean appears unchanged) from ever leaving a flag out of sync with its text.
+    /// </summary>
+    private void SyncSongPresenceFlags()
+    {
+        foreach (var entry in ChangeTracker.Entries<SongMetadata>())
+        {
+            if (entry.State != EntityState.Modified)
+                continue;
+
+            if (entry.Property(s => s.Fingerprint).IsModified)
+                entry.Property(s => s.HasFingerprint).IsModified = true;
+
+            if (entry.Property(s => s.PlainLyrics).IsModified)
+            {
+                entry.Property(s => s.HasPlainLyrics).IsModified = true;
+                entry.Property(s => s.HasNonBlankPlainLyrics).IsModified = true;
+            }
+
+            if (entry.Property(s => s.SyncedLyrics).IsModified)
+            {
+                entry.Property(s => s.HasSyncedLyrics).IsModified = true;
+                entry.Property(s => s.HasNonBlankSyncedLyrics).IsModified = true;
+            }
+
+            if (entry.Property(s => s.TranscribedSyncedLyrics).IsModified
+                || entry.Property(s => s.TranscribedPlainLyrics).IsModified)
+            {
+                // Write both transcription columns alongside HasTranscribedLyrics so a concurrent
+                // write to the other column cannot leave the combined boolean out of sync.
+                entry.Property(s => s.TranscribedSyncedLyrics).IsModified = true;
+                entry.Property(s => s.TranscribedPlainLyrics).IsModified = true;
+                entry.Property(s => s.HasTranscribedLyrics).IsModified = true;
+            }
+        }
+    }
+
     public DbSet<SongMetadata> Songs { get; set; } = null!;
     public DbSet<SongDuplicateLink> SongDuplicateLinks { get; set; } = null!;
     public DbSet<ArtistAlias> ArtistAliases { get; set; } = null!;
@@ -142,6 +194,17 @@ public class MusicHoarderDbContext : DbContext
             entity.HasIndex(e => e.Fingerprint).HasMethod("hash");
             entity.HasIndex(e => new { e.DeletedAtUtc, e.IsDuplicate });
             entity.HasIndex(e => new { e.OwnerUserId, e.DeletedAtUtc });
+            // Covers owner-scoped list, album, overview, and stats queries without scanning other tenants or statuses.
+            entity.HasIndex(e => new { e.OwnerUserId, e.DeletedAtUtc, e.LibraryBuildStatus });
+            entity.HasIndex(e => new { e.OwnerUserId, e.DeletedAtUtc, e.EnrichmentStatus });
+            entity.HasIndex(e => new { e.OwnerUserId, e.DeletedAtUtc, e.AcquiredAtUtc });
+            // Backing fields: EF populates fields directly on materialization so stored presence flags
+            // are never clobbered by property-setter ordering, while runtime mutations keep them in sync.
+            entity.Property(e => e.Fingerprint).HasField("_fingerprint").UsePropertyAccessMode(PropertyAccessMode.FieldDuringConstruction);
+            entity.Property(e => e.PlainLyrics).HasField("_plainLyrics").UsePropertyAccessMode(PropertyAccessMode.FieldDuringConstruction);
+            entity.Property(e => e.SyncedLyrics).HasField("_syncedLyrics").UsePropertyAccessMode(PropertyAccessMode.FieldDuringConstruction);
+            entity.Property(e => e.TranscribedSyncedLyrics).HasField("_transcribedSyncedLyrics").UsePropertyAccessMode(PropertyAccessMode.FieldDuringConstruction);
+            entity.Property(e => e.TranscribedPlainLyrics).HasField("_transcribedPlainLyrics").UsePropertyAccessMode(PropertyAccessMode.FieldDuringConstruction);
             // "My music" = WHERE OwnerUserId = x AND AcquisitionIntent = Explicit. A full composite,
             // not a partial index on "<> Explicit": the hot query wants the default value, which a
             // filtered index excluding it cannot serve.
@@ -168,6 +231,7 @@ public class MusicHoarderDbContext : DbContext
             // Pairs are stored in canonical (low, high) order, so this uniquely keys the pair.
             entity.HasIndex(e => new { e.SongIdLow, e.SongIdHigh }).IsUnique();
             entity.HasIndex(e => e.OwnerUserId);
+            entity.HasIndex(e => new { e.OwnerUserId, e.Status });
 
             // A link is meaningless without both songs; songs are soft-deleted in practice, so
             // Cascade only fires on the rare hard delete (e.g. upgrade-merge provisional rows).
@@ -318,6 +382,8 @@ public class MusicHoarderDbContext : DbContext
         {
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => new { e.SongId, e.CreatedAtUtc });
+            // Speeds up batched album-identity-heal lookups in AlbumSplitHealer.
+            entity.HasIndex(e => new { e.Source, e.FieldName, e.SongId });
 
             entity.HasOne(e => e.Song)
                 .WithMany()
@@ -334,6 +400,7 @@ public class MusicHoarderDbContext : DbContext
             entity.HasKey(e => e.Id);
             // Latest-grade-per-song lookups and rollups order by GradedAtUtc within a song.
             entity.HasIndex(e => new { e.SongId, e.GradedAtUtc });
+            entity.HasIndex(e => new { e.OwnerUserId, e.SongId, e.GradedAtUtc });
             entity.HasIndex(e => new { e.OwnerUserId, e.GradedAtUtc });
             entity.HasIndex(e => e.Verdict);
 
@@ -397,6 +464,9 @@ public class MusicHoarderDbContext : DbContext
             entity.HasKey(e => new { e.OwnerUserId, e.SpotifyTrackId });
             entity.HasIndex(e => e.UpdatedAtUtc);
             entity.HasIndex(e => e.MatchStatus);
+            // Speeds up SpotifySaveDates.LoadAsync and LibraryChangeStamp liked-sync scans.
+            entity.HasIndex(e => new { e.OwnerUserId, e.Source })
+                .HasFilter("\"SpotifyAddedAtUtc\" IS NOT NULL");
 
             entity.HasQueryFilter(m => !hasUser || m.OwnerUserId == FilterUserId);
         });
@@ -482,6 +552,9 @@ public class MusicHoarderDbContext : DbContext
             // AlbumCompletionSweep loads every item it has ever created for an album — any status — to
             // avoid re-queueing a track it already tried.
             entity.HasIndex(e => new { e.OwnerUserId, e.CanonicalAlbumId });
+            // Speeds up SpotifySaveDates.LoadAsync and LibraryChangeStamp linked-song scans.
+            entity.HasIndex(e => new { e.OwnerUserId, e.DownloadedSongId })
+                .HasFilter("\"DownloadedSongId\" IS NOT NULL");
 
             // Removing a source keeps already-acquired tracks (the FK just nulls out).
             entity.HasOne(e => e.WishlistSource)

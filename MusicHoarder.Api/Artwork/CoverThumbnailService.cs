@@ -13,6 +13,13 @@ public interface ICoverThumbnailService
     int ClampToBucket(int requestedSize);
 
     /// <summary>
+    /// Fast cache lookup by <paramref name="identityPath"/> and <paramref name="size"/> without
+    /// loading or decoding the source cover (e.g. avoids opening a FLAC/MP3 with TagLib when the
+    /// WebP thumbnail is already cached). Returns null on a cache miss.
+    /// </summary>
+    ResolvedCover? TryGetCachedThumbnail(string identityPath, int size) => null;
+
+    /// <summary>
     /// Returns a cached WebP thumbnail of <paramref name="source"/> at <paramref name="size"/> (max
     /// edge, no upscaling), generating + caching it on first request. <paramref name="identityPath"/>
     /// is the on-disk file the cover derives from (the folder image, or the audio file for embedded
@@ -31,6 +38,10 @@ public sealed class CoverThumbnailService(string cacheDirectory, ILogger<CoverTh
 {
     private static readonly int[] BucketSizes = [128, 256, 400, 640];
 
+    // Fixed striped lock pool: coalesces concurrent misses for the same cache file without the
+    // removal races or cancellation leaks of a dynamic ConcurrentDictionary<string, SemaphoreSlim>.
+    private readonly SemaphoreSlim[] _gates = Enumerable.Range(0, 64).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
+
     public string CacheDirectory => cacheDirectory;
 
     public int ClampToBucket(int requestedSize)
@@ -41,19 +52,27 @@ public sealed class CoverThumbnailService(string cacheDirectory, ILogger<CoverTh
         return BucketSizes[^1];
     }
 
+    public ResolvedCover? TryGetCachedThumbnail(string identityPath, int size)
+    {
+        var cacheFile = CacheFileFor(identityPath, ClampToBucket(size));
+        return File.Exists(cacheFile) ? Webp(cacheFile) : null;
+    }
+
     public async Task<ResolvedCover?> GetThumbnailAsync(ResolvedCover source, string identityPath, int size, CancellationToken ct = default)
     {
         size = ClampToBucket(size);
-
-        var stamp = SafeLastWriteTicks(identityPath);
-        var hash = Hash($"{identityPath}|{stamp}|{size}");
-        var cacheFile = Path.Combine(cacheDirectory, hash[..2], $"{hash}.webp");
+        var cacheFile = CacheFileFor(identityPath, size);
 
         if (File.Exists(cacheFile))
             return Webp(cacheFile);
 
+        var gate = _gates[(uint)StringComparer.Ordinal.GetHashCode(cacheFile) % _gates.Length];
+        await gate.WaitAsync(ct);
         try
         {
+            if (File.Exists(cacheFile))
+                return Webp(cacheFile);
+
             var bytes = source.FilePath is not null
                 ? await File.ReadAllBytesAsync(source.FilePath, ct)
                 : source.Bytes!;
@@ -81,6 +100,17 @@ public sealed class CoverThumbnailService(string cacheDirectory, ILogger<CoverTh
             logger.LogWarning(ex, "Cover thumbnail generation failed for {Path} @ {Size}", identityPath, size);
             return null;
         }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private string CacheFileFor(string identityPath, int clampedSize)
+    {
+        var stamp = SafeLastWriteTicks(identityPath);
+        var hash = Hash($"{identityPath}|{stamp}|{clampedSize}");
+        return Path.Combine(cacheDirectory, hash[..2], $"{hash}.webp");
     }
 
     /// <summary>

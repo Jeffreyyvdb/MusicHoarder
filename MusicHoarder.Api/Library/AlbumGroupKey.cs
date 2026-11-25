@@ -72,6 +72,51 @@ public sealed record AlbumGroupKey(Guid OwnerUserId, string ArtistKey, string Al
     }
 
     /// <summary>
+    /// Identical to <see cref="For(SongMetadata)"/>, memoizing <see cref="ComputeAlbumKey"/> and
+    /// <see cref="ComputeArtistKey"/> across a library sweep where thousands of tracks share a few
+    /// hundred album and artist strings.
+    /// </summary>
+    internal static AlbumGroupKey? ForCached(
+        SongMetadata song,
+        Dictionary<string, string> albumKeyCache,
+        Dictionary<string, string> artistKeyCache)
+    {
+        ArgumentNullException.ThrowIfNull(song);
+
+        if (string.IsNullOrWhiteSpace(song.Album))
+            return null;
+
+        if (!albumKeyCache.TryGetValue(song.Album, out var albumKey))
+        {
+            albumKey = ComputeAlbumKey(song.Album);
+            albumKeyCache[song.Album] = albumKey;
+        }
+        if (albumKey.Length == 0)
+            return null;
+
+        string artistKey;
+        if (DestinationPathResolver.IsVariousArtists(song))
+        {
+            artistKey = VariousArtistsKey;
+        }
+        else
+        {
+            var rawArtist = song.AlbumArtist ?? song.Artist;
+            if (string.IsNullOrWhiteSpace(rawArtist))
+                return null;
+            if (!artistKeyCache.TryGetValue(rawArtist, out artistKey!))
+            {
+                artistKey = ComputeArtistKey(rawArtist);
+                artistKeyCache[rawArtist] = artistKey;
+            }
+            if (artistKey.Length == 0)
+                return null;
+        }
+
+        return new AlbumGroupKey(song.OwnerUserId, artistKey, albumKey);
+    }
+
+    /// <summary>
     /// Normalized artist key, folded to the credit's LEAD artist. VA sentinel spellings ("Various
     /// Artists", "VA", …) all map to <see cref="VariousArtistsKey"/> so an endpoint passing the
     /// display artist matches the song-side key.

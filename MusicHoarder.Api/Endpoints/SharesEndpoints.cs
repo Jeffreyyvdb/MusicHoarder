@@ -394,8 +394,8 @@ public static class SharesEndpoints
         int? size,
         CancellationToken ct)
     {
-        var song = await ResolveSongInScopeAsync(db, token, id, ct);
-        if (song is null)
+        var song = await ResolveSongMediaInScopeAsync(db, token, id, ct);
+        if (song is null || song.IsSynthetic)
             return ShareNotFound();
 
         return await SongsEndpoints.ServeCoverAsync(song, coverArtResolver, thumbnails, http, size);
@@ -547,12 +547,7 @@ public static class SharesEndpoints
         var albumLower = shared.Album!.ToLower();
         var artistLower = ((shared.AlbumArtist ?? shared.Artist) ?? "").ToLower();
 
-        var tracks = await db.Songs.IgnoreQueryFilters().AsNoTracking()
-            .Where(s => s.OwnerUserId == share.OwnerUserId
-                && s.DeletedAtUtc == null
-                && !s.IsDuplicate
-                && s.Album != null && s.Album.ToLower() == albumLower
-                && ((s.AlbumArtist ?? s.Artist) ?? "").ToLower() == artistLower)
+        var tracks = await WhereInAlbumShare(db, share.OwnerUserId, albumLower, artistLower)
             .ToListAsync(ct);
 
         // The shared song must stay reachable even if it is itself flagged a duplicate.
@@ -566,6 +561,18 @@ public static class SharesEndpoints
             .ToList();
     }
 
+    private static IQueryable<SongMetadata> WhereInAlbumShare(
+        MusicHoarderDbContext db,
+        Guid ownerUserId,
+        string albumLower,
+        string artistLower) =>
+        db.Songs.IgnoreQueryFilters().AsNoTracking()
+            .Where(s => s.OwnerUserId == ownerUserId
+                && s.DeletedAtUtc == null
+                && !s.IsDuplicate
+                && s.Album != null && s.Album.ToLower() == albumLower
+                && ((s.AlbumArtist ?? s.Artist) ?? "").ToLower() == artistLower);
+
     private static async Task<SongMetadata?> ResolveSongInScopeAsync(
         MusicHoarderDbContext db,
         string token,
@@ -578,5 +585,43 @@ public static class SharesEndpoints
 
         var songs = await LoadSongsInScopeAsync(db, share, ct);
         return songs.FirstOrDefault(s => s.Id == songId);
+    }
+
+    /// <summary>
+    /// Fast point lookup for cover requests on a share link: 1-2 primary-key projections instead of
+    /// scanning the entire owner's library and loading 100+ columns. Shares
+    /// <see cref="WhereInAlbumShare"/> with <see cref="LoadSongsInScopeAsync"/> so SQL case-folding
+    /// membership rules can never diverge between tracklist, stream, and cover.
+    /// </summary>
+    internal static async Task<SongMediaRef?> ResolveSongMediaInScopeAsync(
+        MusicHoarderDbContext db,
+        string token,
+        int songId,
+        CancellationToken ct)
+    {
+        var share = await ResolveShareAsync(db, token, ct);
+        if (share is null)
+            return null;
+
+        var shared = await db.Songs.IgnoreQueryFilters().AsNoTracking()
+            .Where(s => s.Id == share.SongId && s.OwnerUserId == share.OwnerUserId && s.DeletedAtUtc == null)
+            .Select(s => new { s.Id, s.IsSynthetic, s.SourcePath, s.DestinationPath, s.Album, s.AlbumArtist, s.Artist })
+            .FirstOrDefaultAsync(ct);
+        if (shared is null)
+            return null;
+
+        if (songId == shared.Id)
+            return new SongMediaRef(shared.Id, shared.IsSynthetic, shared.SourcePath, shared.DestinationPath);
+
+        if (share.Scope == ShareScope.Song || string.IsNullOrWhiteSpace(shared.Album))
+            return null;
+
+        var albumLower = shared.Album.ToLower();
+        var artistLower = ((shared.AlbumArtist ?? shared.Artist) ?? "").ToLower();
+
+        return await WhereInAlbumShare(db, share.OwnerUserId, albumLower, artistLower)
+            .Where(s => s.Id == songId)
+            .Select(s => new SongMediaRef(s.Id, s.IsSynthetic, s.SourcePath, s.DestinationPath))
+            .FirstOrDefaultAsync(ct);
     }
 }

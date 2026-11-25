@@ -24,7 +24,15 @@ public static class FuzzyTextMatch
     {
         var sourceNorm = TitleNormalizer.NormalizeForSearch(source);
         var candNorm = TitleNormalizer.NormalizeForSearch(candidate);
+        return RatioPreNormalized(sourceNorm, candNorm, source, candidate);
+    }
 
+    /// <summary>
+    /// Identical to <see cref="Ratio"/> when callers have already computed
+    /// <see cref="TitleNormalizer.NormalizeForSearch"/> for both strings (e.g. inside O(n²) dedup loops).
+    /// </summary>
+    public static double? RatioPreNormalized(string sourceNorm, string candNorm, string? source, string? candidate)
+    {
         if (sourceNorm.Length > 0 && candNorm.Length > 0)
             return Fuzz.WeightedRatio(sourceNorm, candNorm);
 

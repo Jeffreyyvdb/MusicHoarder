@@ -18,27 +18,50 @@ public static class QualityRollup
 {
     public record GradeRow(SongQualityVerdict Verdict, int Score, string? IssuesJson);
 
+    public readonly record struct PreParsedGradeRow(
+        SongQualityVerdict Verdict,
+        int Score,
+        IReadOnlyList<string> IssueCodes);
+
     public static QualityAggregate Aggregate(IEnumerable<GradeRow> grades, int topIssues = 10)
     {
         var rows = grades as IReadOnlyList<GradeRow> ?? grades.ToList();
-
-        var breakdown = new VerdictBreakdown(
-            rows.Count(r => r.Verdict == SongQualityVerdict.Excellent),
-            rows.Count(r => r.Verdict == SongQualityVerdict.Good),
-            rows.Count(r => r.Verdict == SongQualityVerdict.Questionable),
-            rows.Count(r => r.Verdict == SongQualityVerdict.Wrong),
-            rows.Count(r => r.Verdict == SongQualityVerdict.Ungradeable));
-
-        // Average excludes Ungradeable rows — a score of 0 there means "no info", not "bad".
-        var scored = rows.Where(r => r.Verdict != SongQualityVerdict.Ungradeable).ToList();
-        double? avg = scored.Count > 0 ? Math.Round(scored.Average(r => r.Score), 1) : null;
-
-        var issueCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (var row in rows)
+        var preParsed = new PreParsedGradeRow[rows.Count];
+        for (var i = 0; i < rows.Count; i++)
         {
-            foreach (var code in GradingIssueJson.ParseCodes(row.IssuesJson))
+            var r = rows[i];
+            preParsed[i] = new PreParsedGradeRow(r.Verdict, r.Score, GradingIssueJson.ParseCodes(r.IssuesJson));
+        }
+        return AggregatePreParsed(preParsed, topIssues);
+    }
+
+    public static QualityAggregate AggregatePreParsed(IEnumerable<PreParsedGradeRow> grades, int topIssues = 10)
+    {
+        int total = 0, excellent = 0, good = 0, questionable = 0, wrong = 0, ungradeable = 0;
+        int scoredCount = 0;
+        long scoreSum = 0;
+        var issueCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var row in grades)
+        {
+            total++;
+            switch (row.Verdict)
+            {
+                case SongQualityVerdict.Excellent: excellent++; scoredCount++; scoreSum += row.Score; break;
+                case SongQualityVerdict.Good: good++; scoredCount++; scoreSum += row.Score; break;
+                case SongQualityVerdict.Questionable: questionable++; scoredCount++; scoreSum += row.Score; break;
+                case SongQualityVerdict.Wrong: wrong++; scoredCount++; scoreSum += row.Score; break;
+                case SongQualityVerdict.Ungradeable: ungradeable++; break;
+                default: scoredCount++; scoreSum += row.Score; break;
+            }
+
+            foreach (var code in row.IssueCodes)
                 issueCounts[code] = issueCounts.GetValueOrDefault(code) + 1;
         }
+
+        // Average excludes Ungradeable rows — a score of 0 there means "no info", not "bad".
+        double? avg = scoredCount > 0 ? Math.Round((double)scoreSum / scoredCount, 1) : null;
+        var breakdown = new VerdictBreakdown(excellent, good, questionable, wrong, ungradeable);
 
         var top = issueCounts
             .OrderByDescending(kv => kv.Value)
@@ -47,7 +70,7 @@ public static class QualityRollup
             .Select(kv => new IssueCount(kv.Key, kv.Value))
             .ToList();
 
-        return new QualityAggregate(rows.Count, avg, breakdown, top);
+        return new QualityAggregate(total, avg, breakdown, top);
     }
 
 }

@@ -16,7 +16,7 @@ partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261125114247_AddAutoDownloadMusicVideos";
+    public override string LastMigrationId => "20261125131438_AddHotPathPresenceFlagsAndIndexes";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -1764,6 +1764,8 @@ partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
 
                 b.HasIndex("SongIdHigh");
 
+                b.HasIndex("OwnerUserId", "Status");
+
                 b.HasIndex("SongIdLow", "SongIdHigh")
                     .IsUnique();
 
@@ -1883,6 +1885,24 @@ partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
                     .HasColumnType("text");
 
                 b.Property<bool>("HasCoverArt")
+                    .HasColumnType("boolean");
+
+                b.Property<bool>("HasFingerprint")
+                    .HasColumnType("boolean");
+
+                b.Property<bool>("HasNonBlankPlainLyrics")
+                    .HasColumnType("boolean");
+
+                b.Property<bool>("HasNonBlankSyncedLyrics")
+                    .HasColumnType("boolean");
+
+                b.Property<bool>("HasPlainLyrics")
+                    .HasColumnType("boolean");
+
+                b.Property<bool>("HasSyncedLyrics")
+                    .HasColumnType("boolean");
+
+                b.Property<bool>("HasTranscribedLyrics")
                     .HasColumnType("boolean");
 
                 b.Property<DateTime>("IndexedAtUtc")
@@ -2204,6 +2224,12 @@ partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
 
                 b.HasIndex("DeletedAtUtc", "LyricsStatus", "LyricsNextRecheckAfterUtc");
 
+                b.HasIndex("OwnerUserId", "DeletedAtUtc", "AcquiredAtUtc");
+
+                b.HasIndex("OwnerUserId", "DeletedAtUtc", "EnrichmentStatus");
+
+                b.HasIndex("OwnerUserId", "DeletedAtUtc", "LibraryBuildStatus");
+
                 b.HasIndex("DeletedAtUtc", "EnrichmentStatus", "LibraryBuildStatus", "Id");
 
                 b.HasIndex("DeletedAtUtc", "AlbumArtist", "Album", "Year", "Id");
@@ -2253,6 +2279,8 @@ partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
                 b.HasKey("Id");
 
                 b.HasIndex("SongId", "CreatedAtUtc");
+
+                b.HasIndex("Source", "FieldName", "SongId");
 
                 b.ToTable("SongMetadataChanges");
             });
@@ -2424,6 +2452,8 @@ partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("OwnerUserId", "GradedAtUtc");
 
                 b.HasIndex("SongId", "GradedAtUtc");
+
+                b.HasIndex("OwnerUserId", "SongId", "GradedAtUtc");
 
                 b.ToTable("SongQualityGrades");
             });
@@ -2729,6 +2759,9 @@ partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("MatchStatus");
 
                 b.HasIndex("UpdatedAtUtc");
+
+                b.HasIndex("OwnerUserId", "Source")
+                    .HasFilter("\"SpotifyAddedAtUtc\" IS NOT NULL");
 
                 b.ToTable("SpotifyTrackLibraryMatches");
             });
@@ -3091,6 +3124,9 @@ partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("OwnerUserId", "DeezerTrackId")
                     .IsUnique()
                     .HasFilter("\"DeezerTrackId\" IS NOT NULL");
+
+                b.HasIndex("OwnerUserId", "DownloadedSongId")
+                    .HasFilter("\"DownloadedSongId\" IS NOT NULL");
 
                 b.HasIndex("OwnerUserId", "SpotifyTrackId")
                     .IsUnique()

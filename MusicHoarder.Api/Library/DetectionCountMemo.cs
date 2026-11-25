@@ -29,6 +29,7 @@ public sealed class DetectionCountMemo
 
     private readonly Lock _gate = new();
     private readonly Dictionary<(string Detector, Guid OwnerUserId), (byte[] Stamp, int Count)> _entries = [];
+    private readonly Dictionary<(string Detector, Guid OwnerUserId), (byte[] Stamp, (int First, int Second) Value)> _pairs = [];
 
     /// <summary>
     /// The count remembered for <paramref name="stamp"/>, or <paramref name="count"/>'s answer,
@@ -56,5 +57,31 @@ public sealed class DetectionCountMemo
         }
 
         return counted;
+    }
+
+    public bool TryGetPair(string detector, Guid ownerUserId, byte[] stamp, out (int First, int Second) value)
+    {
+        var key = (detector, ownerUserId);
+        lock (_gate)
+        {
+            if (_pairs.TryGetValue(key, out var known) && known.Stamp.AsSpan().SequenceEqual(stamp))
+            {
+                value = known.Value;
+                return true;
+            }
+        }
+        value = default;
+        return false;
+    }
+
+    public void SetPair(string detector, Guid ownerUserId, byte[] stamp, (int First, int Second) value)
+    {
+        var key = (detector, ownerUserId);
+        lock (_gate)
+        {
+            if (_pairs.Count >= MaxEntries && !_pairs.ContainsKey(key))
+                _pairs.Clear();
+            _pairs[key] = (stamp, value);
+        }
     }
 }

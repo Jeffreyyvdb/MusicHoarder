@@ -172,6 +172,107 @@ public class ListSongsTests
         Assert.False(GetProperty<bool>(first, "IsBuilt"));
     }
 
+    [Fact]
+    public async Task ListSongs_OrdersByInvariantCultureWithDeterministicIdTieBreak()
+    {
+        await using var db = NewContext();
+        var zedd = NewSong("/z.mp3", "z.mp3"); zedd.Artist = "Zedd"; zedd.Title = "Clarity";
+        var alice = NewSong("/a.mp3", "a.mp3"); alice.Artist = "alice"; alice.Title = "Song";
+        var olafur = NewSong("/o.mp3", "o.mp3"); olafur.Artist = "Ólafur"; olafur.Title = "Near Light";
+        db.Songs.AddRange(zedd, alice, olafur);
+        await db.SaveChangesAsync();
+
+        var value = (await ListSongsCaller.Invoke(db)).GetType().GetProperty("Value")!.GetValue(await ListSongsCaller.Invoke(db))!;
+        var songs = ((IEnumerable)value.GetType().GetProperty("Songs")!.GetValue(value)!).Cast<object>().ToList();
+        var artists = songs.Select(s => GetProperty<string>(s, "Artist")).ToList();
+
+        Assert.Equal(["alice", "Ólafur", "Zedd"], artists);
+    }
+
+    [Fact]
+    public async Task PresenceFlags_AreForcedModifiedWhenTextChangesEvenIfBoolWasAlreadyTrue()
+    {
+        var dbName = Guid.NewGuid().ToString("N");
+        var options = new DbContextOptionsBuilder<MusicHoarderDbContext>().UseInMemoryDatabase(dbName).Options;
+
+        int id;
+        await using (var seed = new MusicHoarderDbContext(options))
+        {
+            var s = NewSong("/fp.mp3", "fp.mp3");
+            s.Fingerprint = "fp-1";
+            s.PlainLyrics = "hello";
+            s.SyncedLyrics = "[00:01.00] hello";
+            seed.Songs.Add(s);
+            await seed.SaveChangesAsync();
+            id = s.Id;
+        }
+
+        // Context A loads with HasFingerprint = true; Context B clears it to false;
+        // Context A then writes a new non-empty value. SyncSongPresenceFlags must force
+        // HasFingerprint = true into Context A's save so it cannot stay false.
+        await using var ctxA = new MusicHoarderDbContext(options);
+        await using var ctxB = new MusicHoarderDbContext(options);
+
+        var rowA = await ctxA.Songs.SingleAsync(s => s.Id == id);
+        var rowB = await ctxB.Songs.SingleAsync(s => s.Id == id);
+
+        rowB.Fingerprint = null;
+        rowB.PlainLyrics = "   ";
+        await ctxB.SaveChangesAsync();
+
+        rowA.Fingerprint = "fp-2";
+        rowA.PlainLyrics = "updated lyrics";
+        await ctxA.SaveChangesAsync();
+
+        await using var verify = new MusicHoarderDbContext(options);
+        var saved = await verify.Songs.AsNoTracking().SingleAsync(s => s.Id == id);
+        Assert.Equal("fp-2", saved.Fingerprint);
+        Assert.True(saved.HasFingerprint);
+        Assert.True(saved.HasPlainLyrics);
+        Assert.True(saved.HasNonBlankPlainLyrics);
+    }
+
+    [Fact]
+    public async Task TranscribedLyrics_ConcurrentSaveWritesBothColumnsWithFlag()
+    {
+        var dbName = Guid.NewGuid().ToString("N");
+        var options = new DbContextOptionsBuilder<MusicHoarderDbContext>().UseInMemoryDatabase(dbName).Options;
+
+        int id;
+        await using (var seed = new MusicHoarderDbContext(options))
+        {
+            var s = NewSong("/tx.mp3", "tx.mp3");
+            s.TranscribedSyncedLyrics = "[00:01.00] synced";
+            seed.Songs.Add(s);
+            await seed.SaveChangesAsync();
+            id = s.Id;
+        }
+
+        // Context A replaces synced with plain-only; Context B loaded synced-only and clears both.
+        // Because SyncSongPresenceFlags marks both transcription columns and HasTranscribedLyrics
+        // modified together, the winning write leaves text and boolean 100% consistent.
+        await using var ctxA = new MusicHoarderDbContext(options);
+        await using var ctxB = new MusicHoarderDbContext(options);
+
+        var rowA = await ctxA.Songs.SingleAsync(s => s.Id == id);
+        var rowB = await ctxB.Songs.SingleAsync(s => s.Id == id);
+
+        rowA.TranscribedSyncedLyrics = null;
+        rowA.TranscribedPlainLyrics = "plain only";
+        await ctxA.SaveChangesAsync();
+
+        rowB.TranscribedSyncedLyrics = null;
+        rowB.TranscribedPlainLyrics = null;
+        await ctxB.SaveChangesAsync();
+
+        await using var verify = new MusicHoarderDbContext(options);
+        var saved = await verify.Songs.AsNoTracking().SingleAsync(s => s.Id == id);
+        var hasText = !string.IsNullOrEmpty(saved.TranscribedSyncedLyrics) || !string.IsNullOrEmpty(saved.TranscribedPlainLyrics);
+        Assert.Equal(hasText, saved.HasTranscribedLyrics);
+        Assert.Null(saved.TranscribedPlainLyrics);
+        Assert.False(saved.HasTranscribedLyrics);
+    }
+
     private static object SingleSong(IResult result)
     {
         var value = result.GetType().GetProperty("Value")!.GetValue(result)!;

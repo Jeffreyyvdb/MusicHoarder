@@ -69,19 +69,54 @@ public static class CanonicalAlbumMatch
     public static bool SharesATrack(
         string? album, IEnumerable<string?> ownedTitles, IEnumerable<string?> candidateTrackTitles, double threshold)
     {
-        var candidates = candidateTrackTitles
-            .Where(t => !string.IsNullOrWhiteSpace(t) && !IsTitleTrack(album, t, threshold))
-            .ToList();
+        var albumNorm = NormalizePair(album);
+        var candidates = new List<(string Raw, string Norm, string[] Words)>();
+        foreach (var t in candidateTrackTitles)
+        {
+            if (string.IsNullOrWhiteSpace(t))
+                continue;
+            var cand = NormalizePair(t);
+            if (ResemblesNormalized(albumNorm, cand, threshold) is true)
+                continue;
+            candidates.Add(cand);
+        }
         if (candidates.Count == 0)
             return false;
 
-        return ownedTitles
-            .Where(t => !string.IsNullOrWhiteSpace(t))
-            .Any(owned => candidates.Any(c => Resembles(owned, c, threshold) is true));
+        foreach (var owned in ownedTitles)
+        {
+            if (string.IsNullOrWhiteSpace(owned))
+                continue;
+            var ownedNorm = NormalizePair(owned);
+            foreach (var cand in candidates)
+            {
+                if (ResemblesNormalized(ownedNorm, cand, threshold) is true)
+                    return true;
+            }
+        }
+        return false;
     }
 
-    private static bool IsTitleTrack(string? album, string? title, double threshold) =>
-        Resembles(album, title, threshold) is true;
+    private static (string Raw, string Norm, string[] Words) NormalizePair(string? text)
+    {
+        var norm = TitleNormalizer.NormalizeForSearch(text);
+        return (text ?? string.Empty, norm, norm.Length > 0 ? norm.Split(' ') : []);
+    }
+
+    private static bool? ResemblesNormalized(
+        (string Raw, string Norm, string[] Words) a,
+        (string Raw, string Norm, string[] Words) b,
+        double threshold)
+    {
+        if (a.Norm.Length == 0 || b.Norm.Length == 0)
+            return FuzzyTextMatch.RatioPreNormalized(a.Norm, b.Norm, a.Raw, b.Raw) is { } raw ? raw >= threshold : null;
+
+        if (a.Norm == b.Norm || Fuzz.Ratio(a.Norm, b.Norm) >= threshold)
+            return true;
+
+        var (fewer, more) = a.Words.Length <= b.Words.Length ? (a.Words, b.Words) : (b.Words, a.Words);
+        return fewer.All(more.Contains);
+    }
 
     /// <summary>Null when one side has no text to compare.</summary>
     private static bool? Resembles(string? a, string? b, double threshold)
@@ -90,7 +125,7 @@ public static class CanonicalAlbumMatch
         var right = TitleNormalizer.NormalizeForSearch(b);
         // A symbol-only name ("¥$") normalizes to nothing; the raw comparison is all there is.
         if (left.Length == 0 || right.Length == 0)
-            return FuzzyTextMatch.Ratio(a, b) is { } raw ? raw >= threshold : null;
+            return FuzzyTextMatch.RatioPreNormalized(left, right, a, b) is { } raw ? raw >= threshold : null;
 
         if (left == right || Fuzz.Ratio(left, right) >= threshold)
             return true;

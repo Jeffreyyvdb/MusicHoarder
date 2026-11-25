@@ -87,6 +87,57 @@ public sealed class CoverThumbnailServiceTests : IDisposable
         Assert.Equal(expected, service.ClampToBucket(requested));
     }
 
+    [Fact]
+    public async Task TryGetCachedThumbnail_ReturnsHitAfterGeneration_AndMissBefore()
+    {
+        var cacheDir = Path.Combine(_dir, "cache");
+        var sourcePng = await WritePngAsync("fast-hit.png", 600, 600);
+        var service = new CoverThumbnailService(cacheDir, NullLogger<CoverThumbnailService>.Instance);
+
+        Assert.Null(service.TryGetCachedThumbnail(sourcePng, 256));
+
+        var generated = await service.GetThumbnailAsync(FileCover(sourcePng), sourcePng, 256);
+        Assert.NotNull(generated);
+
+        var cached = service.TryGetCachedThumbnail(sourcePng, 256);
+        Assert.NotNull(cached);
+        Assert.Equal(generated!.FilePath, cached!.FilePath);
+        Assert.Equal("image/webp", cached.ContentType);
+    }
+
+    [Fact]
+    public async Task GetThumbnail_ConcurrentMissesForSameCover_CoalesceCleanly()
+    {
+        var cacheDir = Path.Combine(_dir, "cache");
+        var sourcePng = await WritePngAsync("concurrent.png", 800, 800);
+        var service = new CoverThumbnailService(cacheDir, NullLogger<CoverThumbnailService>.Instance);
+
+        var results = await Task.WhenAll(
+            Enumerable.Range(0, 8).Select(_ => service.GetThumbnailAsync(FileCover(sourcePng), sourcePng, 256)));
+
+        Assert.All(results, r => Assert.NotNull(r));
+        var paths = results.Select(r => r!.FilePath).Distinct().ToList();
+        Assert.Single(paths);
+        Assert.Single(Directory.EnumerateFiles(cacheDir, "*.webp", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public async Task GetThumbnail_CancelledCaller_DoesNotPoisonSubsequentCallers()
+    {
+        var cacheDir = Path.Combine(_dir, "cache");
+        var sourcePng = await WritePngAsync("cancel.png", 400, 400);
+        var service = new CoverThumbnailService(cacheDir, NullLogger<CoverThumbnailService>.Instance);
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => service.GetThumbnailAsync(FileCover(sourcePng), sourcePng, 256, cts.Token));
+
+        var ok = await service.GetThumbnailAsync(FileCover(sourcePng), sourcePng, 256);
+        Assert.NotNull(ok);
+        Assert.True(File.Exists(ok!.FilePath));
+    }
+
     private static ResolvedCover FileCover(string path) => new() { FilePath = path, ContentType = "image/png" };
 
     private async Task<string> WritePngAsync(string name, int w, int h)

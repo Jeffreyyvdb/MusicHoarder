@@ -34,8 +34,8 @@ public interface IAlbumSplitHealer
     /// caller has already read for several detectors at once (see <see cref="InboxNameCounter"/>):
     /// <paramref name="library"/> is every song that is not deleted, synthetic or the demo account's,
     /// carrying at least <see cref="AlbumSplitHealer.CountColumns"/>. Like the dry run, it counts
-    /// every account's albums, and it <b>changes the rows it is given</b> to do so: call it last,
-    /// on rows nothing else will read.
+    /// every account's albums, and its foreign-album-artist restore step can still mutate rows it
+    /// is given: call it last, on rows nothing else will read.
     /// </summary>
     Task<int> CountAsync(IReadOnlyList<SongMetadata> library, CancellationToken ct = default);
 
@@ -60,7 +60,7 @@ public sealed class AlbumSplitHealer(
     IOptions<MusicEnricherOptions> options,
     ILogger<AlbumSplitHealer> logger) : IAlbumSplitHealer
 {
-    private const string ChangeSource = "album-identity-heal";
+    internal const string ChangeSource = "album-identity-heal";
 
     /// <summary>
     /// Every song column the dry run reads, and so all it loads: what <see cref="AlbumGroupKey.For"/>
@@ -120,7 +120,7 @@ public sealed class AlbumSplitHealer(
         var songs = library
             .Where(s => !s.IsDuplicate && !s.IsUnreleased && s.EnrichmentStatus == EnrichmentStatus.Matched)
             .ToList();
-        return (await DetectAsync(songs, ct)).Count;
+        return await CountSplitGroupsAsync(songs, ct);
     }
 
     /// <summary>
@@ -135,15 +135,30 @@ public sealed class AlbumSplitHealer(
         var artistAliases = await ArtistAliasMap.LoadAsync(db, ct);
         var (restored, _) = await RestoreForeignAlbumArtistsAsync(songs, canonicalAlbums, DateTime.UtcNow, persist: false, ct);
 
+        var candidates = PrepareGroups(songs, canonicalAlbums);
+        var healHistory = await LoadHealHistoryBatchAsync(candidates, ct);
+
         var report = new List<AlbumSplitGroup>();
-        foreach (var group in GroupByLogicalAlbum(songs))
+        foreach (var (key, members, overlaidIdentity) in candidates)
         {
-            var members = group.ToList();
-            var distinctFolders = members
-                .Select(s => Path.GetDirectoryName(destinationPathResolver.ResolvePath(s)) ?? string.Empty)
-                .Distinct(StringComparer.Ordinal)
-                .Order(StringComparer.Ordinal)
-                .ToList();
+            var identity = FreezeOscillatingAlbumArtist(overlaidIdentity, members, healHistory);
+            identity = ApplyArtistAlias(identity, key.OwnerUserId, artistAliases);
+            var needingCorrection = members.Count(s => s.NeedsIdentityCorrection(identity) || restored.Contains(s.Id));
+            if (needingCorrection == 0)
+            {
+                continue;
+            }
+
+            // Compute display details only for groups that actually need correction, and resolve
+            // each unique folder tuple at most once per group (10+ tracks typically share 1-2 folders).
+            var seenFolderKeys = new HashSet<(bool IsComp, string? AlbumArtist, string? Artist, bool IsUnreleased, string? Album, int? Year)>();
+            var distinctFoldersSet = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var s in members)
+            {
+                if (seenFolderKeys.Add((s.IsCompilation, s.AlbumArtist, s.Artist, s.IsUnreleased, s.Album, s.Year)))
+                    distinctFoldersSet.Add(destinationPathResolver.ResolveDirectory(s));
+            }
+            var distinctFolders = distinctFoldersSet.Order(StringComparer.Ordinal).ToList();
             var distinctReleaseIds = members
                 .Where(s => !string.IsNullOrWhiteSpace(s.MusicBrainzReleaseId))
                 .Select(s => s.MusicBrainzReleaseId!.Trim())
@@ -151,18 +166,9 @@ public sealed class AlbumSplitHealer(
                 .Order(StringComparer.Ordinal)
                 .ToList();
 
-            var identity = OverlayCanonicalArtist(reconciler.Reconcile(members), group.Key, members, canonicalAlbums);
-            identity = await FreezeOscillatingAlbumArtistAsync(identity, members, ct);
-            identity = ApplyArtistAlias(identity, group.Key.OwnerUserId, artistAliases);
-            var needingCorrection = members.Count(s => s.ApplyIdentityCorrection(identity).Count > 0 || restored.Contains(s.Id));
-            if (needingCorrection == 0)
-            {
-                continue;
-            }
-
             report.Add(new AlbumSplitGroup(
-                group.Key.ArtistKey,
-                group.Key.AlbumKey,
+                key.ArtistKey,
+                key.AlbumKey,
                 members.Count,
                 needingCorrection,
                 distinctReleaseIds,
@@ -174,6 +180,31 @@ public sealed class AlbumSplitHealer(
             .OrderBy(g => g.ArtistKey, StringComparer.Ordinal)
             .ThenBy(g => g.AlbumKey, StringComparer.Ordinal)
             .ToList();
+    }
+
+    /// <summary>
+    /// Counts split groups without computing destination folders or release-id lists. Same election
+    /// and correction logic as <see cref="DetectAsync(IReadOnlyList{SongMetadata}, CancellationToken)"/>.
+    /// </summary>
+    private async Task<int> CountSplitGroupsAsync(IReadOnlyList<SongMetadata> songs, CancellationToken ct)
+    {
+        var canonicalAlbums = await LoadCanonicalAlbumsAsync(ct);
+        var artistAliases = await ArtistAliasMap.LoadAsync(db, ct);
+        var (restored, _) = await RestoreForeignAlbumArtistsAsync(songs, canonicalAlbums, DateTime.UtcNow, persist: false, ct);
+
+        var candidates = PrepareGroups(songs, canonicalAlbums);
+        var healHistory = await LoadHealHistoryBatchAsync(candidates, ct);
+
+        var count = 0;
+        foreach (var (key, members, overlaidIdentity) in candidates)
+        {
+            var identity = FreezeOscillatingAlbumArtist(overlaidIdentity, members, healHistory);
+            identity = ApplyArtistAlias(identity, key.OwnerUserId, artistAliases);
+            if (members.Any(s => s.NeedsIdentityCorrection(identity) || restored.Contains(s.Id)))
+                count++;
+        }
+
+        return count;
     }
 
     public async Task<AlbumSplitHealResult> HealAsync(CancellationToken ct = default)
@@ -192,12 +223,13 @@ public sealed class AlbumSplitHealer(
         var correctedIds = new HashSet<int>(restored);
         requeued += restoredRequeued;
 
-        foreach (var group in GroupByLogicalAlbum(songs))
+        var candidates = PrepareGroups(songs, canonicalAlbums);
+        var healHistory = await LoadHealHistoryBatchAsync(candidates, ct);
+
+        foreach (var (key, members, overlaidIdentity) in candidates)
         {
-            var members = group.ToList();
-            var identity = OverlayCanonicalArtist(reconciler.Reconcile(members), group.Key, members, canonicalAlbums);
-            identity = await FreezeOscillatingAlbumArtistAsync(identity, members, ct);
-            identity = ApplyArtistAlias(identity, group.Key.OwnerUserId, artistAliases);
+            var identity = FreezeOscillatingAlbumArtist(overlaidIdentity, members, healHistory);
+            identity = ApplyArtistAlias(identity, key.OwnerUserId, artistAliases);
             var groupTouched = members.Any(m => restored.Contains(m.Id));
 
             foreach (var song in members)
@@ -242,7 +274,7 @@ public sealed class AlbumSplitHealer(
                 groupsHealed++;
                 logger.LogInformation(
                     "Healed split album group {ArtistKey} / {AlbumKey}: {Members} members -> release {ReleaseId}",
-                    group.Key.ArtistKey, group.Key.AlbumKey, members.Count, identity.MusicBrainzReleaseId);
+                    key.ArtistKey, key.AlbumKey, members.Count, identity.MusicBrainzReleaseId);
             }
         }
 
@@ -252,6 +284,56 @@ public sealed class AlbumSplitHealer(
         }
 
         return new AlbumSplitHealResult(groupsHealed, correctedIds.Count, requeued);
+    }
+
+    private sealed record PreparedGroup(AlbumGroupKey Key, List<SongMetadata> Members, AlbumIdentity Identity);
+
+    private List<PreparedGroup> PrepareGroups(IReadOnlyList<SongMetadata> songs, CanonicalAlbums canonicalAlbums)
+    {
+        var list = new List<PreparedGroup>();
+        foreach (var group in GroupByLogicalAlbum(songs))
+        {
+            var members = group.ToList();
+            var identity = OverlayCanonicalArtist(reconciler.Reconcile(members), group.Key, members, canonicalAlbums);
+            list.Add(new PreparedGroup(group.Key, members, identity));
+        }
+        return list;
+    }
+
+    /// <summary>
+    /// Loads every prior heal-assigned <c>AlbumArtist</c> value across all groups whose elected
+    /// album artist differs from at least one member — in ONE query instead of one per album.
+    /// </summary>
+    private async Task<ILookup<int, string>> LoadHealHistoryBatchAsync(
+        List<PreparedGroup> groups, CancellationToken ct)
+    {
+        var memberIds = new HashSet<int>();
+        foreach (var (_, members, identity) in groups)
+        {
+            if (string.IsNullOrWhiteSpace(identity.AlbumArtist))
+                continue;
+            if (members.All(m => string.Equals(m.AlbumArtist, identity.AlbumArtist, StringComparison.Ordinal)))
+                continue;
+            foreach (var m in members)
+                memberIds.Add(m.Id);
+        }
+
+        if (memberIds.Count == 0)
+            return Enumerable.Empty<(int, string)>().ToLookup(x => x.Item1, x => x.Item2);
+
+        var idList = memberIds.ToList();
+        var rows = await db.SongMetadataChanges
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(c => idList.Contains(c.SongId)
+                && c.Source == ChangeSource
+                && c.FieldName == nameof(SongMetadata.AlbumArtist)
+                && c.NewValue != null)
+            .Select(c => new { c.SongId, NewValue = c.NewValue! })
+            .Distinct()
+            .ToListAsync(ct);
+
+        return rows.ToLookup(r => r.SongId, r => r.NewValue);
     }
 
     // Anti-oscillation guard. AlbumGroupKey.For derives its artist key from AlbumArtist — the very
@@ -266,8 +348,8 @@ public sealed class AlbumSplitHealer(
     // single deterministic winner (ordinal-lowest of the contended spellings) so the election becomes a
     // true fixed point and the requeue/re-tag churn stops. Every other identity field still converges
     // normally, and a first-time correction (only one heal-assigned spelling on record) is untouched.
-    private async Task<AlbumIdentity> FreezeOscillatingAlbumArtistAsync(
-        AlbumIdentity identity, IReadOnlyList<SongMetadata> members, CancellationToken ct)
+    private AlbumIdentity FreezeOscillatingAlbumArtist(
+        AlbumIdentity identity, IReadOnlyList<SongMetadata> members, ILookup<int, string> healHistory)
     {
         if (string.IsNullOrWhiteSpace(identity.AlbumArtist))
         {
@@ -280,25 +362,14 @@ public sealed class AlbumSplitHealer(
             return identity;
         }
 
-        var memberIds = members.Select(m => m.Id).ToList();
-        // IgnoreQueryFilters like every other query here: the hosted service's scope carries a
-        // request-less current-user accessor, so the tenancy filter is on with an empty user id and
-        // would hide the whole heal log. The guard then never tripped on prod and one album flipped
-        // ~29,000 times. The member ids already pin this to one owner's rows.
-        // Only spellings of the elected artist are contenders. The log also holds names a canonical
-        // album of a different album once wrote ("Kanye West" → "Fat Joe" → "Chiqito"), and letting
-        // those compete would freeze an album onto a stranger's name — "2 Chainz" sorts before
-        // "Kanye West".
-        var healedAlbumArtists = (await db.SongMetadataChanges
-                .IgnoreQueryFilters()
-                .AsNoTracking()
-                .Where(c => memberIds.Contains(c.SongId)
-                    && c.Source == ChangeSource
-                    && c.FieldName == nameof(SongMetadata.AlbumArtist)
-                    && c.NewValue != null)
-                .Select(c => c.NewValue!)
-                .Distinct()
-                .ToListAsync(ct))
+        var distinctValues = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var m in members)
+        {
+            foreach (var v in healHistory[m.Id])
+                distinctValues.Add(v);
+        }
+
+        var healedAlbumArtists = distinctValues
             .Where(v => CanonicalAlbumMatch.SameArtist(v, identity.AlbumArtist, options.Value.IdentityArtistThreshold))
             .ToList();
 
@@ -546,7 +617,8 @@ public sealed class AlbumSplitHealer(
         var foreign = new Dictionary<string, HashSet<string>>();
         foreach (var row in canonicalAlbums.All)
         {
-            var owned = titlesByAlbum.GetValueOrDefault(row.AlbumKey) ?? [];
+            if (!titlesByAlbum.TryGetValue(row.AlbumKey, out var owned))
+                continue;
             if (IsThisAlbum(row, row.AlbumKey, row.ArtistKey, owned))
             {
                 // A row fetched under its own artist's name says nothing about songs that came to that
@@ -651,9 +723,13 @@ public sealed class AlbumSplitHealer(
     // translate GroupBy anyway). Single-member groups can't disagree with themselves — skip them.
     private static IEnumerable<IGrouping<AlbumGroupKey, SongMetadata>> GroupByLogicalAlbum(
         IEnumerable<SongMetadata> songs)
-        => songs
-            .Select(s => (Key: AlbumGroupKey.For(s), Song: s))
+    {
+        var albumKeyCache = new Dictionary<string, string>(StringComparer.Ordinal);
+        var artistKeyCache = new Dictionary<string, string>(StringComparer.Ordinal);
+        return songs
+            .Select(s => (Key: AlbumGroupKey.ForCached(s, albumKeyCache, artistKeyCache), Song: s))
             .Where(x => x.Key is not null)
             .GroupBy(x => x.Key!, x => x.Song)
             .Where(g => g.Count() > 1);
+    }
 }

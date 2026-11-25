@@ -100,10 +100,25 @@ public static class PlaylistsEndpoints
         IOwnerLookupService ownerLookup,
         CancellationToken ct)
     {
-        await EnsureSourcePlaylistsAsync(db, currentUser.UserId, ct);
-
+        // Load sources and playlists once each instead of reading both tables twice (ensure + build).
+        var sources = await db.WishlistSources.AsNoTracking().ToDictionaryAsync(s => s.Id, ct);
         var playlists = await db.Playlists.AsNoTracking().Include(p => p.Entries).ToListAsync(ct);
-        var dtos = await BuildAsync(db, scopeResolver, playlists, ct);
+
+        if (currentUser.UserId != Guid.Empty && sources.Count > 0)
+        {
+            var linked = playlists
+                .Where(p => p.WishlistSourceId != null)
+                .Select(p => p.WishlistSourceId!.Value)
+                .ToHashSet();
+            var missing = sources.Values.Where(s => !linked.Contains(s.Id)).ToList();
+            if (missing.Count > 0)
+            {
+                await InsertMissingSourcePlaylistsAsync(db, currentUser.UserId, missing, ct);
+                playlists = await db.Playlists.AsNoTracking().Include(p => p.Entries).ToListAsync(ct);
+            }
+        }
+
+        var dtos = await BuildAsync(db, scopeResolver, playlists, ct, sources);
         return Results.Ok(new PlaylistsResponse(
             dtos.OrderBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase).ThenBy(p => p.Id).ToList(),
             IsLibraryOwner(currentUser, ownerLookup)));
@@ -380,12 +395,11 @@ public static class PlaylistsEndpoints
     {
         if (userId == Guid.Empty)
             return;
-        var sources = await db.WishlistSources.AsNoTracking()
-            .Select(s => new { s.Id, s.Name, s.CreatedAtUtc })
-            .ToListAsync(ct);
+        var sources = await db.WishlistSources.AsNoTracking().ToListAsync(ct);
         if (sources.Count == 0)
             return;
         var linked = (await db.Playlists
+                .AsNoTracking()
                 .Where(p => p.WishlistSourceId != null)
                 .Select(p => p.WishlistSourceId!.Value)
                 .ToListAsync(ct))
@@ -393,7 +407,12 @@ public static class PlaylistsEndpoints
         var missing = sources.Where(s => !linked.Contains(s.Id)).ToList();
         if (missing.Count == 0)
             return;
+        await InsertMissingSourcePlaylistsAsync(db, userId, missing, ct);
+    }
 
+    private static async Task InsertMissingSourcePlaylistsAsync(
+        MusicHoarderDbContext db, Guid userId, IReadOnlyList<WishlistSource> missing, CancellationToken ct)
+    {
         var now = DateTime.UtcNow;
         var rows = missing.Select(s => new Playlist
         {
@@ -421,12 +440,29 @@ public static class PlaylistsEndpoints
     }
 
     internal static async Task<List<PlaylistDto>> BuildAsync(
-        MusicHoarderDbContext db, ILibraryScopeResolver scopeResolver, IReadOnlyList<Playlist> playlists, CancellationToken ct)
+        MusicHoarderDbContext db,
+        ILibraryScopeResolver scopeResolver,
+        IReadOnlyList<Playlist> playlists,
+        CancellationToken ct,
+        Dictionary<int, WishlistSource>? preloadedSources = null)
     {
         if (playlists.Count == 0)
             return [];
         var scope = await scopeResolver.ResolveAsync(db, ct);
-        var sources = await LoadSourcesAsync(db, playlists, ct);
+        Dictionary<int, WishlistSource> sources;
+        if (preloadedSources is not null)
+        {
+            sources = new Dictionary<int, WishlistSource>();
+            foreach (var p in playlists)
+            {
+                if (p.WishlistSourceId is { } sid && preloadedSources.TryGetValue(sid, out var src))
+                    sources[sid] = src;
+            }
+        }
+        else
+        {
+            sources = await LoadSourcesAsync(db, playlists, ct);
+        }
         var resolved = await ResolveAsync(db, scope, playlists, ct, sources);
         return playlists
             .Select(p => ToDto(p, p.WishlistSourceId is { } sid ? sources.GetValueOrDefault(sid) : null, resolved[p.Id]))
