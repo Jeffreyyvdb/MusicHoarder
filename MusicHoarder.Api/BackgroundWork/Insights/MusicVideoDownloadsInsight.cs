@@ -43,7 +43,7 @@ public sealed class MusicVideoDownloadsInsight(
     {
         var now = time.GetUtcNow().UtcDateTime;
         var opts = options.CurrentValue;
-        var videos = db.SongMusicVideos.AsNoTracking();
+        var videos = MusicVideoPrefetchScope.VideosOfEligible(db);
 
         var rows = (await videos
             .GroupBy(v => new { v.Status, v.Pick })
@@ -115,7 +115,7 @@ public sealed class MusicVideoDownloadsInsight(
 
         var states = BackgroundPanels.Breakdown(
             "Where every video stands",
-            "One row per song that has a video row.",
+            "One row per song the search considers that has a video row.",
             "videos",
             [
                 new("ready-automatic", "Ready, downloaded automatically",

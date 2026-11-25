@@ -59,7 +59,7 @@ public sealed class MusicVideoBacklogLoader(
             .ToListAsync(ct);
         var setBySong = sets.ToDictionary(c => c.SongId);
 
-        var videoBySong = (await db.SongMusicVideos.IgnoreQueryFilters().AsNoTracking()
+        var videoBySong = (await MusicVideoPrefetchScope.VideosOfEligible(db)
             .Select(v => new { v.SongId, v.Status, v.Pick })
             .ToListAsync(ct)).ToDictionary(v => v.SongId);
 

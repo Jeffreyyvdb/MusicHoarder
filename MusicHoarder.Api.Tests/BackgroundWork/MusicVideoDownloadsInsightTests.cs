@@ -1,6 +1,8 @@
+using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.BackgroundWork;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Storage;
+using MusicHoarder.Api.Tests.Auth;
 using static MusicHoarder.Api.Tests.BackgroundWork.MusicVideoTestData;
 
 namespace MusicHoarder.Api.Tests.BackgroundWork;
@@ -231,5 +233,40 @@ public class MusicVideoDownloadsInsightTests
 
         Assert.Equal(["Under 10", "10 to 29", "30 or more"], bars.Bars.Select(b => b.Label));
         Assert.Equal([1.0, 0, 0], bars.Bars.Select(b => b.Value));
+    }
+
+    [Fact]
+    public async Task Both_music_video_sheets_count_the_live_videos_of_every_admin_and_no_demo_ones()
+    {
+        using var h = new BackgroundWorkHarness(caller: TestCurrentUserAccessor.OwnerUser);
+        h.Settings.AutoDownloadVideos = true;
+        h.Disk.Available = 200 * Gb;
+        var secondAdmin = Guid.NewGuid();
+        h.Seed(db =>
+        {
+            SeedAdmin(db);
+            db.Users.AddRange(
+                new User { Id = secondAdmin, Email = "b@example.com", EmailNormalized = "B@EXAMPLE.COM", Role = UserRole.Admin },
+                new User { Id = WellKnownUsers.DemoId, Email = "demo@example.com", EmailNormalized = "DEMO@EXAMPLE.COM", Role = UserRole.Demo });
+            db.SaveChanges();
+            db.SongMusicVideos.AddRange(
+                Video(Add(db, 1), MusicVideoStatus.Ready, MusicVideoPick.Automatic, h.Now.AddHours(-1)),
+                Video(Add(db, 2, s => s.DeletedAtUtc = h.Now.AddDays(-1)), MusicVideoStatus.Ready, MusicVideoPick.Automatic, h.Now.AddHours(-1)),
+                Video(Add(db, 3, s => s.OwnerUserId = WellKnownUsers.DemoId), MusicVideoStatus.Ready, MusicVideoPick.Automatic, h.Now.AddHours(-1)),
+                Video(Add(db, 4, s => s.OwnerUserId = secondAdmin), MusicVideoStatus.Ready, MusicVideoPick.Requested, h.Now.AddHours(-1)),
+                Video(Add(db, 5, s => s.OwnerUserId = secondAdmin), MusicVideoStatus.Failed, MusicVideoPick.Automatic));
+        });
+
+        var search = (await h.DescribeAsync(BackgroundJobIds.MusicVideos)).Panel<BreakdownPanelDto>("What the last search found");
+        var downloads = await h.DescribeAsync(BackgroundJobIds.MusicVideoDownloads);
+        var states = downloads.Panel<BreakdownPanelDto>("Where every video stands");
+
+        Assert.Equal(1, search.Segment("video-automatic"));
+        Assert.Equal(1, search.Segment("video-requested"));
+        Assert.Equal(search.Segment("video-automatic"), states.Segment("ready-automatic"));
+        Assert.Equal(search.Segment("video-requested"), states.Segment("ready-requested"));
+        Assert.Equal(1, states.Segment("failed"));
+        Assert.Equal(2, downloads.Summary.Headline.Value);
+        Assert.Equal(2, downloads.Panel<SeriesPanelDto>("Videos fetched per day").Points[^1].Values.Sum());
     }
 }

@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.BackgroundWork;
 using MusicHoarder.Api.Download;
 using MusicHoarder.Api.Enrichment;
@@ -10,6 +11,7 @@ using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Settings;
 using MusicHoarder.Api.Storage;
+using MusicHoarder.Api.Tests.Auth;
 using MusicHoarder.Api.Tests.Download;
 
 namespace MusicHoarder.Api.Tests.BackgroundWork;
@@ -31,7 +33,8 @@ internal sealed class BackgroundWorkHarness : IDisposable
     public BackgroundWorkStatus Status { get; }
     public DateTime Now { get; }
 
-    public BackgroundWorkHarness(DateTime? now = null, Func<MusicHoarderDbContext>? contexts = null)
+    /// <param name="caller">The signed-in account whose ambient query filter the contexts carry; none by default.</param>
+    public BackgroundWorkHarness(DateTime? now = null, Func<MusicHoarderDbContext>? contexts = null, CurrentUser? caller = null)
     {
         Now = now ?? BackgroundWorkTestData.Now;
         var clock = BackgroundWorkTestData.Clock(Now);
@@ -51,8 +54,10 @@ internal sealed class BackgroundWorkHarness : IDisposable
         services.AddSingleton(Storage);
         services.AddSingleton<ILyricsTranscriptionService>(Transcriber);
         services.AddSingleton<IEnrichmentOrchestrator>(new StubOrchestrator(Providers));
-        services.AddScoped(_ => contexts?.Invoke() ?? new MusicHoarderDbContext(
-            new DbContextOptionsBuilder<MusicHoarderDbContext>().UseInMemoryDatabase(_database).Options));
+        var inMemory = new DbContextOptionsBuilder<MusicHoarderDbContext>().UseInMemoryDatabase(_database).Options;
+        services.AddScoped(_ => contexts?.Invoke() ?? (caller is null
+            ? new MusicHoarderDbContext(inMemory)
+            : new MusicHoarderDbContext(inMemory, new TestCurrentUserAccessor(caller))));
         services.AddBackgroundWork();
         _provider = services.BuildServiceProvider();
     }

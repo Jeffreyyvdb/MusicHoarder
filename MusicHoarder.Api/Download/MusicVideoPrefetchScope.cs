@@ -33,6 +33,13 @@ public static class MusicVideoPrefetchScope
                 && s.Title != null && s.Title != "");
     }
 
+    /// <summary>The video rows of eligible songs: every video count the Background work page shows.</summary>
+    public static IQueryable<SongMusicVideo> VideosOfEligible(MusicHoarderDbContext db)
+    {
+        var eligible = Eligible(db).Select(s => s.Id);
+        return db.SongMusicVideos.IgnoreQueryFilters().AsNoTracking().Where(v => eligible.Contains(v.SongId));
+    }
+
     /// <summary>
     /// The eligible songs without a working video. A video that failed is exactly when a list of alternatives
     /// is wanted, so only a working or queued one excludes.
