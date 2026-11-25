@@ -64,6 +64,7 @@ public sealed class CoverArtInsight(
 
         var counts = Enum.GetValues<Folder>().ToDictionary(f => f, _ => 0);
         var due = 0;
+        var considered = new List<AlbumCoverFetchAttempt>();
         foreach (var (folder, hasCover) in covered)
         {
             attemptOf.TryGetValue(folder, out var attempt);
@@ -94,9 +95,11 @@ public sealed class CoverArtInsight(
                 };
             }
             counts[kind]++;
+            if (kind != Folder.HasCover && attempt is not null)
+                considered.Add(attempt);
         }
 
-        return new Data(now, counts, due, attempts, [.. writes.Select(w => w.WrittenAtUtc)]);
+        return new Data(now, counts, due, considered, [.. writes.Select(w => w.WrittenAtUtc)]);
     }
 
     public async Task<BackgroundJobSummaryDto> SummarizeAsync(CancellationToken ct)

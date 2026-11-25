@@ -89,6 +89,21 @@ public class CoverArtInsightTests
     }
 
     [Fact]
+    public async Task Attempts_for_folders_the_sweep_no_longer_considers_are_left_out()
+    {
+        using var h = Library();
+        Attempt(h, "/dest/Gone", AlbumCoverFetchStatus.Failed, h.Now.AddHours(1));
+        Attempt(h, "/dest/A", AlbumCoverFetchStatus.NotFound, h.Now.AddHours(2));
+
+        var detail = await h.DescribeAsync(BackgroundJobIds.CoverArt);
+
+        Assert.Equal(h.Now.AddHours(10), detail.Panel<FiguresPanelDto>("The sweep").Item("Soonest retry").AtUtc);
+        var today = detail.Panel<SeriesPanelDto>("What the sweep did each day").Points[^1].Values;
+        Assert.Equal(2, today[1]);
+        Assert.Equal(1, today[2]);
+    }
+
+    [Fact]
     public async Task With_spotify_covers_off_a_cover_archive_cover_is_just_a_cover()
     {
         using var h = Library();
