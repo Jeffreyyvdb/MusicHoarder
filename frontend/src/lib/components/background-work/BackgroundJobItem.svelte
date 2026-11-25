@@ -44,7 +44,9 @@
     </span>
     <span class="flex min-w-0 flex-1 flex-col">
       <span class="flex items-center justify-between gap-2">
-        <span class={cn('text-body min-w-0 font-semibold md:text-sm', layout === 'sheet' && 'sr-only')}>
+        <span
+          class={cn('text-body min-w-0 font-semibold md:text-sm', layout === 'sheet' && 'sr-only')}
+        >
           {job.title}
         </span>
         <StateDot state={job.state} />
@@ -106,7 +108,9 @@
         {#if lastWorked}<span>Last worked {lastWorked}</span>{/if}
         {#if nextRun}<span>Next look {nextRun}</span>{/if}
       {:else if !eta}
-        {#if nextRun}<span>Next look {nextRun}</span>{:else if lastWorked}<span>Last worked {lastWorked}</span>{/if}
+        {#if nextRun}<span>Next look {nextRun}</span>{:else if lastWorked}<span
+            >Last worked {lastWorked}</span
+          >{/if}
       {/if}
     </span>
   </span>

@@ -101,12 +101,12 @@
 </script>
 
 <PanelFrame title={panel.title} caption={panel.caption} kind="library-map">
-  <div class="min-h-[6.5rem]">
+  <div class="min-h-[6.5rem] md:min-h-[3.25rem]">
     {#if readout}
       <p class="text-footnote text-muted-foreground md:text-xs">
         {readout.when} · {readout.songs} songs
       </p>
-      <ul class="mt-0.5 flex flex-col gap-0.5">
+      <ul class="mt-0.5 flex flex-col gap-0.5 md:flex-row md:flex-wrap md:gap-x-4">
         {#each readout.rows as row (row.label)}
           <li class="flex min-w-0 items-center gap-1.5">
             <Swatch fill={row.fill} tone={row.tone} />

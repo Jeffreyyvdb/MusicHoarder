@@ -119,10 +119,15 @@ export interface LimitLabelPlacement {
  * their labels over each other. `positions` are percentages of the plot height; `labelPct` is a
  * label's height in the same unit. Answers in the order given.
  */
-export function placeLimitLabels(positions: readonly number[], labelPct = 11): LimitLabelPlacement[] {
+export function placeLimitLabels(
+  positions: readonly number[],
+  labelPct = 11
+): LimitLabelPlacement[] {
   const order = positions.map((_, i) => i).sort((a, b) => positions[b] - positions[a]);
   const taken: [number, number][] = [];
-  const result: LimitLabelPlacement[] = new Array(positions.length);
+  const result = Array.from({ length: positions.length }, (): LimitLabelPlacement => ({
+    above: true
+  }));
   const clear = (span: [number, number]) =>
     span[0] >= 0 && span[1] <= 100 && taken.every(([lo, hi]) => span[1] <= lo || span[0] >= hi);
   for (const i of order) {
@@ -156,6 +161,37 @@ export interface TimeTick {
  * Where an x axis of time buckets is labelled: each local midnight for hours (6-hourly when the
  * range is shorter than a day), each day for days, thinned to `maxLabels`.
  */
+function hourTicks(dates: readonly Date[], options: MomentOptions): TimeTick[] {
+  const midnights = dates.flatMap((d, index) =>
+    localHour(d, options.timeZone) === 0 ? [index] : []
+  );
+  if (midnights.length >= 2) {
+    return midnights.map((index) => ({
+      index,
+      label: dates[index].toLocaleDateString(options.locale, {
+        weekday: 'short',
+        day: 'numeric',
+        timeZone: options.timeZone
+      })
+    }));
+  }
+  return dates.flatMap((d, index) =>
+    localHour(d, options.timeZone) % 6 === 0
+      ? [
+          {
+            index,
+            label: d.toLocaleTimeString(options.locale, {
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: false,
+              timeZone: options.timeZone
+            })
+          }
+        ]
+      : []
+  );
+}
+
 export function timeTicks(
   starts: readonly string[],
   bucket: 'hour' | 'day',
@@ -163,43 +199,10 @@ export function timeTicks(
   options: MomentOptions = {}
 ): TimeTick[] {
   const dates = starts.map((s) => new Date(s));
-  let candidates: TimeTick[] = [];
-  if (bucket === 'day') {
-    candidates = dates.map((d, index) => ({
-      index,
-      label: formatDayBucket(d.toISOString(), options)
-    }));
-  } else {
-    const midnights = dates.flatMap((d, index) =>
-      localHour(d, options.timeZone) === 0 ? [index] : []
-    );
-    if (midnights.length >= 2) {
-      candidates = midnights.map((index) => ({
-        index,
-        label: dates[index].toLocaleDateString(options.locale, {
-          weekday: 'short',
-          day: 'numeric',
-          timeZone: options.timeZone
-        })
-      }));
-    } else {
-      candidates = dates.flatMap((d, index) =>
-        localHour(d, options.timeZone) % 6 === 0
-          ? [
-              {
-                index,
-                label: d.toLocaleTimeString(options.locale, {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                  hour12: false,
-                  timeZone: options.timeZone
-                })
-              }
-            ]
-          : []
-      );
-    }
-  }
+  const candidates =
+    bucket === 'day'
+      ? dates.map((d, index) => ({ index, label: formatDayBucket(d.toISOString(), options) }))
+      : hourTicks(dates, options);
   if (candidates.length <= maxLabels) return candidates;
   const stride = Math.ceil(candidates.length / maxLabels);
   return candidates.filter((_, i) => i % stride === 0);
@@ -321,7 +324,11 @@ export function placeMarkers(
 ): MarkerPlacement[] {
   const order = markers.map((_, i) => i).sort((a, b) => markers[a].position - markers[b].position);
   const laneEnds: number[] = [];
-  const placed: MarkerPlacement[] = new Array(markers.length);
+  const placed = Array.from({ length: markers.length }, (): MarkerPlacement => ({
+    position: 0,
+    align: 'center',
+    lane: 0
+  }));
   for (const i of order) {
     const { position, width } = markers[i];
     const align = position < 0.25 ? 'start' : position > 0.75 ? 'end' : 'center';

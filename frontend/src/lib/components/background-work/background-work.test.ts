@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { createRawSnippet } from 'svelte';
+import { createRawSnippet, type Component } from 'svelte';
 import { render } from 'svelte/server';
 import { FIXTURE_DETAILS, FIXTURE_NOW, FIXTURE_SUMMARY } from '#lib/background-work/fixtures.ts';
-import type { BackgroundPanel } from '#lib/background-work/types.ts';
 import BackgroundJobDetailBody from './BackgroundJobDetailBody.svelte';
 import BackgroundWorkSection from './BackgroundWorkSection.svelte';
 import PanelView from './panels/PanelView.svelte';
@@ -11,7 +10,7 @@ import { PANEL_VIEWS } from './panels/panel-registry.ts';
 const NOW = Date.parse(FIXTURE_NOW);
 const header = createRawSnippet(() => ({ render: () => '<span>Background work</span>' }));
 
-const html = (component: Parameters<typeof render>[0], props: Record<string, unknown>) =>
+const html = <P extends Record<string, unknown>>(component: Component<P>, props: P) =>
   render(component, { props }).body;
 
 describe('PanelView', () => {
@@ -21,7 +20,7 @@ describe('PanelView', () => {
     for (const kind of kinds) {
       const panel = Object.values(FIXTURE_DETAILS)
         .flatMap((d) => d.panels)
-        .find((p) => p.kind === kind) as BackgroundPanel;
+        .find((p) => p.kind === kind)!;
       const body = html(PanelView, { panel, now: NOW });
       expect(body, kind).toContain(`data-kind="${kind}"`);
       expect(body, kind).toContain(panel.title);
@@ -41,7 +40,12 @@ describe('PanelView', () => {
   it('stacks the lyrics breakdown legend in the order the API gave', () => {
     const panel = FIXTURE_DETAILS.lyrics.panels[0];
     const body = html(PanelView, { panel });
-    const order = ['Synced by LRCLIB', 'Official words, timed by AI', 'Words without timing', 'Not found anywhere'];
+    const order = [
+      'Synced by LRCLIB',
+      'Official words, timed by AI',
+      'Words without timing',
+      'Not found anywhere'
+    ];
     const positions = order.map((label) => body.indexOf(label));
     expect([...positions].sort((a, b) => a - b)).toEqual(positions);
     expect(positions.every((p) => p >= 0)).toBe(true);
@@ -78,7 +82,11 @@ describe('BackgroundJobDetailBody', () => {
   });
 
   it('says how the estimate was made', () => {
-    const body = html(BackgroundJobDetailBody, { summary: null, detail: FIXTURE_DETAILS.lyrics, now: NOW });
+    const body = html(BackgroundJobDetailBody, {
+      summary: null,
+      detail: FIXTURE_DETAILS.lyrics,
+      now: NOW
+    });
     expect(body).toContain('rate of 64 songs a day');
   });
 
@@ -87,7 +95,12 @@ describe('BackgroundJobDetailBody', () => {
     const loading = html(BackgroundJobDetailBody, { summary, detail: null, now: NOW });
     expect(loading).toContain(summary.title);
     expect(loading).toContain('aria-busy="true"');
-    const failed = html(BackgroundJobDetailBody, { summary, detail: null, error: 'Nope', now: NOW });
+    const failed = html(BackgroundJobDetailBody, {
+      summary,
+      detail: null,
+      error: 'Nope',
+      now: NOW
+    });
     expect(failed).toContain('role="alert"');
     expect(failed).toContain('Nope');
   });

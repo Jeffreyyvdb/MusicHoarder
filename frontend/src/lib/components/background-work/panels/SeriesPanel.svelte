@@ -185,7 +185,9 @@
                it never covers what it describes. The slider's value text says the same aloud. -->
           <div
             aria-hidden="true"
-            class="bg-popover text-popover-foreground ring-foreground/10 pointer-events-none absolute top-1 z-10 max-w-[78%] rounded-lg px-2 py-1 shadow-md ring-1 {(selected ?? 0) < count / 2
+            class="bg-popover text-popover-foreground ring-foreground/10 pointer-events-none absolute top-1 z-10 max-w-[78%] rounded-lg px-2 py-1 shadow-md ring-1 {(selected ??
+              0) <
+            count / 2
               ? 'right-1'
               : 'left-1'}"
           >
@@ -194,12 +196,16 @@
               {#each readout.rows as row, i (row.key)}
                 <li class="flex items-center gap-1.5 whitespace-nowrap">
                   <Swatch fill={fills[i]} tone={panel.series[i].tone} />
-                  <span class="text-footnote font-semibold tabular-nums md:text-xs">{row.value}</span>
+                  <span class="text-footnote font-semibold tabular-nums md:text-xs"
+                    >{row.value}</span
+                  >
                   <span class="text-footnote text-muted-foreground md:text-xs">{row.label}</span>
                 </li>
               {/each}
               {#if readout.total}
-                <li class="text-footnote border-separator flex items-center gap-1.5 border-t pt-0.5 whitespace-nowrap md:text-xs">
+                <li
+                  class="text-footnote border-separator flex items-center gap-1.5 border-t pt-0.5 whitespace-nowrap md:text-xs"
+                >
                   <span class="font-semibold tabular-nums">{readout.total}</span>
                   <span class="text-muted-foreground">Total</span>
                 </li>

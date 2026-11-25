@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { CircleAlert, TriangleAlert } from '@lucide/svelte';
   import { formatMoment, formatValue } from '#lib/background-work/format.ts';
   import { toneColor, toneTextClass } from '#lib/background-work/tone.ts';
   import type { FiguresPanel } from '#lib/background-work/types.ts';
   import PanelFrame from './PanelFrame.svelte';
+  import TroubleGlyph from './TroubleGlyph.svelte';
 
   type Props = { panel: FiguresPanel; now?: number };
   let { panel, now = Date.now() }: Props = $props();
@@ -29,21 +29,7 @@
         <div class="min-w-0">
           <dt class="text-footnote text-muted-foreground flex items-center gap-1 md:text-xs">
             {item.label}
-            {#if item.tone === 'bad'}
-              <CircleAlert
-                class="text-destructive-text size-3 shrink-0"
-                aria-hidden="true"
-                strokeWidth={2.5}
-              />
-              <span class="sr-only">(a problem)</span>
-            {:else if item.tone === 'warning'}
-              <TriangleAlert
-                class="text-warning-text size-3 shrink-0"
-                aria-hidden="true"
-                strokeWidth={2.5}
-              />
-              <span class="sr-only">(needs attention)</span>
-            {/if}
+            <TroubleGlyph tone={item.tone} />
           </dt>
           <dd class="m-0">
             {#if text.value !== null}

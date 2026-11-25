@@ -1,14 +1,16 @@
 <script lang="ts">
   import { formatValue } from '#lib/background-work/format.ts';
-  import { toneFills } from '#lib/background-work/tone.ts';
+  import { toneColor } from '#lib/background-work/tone.ts';
   import type { BarsPanel } from '#lib/background-work/types.ts';
   import PanelFrame from './PanelFrame.svelte';
-  import { CircleAlert, TriangleAlert } from '@lucide/svelte';
+  import TroubleGlyph from './TroubleGlyph.svelte';
 
   type Props = { panel: BarsPanel };
   let { panel }: Props = $props();
 
-  const fills = $derived(toneFills(panel.bars.map((b) => b.tone)));
+  // Columns share one baseline and carry their own labels, so a repeated tone is not stepped:
+  // a lighter bar would read as a smaller value.
+  const fills = $derived(panel.bars.map((b) => toneColor(b.tone)));
   const max = $derived(Math.max(0, ...panel.bars.map((b) => b.value)));
   const pct = (value: number) => (max > 0 && value > 0 ? Math.max(2, (value / max) * 100) : 0);
 
@@ -17,23 +19,13 @@
   const columns = $derived(panel.bars.length <= 7 && panel.bars.every((b) => b.label.length <= 12));
 </script>
 
-{#snippet trouble(tone: BarsPanel['bars'][number]['tone'])}
-  {#if tone === 'bad'}
-    <CircleAlert class="text-destructive-text size-3 shrink-0" aria-hidden="true" strokeWidth={2.5} />
-    <span class="sr-only">Problem:</span>
-  {:else if tone === 'warning'}
-    <TriangleAlert class="text-warning-text size-3 shrink-0" aria-hidden="true" strokeWidth={2.5} />
-    <span class="sr-only">Needs attention:</span>
-  {/if}
-{/snippet}
-
 <PanelFrame title={panel.title} caption={panel.caption} kind="bars">
   {#if columns}
     <ul class="flex h-40 items-end gap-2" aria-label={panel.title}>
       {#each panel.bars as bar, i (bar.label)}
         <li class="flex h-full min-w-0 flex-1 flex-col items-center justify-end">
           <span class="text-caption-2 mb-1 flex items-center gap-0.5 font-medium tabular-nums">
-            {@render trouble(bar.tone)}{formatValue(panel.format, bar.value)}
+            <TroubleGlyph tone={bar.tone} />{formatValue(panel.format, bar.value)}
           </span>
           <span class="flex min-h-0 w-full flex-1 items-end justify-center">
             <span
@@ -64,8 +56,10 @@
               style:background-color={fills[i]}
             ></span>
           </span>
-          <span class="text-footnote flex w-20 items-center justify-end gap-1 font-medium tabular-nums md:text-xs">
-            {@render trouble(bar.tone)}{formatValue(panel.format, bar.value)}
+          <span
+            class="text-footnote flex w-20 items-center justify-end gap-1 font-medium tabular-nums md:text-xs"
+          >
+            <TroubleGlyph tone={bar.tone} />{formatValue(panel.format, bar.value)}
           </span>
         </li>
       {/each}

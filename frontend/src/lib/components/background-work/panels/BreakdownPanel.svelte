@@ -5,6 +5,7 @@
   import { cn } from '#lib/utils.ts';
   import PanelFrame from './PanelFrame.svelte';
   import Swatch from './Swatch.svelte';
+  import TroubleGlyph from './TroubleGlyph.svelte';
 
   type Props = { panel: BreakdownPanel };
   let { panel }: Props = $props();
@@ -74,9 +75,14 @@
             active === segment.key && 'bg-accent'
           )}
         >
-          <span class="flex h-5 items-center"><Swatch fill={fills[i]} tone={segment.tone} /></span>
+          <span class="flex h-5 items-center"
+            ><Swatch fill={fills[i]} tone={segment.tone} glyph={false} /></span
+          >
           <span class="flex min-w-0 flex-col">
-            <span class="text-subheadline md:text-sm">{segment.label}</span>
+            <span class="text-subheadline flex items-center gap-1.5 md:text-sm">
+              {segment.label}
+              <TroubleGlyph tone={segment.tone} />
+            </span>
             {#if segment.note}
               <span class="text-footnote text-muted-foreground md:text-xs">{segment.note}</span>
             {/if}

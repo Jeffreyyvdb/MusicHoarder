@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { CircleAlert, TriangleAlert } from '@lucide/svelte';
   import { toneIsTrouble } from '#lib/background-work/tone.ts';
   import type { BackgroundTone } from '#lib/background-work/types.ts';
+  import TroubleGlyph from './TroubleGlyph.svelte';
 
   /**
    * A legend key: the mark's own fill, drawn the shape the mark is. A tone that means trouble also
@@ -11,8 +11,10 @@
     fill: string;
     tone: BackgroundTone;
     shape?: 'box' | 'dash';
+    /** False where the row prints the glyph itself, beside its label. */
+    glyph?: boolean;
   };
-  let { fill, tone, shape = 'box' }: Props = $props();
+  let { fill, tone, shape = 'box', glyph = true }: Props = $props();
 </script>
 
 <span class="inline-flex shrink-0 items-center gap-1" aria-hidden="true">
@@ -21,11 +23,7 @@
   {:else}
     <span class="block size-3 rounded-[3px]" style:background-color={fill}></span>
   {/if}
-  {#if toneIsTrouble(tone)}
-    {#if tone === 'bad'}
-      <CircleAlert class="text-destructive-text size-3" strokeWidth={2.5} />
-    {:else}
-      <TriangleAlert class="text-warning-text size-3" strokeWidth={2.5} />
-    {/if}
+  {#if glyph && toneIsTrouble(tone)}
+    <TroubleGlyph {tone} />
   {/if}
 </span>
