@@ -163,9 +163,21 @@ export function createAiLyrics(opts: {
     }, ms);
   }
 
-  const lyricsStatus = $derived((song.lyricsStatus ?? 'NotFetched') as LyricsStatus);
+  // What this song's own lyrics response said about its official lyrics. It is fresher than the library row,
+  // which the background AI sync and the lyrics re-check can outdate, so it wins once it lands.
+  let fetchedOfficial = $state<{ status: LyricsStatus | null; hasLyrics: boolean } | null>(null);
+  const lyricsStatus = $derived(
+    (fetchedOfficial?.status ?? song.lyricsStatus ?? 'NotFetched') as LyricsStatus
+  );
   const hasLyrics = $derived(
-    Boolean(song.hasSyncedLyrics) || Boolean(song.hasPlainLyrics) || lyricsStatus === 'Fetched'
+    fetchedOfficial
+      ? fetchedOfficial.hasLyrics
+      : Boolean(song.hasSyncedLyrics) || Boolean(song.hasPlainLyrics) || lyricsStatus === 'Fetched'
+  );
+  const confirmedInstrumental = $derived(
+    fetchedOfficial?.status
+      ? fetchedOfficial.status === 'Instrumental'
+      : isConfirmedInstrumental(song)
   );
 
   const translationIsEnglish = $derived(translation != null && isAlreadyEnglish(translation));
@@ -176,11 +188,11 @@ export function createAiLyrics(opts: {
   // the two stages (a demo row with no file on disk fails stage 1 and falls through to stage 2).
   // Owner-gated: these are server writes on the owner's rows; friends still SEE existing
   // pronunciation/translation documents (hasTranslation), they just can't generate them.
-  const canTranscribe = $derived(isOwner && lyricsFeatureEnabled && !isConfirmedInstrumental(song));
+  const canTranscribe = $derived(isOwner && lyricsFeatureEnabled && !confirmedInstrumental);
   const canTranslate = $derived(
     isOwner &&
       translationFeatureEnabled &&
-      !isConfirmedInstrumental(song) &&
+      !confirmedInstrumental &&
       (hasLyrics || transcription != null)
   );
   const canEnhance = $derived(canTranscribe || canTranslate);
@@ -254,7 +266,7 @@ export function createAiLyrics(opts: {
 
   // The mobile lyrics card / fullscreen overlay present the same source as the big viewer.
   const expandable = $derived(
-    !isConfirmedInstrumental(song) &&
+    !confirmedInstrumental &&
       (showAiInViewer ? Boolean(transcription?.synced || transcription?.plain) : hasLyrics)
   );
 
@@ -453,12 +465,17 @@ export function createAiLyrics(opts: {
         current.hasTranscribedLyrics === true,
         current.hasSyncedLyrics === true,
         current.hasPlainLyrics === true,
-        current.preferredLyricsSource ?? ''
+        current.preferredLyricsSource ?? '',
+        current.lyricsStatus ?? ''
       ].join(':');
       if (fetchedForKey === key) return;
       fetchedForKey = key;
       // Sets every field from the answer, so a fresh fetch also clears what a remembered one had.
       const apply = (d: TrackLyricsResponse) => {
+        fetchedOfficial = {
+          status: (d.lyricsStatus as LyricsStatus | undefined) ?? null,
+          hasLyrics: Boolean(d.synced) || Boolean(d.plain) || d.lyricsStatus === 'Fetched'
+        };
         // LRCLIB's instrumental verdict outranks a transcript made before it, which the server keeps.
         transcription =
           d.lyricsStatus !== 'Instrumental' && (d.transcribedSynced || d.transcribedPlain)
@@ -491,6 +508,7 @@ export function createAiLyrics(opts: {
       };
       if (loadedForSongId !== id) {
         loadedForSongId = id;
+        fetchedOfficial = null;
         transcription = null;
         syncOffsetMs = null;
         showCompare = false;

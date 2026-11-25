@@ -416,7 +416,9 @@ public static class SharesEndpoints
         // viewers who have no Regenerate button.
         var translationFresh =
             song.LyricsTranslationStatus == LyricsTranslationStatus.Completed
-            && !song.IsLyricsTranslationStale;
+            && !song.IsLyricsTranslationStale
+            // No words are shown for an instrumental, so neither is a translation of them.
+            && !song.ShowsAsInstrumental;
         return Results.Ok(new
         {
             song.Id,

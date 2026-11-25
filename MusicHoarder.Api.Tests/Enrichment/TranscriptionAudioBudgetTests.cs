@@ -128,13 +128,14 @@ public class TranscriptionAudioBudgetTests
     }
 
     [Fact]
-    public async Task a_background_retry_with_no_room_left_is_refused_and_the_upload_already_sent_stays_counted()
+    public async Task a_background_retry_with_no_room_left_fails_the_request_and_the_upload_already_sent_stays_counted()
     {
         await using var db = NewDb();
         var budget = TestBudget.Over(db, Ceiling);
         await Spend(budget, TranscriptionPurpose.AutoSync, 500);
 
-        await Assert.ThrowsAsync<TranscriptionRateLimitedException>(() => budget.SpendAsync<string>(
+        // A failure, not "not now": the song must not stay first in line for the next pass.
+        await Assert.ThrowsAsync<InvalidOperationException>(() => budget.SpendAsync<string>(
             TranscriptionPurpose.AutoSync,
             400,
             async retry =>

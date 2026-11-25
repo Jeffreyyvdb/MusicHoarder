@@ -272,20 +272,16 @@ public sealed partial class LyricsTimingCheckService(
         {
             ct.ThrowIfCancellationRequested();
 
+            var wordsStamp = song.LyricsTextChangedAtUtc;
+            TranscriptionResult? result = null;
+            string? failure = null;
             try
             {
-                var wordsStamp = song.LyricsTextChangedAtUtc;
-                var result = await budget.SpendAsync(
+                result = await budget.SpendAsync(
                     TranscriptionPurpose.AutoResync,
                     TranscriptionAudioBudget.WholeSongSeconds(song),
                     retry => transcriber.TranscribeAsync(song, path, ct, retry),
                     ct);
-                var applied = LyricsResync.Apply(song, result, wordsStamp);
-                logger.LogInformation(
-                    "Lyrics auto re-sync for {Track} (SongId={SongId}): {Outcome}.",
-                    song.TrackLabel,
-                    song.Id,
-                    applied.Promoted ? "official lyrics re-timed and now shown" : "transcribed, but the lyrics could not be aligned, so the LRCLIB version stays");
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -304,14 +300,37 @@ public sealed partial class LyricsTimingCheckService(
                 // Recorded as failed, which takes it out of the queue: a song that cannot be transcribed would
                 // otherwise be retried on every pass. The button can still try it again.
                 logger.LogWarning(ex, "Lyrics auto re-sync failed for SongId={SongId}.", song.Id);
-                song.MarkTranscriptionFailed(ex.Message);
+                failure = ex.Message;
             }
 
-            resynced++;
-        }
+            // Stored against the song as it is now: the button may have re-synced it while this one ran.
+            var stored = await db.WithSongLockedAsync(song.Id, async () =>
+            {
+                await db.Entry(song).ReloadAsync(ct);
+                if (!await db.Songs.IgnoreQueryFilters().WhereDueForAutoResync().AnyAsync(s => s.Id == song.Id, ct))
+                    return false;
 
-        if (resynced > 0)
-            await db.SaveChangesAsync(ct);
+                if (result is null)
+                {
+                    song.MarkTranscriptionFailed(failure ?? "The transcription returned nothing.");
+                }
+                else
+                {
+                    var applied = LyricsResync.Apply(song, result, wordsStamp);
+                    logger.LogInformation(
+                        "Lyrics auto re-sync for {Track} (SongId={SongId}): {Outcome}.",
+                        song.TrackLabel,
+                        song.Id,
+                        applied.Promoted ? "official lyrics re-timed and now shown" : "transcribed, but the lyrics could not be aligned, so the LRCLIB version stays");
+                }
+
+                await db.SaveChangesAsync(ct);
+                return true;
+            }, ct);
+
+            if (stored)
+                resynced++;
+        }
 
         return resynced > 0;
     }
@@ -617,7 +636,7 @@ public static class LyricsTimingQueries
     public static IQueryable<SongMetadata> WhereFitsBackgroundAudioCeiling(
         this IQueryable<SongMetadata> query, int ceilingSeconds)
         => query.Where(s => (s.DurationSeconds > 0 ? s.DurationSeconds.Value
-                : s.DurationMs > 0 ? s.DurationMs.Value / 1000
+                : s.DurationMs > 0 ? s.DurationMs.Value / 1000.0
                 : TranscriptionAudioBudget.UnknownDurationSeconds)
             <= ceilingSeconds);
 }

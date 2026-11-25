@@ -760,6 +760,34 @@ public class EnrichmentOrchestratorTests
     }
 
     [Fact]
+    public async Task FetchLyrics_LeavesAloneWordsTheAiButtonStoredWhileLrclibWasAsked()
+    {
+        await using var db = CreateDb();
+        var song = AddPendingSong(db);
+        song.EnrichmentStatus = EnrichmentStatus.Matched;
+        await db.SaveChangesAsync();
+
+        var options = (DbContextOptions<MusicHoarderDbContext>)db.GetService<IDbContextOptions>();
+        var lrcLib = new StubLrcLibService(async _ =>
+        {
+            // "Sync with AI" found the words on LRCLIB itself and stored them while this lookup ran.
+            await using var button = new MusicHoarderDbContext(options);
+            var row = await button.Songs.IgnoreQueryFilters().SingleAsync();
+            Assert.True(row.TryApplyLyricsUpgrade(null, "Adopted words", instrumental: false, lrclibId: 42));
+            await button.SaveChangesAsync();
+            return new LyricsResult(null, "Fallback words", false, 99);
+        });
+        var orchestrator = CreateOrchestratorWithProviders(db, [], lrcLibService: lrcLib);
+
+        await orchestrator.FetchLyricsForSongAsync(song.Id);
+
+        await using var fresh = new MusicHoarderDbContext(options);
+        var stored = await fresh.Songs.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal("Adopted words", stored.PlainLyrics);
+        Assert.Equal("42", stored.LrclibId);
+    }
+
+    [Fact]
     public async Task RecheckLyrics_AppliesItsAnswerToTheSongAsSavedWhileLrclibWasAsked()
     {
         await using var db = CreateDb();

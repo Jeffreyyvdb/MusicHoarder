@@ -652,11 +652,34 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
             return;
         }
 
+        LyricsResult? result = null;
+        Exception? failure = null;
         try
         {
-            var result = await FetchFromSourcesAsync(song, songHasNoLyrics: true, ct);
+            result = await FetchFromSourcesAsync(song, songHasNoLyrics: true, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            failure = ex;
+        }
 
-            if (result is null)
+        // The lookup takes seconds, in which "Sync with AI" may have stored words it found itself, so the
+        // answer is applied to the song as it is now.
+        await dbContext.UpdateLatestAsync(song, () =>
+        {
+            if (!song.IsReadyForLyricsFetch)
+                return false;
+
+            if (failure is not null)
+            {
+                song.MarkLyricsFailed();
+                _logger.LogWarning(failure, "Lyrics fetch failed for {Track} (SongId={SongId})", song.TrackLabel, song.Id);
+            }
+            else if (result is null)
             {
                 song.MarkLyricsNotFound();
                 _logger.LogDebug("No lyrics found for {Track} (SongId={SongId})", song.TrackLabel, song.Id);
@@ -677,19 +700,8 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
             }
 
             RecordLyricsAttempt(song);
-            await dbContext.SaveChangesAsync(ct);
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            song.MarkLyricsFailed();
-            RecordLyricsAttempt(song);
-            await dbContext.SaveChangesAsync(ct);
-            _logger.LogWarning(ex, "Lyrics fetch failed for {Track} (SongId={SongId})", song.TrackLabel, song.Id);
-        }
+            return true;
+        }, ct);
     }
 
     public async Task<bool> RecheckLyricsForSongAsync(int songId, bool force = false, CancellationToken ct = default)
@@ -728,12 +740,12 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         }
 
         // The lookup takes seconds, in which the AI sync may have saved the song (an instrumental mark, a
-        // transcription), so the answer is applied to the song as it is now, under its row lock.
-        return await dbContext.WithSongLockedAsync(songId, async () =>
+        // transcription), so the answer is applied to the song as it is now.
+        var improved = false;
+        await dbContext.UpdateLatestAsync(song, () =>
         {
-            await dbContext.Entry(song).ReloadAsync(ct);
             var wasBuilt = song.LibraryBuildStatus == LibraryBuildStatus.Done;
-            var improved = result is not null
+            improved = result is not null
                 && song.IsLyricsRecheckCandidate
                 && song.TryApplyLyricsUpgrade(
                     result.SyncedLyrics, result.PlainLyrics, result.IsInstrumental, result.LrclibId, result.DurationSeconds,
@@ -754,10 +766,9 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
 
             if (improved && wasBuilt)
                 song.RequeueForRetag();
-
-            await dbContext.SaveChangesAsync(ct);
-            return improved;
+            return true;
         }, ct);
+        return improved;
     }
 
     private void RecordLyricsAttempt(SongMetadata song)

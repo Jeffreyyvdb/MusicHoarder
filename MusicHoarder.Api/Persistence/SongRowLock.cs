@@ -27,4 +27,21 @@ public static class SongRowLock
             return result;
         });
     }
+
+    /// <summary>
+    /// Reads <paramref name="song"/> again under its row lock, lets <paramref name="apply"/> change it, and saves
+    /// what it changed; <paramref name="apply"/> returns false to leave the song alone. Every writer of a song's
+    /// lyrics or transcription whose result took seconds to compute (an LRCLIB lookup, a transcription) saves
+    /// this way, so none of them can write back a copy older than another's save.
+    /// </summary>
+    public static Task<bool> UpdateLatestAsync(
+        this MusicHoarderDbContext db, SongMetadata song, Func<bool> apply, CancellationToken ct)
+        => db.WithSongLockedAsync(song.Id, async () =>
+        {
+            await db.Entry(song).ReloadAsync(ct);
+            if (!apply())
+                return false;
+            await db.SaveChangesAsync(ct);
+            return true;
+        }, ct);
 }

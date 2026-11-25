@@ -411,8 +411,8 @@ public class SongMetadata
     public DateTime? LyricsNextRecheckAfterUtc { get; set; }
 
     /// <summary>
-    /// When the official lyric text (<see cref="PlainLyrics"/>) last changed to new words. It names a version
-    /// of the words: <see cref="TranscriptionWordsStampUtc"/> holds the version a transcription was made for,
+    /// When the official lyric text (<see cref="PlainLyrics"/>, or a new <see cref="SyncedLyrics"/>) last
+    /// changed. It names a version of the text: <see cref="TranscriptionWordsStampUtc"/> holds the version a transcription was made for,
     /// and while the two differ the timing sweep transcribes the song again to align the new words. Null on
     /// rows whose text predates the column. Set through <see cref="SetOfficialLyricsText"/>.
     /// </summary>
@@ -1215,17 +1215,18 @@ public class SongMetadata
         var previousSynced = SyncedLyrics;
         SyncedLyrics = string.IsNullOrWhiteSpace(syncedLyrics) ? null : syncedLyrics;
         PlainLyrics = string.IsNullOrWhiteSpace(plainLyrics) ? null : plainLyrics;
-        if (PlainLyrics is not null && PlainLyrics != previousPlain)
-            LyricsTextChangedAtUtc = DateTime.UtcNow;
+        var changed = (PlainLyrics is not null && PlainLyrics != previousPlain)
+            || (SyncedLyrics is not null && SyncedLyrics != previousSynced);
+        if (!changed)
+            return;
 
-        // An AI version shown because it was the official words re-timed is a timing of the old words now. The
-        // new ones are shown instead until they are re-timed (or, for a new LRC, for good).
-        if ((PlainLyrics != previousPlain || SyncedLyrics != previousSynced)
-            && PreferredLyricsSource == PreferredLyricsSource.Transcribed
-            && TranscriptionAlignedToReference)
-        {
+        // A new LRC counts as much as new words: a transcription aligned before it must not be shown over it.
+        LyricsTextChangedAtUtc = DateTime.UtcNow;
+
+        // An AI version shown because it was the official words re-timed is a timing of the old text now. The
+        // new text is shown instead until it is re-timed (or, for a new LRC, for good).
+        if (PreferredLyricsSource == PreferredLyricsSource.Transcribed && TranscriptionAlignedToReference)
             PreferredLyricsSource = PreferredLyricsSource.Lrclib;
-        }
     }
 
     public void MarkLyricsNotFound()

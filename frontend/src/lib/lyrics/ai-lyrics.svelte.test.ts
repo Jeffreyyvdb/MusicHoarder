@@ -158,6 +158,53 @@ describe('syncToSong', () => {
     expect(ai.preferredSource).toBe('transcribed');
   });
 
+  it('shows the official lyrics a fresh response has, over an AI version the row says is all there is', async () => {
+    const { ai } = setup({
+      song: makeSong({ hasTranscribedLyrics: true }),
+      api: {
+        fetchTrackLyrics: vi.fn(async () => ({
+          id: 1,
+          lyricsStatus: 'Fetched',
+          synced: '[00:01.00] official words',
+          transcribedSynced: '[00:01.00] what the ai heard',
+          preferredLyricsSource: 'Lrclib'
+        }))
+      }
+    });
+    ai.syncToSong();
+    await flushMicrotasks();
+    expect(ai.showAiInViewer).toBe(false);
+  });
+
+  it('fetches again when a library refresh says LRCLIB now calls the song instrumental', async () => {
+    const fetchTrackLyrics = vi
+      .fn()
+      .mockResolvedValueOnce({
+        id: 1,
+        lyricsStatus: 'NotFound',
+        transcribedSynced: '[00:01.00] what the ai heard'
+      })
+      .mockResolvedValueOnce({
+        id: 1,
+        lyricsStatus: 'Instrumental',
+        transcribedSynced: '[00:01.00] what the ai heard'
+      });
+    const { ai, setSong } = setup({
+      song: makeSong({ hasTranscribedLyrics: true, lyricsStatus: 'NotFound' }),
+      api: { fetchTrackLyrics }
+    });
+    ai.syncToSong();
+    await flushMicrotasks();
+    expect(ai.transcription).not.toBeNull();
+
+    setSong(
+      makeSong({ hasTranscribedLyrics: true, lyricsStatus: 'Instrumental', isInstrumental: true })
+    );
+    ai.syncToSong();
+    await flushMicrotasks();
+    expect(ai.transcription).toBeNull();
+  });
+
   it('shows no transcript for a song LRCLIB calls instrumental', async () => {
     const { ai } = setup({
       song: makeSong({ hasTranscribedLyrics: true }),
@@ -705,7 +752,10 @@ describe('viewer document selection', () => {
   });
 
   it('only offers compare once an AI transcription exists alongside LRCLIB lyrics', async () => {
-    const { ai } = setup({ song: makeSong() }); // no lyrics
+    const { ai } = setup({
+      song: makeSong(), // no lyrics
+      api: { fetchTrackLyrics: vi.fn(async () => ({ id: 1, lyricsStatus: 'NotFound' })) }
+    });
     ai.syncToSong();
     await ai.enhance();
     expect(ai.canCompare).toBe(false);

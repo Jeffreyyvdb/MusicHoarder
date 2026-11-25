@@ -247,8 +247,11 @@ public class SongMetadataLyricsRecheckTests
         var first = song.LyricsTextChangedAtUtc;
         Assert.NotNull(first);
 
-        song.SetOfficialLyricsText("[00:01.00]a line", "a line");
+        song.SetOfficialLyricsText(null, "a line");
         Assert.Equal(first, song.LyricsTextChangedAtUtc);
+
+        song.SetOfficialLyricsText("[00:01.00]a line", "a line");
+        Assert.NotEqual(first, song.LyricsTextChangedAtUtc);
     }
 
     [Fact]

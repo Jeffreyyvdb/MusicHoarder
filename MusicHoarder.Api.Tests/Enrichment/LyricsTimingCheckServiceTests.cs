@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using MusicHoarder.Api.Auth;
@@ -795,6 +796,73 @@ public class LyricsTimingCheckServiceTests : IDisposable
 
         Assert.False(song.IsInstrumental);
         Assert.Equal(AlignedLrc, song.DisplaySyncedLyrics);
+    }
+
+    [Fact]
+    public void an_lrc_arriving_with_the_same_words_still_outdates_an_alignment_made_before_it()
+    {
+        var song = new SongMetadata
+        {
+            SourcePath = "/x.mp3",
+            FileName = "x.mp3",
+            Extension = ".mp3",
+            FileSizeBytes = 1,
+            LastModifiedUtc = DateTime.UtcNow,
+            IndexedAtUtc = DateTime.UtcNow,
+        };
+        song.ApplyLyricsResult(null, "line 0 words here", instrumental: false);
+        var stampWhenStarted = song.LyricsTextChangedAtUtc;
+
+        song.SetOfficialLyricsText("[00:01.00]line 0 words here", "line 0 words here");
+        LyricsResync.Apply(
+            song, new TranscriptionResult(AlignedLrc, "line 0 words here", "whisper-test", AlignedToReference: true), stampWhenStarted);
+
+        Assert.NotEqual(stampWhenStarted, song.LyricsTextChangedAtUtc);
+        Assert.Equal("[00:01.00]line 0 words here", song.DisplaySyncedLyrics);
+    }
+
+    [Fact]
+    public async Task ai_sync_pass_leaves_out_a_song_a_millisecond_too_long_for_the_ceiling()
+    {
+        await using var db = CreateDbContext();
+        var tooLong = AddUnsynced(db, 1, durationSeconds: null, acquiredDaysAgo: 0);
+        tooLong.DurationMs = 60_001;
+        var fits = AddUnsynced(db, 2, durationSeconds: 30, acquiredDaysAgo: 5);
+        await db.SaveChangesAsync();
+
+        var transcriber = new FakeTranscriber();
+        await NewService(db, transcriber, new LyricsTimingOptions { AudioSecondsPerHour = 60, AudioSecondsPerDay = 60 })
+            .RunAutoSyncPassAsync(CancellationToken.None);
+
+        Assert.Equal([PathOf(2)], transcriber.FullCalls);
+        Assert.Equal(TranscriptionStatus.Completed, fits.TranscriptionStatus);
+    }
+
+    [Fact]
+    public async Task resync_pass_does_not_overwrite_a_resync_the_button_stored_meanwhile()
+    {
+        await using var db = CreateDbContext();
+        var song = AddSong(db, 1, LyricsSyncStatus.Suspect, probeAttempts: 1);
+        await db.SaveChangesAsync();
+
+        var options = (DbContextOptions<MusicHoarderDbContext>)db.GetService<IDbContextOptions>();
+        var transcriber = new FakeTranscriber
+        {
+            Aligned = false,
+            During = _ =>
+            {
+                using var button = new MusicHoarderDbContext(options);
+                var row = button.Songs.IgnoreQueryFilters().Single(s => s.Id == 1);
+                row.ApplyTranscriptionResult(AlignedLrc, "line 0 words here", "whisper-button", alignedToReference: true);
+                row.PreferredLyricsSource = PreferredLyricsSource.Transcribed;
+                button.SaveChanges();
+            },
+        };
+
+        Assert.False(await NewService(db, transcriber, new LyricsTimingOptions()).RunResyncPassAsync(CancellationToken.None));
+
+        Assert.Equal("whisper-button", song.TranscriptionModel);
+        Assert.Equal(PreferredLyricsSource.Transcribed, song.PreferredLyricsSource);
     }
 
     [Fact]

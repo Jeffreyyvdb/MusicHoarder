@@ -574,7 +574,9 @@ public static class SongsEndpoints
         {
             var translationFresh =
                 song.LyricsTranslationStatus == LyricsTranslationStatus.Completed
-                && !song.IsLyricsTranslationStale;
+                && !song.IsLyricsTranslationStale
+                // No words are shown for an instrumental, so neither is a translation of them.
+                && !song.ShowsAsInstrumental;
             return Results.Ok(new
             {
                 song.Id,
@@ -786,9 +788,10 @@ public static class SongsEndpoints
                 destinationPath = song.DestinationPath,
             });
 
+        var wordsStamp = song.LyricsTextChangedAtUtc;
+        var transcribedBefore = song.TranscribedAtUtc;
         try
         {
-            var wordsStamp = song.LyricsTextChangedAtUtc;
             var result = await budget.SpendAsync(
                 TranscriptionPurpose.ManualTranscribe,
                 TranscriptionAudioBudget.WholeSongSeconds(song),
@@ -796,14 +799,13 @@ public static class SongsEndpoints
                 ct);
             // A lyrics re-check may have saved the song while the audio was out. Stored against the song as it
             // is now, so its new words are neither overwritten nor shown under an alignment made for the old.
-            var applied = await db.WithSongLockedAsync(song.Id, async () =>
+            TranscriptionApplied? applied = null;
+            await db.UpdateLatestAsync(song, () =>
             {
-                await db.Entry(song).ReloadAsync(ct);
                 if (song.LyricsStatus == LyricsStatus.Instrumental)
-                    return (TranscriptionApplied?)null;
-                var outcome = LyricsResync.Apply(song, result, wordsStamp);
-                await db.SaveChangesAsync(ct);
-                return outcome;
+                    return false;
+                applied = LyricsResync.Apply(song, result, wordsStamp);
+                return true;
             }, ct);
             if (applied is not { } stored)
                 return Results.UnprocessableEntity(new { message = "Track is marked instrumental — nothing to transcribe." });
@@ -848,8 +850,14 @@ public static class SongsEndpoints
         }
         catch (Exception ex)
         {
-            song.MarkTranscriptionFailed(ex.Message);
-            await db.SaveChangesAsync(CancellationToken.None);
+            // Not over a transcription another run stored while this one was failing.
+            await db.UpdateLatestAsync(song, () =>
+            {
+                if (song.TranscribedAtUtc != transcribedBefore)
+                    return false;
+                song.MarkTranscriptionFailed(ex.Message);
+                return true;
+            }, CancellationToken.None);
             return Results.Json(
                 new { message = "Transcription failed.", error = ex.Message },
                 statusCode: StatusCodes.Status502BadGateway);
