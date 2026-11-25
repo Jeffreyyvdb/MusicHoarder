@@ -1023,6 +1023,15 @@ public class MusicEnricherOptions
     public int MusicVideoCandidatePrefetchBatchSize { get; set; } = 20;
 
     /// <summary>
+    /// When true the candidate prefetch downloads a song's music video by itself once a candidate
+    /// passes every gate of <see cref="MusicVideoAutoPick"/> (a measured moving clip by the song's
+    /// own artist, the right length and size). Default OFF: clips cost disk, about 60 MB each, so a
+    /// self-hoster opts in. The owner flips it without a redeploy through
+    /// <see cref="Persistence.RuntimeSettings.AutoDownloadMusicVideos"/>, which overlays this value.
+    /// </summary>
+    public bool AutoDownloadMusicVideos { get; set; } = false;
+
+    /// <summary>
     /// The lowest <see cref="MusicVideoDownloader.ScoreCandidate"/> score a candidate needs to be
     /// picked automatically. 75 is the best a right-artist candidate can score (full title match,
     /// "official (music) video", length in range), so the default takes only those.
@@ -1036,6 +1045,13 @@ public class MusicEnricherOptions
     /// </summary>
     [Range(1, 4096)]
     public int MusicVideoAutoDownloadMaxClipMb { get; set; } = 400;
+
+    /// <summary>
+    /// Free space (gigabytes) the drive holding the videos directory must keep: an automatic download
+    /// is not queued when the clips already queued in the pass plus this one would leave less.
+    /// </summary>
+    [Range(0, 100_000)]
+    public int MusicVideoAutoDownloadMinFreeGb { get; set; } = 20;
 
     /// <summary>
     /// How long a remembered candidate list is served before the picker searches again. YouTube's

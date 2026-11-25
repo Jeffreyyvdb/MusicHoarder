@@ -61,9 +61,22 @@ public class MusicVideoCandidateCacheTests
         _downloader, _probe, Microsoft.Extensions.Options.Options.Create(_options), _clock,
         NullLogger<MusicVideoCandidateCache>.Instance);
 
+    private readonly MusicVideoChannel _channel = new();
+    private readonly FakeFreeDiskSpace _disk = new();
+    private readonly FakeRuntimeSettings _settings = new();
+
     private MusicVideoCandidatePrefetch Prefetch(MusicHoarderDbContext db) => new(
-        db, Cache(), Microsoft.Extensions.Options.Options.Create(_options), _clock,
+        db, Cache(), _channel, _downloader, _disk, _settings,
+        Microsoft.Extensions.Options.Options.Create(_options), _clock,
         NullLogger<MusicVideoCandidatePrefetch>.Instance);
+
+    private List<MusicVideoWorkItem> Queued()
+    {
+        var items = new List<MusicVideoWorkItem>();
+        while (_channel.Reader.TryRead(out var item))
+            items.Add(item);
+        return items;
+    }
 
     private static MusicHoarderDbContext NewContext() =>
         new(new DbContextOptionsBuilder<MusicHoarderDbContext>()
@@ -440,6 +453,22 @@ public class MusicVideoCandidateCacheTests
     }
 
     [Fact]
+    public async Task Turning_on_automatic_downloads_starts_the_prefetch_on_an_instance_with_no_video_yet()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db, withAVideo: false);
+        db.Songs.Add(Song(1));
+        await db.SaveChangesAsync();
+        _settings.AutoDownloadMusicVideos = true;
+
+        await Prefetch(db).RunAsync(default);
+
+        Assert.Single(_downloader.SuggestCalls);
+        Assert.Equal(MusicVideoPick.Automatic,
+            (await db.SongMusicVideos.IgnoreQueryFilters().SingleAsync(v => v.SongId == 1)).Pick);
+    }
+
+    [Fact]
     public async Task An_empty_search_is_not_remembered_and_counts_as_a_failure()
     {
         // A refused search (bot challenge, rate limit) comes back empty rather than throwing.
@@ -604,5 +633,167 @@ public class MusicVideoCandidateCacheTests
         Assert.Equal(1, set.EmptySearches);
         Assert.Equal(_clock.Now.AddDays(1), set.NextSearchAtUtc);
         Assert.Equal(4, (await Cache().GetAsync(db, song, default))!.Candidates.Count);
+    }
+    [Fact]
+    public async Task A_confident_pick_is_queued_for_download_when_the_toggle_is_on()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+        db.Songs.Add(Song(1));
+        await db.SaveChangesAsync();
+        _settings.AutoDownloadMusicVideos = true;
+
+        await Prefetch(db).RunAsync(default);
+
+        var row = await db.SongMusicVideos.IgnoreQueryFilters().SingleAsync(v => v.SongId == 1);
+        Assert.Equal(MusicVideoStatus.Fetching, row.Status);
+        Assert.Equal(MusicVideoPick.Automatic, row.Pick);
+        Assert.Equal("vid-aaaaa", row.YouTubeVideoId); // a restart retries this very video
+        Assert.Equal(
+            [new MusicVideoWorkItem(1, MusicVideoWorkKind.Fetch, "https://www.youtube.com/watch?v=vid-aaaaa")],
+            Queued());
+    }
+
+    [Fact]
+    public async Task Nothing_is_downloaded_while_the_toggle_is_off()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+        db.Songs.Add(Song(1));
+        await db.SaveChangesAsync();
+
+        await Prefetch(db).RunAsync(default);
+
+        Assert.Empty(Queued());
+        Assert.False(await db.SongMusicVideos.IgnoreQueryFilters().AnyAsync(v => v.SongId == 1));
+    }
+
+    [Fact]
+    public async Task A_list_with_no_candidate_passing_the_gates_downloads_nothing()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+        db.Songs.Add(Song(1));
+        await db.SaveChangesAsync();
+        _settings.AutoDownloadMusicVideos = true;
+        _probe.OnProbe = id => Measured(id, MusicVideoMotion.LowMotion);
+
+        await Prefetch(db).RunAsync(default);
+
+        Assert.Empty(Queued());
+        Assert.False(await db.SongMusicVideos.IgnoreQueryFilters().AnyAsync(v => v.SongId == 1));
+    }
+
+    [Fact]
+    public async Task A_song_whose_earlier_video_failed_gets_a_fresh_list_but_no_automatic_download()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+        db.Songs.Add(Song(1));
+        db.SongMusicVideos.Add(new SongMusicVideo
+        {
+            SongId = 1, Status = MusicVideoStatus.Failed, YouTubeVideoId = "vid-zzzzz", LastError = "403",
+        });
+        await db.SaveChangesAsync();
+        _settings.AutoDownloadMusicVideos = true;
+
+        Assert.Equal(1, await Prefetch(db).RunAsync(default));
+
+        Assert.Equal([1], await db.SongVideoCandidateSets.Select(c => c.SongId).ToListAsync());
+        Assert.Empty(Queued());
+        var row = await db.SongMusicVideos.IgnoreQueryFilters().SingleAsync(v => v.SongId == 1);
+        Assert.Equal(MusicVideoStatus.Failed, row.Status);
+        Assert.Equal("vid-zzzzz", row.YouTubeVideoId);
+    }
+
+    [Fact]
+    public async Task A_pass_stops_queueing_when_the_clips_already_queued_would_take_the_drive_under_its_floor()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+        db.Songs.AddRange(Song(1, acquired: Now.AddDays(-1)), Song(2, acquired: Now.AddDays(-2)), Song(3, acquired: Now.AddDays(-3)));
+        await db.SaveChangesAsync();
+        _settings.AutoDownloadMusicVideos = true;
+        // Each clip is 50,000,000 bytes: room for the floor plus one and a half of them.
+        _disk.Available = _options.MusicVideoAutoDownloadMinFreeGb * 1024L * 1024L * 1024L + 75_000_000;
+
+        await Prefetch(db).RunAsync(default);
+
+        Assert.Equal([1], Queued().Select(w => w.SongId));
+        Assert.Equal([_downloader.ResolveVideoDirectory()], _disk.Asked.Distinct());
+    }
+
+    [Fact]
+    public async Task A_drive_whose_free_space_cannot_be_told_gets_no_automatic_downloads()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+        db.Songs.Add(Song(1));
+        await db.SaveChangesAsync();
+        _settings.AutoDownloadMusicVideos = true;
+        _disk.Available = null;
+
+        Assert.Equal(1, await Prefetch(db).RunAsync(default));
+
+        Assert.Empty(Queued());
+        Assert.False(await db.SongMusicVideos.IgnoreQueryFilters().AnyAsync(v => v.SongId == 1));
+    }
+
+    [Fact]
+    public async Task The_floor_follows_the_option()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+        db.Songs.Add(Song(1));
+        await db.SaveChangesAsync();
+        _settings.AutoDownloadMusicVideos = true;
+        _options.MusicVideoAutoDownloadMinFreeGb = 0;
+        _disk.Available = 50_000_000; // exactly the clip: nothing left, but the floor is zero
+
+        await Prefetch(db).RunAsync(default);
+
+        Assert.Single(Queued());
+    }
+
+    [Fact]
+    public async Task A_search_the_picker_makes_never_queues_a_download()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+        var song = Song(1);
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+        _settings.AutoDownloadMusicVideos = true;
+
+        // A person measured a candidate, then searched again: the list now holds a clip that passes.
+        await Cache().SearchAsync(db, song, null, probeTop: false, default);
+        await MusicVideoEndpoints.ProbeVideoCandidate(1, "vid-aaaaa", db, _probe, Cache(), default);
+        await MusicVideoEndpoints.GetVideoCandidates(
+            1, refresh: true, db, Cache(), Microsoft.Extensions.Options.Options.Create(_options), default);
+
+        Assert.NotNull(MusicVideoAutoPick.Choose(
+            (await Cache().GetAsync(db, song, default))!.Candidates, song, _options));
+        Assert.Empty(Queued());
+        Assert.False(await db.SongMusicVideos.IgnoreQueryFilters().AnyAsync(v => v.SongId == 1));
+    }
+
+    [Fact]
+    public async Task A_song_that_gets_a_video_row_before_the_pick_is_queued_is_left_alone()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+        db.Songs.Add(Song(1));
+        await db.SaveChangesAsync();
+        // A person's fetch started between the prefetch's check and its queueing.
+        db.SongMusicVideos.Add(new SongMusicVideo { SongId = 1, Status = MusicVideoStatus.Fetching, Pick = MusicVideoPick.Requested });
+        await db.SaveChangesAsync();
+
+        var picked = await MusicVideoFetchQueue.TryPickAsync(db, _channel, 1, "vid-aaaaa", default);
+
+        Assert.Null(picked);
+        Assert.Empty(Queued());
+        Assert.Equal(
+            MusicVideoPick.Requested,
+            (await db.SongMusicVideos.IgnoreQueryFilters().SingleAsync(v => v.SongId == 1)).Pick);
     }
 }

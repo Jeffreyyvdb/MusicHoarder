@@ -5,6 +5,7 @@ using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Logging;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Settings;
 
 namespace MusicHoarder.Api.Download;
 
@@ -22,16 +23,26 @@ namespace MusicHoarder.Api.Download;
 /// </para>
 ///
 /// <para>
-/// Only on an instance that has fetched at least one music video, so one that never uses them pays
-/// no YouTube traffic for this. Only an admin's songs: the picker is admin-only, so searching for anyone else's would be traffic
+/// Only on an instance that has fetched at least one music video or turned on automatic downloads,
+/// so one that never uses them pays no YouTube traffic for this. Only an admin's songs: the picker is admin-only, so searching for anyone else's would be traffic
 /// no one can use. A song waits until enrichment has finished with it, because the search is by artist
 /// and title and enrichment is what corrects them — a list searched under the file's raw tags would be
-/// thrown away as soon as the song was renamed. Nothing is downloaded here.
+/// thrown away as soon as the song was renamed.
+/// </para>
+///
+/// <para>
+/// With <c>AutoDownloadMusicVideos</c> on, a search that leaves a candidate passing every gate of
+/// <see cref="MusicVideoAutoPick"/> also queues that video for download, unless the song already has a
+/// video row (a failed pick waits for a person) or the disk is short. Otherwise nothing is downloaded.
 /// </para>
 /// </summary>
 public sealed class MusicVideoCandidatePrefetch(
     MusicHoarderDbContext db,
     MusicVideoCandidateCache cache,
+    MusicVideoChannel channel,
+    IMusicVideoDownloader downloader,
+    IFreeDiskSpace disk,
+    IRuntimeSettingsService settings,
     IOptions<MusicEnricherOptions> options,
     TimeProvider time,
     ILogger<MusicVideoCandidatePrefetch> logger)
@@ -50,9 +61,10 @@ public sealed class MusicVideoCandidatePrefetch(
     /// <returns>How many songs got a list this pass.</returns>
     public async Task<int> RunAsync(CancellationToken ct)
     {
-        // Only where music videos are used: an instance that has never fetched one gets no YouTube
-        // traffic from this.
-        if (!await db.SongMusicVideos.IgnoreQueryFilters().AnyAsync(ct))
+        // Only where music videos are used: an instance that has never fetched one, and has not asked
+        // for them to be downloaded automatically, gets no YouTube traffic from this.
+        var autoDownload = (await settings.GetAsync(ct)).AutoDownloadMusicVideos;
+        if (!autoDownload && !await db.SongMusicVideos.IgnoreQueryFilters().AnyAsync(ct))
             return 0;
 
         var opts = options.Value;
@@ -98,23 +110,33 @@ public sealed class MusicVideoCandidatePrefetch(
             .ToListAsync(ct)).ToDictionary(s => s.Id);
         var due = dueIds.Where(byId.ContainsKey).Select(id => byId[id]).ToList();
 
-        var currentIds = await db.SongMusicVideos.IgnoreQueryFilters().AsNoTracking()
-            .Where(v => dueIds.Contains(v.SongId) && v.YouTubeVideoId != null)
+        // The batch's video rows, failed ones too: they name the current video, and a song with any row
+        // is never downloaded automatically.
+        var videoRows = await db.SongMusicVideos.IgnoreQueryFilters().AsNoTracking()
+            .Where(v => dueIds.Contains(v.SongId))
             .ToDictionaryAsync(v => v.SongId, v => v.YouTubeVideoId, ct);
 
+        var budget = new DiskBudget();
+
+        var searched = 0;
         var stored = 0;
+        var queued = 0;
         var failures = 0;
         foreach (var song in due)
         {
+            searched++;
             Exception? error = null;
             try
             {
                 var list = await cache.SearchAsync(
-                    db, song, currentIds.GetValueOrDefault(song.Id), probeTop: true, ct);
+                    db, song, videoRows.GetValueOrDefault(song.Id), probeTop: true, ct);
                 if (list.Candidates.Count > 0)
                 {
                     stored++;
                     failures = 0;
+                    if (autoDownload && !videoRows.ContainsKey(song.Id)
+                        && await TryQueueAutomaticAsync(song, list, budget, ct))
+                        queued++;
                     continue;
                 }
                 // Recorded by the cache; counted here, since a refused search reads as an empty one.
@@ -138,9 +160,49 @@ public sealed class MusicVideoCandidatePrefetch(
             }
         }
 
-        if (stored > 0)
-            logger.LogInformation("Prefetched music video candidates for {Count} song(s)", stored);
+        logger.LogInformation(
+            "Music video candidate prefetch searched {Searched} song(s): {Stored} with candidates, {Queued} video(s) queued for download",
+            searched, stored, queued);
         return stored;
+    }
+
+    /// <summary>What a pass has committed to the videos drive so far, and whether it has said so.</summary>
+    private sealed class DiskBudget
+    {
+        public long QueuedBytes { get; set; }
+        public bool ShortnessLogged { get; set; }
+    }
+
+    /// <summary>Queues the list's confident pick, if it has one and the drive can take it.</summary>
+    private async Task<bool> TryQueueAutomaticAsync(
+        SongMetadata song, VideoCandidateList list, DiskBudget budget, CancellationToken ct)
+    {
+        var opts = options.Value;
+        if (MusicVideoAutoPick.Choose(list.Candidates, song, opts) is not { EstimatedBytes: { } clipBytes } pick)
+            return false;
+
+        var free = disk.AvailableBytes(downloader.ResolveVideoDirectory());
+        var floor = opts.MusicVideoAutoDownloadMinFreeGb * 1024L * 1024L * 1024L;
+        if (free is not { } available || available - budget.QueuedBytes - clipBytes < floor)
+        {
+            if (!budget.ShortnessLogged)
+            {
+                budget.ShortnessLogged = true;
+                logger.LogWarning(
+                    "Not downloading music videos automatically this pass: {Free} bytes free on the videos drive (unknown when blank), {Queued} already queued, floor {Floor} bytes",
+                    free, budget.QueuedBytes, floor);
+            }
+            return false;
+        }
+
+        if (await MusicVideoFetchQueue.TryPickAsync(db, channel, song.Id, pick.VideoId, ct) is null)
+            return false;
+
+        budget.QueuedBytes += clipBytes;
+        logger.LogInformation(
+            "Queued automatic music video download for song {SongId}: video {VideoId} (score {Score})",
+            song.Id, pick.VideoId, pick.Score);
+        return true;
     }
 
     /// <summary>No list yet, the schedule has come round, or the song's search changed since the list was made.</summary>

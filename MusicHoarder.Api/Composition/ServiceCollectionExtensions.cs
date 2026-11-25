@@ -341,6 +341,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IMusicVideoFileAnalyzer, MusicVideoFileAnalyzer>();
         services.AddSingleton<IMusicVideoDownloader, MusicVideoDownloader>();
         services.AddSingleton<MusicVideoChannel>();
+        services.AddSingleton<IFreeDiskSpace, DriveFreeDiskSpace>();
         services.AddScoped<MusicVideoAlignmentService>();
         services.AddHostedService<MusicVideoBackgroundService>();
         // Remembered "Choose video…" candidates, searched ahead of time for newly added songs.

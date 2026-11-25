@@ -27,6 +27,16 @@ public enum MusicVideoSyncSource
     Unaligned = 3,
 }
 
+/// <summary>How the video came to be fetched.</summary>
+public enum MusicVideoPick
+{
+    /// <summary>A person asked for it (the picker, a pasted link), or it predates automatic downloads.</summary>
+    Requested = 0,
+
+    /// <summary>The candidate prefetch downloaded it on its own, having judged it the song's real video.</summary>
+    Automatic = 1,
+}
+
 /// <summary>
 /// A music video ("clip") fetched from YouTube for one library song, played muted behind the
 /// full-screen player while the song's audio plays. The audio is always the master clock; this row
@@ -76,6 +86,12 @@ public class SongMusicVideo
     public double? PillarboxFraction { get; set; }
 
     public MusicVideoStatus Status { get; set; } = MusicVideoStatus.Fetching;
+
+    /// <summary>
+    /// Whether a person or the prefetch chose this video. Set every time a fetch is queued, so a manual
+    /// fetch over an automatic pick makes it a person's. The History feed says which were automatic.
+    /// </summary>
+    public MusicVideoPick Pick { get; set; } = MusicVideoPick.Requested;
 
     [MaxLength(2048)]
     public string? LastError { get; set; }

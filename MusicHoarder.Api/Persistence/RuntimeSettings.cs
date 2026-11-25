@@ -54,5 +54,12 @@ public class RuntimeSettings
     /// </summary>
     public bool? LyricsAutoSyncEnabled { get; set; }
 
+    /// <summary>
+    /// Overlays <see cref="Options.MusicEnricherOptions.AutoDownloadMusicVideos"/>: whether the candidate
+    /// prefetch downloads a music video by itself when it is confident it is the song's own moving clip.
+    /// In the DB so the owner can turn it on (and off) from Settings without a redeploy.
+    /// </summary>
+    public bool? AutoDownloadMusicVideos { get; set; }
+
     public DateTime? UpdatedAtUtc { get; set; }
 }

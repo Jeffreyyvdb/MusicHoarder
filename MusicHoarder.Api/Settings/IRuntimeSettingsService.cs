@@ -27,7 +27,8 @@ public sealed record EffectiveSettings(
     bool ReleaseStagedSourcesEnabled,
     DateTime? UpdatedAtUtc,
     bool LyricsAutoSyncEnabled = false,
-    bool LyricsAutoSyncChosen = false);
+    bool LyricsAutoSyncChosen = false,
+    bool AutoDownloadMusicVideos = false);
 
 /// <summary>
 /// All fields optional; null means "leave the existing override in place". Callers that need to
@@ -46,4 +47,5 @@ public sealed record RuntimeSettingsUpdate
     public bool? AlbumCompletionEnabled { get; init; }
     public bool? ReleaseStagedSourcesEnabled { get; init; }
     public bool? LyricsAutoSyncEnabled { get; init; }
+    public bool? AutoDownloadMusicVideos { get; init; }
 }

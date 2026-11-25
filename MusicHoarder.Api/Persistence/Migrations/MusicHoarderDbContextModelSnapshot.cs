@@ -16,7 +16,7 @@ partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261125113639_AddVideoSearchSchedule";
+    public override string LastMigrationId => "20261125114247_AddAutoDownloadMusicVideos";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -1641,6 +1641,9 @@ partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
                 b.Property<bool?>("AlbumCompletionEnabled")
                     .HasColumnType("boolean");
 
+                b.Property<bool?>("AutoDownloadMusicVideos")
+                    .HasColumnType("boolean");
+
                 b.Property<bool?>("AutoDownloadWishlist")
                     .HasColumnType("boolean");
 
@@ -2278,6 +2281,9 @@ partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
 
                 b.Property<double?>("LetterboxFraction")
                     .HasColumnType("double precision");
+
+                b.Property<int>("Pick")
+                    .HasColumnType("integer");
 
                 b.Property<double?>("PillarboxFraction")
                     .HasColumnType("double precision");
