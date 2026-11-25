@@ -71,15 +71,16 @@ public sealed class LyricsInsight(
 
         var outcomes = LyricsOutcomes.Segments.ToDictionary(s => s.Key, _ => 0);
         var synced = 0;
-        foreach (var (k, songs) in factGroups.Select(g => (g.Key, g.Songs)))
+        foreach (var group in factGroups)
         {
+            var k = group.Key;
             var outcome = LyricsOutcomes.Classify(new LyricsFacts(
                 k.LyricsStatus, k.LyricsOrigin, k.IsInstrumental, k.HasSynced, k.HasPlain, k.HasTranscribedSynced,
                 k.HasTranscribedPlain, k.PreferredLyricsSource, k.TranscriptionStatus, k.TranscriptionAlignedToReference,
                 k.HasOffset, k.Searchable));
-            outcomes[outcome.Key] += songs;
+            outcomes[outcome.Key] += group.Songs;
             if (outcome.ShowsSyncedLyrics)
-                synced += songs;
+                synced += group.Songs;
         }
 
         var queue = await AiDueQueue(opts)
