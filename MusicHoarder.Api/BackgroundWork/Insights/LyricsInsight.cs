@@ -178,9 +178,9 @@ public sealed class LyricsInsight(
 
         var freeCheck = await db.Songs.AsNoTracking().WhereDueForFreeTimingCheck().CountAsync(ct);
         var suspectIds = await db.Songs.AsNoTracking()
-            .WhereDueForSuspectProbe(opts.MaxProbeAttempts).Select(s => s.Id).ToListAsync(ct);
+            .WhereDueForSuspectProbe(opts.MaxProbeAttempts).InProbeOrder().Select(s => s.Id).ToListAsync(ct);
         var unconfirmedIds = await db.Songs.AsNoTracking()
-            .WhereDueForUnconfirmedProbe(opts.ProbeUnconfirmedSongs).Select(s => s.Id).ToListAsync(ct);
+            .WhereDueForUnconfirmedProbe(opts.ProbeUnconfirmedSongs).InProbeOrder().Select(s => s.Id).ToListAsync(ct);
         var givenUp = await db.Songs.AsNoTracking()
             .WhereEligibleForLyricsTimingProbe()
             .CountAsync(s => s.LyricsSyncStatus == LyricsSyncStatus.Suspect && s.LyricsSyncProbeAttempts >= opts.MaxProbeAttempts, ct);
@@ -296,10 +296,11 @@ public sealed class LyricsInsight(
     private async Task<LibraryMapPanelDto> ProbeMapAsync(
         List<int> suspectIds, List<int> unconfirmedIds, CancellationToken ct)
     {
-        var waiting = suspectIds.Concat(unconfirmedIds).ToHashSet();
+        var inProbeOrder = suspectIds.Concat(unconfirmedIds).ToList();
+        var waiting = inProbeOrder.ToHashSet();
         var songs = await db.Songs.AsNoTracking()
             .WhereEligibleForLyricsTimingCheck()
-            .OrderBy(LyricsTimingQueries.ProbeSequence)
+            .OrderBy(LyricsTimingQueries.AddedAt).ThenBy(s => s.Id)
             .Select(s => new { s.Id, Added = s.AcquiredAtUtc ?? s.IndexedAtUtc, s.LyricsSyncProbeAttempts })
             .ToListAsync(ct);
 
@@ -310,12 +311,12 @@ public sealed class LyricsInsight(
             : MapState.Excluded)).ToList();
 
         var markers = new List<LibraryMapMarkerDto>();
-        if (LibraryMapBinner.WaitingFrontier(items) is { } frontier)
-            markers.Add(new("Probes have reached here, newest first", frontier.Newest));
+        if (inProbeOrder.Count > 0 && songs.Find(s => s.Id == inProbeOrder[0]) is { } next)
+            markers.Add(new("The next probe is here", next.Added));
 
         return new LibraryMapPanelDto(
             "Where the timing probes have reached",
-            "Songs with an LRC, oldest addition on the left. The probe pass starts at the newest and works back, flagged songs first.",
+            "Songs with an LRC, oldest addition on the left. The probe pass takes flagged songs first, then the rest newest first.",
             "Heard", "Waiting for a probe", "Not probed",
             LibraryMapBinner.Bin(items), markers);
     }

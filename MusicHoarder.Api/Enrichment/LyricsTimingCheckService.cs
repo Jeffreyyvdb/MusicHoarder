@@ -215,8 +215,7 @@ public sealed partial class LyricsTimingCheckService(
             db.Songs
                 .IgnoreQueryFilters()
                 .WhereDueForSuspectProbe(opts.MaxProbeAttempts)
-                .OrderBy(s => s.LyricsSyncProbeAttempts)
-                .ThenByDescending(LyricsTimingQueries.ProbeSequence),
+                .InProbeOrder(),
             batchSize,
             ct);
 
@@ -230,7 +229,7 @@ public sealed partial class LyricsTimingCheckService(
                 db.Songs
                     .IgnoreQueryFilters()
                     .WhereDueForUnconfirmedProbe(opts.ProbeUnconfirmedSongs)
-                    .OrderByDescending(LyricsTimingQueries.ProbeSequence),
+                    .InProbeOrder(),
                 batchSize - songs.Count,
                 ct));
         }
@@ -652,8 +651,12 @@ public static class LyricsTimingQueries
             .Where(s => s.LyricsSyncStatus == LyricsSyncStatus.Ok)
             .Where(s => s.LyricsSyncProbeAttempts == 0);
 
-    /// <summary>Where a song stands in the probe pass: it takes the highest first, so the newest additions are heard before the back catalogue.</summary>
-    public static readonly System.Linq.Expressions.Expression<Func<SongMetadata, int>> ProbeSequence = s => s.Id;
+    /// <summary>
+    /// The order the probe pass takes due songs in: the fewest attempts first, then the highest id, so the newest
+    /// additions are heard before the back catalogue.
+    /// </summary>
+    public static IOrderedQueryable<SongMetadata> InProbeOrder(this IQueryable<SongMetadata> query)
+        => query.OrderBy(s => s.LyricsSyncProbeAttempts).ThenByDescending(s => s.Id);
 
     /// <summary>When a song was added to the library; the order the AI sync pass takes songs in, from both ends.</summary>
     public static readonly System.Linq.Expressions.Expression<Func<SongMetadata, DateTime>> AddedAt =

@@ -147,9 +147,36 @@ public class LyricsInsightTests
         var map = (await h.DescribeAsync(BackgroundJobIds.Lyrics)).Panel<LibraryMapPanelDto>("Where the timing probes");
 
         Assert.Equal(
-            [(1, 0, 0), (0, 1, 0), (0, 1, 0), (0, 0, 1)],
+            [(0, 0, 1), (0, 1, 0), (0, 1, 0), (1, 0, 0)],
             map.Bins.Select(b => (b.Done, b.Waiting, b.Excluded)));
-        Assert.Single(map.Markers);
+        Assert.Equal(h.Now.AddDays(-2), Assert.Single(map.Markers).AtUtc);
+    }
+
+    [Fact]
+    public async Task The_probe_map_runs_by_added_date_and_marks_the_song_the_probe_pass_takes_next()
+    {
+        using var h = new BackgroundWorkHarness();
+        void Lrc_(int n, DateTime added, LyricsSyncStatus status, int attempts)
+            => Add(h, n, s =>
+            {
+                s.SyncedLyrics = Lrc; s.LyricsStatus = LyricsStatus.Fetched; s.LyricsSyncStatus = status;
+                s.LyricsSyncProbeAttempts = attempts; s.AcquiredAtUtc = added;
+            });
+        Lrc_(1, h.Now.AddDays(-300), LyricsSyncStatus.Ok, 0);
+        Lrc_(2, h.Now.AddDays(-10), LyricsSyncStatus.Ok, 1);
+        Lrc_(3, h.Now.AddDays(-200), LyricsSyncStatus.Suspect, 0);
+        Lrc_(4, h.Now.AddDays(-1), LyricsSyncStatus.Suspect, 1);
+        Lrc_(5, h.Now.AddDays(-100), LyricsSyncStatus.Ok, 0);
+
+        var map = (await h.DescribeAsync(BackgroundJobIds.Lyrics)).Panel<LibraryMapPanelDto>("Where the timing probes");
+
+        Assert.Equal(
+            [h.Now.AddDays(-300), h.Now.AddDays(-200), h.Now.AddDays(-100), h.Now.AddDays(-10), h.Now.AddDays(-1)],
+            map.Bins.Select(b => b.FromUtc));
+        Assert.Equal(
+            [(0, 1, 0), (0, 1, 0), (0, 1, 0), (1, 0, 0), (0, 1, 0)],
+            map.Bins.Select(b => (b.Done, b.Waiting, b.Excluded)));
+        Assert.Equal(h.Now.AddDays(-200), Assert.Single(map.Markers).AtUtc);
     }
 
     [Fact]
