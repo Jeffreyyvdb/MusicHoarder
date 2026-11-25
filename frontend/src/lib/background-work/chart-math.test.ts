@@ -108,7 +108,7 @@ describe('timeTicks', () => {
     const ticks = timeTicks(hours, 'hour', 8, AMS);
     // Amsterdam midnight is 23:00 UTC the day before: the 24th, 25th and 26th start at 23, 47, 71.
     expect(ticks.map((t) => t.index)).toEqual([23, 47, 71]);
-    expect(ticks[0].label).toBe('Mon 24');
+    expect(ticks[0].label).toBe('Tue 24');
   });
 
   it('labels every day and thins to the room it has', () => {
