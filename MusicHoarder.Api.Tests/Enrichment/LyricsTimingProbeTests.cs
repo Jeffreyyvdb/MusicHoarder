@@ -67,11 +67,12 @@ public class LyricsTimingProbeTests : IDisposable
     {
         public bool IsConfigured => true;
 
-        public Task<TranscriptionResult> TranscribeAsync(SongMetadata song, string audioFilePath, CancellationToken ct = default)
+        public Task<TranscriptionResult> TranscribeAsync(SongMetadata song, string audioFilePath, CancellationToken ct = default, Func<CancellationToken, Task>? beforeRetry = null)
             => throw new NotSupportedException("The probe never asks for a whole-song transcription.");
 
         public Task<IReadOnlyList<TimedWord>> TranscribeClipAsync(
-            string audioFilePath, double startSeconds, double lengthSeconds, string? promptText = null, CancellationToken ct = default)
+            string audioFilePath, double startSeconds, double lengthSeconds, string? promptText = null, CancellationToken ct = default,
+            Func<CancellationToken, Task>? beforeRetry = null)
             => Task.FromResult<IReadOnlyList<TimedWord>>(words(startSeconds, lengthSeconds));
     }
 

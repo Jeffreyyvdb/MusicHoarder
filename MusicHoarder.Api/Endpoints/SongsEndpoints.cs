@@ -579,7 +579,7 @@ public static class SongsEndpoints
                 song.Id,
                 Synced = song.DisplaySyncedLyrics,
                 Plain = song.DisplayPlainLyrics,
-                IsInstrumental = song.IsInstrumental == true,
+                IsInstrumental = song.ShowsAsInstrumental,
                 LyricsOrigin = song.LyricsOrigin.ToString(),
                 song.GeniusSongId,
                 // A guest sees the same AI label the owner does — the disclosure is about the words on the
@@ -787,13 +787,26 @@ public static class SongsEndpoints
 
         try
         {
+            var wordsStamp = song.LyricsTextChangedAtUtc;
             var result = await budget.SpendAsync(
                 TranscriptionPurpose.ManualTranscribe,
                 TranscriptionAudioBudget.WholeSongSeconds(song),
-                () => transcriber.TranscribeAsync(song, filePath, ct),
+                retry => transcriber.TranscribeAsync(song, filePath, ct, retry),
                 ct);
-            var (promoted, retagQueued) = LyricsResync.Apply(song, result);
-            await db.SaveChangesAsync(ct);
+            // A lyrics re-check may have saved the song while the audio was out. Stored against the song as it
+            // is now, so its new words are neither overwritten nor shown under an alignment made for the old.
+            var applied = await db.WithSongLockedAsync(song.Id, async () =>
+            {
+                await db.Entry(song).ReloadAsync(ct);
+                if (song.LyricsStatus == LyricsStatus.Instrumental)
+                    return (TranscriptionApplied?)null;
+                var outcome = LyricsResync.Apply(song, result, wordsStamp);
+                await db.SaveChangesAsync(ct);
+                return outcome;
+            }, ct);
+            if (applied is not { } stored)
+                return Results.UnprocessableEntity(new { message = "Track is marked instrumental — nothing to transcribe." });
+            var (promoted, retagQueued) = stored;
 
             return Results.Ok(new
             {
@@ -870,7 +883,7 @@ public static class SongsEndpoints
         if (song is null)
             return Results.NotFound(new { message = $"Song with id {id} not found." });
 
-        if (song.IsInstrumental == true)
+        if (song.ShowsAsInstrumental)
             return Results.UnprocessableEntity(new { message = "Track is marked instrumental — nothing to translate." });
 
         // Translate whatever the viewer shows (LRCLIB or the chosen/only AI transcription).

@@ -743,6 +743,38 @@
   let gradingSaving = $state(0);
   let gradingError = $state<string | null>(null);
 
+  let autoSyncSaving = $state(0);
+  let autoSyncError = $state<string | null>(null);
+
+  async function toggleAutoSync(value: boolean) {
+    if (!settings) return;
+    autoSyncError = null;
+    autoSyncSaving += 1;
+    const err = await commitSetting('lyricsAutoSync', {
+      read: () => settings?.lyricsTranscription.autoSync ?? false,
+      write: (v) => {
+        if (settings) {
+          settings = {
+            ...settings,
+            lyricsTranscription: {
+              ...settings.lyricsTranscription,
+              autoSync: v,
+              autoSyncChosen: true
+            }
+          };
+        }
+      },
+      next: value,
+      save: async () => {
+        await inOrder(() => updateSettings({ lyricsTranscription: { autoSync: value } }));
+      }
+    });
+    if (err) {
+      autoSyncError = err instanceof Error ? err.message : 'Failed to save the AI lyrics setting.';
+    }
+    autoSyncSaving -= 1;
+  }
+
   async function toggleQualityGrading(value: boolean) {
     if (!qualityGrading) return;
     gradingError = null;
@@ -1453,6 +1485,33 @@
       </SwitchRow>
     {/if}
   </GroupedList.Section>
+
+  {#if admin && settings?.lyricsTranscription.enabled}
+    {#snippet autoSyncFooter()}
+      <div class="flex flex-col gap-2">
+        {#if autoSyncError}
+          <StatusLine tone="error">{autoSyncError}</StatusLine>
+        {/if}
+        <p>
+          Songs without synced lyrics are sent, whole, to the transcription provider: their official
+          words get timed to the music, and songs with none get the words the AI hears. It works
+          from the newest and oldest songs inward and leaves part of the provider's hourly and daily
+          allowance for the AI lyrics button. A provider that bills per minute charges for every
+          song.
+        </p>
+      </div>
+    {/snippet}
+
+    <GroupedList.Section footer={autoSyncFooter}>
+      <SwitchRow
+        label="AI-timed lyrics in the background"
+        sublabel="Gives every song without synced lyrics AI-timed ones, a few at a time."
+        checked={settings.lyricsTranscription.autoSync ?? false}
+        busy={autoSyncSaving > 0}
+        onCheckedChange={(v) => void toggleAutoSync(v)}
+      />
+    </GroupedList.Section>
+  {/if}
 {/snippet}
 
 {#snippet outputSection()}

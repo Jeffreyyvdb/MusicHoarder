@@ -34,11 +34,12 @@ public class TranscribeLyricsEndpointTests : IDisposable
         public bool IsConfigured => true;
 
         public Task<TranscriptionResult> TranscribeAsync(
-            SongMetadata song, string audioFilePath, CancellationToken ct = default)
+            SongMetadata song, string audioFilePath, CancellationToken ct = default, Func<CancellationToken, Task>? beforeRetry = null)
             => Task.FromResult(result);
 
         public Task<IReadOnlyList<TimedWord>> TranscribeClipAsync(
-            string audioFilePath, double startSeconds, double lengthSeconds, string? promptText = null, CancellationToken ct = default)
+            string audioFilePath, double startSeconds, double lengthSeconds, string? promptText = null, CancellationToken ct = default,
+            Func<CancellationToken, Task>? beforeRetry = null)
             => Task.FromResult<IReadOnlyList<TimedWord>>(Array.Empty<TimedWord>());
     }
 
@@ -47,11 +48,12 @@ public class TranscribeLyricsEndpointTests : IDisposable
         public bool IsConfigured => true;
 
         public Task<TranscriptionResult> TranscribeAsync(
-            SongMetadata song, string audioFilePath, CancellationToken ct = default)
+            SongMetadata song, string audioFilePath, CancellationToken ct = default, Func<CancellationToken, Task>? beforeRetry = null)
             => throw new TranscriptionRateLimitedException("429 from the provider", retryAfter);
 
         public Task<IReadOnlyList<TimedWord>> TranscribeClipAsync(
-            string audioFilePath, double startSeconds, double lengthSeconds, string? promptText = null, CancellationToken ct = default)
+            string audioFilePath, double startSeconds, double lengthSeconds, string? promptText = null, CancellationToken ct = default,
+            Func<CancellationToken, Task>? beforeRetry = null)
             => throw new NotSupportedException();
     }
 

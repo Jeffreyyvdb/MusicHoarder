@@ -132,8 +132,11 @@ export function createAiLyrics(opts: {
   let preferredSource = $state<LyricsSource>('lrclib');
   let showCompare = $state(false);
   let preferSaving = $state(false);
-  // Plain (non-reactive) guard so re-syncing on song change can't loop the caller's effect.
+  // Plain (non-reactive) guards so re-syncing on song change can't loop the caller's effect.
   let loadedForSongId: number | null = null;
+  // The song and its lyric flags as last fetched for: a library refresh that changes the flags (the
+  // background AI sync gave the song lyrics) fetches again without resetting what is on screen.
+  let fetchedForKey: string | null = null;
   // Bumped by every write of the AI lyrics from an action, so a load that was already in flight
   // (older than that write) does not put the previous state back. Plain, not $state.
   let edits = 0;
@@ -436,30 +439,23 @@ export function createAiLyrics(opts: {
     /**
      * Load any existing AI transcription + pronunciation/translation when the song changes, and
      * reset transient state so a prior song's data never bleeds into the next (the panel instance
-     * is reused across songs). Keyed on the plain `loadedForSongId` (not $state) so the caller's
-     * `$effect` can't re-trigger itself; a repeat call for the same song is a no-op.
+     * is reused across songs). Keyed on plain fields (not $state) so the caller's `$effect` can't
+     * re-trigger itself; a repeat call for the same song and flags is a no-op.
+     *
+     * It always asks the server, even when the library row says the song has no lyrics: the
+     * background AI sync gives songs lyrics while the app holds an older copy of the library.
      */
     syncToSong() {
       const current = song;
       const id = current.id;
-      if (loadedForSongId === id) return;
-      loadedForSongId = id;
-      transcription = null;
-      syncOffsetMs = null;
-      showCompare = false;
-      translation = null;
-      lyricsView = 'original';
-      translationStale = false;
-      // A pending banner reset from the previous song must not fire onto this one's fresh state.
-      if (enhanceTimer) clearTimeout(enhanceTimer);
-      enhanceTimer = null;
-      enhanceState = 'idle';
-      enhanceError = null;
-      preferredSource = current.preferredLyricsSource === 'Transcribed' ? 'transcribed' : 'lrclib';
-      // The songs list carries no translation flag, so any song with lyrics may have one — one small
-      // fetch covers both the transcription and the translation.
-      if (!current.hasTranscribedLyrics && !current.hasSyncedLyrics && !current.hasPlainLyrics)
-        return;
+      const key = [
+        id,
+        current.hasTranscribedLyrics === true,
+        current.hasSyncedLyrics === true,
+        current.hasPlainLyrics === true
+      ].join(':');
+      if (fetchedForKey === key) return;
+      fetchedForKey = key;
       // Sets every field from the answer, so a fresh fetch also clears what a remembered one had.
       const apply = (d: TrackLyricsResponse) => {
         transcription =
@@ -487,8 +483,24 @@ export function createAiLyrics(opts: {
           : null;
         translationStale = translated && d.lyricsTranslationStale === true;
       };
-      const last = api.lastFetchedTrackLyrics?.(id);
-      if (last) apply(last);
+      if (loadedForSongId !== id) {
+        loadedForSongId = id;
+        transcription = null;
+        syncOffsetMs = null;
+        showCompare = false;
+        translation = null;
+        lyricsView = 'original';
+        translationStale = false;
+        // A pending banner reset from the previous song must not fire onto this one's fresh state.
+        if (enhanceTimer) clearTimeout(enhanceTimer);
+        enhanceTimer = null;
+        enhanceState = 'idle';
+        enhanceError = null;
+        preferredSource =
+          current.preferredLyricsSource === 'Transcribed' ? 'transcribed' : 'lrclib';
+        const last = api.lastFetchedTrackLyrics?.(id);
+        if (last) apply(last);
+      }
       const editsBefore = edits;
       // Dropped when the song changed, or an action wrote newer lyrics, while it was in flight.
       const stillWanted = () => loadedForSongId === id && edits === editsBefore;

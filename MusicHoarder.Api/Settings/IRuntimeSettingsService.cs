@@ -25,7 +25,9 @@ public sealed record EffectiveSettings(
     bool AutoDownloadWishlist,
     bool AlbumCompletionEnabled,
     bool ReleaseStagedSourcesEnabled,
-    DateTime? UpdatedAtUtc);
+    DateTime? UpdatedAtUtc,
+    bool LyricsAutoSyncEnabled = false,
+    bool LyricsAutoSyncChosen = false);
 
 /// <summary>
 /// All fields optional; null means "leave the existing override in place". Callers that need to
@@ -43,4 +45,5 @@ public sealed record RuntimeSettingsUpdate
     public bool? AutoDownloadWishlist { get; init; }
     public bool? AlbumCompletionEnabled { get; init; }
     public bool? ReleaseStagedSourcesEnabled { get; init; }
+    public bool? LyricsAutoSyncEnabled { get; init; }
 }

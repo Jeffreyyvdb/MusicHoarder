@@ -49,20 +49,41 @@ public class RuntimeSettingsServiceTests
         Assert.True(await db.RuntimeSettings.Select(r => r.ReleaseStagedSourcesEnabled).SingleAsync());
     }
 
+    [Fact]
+    public async Task LyricsAutoSync_IsOffAndUnchosen_UntilConfiguredOrAnswered()
+    {
+        var db = CreateDb();
+        var service = CreateService(db, qualityEnabledDefault: true);
+
+        var unset = await service.GetAsync();
+        Assert.False(unset.LyricsAutoSyncEnabled);
+        Assert.False(unset.LyricsAutoSyncChosen);
+
+        var answered = await service.UpdateAsync(new RuntimeSettingsUpdate { LyricsAutoSyncEnabled = false });
+        Assert.False(answered.LyricsAutoSyncEnabled);
+        Assert.True(answered.LyricsAutoSyncChosen);
+
+        var configured = CreateService(CreateDb(), qualityEnabledDefault: true, autoSyncConfigured: true);
+        Assert.True((await configured.GetAsync()).LyricsAutoSyncEnabled);
+        Assert.True((await configured.GetAsync()).LyricsAutoSyncChosen);
+    }
+
     // --- helpers ---
 
     private static MusicHoarderDbContext CreateDb() =>
         new(new DbContextOptionsBuilder<MusicHoarderDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString("N")).Options);
 
-    private static RuntimeSettingsService CreateService(MusicHoarderDbContext db, bool qualityEnabledDefault) =>
+    private static RuntimeSettingsService CreateService(
+        MusicHoarderDbContext db, bool qualityEnabledDefault, bool? autoSyncConfigured = null) =>
         new(new SimpleScopeFactory(db),
             new TestOptionsMonitor<MusicEnricherOptions>(new MusicEnricherOptions
             {
                 SourceDirectory = "/src",
                 DestinationDirectory = "/dst",
             }),
-            new TestOptionsMonitor<QualityGradingOptions>(new QualityGradingOptions { Enabled = qualityEnabledDefault }));
+            new TestOptionsMonitor<QualityGradingOptions>(new QualityGradingOptions { Enabled = qualityEnabledDefault }),
+            new TestOptionsMonitor<LyricsTimingOptions>(new LyricsTimingOptions { EnableAutoSync = autoSyncConfigured }));
 
     private sealed class TestOptionsMonitor<T>(T value) : IOptionsMonitor<T>
     {

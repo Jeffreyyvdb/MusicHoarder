@@ -1,0 +1,30 @@
+using Microsoft.EntityFrameworkCore;
+
+namespace MusicHoarder.Api.Persistence;
+
+public static class SongRowLock
+{
+    /// <summary>
+    /// Runs <paramref name="work"/> in a transaction that holds one song's row lock, so nothing else can save
+    /// the song between what the work reads and what it writes. For a result computed over a minute or more
+    /// (a transcription) that must be checked against the song as it is now before it is stored. The work is
+    /// run again if the connection drops, so it must read the song afresh rather than assume earlier state.
+    /// Without a relational database (the in-memory test provider) it simply runs.
+    /// </summary>
+    public static async Task<T> WithSongLockedAsync<T>(
+        this MusicHoarderDbContext db, int songId, Func<Task<T>> work, CancellationToken ct)
+    {
+        if (!db.Database.IsRelational())
+            return await work();
+
+        return await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        {
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT 1 FROM \"Songs\" WHERE \"Id\" = {songId} FOR UPDATE", ct);
+            var result = await work();
+            await tx.CommitAsync(ct);
+            return result;
+        });
+    }
+}

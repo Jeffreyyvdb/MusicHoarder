@@ -54,8 +54,12 @@ public static class SettingsEndpoints
                         Configured: qualityConfigured),
                     // Experimental AI lyrics transcription: only "enabled" when a transcription provider
                     // (key + base URL) is configured on the server, so the UI can hide it entirely otherwise.
+                    // AutoSyncChosen false means nobody has decided about background AI sync yet, which is
+                    // when the web app asks the admin.
                     LyricsTranscription: new LyricsTranscriptionView(
-                        Enabled: lyricsTranscriptionOptions.Value.IsConfigured),
+                        Enabled: lyricsTranscriptionOptions.Value.IsConfigured,
+                        AutoSync: effective.LyricsAutoSyncEnabled,
+                        AutoSyncChosen: effective.LyricsAutoSyncChosen),
                     // Lyrics pronunciation + translation rides on the QualityGrading OpenRouter creds,
                     // so it's "enabled" only when those are configured (and the feature isn't switched off).
                     LyricsTranslation: new LyricsTranslationView(
@@ -96,6 +100,7 @@ public static class SettingsEndpoints
                     AutoDownloadWishlist = request.Downloads?.AutoDownload,
                     AlbumCompletionEnabled = request.Downloads?.AlbumCompletion,
                     ReleaseStagedSourcesEnabled = request.Downloads?.ReleaseStagedSources,
+                    LyricsAutoSyncEnabled = request.LyricsTranscription?.AutoSync,
                 };
 
                 var effective = await runtimeSettings.UpdateAsync(update, ct);
@@ -114,6 +119,11 @@ public static class SettingsEndpoints
                         autoDownload = effective.AutoDownloadWishlist,
                         albumCompletion = effective.AlbumCompletionEnabled,
                         releaseStagedSources = effective.ReleaseStagedSourcesEnabled,
+                    },
+                    lyricsTranscription = new
+                    {
+                        autoSync = effective.LyricsAutoSyncEnabled,
+                        autoSyncChosen = effective.LyricsAutoSyncChosen,
                     },
                     updatedAtUtc = effective.UpdatedAtUtc,
                 });
@@ -148,11 +158,16 @@ public sealed record PathsView(string SourceDirectory, string DestinationDirecto
 public sealed record ProvidersView(bool AcoustId, bool MusicBrainzWeb, bool SpotifyApi, bool Tracker, bool Deezer, bool AppleMusic);
 public sealed record SpotifyView(string OAuthRedirectBaseUrl, IReadOnlyList<string> Scopes);
 public sealed record QualityGradingView(bool Enabled, bool Configured);
-public sealed record LyricsTranscriptionView(bool Enabled);
+public sealed record LyricsTranscriptionView(bool Enabled, bool AutoSync, bool AutoSyncChosen);
 public sealed record LyricsTranslationView(bool Enabled);
 public sealed record DownloadsView(bool Enabled, bool AutoDownload, bool AlbumCompletion, bool ReleaseStagedSources);
 
-public sealed record SettingsUpdateRequest(ProvidersUpdate? Providers, QualityGradingUpdate? QualityGrading, DownloadsUpdate? Downloads);
+public sealed record SettingsUpdateRequest(
+    ProvidersUpdate? Providers,
+    QualityGradingUpdate? QualityGrading,
+    DownloadsUpdate? Downloads,
+    LyricsTranscriptionUpdate? LyricsTranscription = null);
+public sealed record LyricsTranscriptionUpdate(bool? AutoSync);
 public sealed record QualityGradingUpdate(bool? Enabled);
 public sealed record DownloadsUpdate(bool? AutoDownload, bool? AlbumCompletion, bool? ReleaseStagedSources = null);
 public sealed record ProvidersUpdate(bool? AcoustId, bool? MusicBrainzWeb, bool? SpotifyApi, bool? Tracker, bool? Deezer, bool? AppleMusic);

@@ -46,5 +46,13 @@ public class RuntimeSettings
     /// </summary>
     public bool? ReleaseStagedSourcesEnabled { get; set; }
 
+    /// <summary>
+    /// Overlays <see cref="Options.LyricsTimingOptions.EnableAutoSync"/>: whether the background sweep gives
+    /// songs with no LRC AI-timed lyrics. It sends whole songs to the transcription provider, which costs money
+    /// on a paid one, so it starts off and the web app asks the admin once (while this and the config value are
+    /// both unset); the answer is stored here and can be changed in Settings.
+    /// </summary>
+    public bool? LyricsAutoSyncEnabled { get; set; }
+
     public DateTime? UpdatedAtUtc { get; set; }
 }

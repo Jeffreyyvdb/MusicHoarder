@@ -36,6 +36,7 @@ public sealed partial class LyricsTimingCheckService(
     LyricsTimingProbe probe,
     ILyricsTranscriptionService transcriber,
     TranscriptionAudioBudget budget,
+    Settings.IRuntimeSettingsService runtimeSettings,
     IOptionsMonitor<LyricsTimingOptions> options,
     ILogger<LyricsTimingCheckService> logger) : BackgroundService
 {
@@ -273,12 +274,13 @@ public sealed partial class LyricsTimingCheckService(
 
             try
             {
+                var wordsStamp = song.LyricsTextChangedAtUtc;
                 var result = await budget.SpendAsync(
                     TranscriptionPurpose.AutoResync,
                     TranscriptionAudioBudget.WholeSongSeconds(song),
-                    () => transcriber.TranscribeAsync(song, path, ct),
+                    retry => transcriber.TranscribeAsync(song, path, ct, retry),
                     ct);
-                var applied = LyricsResync.Apply(song, result);
+                var applied = LyricsResync.Apply(song, result, wordsStamp);
                 logger.LogInformation(
                     "Lyrics auto re-sync for {Track} (SongId={SongId}): {Outcome}.",
                     song.TrackLabel,
@@ -323,7 +325,7 @@ public sealed partial class LyricsTimingCheckService(
     internal async Task<bool> RunAutoSyncPassAsync(CancellationToken ct)
     {
         var opts = options.CurrentValue;
-        if (!opts.EnableAutoSync || !transcriber.IsConfigured)
+        if (!transcriber.IsConfigured || !(await runtimeSettings.GetAsync(ct)).LyricsAutoSyncEnabled)
             return false;
 
         if (DateTime.UtcNow < _autoSyncDeferredUntilUtc)
@@ -383,8 +385,8 @@ public sealed partial class LyricsTimingCheckService(
     /// <summary>
     /// Transcribes one song and saves the outcome on its own, so a restart mid-pass loses at most the song in
     /// flight. A transcription takes up to a minute, in which a lyrics re-check or the AI button may have
-    /// changed the song, so it is read again before anything is written, and the result is dropped unless
-    /// the song is still due.
+    /// changed the song, so it is read again under the song's row lock before anything is written, and the
+    /// result is dropped unless the song is still due for the same words.
     /// </summary>
     private async Task<bool> AutoSyncSongAsync(int id, string path, CancellationToken ct)
     {
@@ -403,7 +405,7 @@ public sealed partial class LyricsTimingCheckService(
             result = await budget.SpendAsync(
                 TranscriptionPurpose.AutoSync,
                 TranscriptionAudioBudget.WholeSongSeconds(song),
-                () => transcriber.TranscribeAsync(song, path, ct),
+                retry => transcriber.TranscribeAsync(song, path, ct, retry),
                 ct);
         }
         catch (Exception ex) when (ex is not TranscriptionRateLimitedException
@@ -414,27 +416,35 @@ public sealed partial class LyricsTimingCheckService(
         }
 
         // New official words make the result stale even when the song is still due: it was made without
-        // them, and storing it would stamp the song transcribed after they arrived, so they would never be
-        // aligned.
-        await db.Entry(song).ReloadAsync(ct);
-        if (!await due.AnyAsync(s => s.Id == id, ct)
-            || (song.PlainLyrics, song.LyricsTextChangedAtUtc) != wordsBefore)
+        // them, and storing it would record the song as transcribed for words it never heard aligned.
+        var stored = await db.WithSongLockedAsync(id, async () =>
+        {
+            await db.Entry(song).ReloadAsync(ct);
+            if (!await due.AnyAsync(s => s.Id == id, ct)
+                || (song.PlainLyrics, song.LyricsTextChangedAtUtc) != wordsBefore)
+            {
+                return false;
+            }
+
+            if (result is null)
+                song.MarkTranscriptionFailed(failure ?? "The transcription returned nothing.");
+            else
+                ApplyAutoSync(song, result, wordsBefore.LyricsTextChangedAtUtc);
+
+            await db.SaveChangesAsync(ct);
+            return true;
+        }, ct);
+
+        if (!stored)
         {
             logger.LogInformation(
                 "Lyrics AI sync for SongId={SongId} dropped: the song changed while it was transcribed.", id);
-            return true;
         }
 
-        if (result is null)
-            song.MarkTranscriptionFailed(failure ?? "The transcription returned nothing.");
-        else
-            ApplyAutoSync(song, result);
-
-        await db.SaveChangesAsync(ct);
         return true;
     }
 
-    private void ApplyAutoSync(SongMetadata song, TranscriptionResult result)
+    private void ApplyAutoSync(SongMetadata song, TranscriptionResult result, DateTime? wordsStamp)
     {
         if (!result.AlignedToReference
             && string.IsNullOrWhiteSpace(song.PlainLyrics)
@@ -448,7 +458,7 @@ public sealed partial class LyricsTimingCheckService(
             return;
         }
 
-        LyricsResync.Apply(song, result);
+        LyricsResync.Apply(song, result, wordsStamp);
         logger.LogInformation(
             "Lyrics AI sync for {Track} (SongId={SongId}): {Outcome}.",
             song.TrackLabel,
@@ -578,10 +588,12 @@ public static class LyricsTimingQueries
             .Where(s => s.PlainLyrics != null && s.PlainLyrics != string.Empty);
 
     /// <summary>
-    /// Songs the AI sync pass should transcribe: live, not a duplicate, not instrumental, no LRC, and lyrics
-    /// already looked up (or impossible to look up, having no title or artist). Each is transcribed once, and again only when
-    /// official words arrive or change after its transcription, which a lyrics re-check brings: that is what
-    /// turns an AI guess into the official words re-timed. A failed transcription waits for the same.
+    /// Songs the AI sync pass should transcribe: live, not a duplicate, no LRC, a known length (the audio
+    /// meter cannot count a song of unknown length honestly), and lyrics already looked up (or impossible to
+    /// look up, having no title or artist). Each is transcribed once, and again whenever its official words
+    /// are not the ones its last transcription was made for, which a lyrics re-check brings: that is what
+    /// turns an AI guess into the official words re-timed. A failed transcription waits for the same. A song
+    /// the AI heard no singing in stays out until official words arrive.
     /// </summary>
     public static IQueryable<SongMetadata> WhereDueForAutoSync(this IQueryable<SongMetadata> query)
         => query
@@ -591,7 +603,8 @@ public static class LyricsTimingQueries
             .Where(s => !s.IsDuplicate)
             .Where(s => s.EnrichmentStatus == EnrichmentStatus.Matched || s.EnrichmentStatus == EnrichmentStatus.NeedsReview)
             .Where(s => s.SyncedLyrics == null || s.SyncedLyrics == string.Empty)
-            .Where(s => s.IsInstrumental != true)
+            .Where(s => s.DurationSeconds > 0 || s.DurationMs > 0)
+            .Where(s => s.IsInstrumental != true || (s.PlainLyrics != null && s.PlainLyrics != string.Empty))
             .Where(s => s.LyricsStatus == LyricsStatus.Fetched
                 || s.LyricsStatus == LyricsStatus.NotFound
                 || s.LyricsStatus == LyricsStatus.Failed
@@ -599,11 +612,12 @@ public static class LyricsTimingQueries
                     && (string.IsNullOrWhiteSpace(s.Title) || string.IsNullOrWhiteSpace(s.Artist))))
             .Where(s => s.TranscriptionStatus == TranscriptionStatus.NotRequested
                 || (s.PlainLyrics != null && s.PlainLyrics != string.Empty
-                    && s.LyricsTextChangedAtUtc != null
-                    && (s.TranscribedAtUtc == null || s.LyricsTextChangedAtUtc > s.TranscribedAtUtc)));
+                    && s.LyricsTextChangedAtUtc != s.TranscriptionWordsStampUtc));
 
     public static IQueryable<SongMetadata> WhereFitsBackgroundAudioCeiling(
         this IQueryable<SongMetadata> query, int ceilingSeconds)
-        => query.Where(s => (s.DurationSeconds > 0 ? s.DurationSeconds.Value : TranscriptionAudioBudget.UnknownDurationSeconds)
+        => query.Where(s => (s.DurationSeconds > 0 ? s.DurationSeconds.Value
+                : s.DurationMs > 0 ? s.DurationMs.Value / 1000
+                : TranscriptionAudioBudget.UnknownDurationSeconds)
             <= ceilingSeconds);
 }

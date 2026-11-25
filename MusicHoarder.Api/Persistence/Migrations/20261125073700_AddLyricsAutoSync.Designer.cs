@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace MusicHoarder.Api.Persistence.Migrations;
 
 [DbContext(typeof(MusicHoarderDbContext))]
-[Migration("20261124164413_AddLyricsTextChangedAt")]
-partial class _20261124164413_AddLyricsTextChangedAt
+[Migration("20261125073700_AddLyricsAutoSync")]
+partial class _20261125073700_AddLyricsAutoSync
 {
     /// <inheritdoc />
     protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -1660,6 +1660,9 @@ partial class _20261124164413_AddLyricsTextChangedAt
                 b.Property<bool?>("EnableTrackerProvider")
                     .HasColumnType("boolean");
 
+                b.Property<bool?>("LyricsAutoSyncEnabled")
+                    .HasColumnType("boolean");
+
                 b.Property<bool?>("QualityGradingEnabled")
                     .HasColumnType("boolean");
 
@@ -2153,6 +2156,9 @@ partial class _20261124164413_AddLyricsTextChangedAt
 
                 b.Property<int>("TranscriptionStatus")
                     .HasColumnType("integer");
+
+                b.Property<DateTime?>("TranscriptionWordsStampUtc")
+                    .HasColumnType("timestamp with time zone");
 
                 b.Property<string>("TranslatedPlainLyrics")
                     .HasColumnType("text");

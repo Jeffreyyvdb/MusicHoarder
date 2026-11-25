@@ -215,4 +215,54 @@ public class SongMetadataLyricsRecheckTests
         Assert.Null(song.LyricsNextRecheckAfterUtc);
         Assert.Equal(LyricsStatus.NotFetched, song.LyricsStatus);
     }
+
+    [Fact]
+    public void A_correction_to_the_same_lrclib_entry_replaces_the_words_and_marks_them_changed()
+    {
+        var song = NewSong();
+        song.ApplyLyricsResult(null, "a line", instrumental: false, lrclibId: 7);
+        var before = song.LyricsTextChangedAtUtc;
+
+        Assert.True(song.TryApplyLyricsUpgrade(null, "a corrected line", instrumental: false, lrclibId: 7));
+
+        Assert.Equal("a corrected line", song.PlainLyrics);
+        Assert.NotEqual(before, song.LyricsTextChangedAtUtc);
+    }
+
+    [Fact]
+    public void A_different_lrclib_entry_does_not_replace_the_words()
+    {
+        var song = NewSong();
+        song.ApplyLyricsResult(null, "a line", instrumental: false, lrclibId: 7);
+
+        Assert.False(song.TryApplyLyricsUpgrade(null, "another song's line", instrumental: false, lrclibId: 8));
+        Assert.Equal("a line", song.PlainLyrics);
+    }
+
+    [Fact]
+    public void Every_writer_of_the_official_words_marks_when_they_changed()
+    {
+        var song = NewSong();
+        song.SetOfficialLyricsText(null, "a line");
+        var first = song.LyricsTextChangedAtUtc;
+        Assert.NotNull(first);
+
+        song.SetOfficialLyricsText("[00:01.00]a line", "a line");
+        Assert.Equal(first, song.LyricsTextChangedAtUtc);
+    }
+
+    [Fact]
+    public void Lrclibs_instrumental_verdict_drops_an_earlier_transcript()
+    {
+        var song = NotFoundSong();
+        song.ApplyTranscriptionResult("[00:01.00]words the ai heard", "words the ai heard", "whisper-test");
+        song.PreferredLyricsSource = PreferredLyricsSource.Transcribed;
+
+        Assert.True(song.TryApplyLyricsUpgrade(null, null, instrumental: true));
+
+        Assert.Null(song.DisplaySyncedLyrics);
+        Assert.Null(song.EffectiveSyncedLyrics);
+        Assert.Equal(TranscriptionStatus.NotRequested, song.TranscriptionStatus);
+        Assert.True(song.ShowsAsInstrumental);
+    }
 }

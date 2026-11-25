@@ -122,6 +122,11 @@ public class LyricsTimingOptions
     /// a lyrics re-check later brings official words, so an AI guess becomes the real lyrics re-timed. Works
     /// from both ends of the library, newest and oldest additions alternately, so new songs are not stuck
     /// behind the back catalogue and the back catalogue is not starved by new songs.
+    ///
+    /// Unset by default, which means off and lets the web app ask the admin; the answer, stored in
+    /// <see cref="Persistence.RuntimeSettings.LyricsAutoSyncEnabled"/>, overrides this. Off unless chosen
+    /// because it sends the whole unsynced library to the transcription provider, which bills per minute
+    /// unless it is a free tier.
     /// </summary>
-    public bool EnableAutoSync { get; set; } = true;
+    public bool? EnableAutoSync { get; set; }
 }

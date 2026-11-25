@@ -10,6 +10,7 @@ public sealed class RuntimeSettingsService : IRuntimeSettingsService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IOptionsMonitor<MusicEnricherOptions> _options;
     private readonly IOptionsMonitor<QualityGradingOptions> _qualityOptions;
+    private readonly IOptionsMonitor<LyricsTimingOptions> _lyricsTimingOptions;
 
     private readonly SemaphoreSlim _cacheLock = new(1, 1);
     private EffectiveSettings? _cache;
@@ -17,11 +18,13 @@ public sealed class RuntimeSettingsService : IRuntimeSettingsService
     public RuntimeSettingsService(
         IServiceScopeFactory scopeFactory,
         IOptionsMonitor<MusicEnricherOptions> options,
-        IOptionsMonitor<QualityGradingOptions> qualityOptions)
+        IOptionsMonitor<QualityGradingOptions> qualityOptions,
+        IOptionsMonitor<LyricsTimingOptions> lyricsTimingOptions)
     {
         _scopeFactory = scopeFactory;
         _options = options;
         _qualityOptions = qualityOptions;
+        _lyricsTimingOptions = lyricsTimingOptions;
     }
 
     public async Task<EffectiveSettings> GetAsync(CancellationToken ct = default)
@@ -71,6 +74,7 @@ public sealed class RuntimeSettingsService : IRuntimeSettingsService
             if (update.AutoDownloadWishlist.HasValue) row.AutoDownloadWishlist = update.AutoDownloadWishlist;
             if (update.AlbumCompletionEnabled.HasValue) row.AlbumCompletionEnabled = update.AlbumCompletionEnabled;
             if (update.ReleaseStagedSourcesEnabled.HasValue) row.ReleaseStagedSourcesEnabled = update.ReleaseStagedSourcesEnabled;
+            if (update.LyricsAutoSyncEnabled.HasValue) row.LyricsAutoSyncEnabled = update.LyricsAutoSyncEnabled;
 
             row.UpdatedAtUtc = DateTime.UtcNow;
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
@@ -88,6 +92,7 @@ public sealed class RuntimeSettingsService : IRuntimeSettingsService
     {
         var defaults = _options.CurrentValue;
         var qualityDefaults = _qualityOptions.CurrentValue;
+        var autoSync = row?.LyricsAutoSyncEnabled ?? _lyricsTimingOptions.CurrentValue.EnableAutoSync;
         return new EffectiveSettings(
             EnableAcoustIdProvider: row?.EnableAcoustIdProvider ?? defaults.EnableAcoustIdProvider,
             EnableMusicBrainzWebProvider: row?.EnableMusicBrainzWebProvider ?? defaults.EnableMusicBrainzWebProvider,
@@ -99,6 +104,8 @@ public sealed class RuntimeSettingsService : IRuntimeSettingsService
             AutoDownloadWishlist: row?.AutoDownloadWishlist ?? defaults.AutoDownloadWishlist,
             AlbumCompletionEnabled: row?.AlbumCompletionEnabled ?? defaults.EnableAlbumCompletion,
             ReleaseStagedSourcesEnabled: row?.ReleaseStagedSourcesEnabled ?? defaults.ReleaseStagedSourcesAfterBuild,
+            LyricsAutoSyncEnabled: autoSync ?? false,
+            LyricsAutoSyncChosen: autoSync is not null,
             UpdatedAtUtc: row?.UpdatedAtUtc);
     }
 }

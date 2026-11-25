@@ -411,9 +411,10 @@ public class SongMetadata
     public DateTime? LyricsNextRecheckAfterUtc { get; set; }
 
     /// <summary>
-    /// When the official lyric text (<see cref="PlainLyrics"/>) last changed to new words. A transcription made
-    /// before it was timed against other words, or against none, so the timing sweep transcribes the song again
-    /// to align the new ones. Null on rows whose text predates the column.
+    /// When the official lyric text (<see cref="PlainLyrics"/>) last changed to new words. It names a version
+    /// of the words: <see cref="TranscriptionWordsStampUtc"/> holds the version a transcription was made for,
+    /// and while the two differ the timing sweep transcribes the song again to align the new words. Null on
+    /// rows whose text predates the column. Set through <see cref="SetOfficialLyricsText"/>.
     /// </summary>
     public DateTime? LyricsTextChangedAtUtc { get; set; }
 
@@ -428,6 +429,15 @@ public class SongMetadata
     public string? TranscribedPlainLyrics { get; set; }
     public TranscriptionStatus TranscriptionStatus { get; set; } = TranscriptionStatus.NotRequested;
     public DateTime? TranscribedAtUtc { get; set; }
+
+    /// <summary>
+    /// The <see cref="LyricsTextChangedAtUtc"/> of the official words the last transcription attempt was made
+    /// for (null when the song had none, or they predate the column). Compared for equality, never order: a
+    /// lyrics re-check that saves after a transcription computed its own timestamp before it, so "newer than
+    /// the transcription" would miss it.
+    /// </summary>
+    public DateTime? TranscriptionWordsStampUtc { get; set; }
+
     public string? TranscriptionModel { get; set; }
     public string? TranscriptionError { get; set; }
 
@@ -466,6 +476,16 @@ public class SongMetadata
     public string? DisplaySyncedLyrics => UseTranscribedForDisplay ? TranscribedSyncedLyrics : SyncedLyrics;
 
     public string? DisplayPlainLyrics => UseTranscribedForDisplay ? TranscribedPlainLyrics : PlainLyrics;
+
+    /// <summary>
+    /// Whether the share page and other read-only surfaces say "Instrumental": LRCLIB says so, or the AI heard
+    /// no singing and there are no words to show. The AI's mark never hides words the song has gained.
+    /// </summary>
+    public bool ShowsAsInstrumental =>
+        LyricsStatus == LyricsStatus.Instrumental
+        || (IsInstrumental == true
+            && string.IsNullOrWhiteSpace(DisplaySyncedLyrics)
+            && string.IsNullOrWhiteSpace(DisplayPlainLyrics));
 
     private bool UseTranscribedForDisplay =>
         (!string.IsNullOrWhiteSpace(TranscribedSyncedLyrics) || !string.IsNullOrWhiteSpace(TranscribedPlainLyrics))
@@ -1163,14 +1183,15 @@ public class SongMetadata
             LyricsStatus = LyricsStatus.Instrumental;
             SyncedLyrics = null;
             PlainLyrics = null;
+            // LRCLIB's verdict is final, and nothing transcribes a song it gives, so a transcript made before
+            // it would be shown and tagged as the lyrics of an instrumental.
+            if (TranscriptionStatus != TranscriptionStatus.NotRequested)
+                ResetTranscription();
+            PreferredLyricsSource = PreferredLyricsSource.Lrclib;
             return;
         }
 
-        var previousPlain = PlainLyrics;
-        SyncedLyrics = string.IsNullOrWhiteSpace(syncedLyrics) ? null : syncedLyrics;
-        PlainLyrics = string.IsNullOrWhiteSpace(plainLyrics) ? null : plainLyrics;
-        if (PlainLyrics is not null && PlainLyrics != previousPlain)
-            LyricsTextChangedAtUtc = DateTime.UtcNow;
+        SetOfficialLyricsText(syncedLyrics, plainLyrics);
 
         if (SyncedLyrics is null && PlainLyrics is null)
         {
@@ -1180,6 +1201,19 @@ public class SongMetadata
         {
             LyricsStatus = LyricsStatus.Fetched;
         }
+    }
+
+    /// <summary>
+    /// Stores the official lyric text, recording when the words changed. Every writer of the official text goes
+    /// through here, so a change is never missed by the AI sync pass, which re-times the song when it sees one.
+    /// </summary>
+    public void SetOfficialLyricsText(string? syncedLyrics, string? plainLyrics)
+    {
+        var previousPlain = PlainLyrics;
+        SyncedLyrics = string.IsNullOrWhiteSpace(syncedLyrics) ? null : syncedLyrics;
+        PlainLyrics = string.IsNullOrWhiteSpace(plainLyrics) ? null : plainLyrics;
+        if (PlainLyrics is not null && PlainLyrics != previousPlain)
+            LyricsTextChangedAtUtc = DateTime.UtcNow;
     }
 
     public void MarkLyricsNotFound()
@@ -1275,7 +1309,13 @@ public class SongMetadata
         var gainedSynced = !string.IsNullOrWhiteSpace(syncedLyrics);
         var gainedPlain = (!hasPlain || (LyricsOrigin == LyricsOrigin.Genius && origin == LyricsOrigin.Lrclib))
             && !string.IsNullOrWhiteSpace(plainLyrics);
-        if (!gainedSynced && !gainedPlain)
+        // The same LRCLIB entry with different words is a correction someone made there. A different entry is
+        // not: search results shift over time, and taking each new one would swap the words back and forth.
+        var corrected = hasPlain
+            && origin == LyricsOrigin.Lrclib && LyricsOrigin == LyricsOrigin.Lrclib
+            && lrclibId is not null && LrclibId == lrclibId.Value.ToString()
+            && !string.IsNullOrWhiteSpace(plainLyrics) && plainLyrics != PlainLyrics;
+        if (!gainedSynced && !gainedPlain && !corrected)
             return false;
 
         var plainFromSameSource = origin == LyricsOrigin ? PlainLyrics : null;
@@ -1321,6 +1361,7 @@ public class SongMetadata
         TranscriptionModel = model;
         TranscriptionError = null;
         TranscriptionAlignedToReference = alignedToReference;
+        TranscriptionWordsStampUtc = LyricsTextChangedAtUtc;
 
         // Words heard now outweigh an earlier transcription that heard none. A song LRCLIB calls instrumental
         // keeps that verdict.
@@ -1348,6 +1389,7 @@ public class SongMetadata
         TranscriptionStatus = TranscriptionStatus.Failed;
         TranscriptionError = Truncate(error, MaxErrorLength);
         TranscribedAtUtc = DateTime.UtcNow;
+        TranscriptionWordsStampUtc = LyricsTextChangedAtUtc;
     }
 
     public void ResetTranscription()
@@ -1359,6 +1401,7 @@ public class SongMetadata
         TranscriptionModel = null;
         TranscriptionError = null;
         TranscriptionAlignedToReference = false;
+        TranscriptionWordsStampUtc = null;
     }
 
     // --- Lyrics timing validation lifecycle ---

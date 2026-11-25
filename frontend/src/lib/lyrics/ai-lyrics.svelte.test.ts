@@ -113,14 +113,54 @@ afterEach(() => {
 });
 
 describe('syncToSong', () => {
-  it('initialises the preferred source from the song and skips the fetch when it has no lyrics', () => {
-    const { ai, api } = setup({
+  it('initialises the preferred source from the song', () => {
+    const { ai } = setup({
       song: makeSong({ preferredLyricsSource: 'Transcribed' })
     });
     ai.syncToSong();
     expect(ai.preferredSource).toBe('transcribed');
-    // No lyric flags at all — nothing stored server-side is worth a round trip.
-    expect(api.fetchTrackLyrics).not.toHaveBeenCalled();
+  });
+
+  it('asks the server even when the library row says the song has no lyrics', async () => {
+    // The background AI sync gave the song lyrics after the app loaded the library.
+    const { ai, api } = setup({
+      song: makeSong(),
+      api: {
+        fetchTrackLyrics: vi.fn(async () => ({
+          id: 1,
+          lyricsStatus: 'NotFound',
+          transcribedSynced: '[00:01.00] heard by the ai'
+        }))
+      }
+    });
+    ai.syncToSong();
+    await flushMicrotasks();
+    expect(api.fetchTrackLyrics).toHaveBeenCalledWith(1);
+    expect(ai.transcription).toMatchObject({ synced: '[00:01.00] heard by the ai' });
+  });
+
+  it('fetches again when a library refresh changes the song’s lyric flags, keeping the view', async () => {
+    const fetchTrackLyrics = vi
+      .fn()
+      .mockResolvedValueOnce({ id: 1, lyricsStatus: 'NotFound' })
+      .mockResolvedValueOnce({
+        id: 1,
+        lyricsStatus: 'NotFound',
+        transcribedSynced: '[00:01.00] heard by the ai'
+      });
+    const { ai, api, setSong } = setup({ song: makeSong(), api: { fetchTrackLyrics } });
+    ai.syncToSong();
+    await flushMicrotasks();
+    expect(ai.transcription).toBeNull();
+    ai.toggleCompare();
+
+    setSong(makeSong({ hasTranscribedLyrics: true }));
+    ai.syncToSong();
+    await flushMicrotasks();
+
+    expect(api.fetchTrackLyrics).toHaveBeenCalledTimes(2);
+    expect(ai.transcription).toMatchObject({ synced: '[00:01.00] heard by the ai' });
+    expect(ai.showCompare).toBe(true);
   });
 
   it('loads a stored transcription and completed translation, including the stale bit', async () => {

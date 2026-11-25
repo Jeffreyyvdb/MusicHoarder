@@ -132,7 +132,7 @@ public sealed record SharedSongRowDto
             HasCoverArt = song.HasCoverArt,
             HasSyncedLyrics = !string.IsNullOrWhiteSpace(song.DisplaySyncedLyrics),
             HasPlainLyrics = !string.IsNullOrWhiteSpace(song.DisplayPlainLyrics),
-            IsInstrumental = song.IsInstrumental == true,
+            IsInstrumental = song.ShowsAsInstrumental,
             HasMusicVideo = hasMusicVideo,
             AcquiredAtUtc = song.AcquiredAtUtc ?? song.IndexedAtUtc,
             IsBuilt = song.LibraryBuildStatus == LibraryBuildStatus.Done

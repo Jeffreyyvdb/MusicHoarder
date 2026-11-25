@@ -5,6 +5,7 @@ using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Settings;
 using MusicHoarder.Api.Tests.Persistence;
 
 namespace MusicHoarder.Api.Tests.Enrichment;
@@ -534,12 +535,15 @@ public class LyricsTimingCheckServiceTests : IDisposable
             LyricsStatus = LyricsStatus.NotFound,
         };
 
-        LyricsResync.Apply(song, new TranscriptionResult(AlignedLrc, "line 0 words here", "whisper-test", AlignedToReference: true));
+        LyricsResync.Apply(
+            song, new TranscriptionResult(AlignedLrc, "line 0 words here", "whisper-test", AlignedToReference: true), wordsStampUtc: null);
 
         Assert.Equal("line 0 words here", song.PlainLyrics);
         Assert.Equal(LyricsStatus.Fetched, song.LyricsStatus);
         Assert.Equal(PreferredLyricsSource.Transcribed, song.PreferredLyricsSource);
-        Assert.True(song.TranscribedAtUtc >= song.LyricsTextChangedAtUtc);
+        Assert.Equal(song.LyricsTextChangedAtUtc, song.TranscriptionWordsStampUtc);
+        // History dates the words it found by the lookup, so it must be the lookup just made.
+        Assert.True(song.LyricsLastAttemptedAtUtc >= DateTime.UtcNow.AddMinutes(-1));
     }
 
     [Fact]
@@ -604,6 +608,35 @@ public class LyricsTimingCheckServiceTests : IDisposable
         await AssertAutoSyncTakesOnlyDueSongs(db);
     }
 
+    [PostgresFact]
+    public async Task the_song_row_lock_holds_off_another_writer_until_the_result_is_saved()
+    {
+        await using var database = await PostgresTestDatabase.CreateAsync();
+        await using var db = database.NewContext();
+        AddUnsynced(db, 1);
+        await db.SaveChangesAsync();
+
+        await using var recheck = database.NewContext();
+        await recheck.Database.OpenConnectionAsync();
+        await recheck.Database.ExecuteSqlRawAsync("SET lock_timeout = '300ms'");
+
+        var blocked = await db.WithSongLockedAsync(1, async () =>
+        {
+            try
+            {
+                await recheck.Database.ExecuteSqlRawAsync("UPDATE \"Songs\" SET \"PlainLyrics\" = 'new words' WHERE \"Id\" = 1");
+                return false;
+            }
+            catch (Npgsql.PostgresException ex) when (ex.SqlState == "55P03")
+            {
+                return true;
+            }
+        }, CancellationToken.None);
+
+        Assert.True(blocked);
+        Assert.Equal(1, await recheck.Database.ExecuteSqlRawAsync("UPDATE \"Songs\" SET \"PlainLyrics\" = 'new words' WHERE \"Id\" = 1"));
+    }
+
     private async Task AssertAutoSyncTakesOnlyDueSongs(MusicHoarderDbContext db)
     {
         AddUnsynced(db, 1);
@@ -620,6 +653,11 @@ public class LyricsTimingCheckServiceTests : IDisposable
         AddUnsynced(db, 12, fileMissing: true);
         AddUnsynced(db, 13).IsDuplicate = true;
         AddUnsynced(db, 14, plainLyrics: null, lyricsStatus: LyricsStatus.Failed);
+        AddUnsynced(db, 15, durationSeconds: null);
+        var msOnly = AddUnsynced(db, 16, durationSeconds: null);
+        msOnly.DurationMs = 200_000;
+        // The AI's mark with official words beside it is a leftover; the words are what count.
+        AddUnsynced(db, 17, instrumental: true);
         await db.SaveChangesAsync();
 
         var transcriber = new FakeTranscriber();
@@ -629,7 +667,7 @@ public class LyricsTimingCheckServiceTests : IDisposable
         }
 
         Assert.Equal(
-            new[] { 1, 2, 3, 14 }.Select(PathOf).Order(StringComparer.Ordinal).ToList(),
+            new[] { 1, 2, 3, 14, 16, 17 }.Select(PathOf).Order(StringComparer.Ordinal).ToList(),
             transcriber.FullCalls.Order(StringComparer.Ordinal).ToList());
     }
 
@@ -654,6 +692,85 @@ public class LyricsTimingCheckServiceTests : IDisposable
         Assert.Single(aligning.FullCalls);
         Assert.Equal(AlignedLrc, song.DisplaySyncedLyrics);
         Assert.Equal(LyricsProvenance.AiEnhanced, song.LyricsProvenance);
+    }
+
+    [Fact]
+    public async Task a_result_aligned_to_words_replaced_meanwhile_keeps_the_new_words_and_is_timed_again()
+    {
+        await using var db = CreateDbContext();
+        var song = AddUnsynced(db, 1, plainLyrics: null, lyricsStatus: LyricsStatus.NotFound);
+        await db.SaveChangesAsync();
+        var stampWhenStarted = song.LyricsTextChangedAtUtc;
+
+        // A lyrics re-check saves official words while the audio is out.
+        Assert.True(song.TryApplyLyricsUpgrade(null, "line 0 words here\nline 1 words here", instrumental: false));
+        LyricsResync.Apply(
+            song,
+            new TranscriptionResult(AlignedLrc, "older words the transcriber found", "whisper-test", AlignedToReference: true),
+            stampWhenStarted);
+        await db.SaveChangesAsync();
+
+        Assert.Equal("line 0 words here\nline 1 words here", song.PlainLyrics);
+        Assert.Equal(PreferredLyricsSource.Lrclib, song.PreferredLyricsSource);
+
+        var transcriber = new FakeTranscriber();
+        Assert.True(await NewService(db, transcriber, new LyricsTimingOptions()).RunAutoSyncPassAsync(CancellationToken.None));
+        Assert.Single(transcriber.FullCalls);
+        Assert.Equal(PreferredLyricsSource.Transcribed, song.PreferredLyricsSource);
+    }
+
+    [Fact]
+    public async Task a_failed_alignment_to_new_official_words_shows_and_tags_the_words_not_the_ai_guess()
+    {
+        await using var db = CreateDbContext();
+        var song = AddUnsynced(db, 1);
+        await db.SaveChangesAsync();
+        await NewService(db, new FakeTranscriber(), new LyricsTimingOptions()).RunAutoSyncPassAsync(CancellationToken.None);
+        Assert.Equal(PreferredLyricsSource.Transcribed, song.PreferredLyricsSource);
+        song.LibraryBuildStatus = LibraryBuildStatus.Done;
+
+        song.SetOfficialLyricsText(null, "corrected words here\nsecond corrected line");
+        await db.SaveChangesAsync();
+        await NewService(db, new FakeTranscriber { Aligned = false }, new LyricsTimingOptions())
+            .RunAutoSyncPassAsync(CancellationToken.None);
+
+        Assert.Equal(PreferredLyricsSource.Lrclib, song.PreferredLyricsSource);
+        Assert.Equal("corrected words here\nsecond corrected line", song.DisplayPlainLyrics);
+        Assert.Equal("corrected words here\nsecond corrected line", song.EffectivePlainLyrics);
+        Assert.Equal(LibraryBuildStatus.Pending, song.LibraryBuildStatus);
+    }
+
+    [Fact]
+    public async Task a_song_left_with_the_ai_mark_beside_official_words_is_synced_and_the_mark_lifted()
+    {
+        await using var db = CreateDbContext();
+        var song = AddUnsynced(db, 1, plainLyrics: null, lyricsStatus: LyricsStatus.NotFound);
+        song.ApplyHeardNoSinging("whisper-test");
+        song.ApplyLyricsResult(null, "line 0 words here\nline 1 words here", instrumental: false);
+        // What a re-check saved before the sweep's mark landed on top of it would leave.
+        song.IsInstrumental = true;
+        await db.SaveChangesAsync();
+
+        Assert.False(song.ShowsAsInstrumental);
+        Assert.True(await NewService(db, new FakeTranscriber(), new LyricsTimingOptions())
+            .RunAutoSyncPassAsync(CancellationToken.None));
+
+        Assert.False(song.IsInstrumental);
+        Assert.Equal(AlignedLrc, song.DisplaySyncedLyrics);
+    }
+
+    [Fact]
+    public async Task ai_sync_pass_follows_the_choice_stored_in_settings_over_the_config()
+    {
+        await using var db = CreateDbContext();
+        AddUnsynced(db, 1);
+        db.RuntimeSettings.Add(new RuntimeSettings { LyricsAutoSyncEnabled = false });
+        await db.SaveChangesAsync();
+
+        var transcriber = new FakeTranscriber();
+        Assert.False(await NewService(db, transcriber, new LyricsTimingOptions { EnableAutoSync = true })
+            .RunAutoSyncPassAsync(CancellationToken.None));
+        Assert.Empty(transcriber.FullCalls);
     }
 
     [Fact]
@@ -768,17 +885,29 @@ public class LyricsTimingCheckServiceTests : IDisposable
         return song;
     }
 
+    /// <summary>The sweep as production wires it. AI sync is on unless the test says otherwise.</summary>
     private static LyricsTimingCheckService NewService(
         MusicHoarderDbContext db, FakeTranscriber transcriber, LyricsTimingOptions opts)
     {
+        opts.EnableAutoSync ??= true;
         var monitor = new StaticOptionsMonitor<LyricsTimingOptions>(opts);
         var budget = TestBudget.Over(db, opts);
         var probe = new LyricsTimingProbe(transcriber, budget, monitor, NullLogger<LyricsTimingProbe>.Instance);
+        var runtimeSettings = new RuntimeSettingsService(
+            new FixedScopeFactory(db),
+            new StaticOptionsMonitor<MusicEnricherOptions>(new MusicEnricherOptions
+            {
+                SourceDirectory = "/src",
+                DestinationDirectory = "/dst",
+            }),
+            new StaticOptionsMonitor<QualityGradingOptions>(new QualityGradingOptions()),
+            monitor);
         return new LyricsTimingCheckService(
             new FixedScopeFactory(db),
             probe,
             transcriber,
             budget,
+            runtimeSettings,
             monitor,
             NullLogger<LyricsTimingCheckService>.Instance);
     }
@@ -800,7 +929,7 @@ public class LyricsTimingCheckServiceTests : IDisposable
 
         public bool IsConfigured => true;
 
-        public Task<TranscriptionResult> TranscribeAsync(SongMetadata song, string audioFilePath, CancellationToken ct = default)
+        public Task<TranscriptionResult> TranscribeAsync(SongMetadata song, string audioFilePath, CancellationToken ct = default, Func<CancellationToken, Task>? beforeRetry = null)
         {
             FullCalls.Add(audioFilePath);
             During?.Invoke(song);
@@ -814,7 +943,8 @@ public class LyricsTimingCheckServiceTests : IDisposable
         // An instrumental window: the probe records an attempt with an inconclusive verdict, which is all the
         // probe-pass tests need to see which songs were listened to.
         public Task<IReadOnlyList<TimedWord>> TranscribeClipAsync(
-            string audioFilePath, double startSeconds, double lengthSeconds, string? promptText = null, CancellationToken ct = default)
+            string audioFilePath, double startSeconds, double lengthSeconds, string? promptText = null, CancellationToken ct = default,
+            Func<CancellationToken, Task>? beforeRetry = null)
         {
             ClipCalls.Add(audioFilePath);
             return Task.FromResult<IReadOnlyList<TimedWord>>([]);

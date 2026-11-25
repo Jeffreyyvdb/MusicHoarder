@@ -35,7 +35,9 @@ public sealed class TranscriptionAudioBudget(
 
     /// <summary>The audio a whole-song transcription of <paramref name="song"/> sends.</summary>
     public static double WholeSongSeconds(SongMetadata song)
-        => song.DurationSeconds is > 0 ? song.DurationSeconds.Value : UnknownDurationSeconds;
+        => song.DurationSeconds is > 0 ? song.DurationSeconds.Value
+            : song.DurationMs is > 0 ? song.DurationMs.Value / 1000.0
+            : UnknownDurationSeconds;
 
     public static bool IsBackground(TranscriptionPurpose purpose)
         => purpose is TranscriptionPurpose.TimingProbe or TranscriptionPurpose.AutoResync or TranscriptionPurpose.AutoSync;
@@ -46,14 +48,21 @@ public sealed class TranscriptionAudioBudget(
     /// us, or the caller gave up). A background request that would take total spend past the background
     /// ceiling is not made at all: it throws <see cref="TranscriptionRateLimitedException"/> saying when there
     /// will be room, the same signal a provider refusal gives, because to the caller both mean "not now".
+    ///
+    /// The request is handed a callback to run before each retry it makes: a retry uploads the audio again,
+    /// and the provider counts it again. Retries of an admitted request are recorded, never refused, since
+    /// stopping one halfway would waste the upload that failed.
     /// </summary>
     public async Task<T> SpendAsync<T>(
-        TranscriptionPurpose purpose, double audioSeconds, Func<Task<T>> request, CancellationToken ct)
+        TranscriptionPurpose purpose,
+        double audioSeconds,
+        Func<Func<CancellationToken, Task>, Task<T>> request,
+        CancellationToken ct)
     {
         var entry = await ReserveAsync(purpose, audioSeconds, ct);
         try
         {
-            return await request();
+            return await request(retryCt => RecordAsync(purpose, audioSeconds, retryCt));
         }
         catch (Exception ex) when (ex is TranscriptionRateLimitedException or OperationCanceledException)
         {
@@ -120,20 +129,43 @@ public sealed class TranscriptionAudioBudget(
                 }
             }
 
-            var entry = new TranscriptionAudioSpend { AtUtc = now, AudioSeconds = audioSeconds, Purpose = purpose };
-            using (var scope = scopeFactory.CreateScope())
-            {
-                var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
-                db.TranscriptionAudioSpends.Add(entry);
-                await db.SaveChangesAsync(ct);
-            }
-            spend.Add(entry);
-            return entry;
+            return await AddAsync(spend, purpose, audioSeconds, now, ct);
         }
         finally
         {
             _gate.Release();
         }
+    }
+
+    private async Task RecordAsync(TranscriptionPurpose purpose, double audioSeconds, CancellationToken ct)
+    {
+        await _gate.WaitAsync(ct);
+        try
+        {
+            await AddAsync(await LoadAsync(ct), purpose, audioSeconds, DateTime.UtcNow, ct);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private async Task<TranscriptionAudioSpend> AddAsync(
+        List<TranscriptionAudioSpend> spend,
+        TranscriptionPurpose purpose,
+        double audioSeconds,
+        DateTime now,
+        CancellationToken ct)
+    {
+        var entry = new TranscriptionAudioSpend { AtUtc = now, AudioSeconds = audioSeconds, Purpose = purpose };
+        using (var scope = scopeFactory.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+            db.TranscriptionAudioSpends.Add(entry);
+            await db.SaveChangesAsync(ct);
+        }
+        spend.Add(entry);
+        return entry;
     }
 
     /// <summary>
