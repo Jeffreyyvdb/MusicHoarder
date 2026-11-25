@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.BackgroundWork;
 using MusicHoarder.Api.Options;
 
 namespace MusicHoarder.Api.Artists;
@@ -12,8 +13,11 @@ namespace MusicHoarder.Api.Artists;
 public sealed class ArtistMonitorBackgroundService(
     IServiceScopeFactory scopes,
     IOptionsMonitor<MusicEnricherOptions> options,
-    ILogger<ArtistMonitorBackgroundService> logger) : BackgroundService
+    ILogger<ArtistMonitorBackgroundService> logger,
+    BackgroundWorkStatus? status = null) : BackgroundService
 {
+    internal const string Source = "artist-monitor";
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (!options.CurrentValue.EnableArtistMonitor)
@@ -27,11 +31,15 @@ public sealed class ArtistMonitorBackgroundService(
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            var minutes = Math.Clamp(options.CurrentValue.ArtistMonitorSweepIntervalMinutes, 1, 1440);
+            var next = DateTime.UtcNow.AddMinutes(minutes);
+            status?.Working(BackgroundJobIds.AlbumFillAndFollows, Source);
             try
             {
                 await using var scope = scopes.CreateAsyncScope();
                 var sweep = scope.ServiceProvider.GetRequiredService<ArtistMonitorSweep>();
-                await sweep.SweepAsync(stoppingToken);
+                var result = await sweep.SweepAsync(stoppingToken);
+                status?.Idle(BackgroundJobIds.AlbumFillAndFollows, next, result.NewReleases > 0, Source);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -40,9 +48,9 @@ public sealed class ArtistMonitorBackgroundService(
             catch (Exception ex)
             {
                 logger.LogError(ex, "Artist monitor sweep failed");
+                status?.Failing(BackgroundJobIds.AlbumFillAndFollows, ex, next, Source);
             }
 
-            var minutes = Math.Clamp(options.CurrentValue.ArtistMonitorSweepIntervalMinutes, 1, 1440);
             if (!await DelayAsync(TimeSpan.FromMinutes(minutes), stoppingToken)) return;
         }
     }

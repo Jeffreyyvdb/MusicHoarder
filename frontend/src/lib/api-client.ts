@@ -7,6 +7,11 @@ import {
   type PasskeySignalInfo
 } from '#lib/webauthn-client.ts';
 import { formatOf } from '#lib/audio-formats.ts';
+import type {
+  BackgroundJobDetail,
+  BackgroundJobId,
+  BackgroundWorkSummary
+} from '#lib/background-work/types.ts';
 import { API_PREFIX, LIBRARY_ALBUMS_PATH, LIBRARY_SONGS_PATH } from '#lib/library-requests.ts';
 import { isRefusal } from '#lib/refusal.ts';
 import type { PlayerSong } from '#lib/stores/player.svelte.ts';
@@ -5437,6 +5442,19 @@ export async function gradeDirectory(path: string): Promise<{ enqueued: number; 
 
 export async function fetchQualityProgress(): Promise<QualityProgress> {
   return requestJson<QualityProgress>('/api/quality/progress');
+}
+
+export async function getBackgroundWork(signal?: AbortSignal): Promise<BackgroundWorkSummary> {
+  return requestJson<BackgroundWorkSummary>('/api/background-work', { signal });
+}
+
+export async function getBackgroundJob(
+  id: BackgroundJobId,
+  signal?: AbortSignal
+): Promise<BackgroundJobDetail> {
+  return requestJson<BackgroundJobDetail>(`/api/background-work/${encodeURIComponent(id)}`, {
+    signal
+  });
 }
 
 /** Fetches a single song's grading dossier and copies the pretty-printed JSON to the clipboard. */

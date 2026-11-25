@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
+using MusicHoarder.Api.BackgroundWork;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 
@@ -19,7 +20,8 @@ namespace MusicHoarder.Api.Artwork;
 public sealed class ExternalCoverArtSweepBackgroundService(
     IServiceScopeFactory scopeFactory,
     IOptions<MusicEnricherOptions> options,
-    ILogger<ExternalCoverArtSweepBackgroundService> logger) : BackgroundService
+    ILogger<ExternalCoverArtSweepBackgroundService> logger,
+    BackgroundWorkStatus? status = null) : BackgroundService
 {
     // Let startup work (migrations, demo seeding) settle first.
     private static readonly TimeSpan InitialDelay = TimeSpan.FromMinutes(5);
@@ -37,6 +39,7 @@ public sealed class ExternalCoverArtSweepBackgroundService(
             "External cover art sweep started. Interval={IntervalMinutes}m, BatchSize={BatchSize}",
             opts.ExternalCoverArtSweepIntervalMinutes, opts.ExternalCoverArtSweepBatchSize);
 
+        status?.Idle(BackgroundJobIds.CoverArt, DateTime.UtcNow + InitialDelay);
         try
         {
             await Task.Delay(InitialDelay, stoppingToken);
@@ -48,6 +51,8 @@ public sealed class ExternalCoverArtSweepBackgroundService(
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            var interval = TimeSpan.FromMinutes(options.Value.ExternalCoverArtSweepIntervalMinutes);
+            status?.Working(BackgroundJobIds.CoverArt);
             try
             {
                 var written = await RunSweepAsync(stoppingToken);
@@ -55,6 +60,7 @@ public sealed class ExternalCoverArtSweepBackgroundService(
                 {
                     logger.LogInformation("External cover art sweep wrote {Count} covers", written);
                 }
+                status?.Idle(BackgroundJobIds.CoverArt, DateTime.UtcNow + interval, worked: written > 0);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -63,11 +69,12 @@ public sealed class ExternalCoverArtSweepBackgroundService(
             catch (Exception ex)
             {
                 logger.LogError(ex, "External cover art sweep failed");
+                status?.Failing(BackgroundJobIds.CoverArt, ex, DateTime.UtcNow + interval);
             }
 
             try
             {
-                await Task.Delay(TimeSpan.FromMinutes(options.Value.ExternalCoverArtSweepIntervalMinutes), stoppingToken);
+                await Task.Delay(interval, stoppingToken);
             }
             catch (OperationCanceledException)
             {
@@ -99,12 +106,7 @@ public sealed class ExternalCoverArtSweepBackgroundService(
         var rows = await db.Songs
             .IgnoreQueryFilters()
             .AsNoTracking()
-            .ExcludingDemoTenant()
-            .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic
-                && !s.IsUnreleased
-                && s.LibraryBuildStatus == LibraryBuildStatus.Done
-                && s.DestinationPath != null
-                && s.SourcePath != null)
+            .WhereBuiltForCoverSweep()
             .Select(s => new SweepRow(
                 s.Id, s.OwnerUserId, s.SourcePath!, s.DestinationPath!, s.SourceReleasedAtUtc != null,
                 s.Album, s.AlbumArtist, s.MusicBrainzReleaseId, s.MusicBrainzReleaseGroupId, s.SpotifyId))
@@ -163,9 +165,7 @@ public sealed class ExternalCoverArtSweepBackgroundService(
                 .ToDictionaryAsync(a => a.AlbumFolder, StringComparer.Ordinal, ct);
 
             var due = missingFolders
-                .Where(f => !cooldowns.TryGetValue(f.Folder, out var attempt)
-                    || attempt.Status is AlbumCoverFetchStatus.UpgradeNotFound or AlbumCoverFetchStatus.UpgradeFailed
-                    || (attempt.NextRetryAfterUtc is not null && attempt.NextRetryAfterUtc <= now))
+                .Where(f => CoverArtSweepRules.IsMissingFolderDue(cooldowns.GetValueOrDefault(f.Folder), now))
                 .Take(opts.ExternalCoverArtSweepBatchSize)
                 .ToList();
 
@@ -231,18 +231,10 @@ public sealed class ExternalCoverArtSweepBackgroundService(
                 .Where(e => e.Kind == LibraryWriteEventKind.AlbumCoverWritten
                     && e.AlbumFolder != null
                     && coveredKeys.Contains(e.AlbumFolder))
-                .Select(e => new { e.Id, Folder = e.AlbumFolder!, e.WrittenAtUtc, e.NewValue })
+                .Select(e => new CoverWriteRecord(e.Id, e.AlbumFolder!, e.WrittenAtUtc, e.NewValue))
                 .ToListAsync(ct);
 
-            var caaFolders = coverEvents
-                .GroupBy(e => e.Folder, StringComparer.Ordinal)
-                .Where(g =>
-                {
-                    var latest = g.OrderByDescending(e => e.WrittenAtUtc).ThenByDescending(e => e.Id).First();
-                    return string.Equals(latest.NewValue, "fetched:coverartarchive", StringComparison.OrdinalIgnoreCase);
-                })
-                .Select(g => g.Key)
-                .ToHashSet(StringComparer.Ordinal);
+            var caaFolders = CoverArtSweepRules.CoverArtArchiveFolders(coverEvents);
 
             if (caaFolders.Count > 0)
             {
@@ -253,9 +245,7 @@ public sealed class ExternalCoverArtSweepBackgroundService(
                     .ToDictionaryAsync(a => a.AlbumFolder, StringComparer.Ordinal, ct);
 
                 var upgradeDue = upgradeCandidates
-                    .Where(f => !upgradeCooldowns.TryGetValue(f.Folder, out var attempt)
-                        || attempt.Status is AlbumCoverFetchStatus.NotFound or AlbumCoverFetchStatus.Failed
-                        || (attempt.NextRetryAfterUtc is not null && attempt.NextRetryAfterUtc <= now))
+                    .Where(f => CoverArtSweepRules.IsUpgradeDue(upgradeCooldowns.GetValueOrDefault(f.Folder), now))
                     .Take(remainingBudget)
                     .ToList();
 
@@ -293,7 +283,7 @@ public sealed class ExternalCoverArtSweepBackgroundService(
                             AlbumArtist = rep.AlbumArtist,
                             Album = rep.Album,
                             FieldName = "Cover",
-                            OldValue = "fetched:coverartarchive",
+                            OldValue = CoverArtSweepRules.CoverArtArchiveSource,
                             NewValue = $"fetched:{result.Source}",
                         });
                     }

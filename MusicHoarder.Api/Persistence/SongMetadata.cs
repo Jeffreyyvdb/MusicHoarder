@@ -553,18 +553,27 @@ public class SongMetadata
     /// Whether the share page and other read-only surfaces say "Instrumental": LRCLIB says so, or the AI heard
     /// no singing and there are no words to show. The AI's mark never hides words the song has gained.
     /// </summary>
-    public bool ShowsAsInstrumental =>
-        LyricsStatus == LyricsStatus.Instrumental
-        || (IsInstrumental == true
-            && string.IsNullOrWhiteSpace(DisplaySyncedLyrics)
-            && string.IsNullOrWhiteSpace(DisplayPlainLyrics));
+    public bool ShowsAsInstrumental => ComputeShowsAsInstrumental(
+        LyricsStatus,
+        IsInstrumental,
+        hasDisplayWords: !string.IsNullOrWhiteSpace(DisplaySyncedLyrics) || !string.IsNullOrWhiteSpace(DisplayPlainLyrics));
 
     /// <remarks>Never for a song LRCLIB calls instrumental: its verdict outranks an earlier transcript.</remarks>
-    private bool UseTranscribedForDisplay =>
-        LyricsStatus != LyricsStatus.Instrumental
-        && (!string.IsNullOrWhiteSpace(TranscribedSyncedLyrics) || !string.IsNullOrWhiteSpace(TranscribedPlainLyrics))
-        && (PreferredLyricsSource == PreferredLyricsSource.Transcribed
-            || (string.IsNullOrWhiteSpace(SyncedLyrics) && string.IsNullOrWhiteSpace(PlainLyrics)));
+    private bool UseTranscribedForDisplay => ComputeUseTranscribedForDisplay(
+        LyricsStatus,
+        hasTranscribedWords: !string.IsNullOrWhiteSpace(TranscribedSyncedLyrics) || !string.IsNullOrWhiteSpace(TranscribedPlainLyrics),
+        PreferredLyricsSource,
+        hasOfficialWords: !string.IsNullOrWhiteSpace(SyncedLyrics) || !string.IsNullOrWhiteSpace(PlainLyrics));
+
+    /// <summary>The display rule in one place, as a static so a projection reaches the player's verdict.</summary>
+    public static bool ComputeUseTranscribedForDisplay(
+        LyricsStatus status, bool hasTranscribedWords, PreferredLyricsSource preferred, bool hasOfficialWords)
+        => status != LyricsStatus.Instrumental
+            && hasTranscribedWords
+            && (preferred == PreferredLyricsSource.Transcribed || !hasOfficialWords);
+
+    public static bool ComputeShowsAsInstrumental(LyricsStatus status, bool? isInstrumental, bool hasDisplayWords)
+        => status == LyricsStatus.Instrumental || (isInstrumental == true && !hasDisplayWords);
 
     /// <summary>
     /// True when the stored transcription carries the song's <b>official</b> lyric text re-timed against

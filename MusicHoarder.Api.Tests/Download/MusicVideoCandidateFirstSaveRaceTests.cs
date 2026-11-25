@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging;
 using MusicHoarder.Api.Auth;
+using MusicHoarder.Api.BackgroundWork;
 using MusicHoarder.Api.Download;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
@@ -84,7 +85,7 @@ public class MusicVideoCandidateFirstSaveRaceTests
         {
             SourceDirectory = "/src", DestinationDirectory = "/dst", MusicVideoProbeCandidates = 1,
         }),
-        new FixedClock(Now), new CapturedLogger<MusicVideoCandidateCache>(_cacheLog));
+        new FixedClock(Now), new MusicVideoOutcomeMemo(), new CapturedLogger<MusicVideoCandidateCache>(_cacheLog));
 
     private static async Task<SongMetadata> SeedSongAsync(PostgresTestDatabase database)
     {

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
+using MusicHoarder.Api.BackgroundWork;
 using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
@@ -24,11 +25,9 @@ public class QualityGradingBackgroundService(
     IRuntimeSettingsService runtimeSettings,
     IOwnerLookupService ownerLookup,
     IOptionsMonitor<QualityGradingOptions> options,
-    ILogger<QualityGradingBackgroundService> logger) : BackgroundService
+    ILogger<QualityGradingBackgroundService> logger,
+    BackgroundWorkStatus? status = null) : BackgroundService
 {
-    private static readonly EnrichmentStatus[] GradeableStatuses =
-        [EnrichmentStatus.Matched, EnrichmentStatus.NeedsReview];
-
     // Own gate: the album grader holds its own too, so the two do not share one budget.
     private readonly RequestRateGate _rateGate = new();
     private int _warnedNotConfigured;
@@ -66,10 +65,22 @@ public class QualityGradingBackgroundService(
             {
                 var opts = options.CurrentValue;
                 var enabled = (await runtimeSettings.GetAsync(token).ConfigureAwait(false)).QualityGradingEnabled;
-                return enabled && opts.IsConfigured && opts.AutoGradeAfterEnrichment
-                    && await EnqueueUngradedAsync(opts, token) > 0;
+                if (!(enabled && opts.IsConfigured && opts.AutoGradeAfterEnrichment))
+                    return false;
+
+                status?.Working(BackgroundJobIds.QualityGrading);
+                var enqueued = await EnqueueUngradedAsync(opts, token);
+                status?.Idle(
+                    BackgroundJobIds.QualityGrading,
+                    DateTime.UtcNow.AddSeconds(Math.Max(1, opts.IdleDelaySeconds)),
+                    worked: enqueued > 0);
+                return enqueued > 0;
             },
-            onSweepFailed: ex => logger.LogWarning(ex, "Quality auto-grade sweep failed"),
+            onSweepFailed: ex =>
+            {
+                logger.LogWarning(ex, "Quality auto-grade sweep failed");
+                status?.Failing(BackgroundJobIds.QualityGrading, ex, null);
+            },
             ct);
 
     /// <summary>Finds gradeable songs whose latest grade is missing, stale or blank and enqueues them. Returns the count enqueued.</summary>
@@ -81,10 +92,7 @@ public class QualityGradingBackgroundService(
         var gradeable = db.Songs
             .IgnoreQueryFilters()
             .AsNoTracking()
-            // Exclude demo rows: the read-only demo library is never auto-graded.
-            .ExcludingDemoTenant()
-            .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic && !s.IsDuplicate)
-            .Where(s => GradeableStatuses.Contains(s.EnrichmentStatus));
+            .WhereGradeable();
 
         var candidates = await gradeable
             .OrderByDescending(s => s.EnrichedAtUtc)
@@ -127,15 +135,13 @@ public class QualityGradingBackgroundService(
 
         var needsGrading = candidates.Where(c =>
         {
-            if (_failureBackoff.IsBackingOff(c.Id, now)) return false;           // backing off
-            if (!latest.TryGetValue(c.Id, out var g)) return true;            // never graded
-            if (c.EnrichedAtUtc is { } e && g.GradedAtUtc < e) return true;  // re-enriched since
-            if (g.IsBlank()) return true;                                     // an empty reply, not a grade
+            if (_failureBackoff.IsBackingOff(c.Id, now)) return false;
             // A prompt-version or model change is NOT auto-regraded here: it would re-grade the whole
             // library on every config bump. Such grades are surfaced as "outdated" in the API and
             // regraded only on an explicit manual / "regrade outdated" action (force:false still lets
             // the grader itself detect the version/model mismatch). See QualityEndpoints grade-outdated.
-            return false;
+            latest.TryGetValue(c.Id, out var g);
+            return GradeFreshness.NeedsGrading(g?.GradedAtUtc, c.EnrichedAtUtc, g?.IsBlank() == true);
         }).Select(c => c.Id).ToList();
 
         if (needsGrading.Count > 0)

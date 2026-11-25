@@ -25,6 +25,29 @@ public sealed class TranscriptionAudioBudget(
     /// <summary>A song with no known length is metered as this long, so it cannot slip past the meter.</summary>
     public const int UnknownDurationSeconds = 300;
 
+    /// <summary>
+    /// What Groq's free whisper tier allows, in audio-seconds (https://console.groq.com/docs/rate-limits). Our
+    /// ceilings sit below these, but they are Groq's limits only: <see cref="IsGroq"/> says whether the
+    /// configured provider is the one they belong to.
+    /// </summary>
+    public const int GroqFreeTierAudioSecondsPerHour = 7200;
+
+    public const int GroqFreeTierAudioSecondsPerDay = 28800;
+
+    /// <summary>How many days of spend the Background work page charts.</summary>
+    public const int HistoryDays = 30;
+
+    /// <summary>
+    /// How long a spend row is kept: the charted history and a margin, so a row is never deleted while the page
+    /// still draws it. The meter itself only reads the last day.
+    /// </summary>
+    public const int RetentionDays = HistoryDays + 5;
+
+    /// <summary>Whether transcription is sent to Groq, whose free-tier limits the constants above are.</summary>
+    public static bool IsGroq(LyricsTranscriptionOptions options)
+        => Uri.TryCreate(options.BaseUrl, UriKind.Absolute, out var uri)
+            && (uri.Host == "groq.com" || uri.Host.EndsWith(".groq.com", StringComparison.OrdinalIgnoreCase));
+
     private static readonly TimeSpan Day = TimeSpan.FromDays(1);
     private static readonly TimeSpan Hour = TimeSpan.FromHours(1);
 
@@ -35,8 +58,11 @@ public sealed class TranscriptionAudioBudget(
 
     /// <summary>The audio a whole-song transcription of <paramref name="song"/> sends.</summary>
     public static double WholeSongSeconds(SongMetadata song)
-        => song.DurationSeconds is > 0 ? song.DurationSeconds.Value
-            : song.DurationMs is > 0 ? song.DurationMs.Value / 1000.0
+        => WholeSongSeconds(song.DurationSeconds, song.DurationMs);
+
+    public static double WholeSongSeconds(int? durationSeconds, int? durationMs)
+        => durationSeconds is > 0 ? durationSeconds.Value
+            : durationMs is > 0 ? durationMs.Value / 1000.0
             : UnknownDurationSeconds;
 
     public static bool IsBackground(TranscriptionPurpose purpose)
@@ -198,17 +224,18 @@ public sealed class TranscriptionAudioBudget(
         }
     }
 
-    /// <summary>Reads the last day's spend on first use, deleting rows too old to count again.</summary>
+    /// <summary>Reads the last day's spend on first use, deleting rows older than the retention.</summary>
     private async Task<List<TranscriptionAudioSpend>> LoadAsync(CancellationToken ct)
     {
         if (_spend is not null)
             return _spend;
 
         var cutoff = DateTime.UtcNow - Day;
+        var forgetBefore = DateTime.UtcNow.AddDays(-RetentionDays);
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
 
-        var expired = await db.TranscriptionAudioSpends.Where(e => e.AtUtc <= cutoff).ToListAsync(ct);
+        var expired = await db.TranscriptionAudioSpends.Where(e => e.AtUtc <= forgetBefore).ToListAsync(ct);
         if (expired.Count > 0)
         {
             db.TranscriptionAudioSpends.RemoveRange(expired);
@@ -230,7 +257,7 @@ public sealed class TranscriptionAudioBudget(
     /// How long until <paramref name="audioSeconds"/> more fits under <paramref name="limit"/> in a rolling
     /// <paramref name="window"/>: zero when it fits now, else the moment enough of the oldest spend ages out.
     /// </summary>
-    private static TimeSpan WaitForRoom(
+    internal static TimeSpan WaitForRoom(
         List<TranscriptionAudioSpend> spend, DateTime now, TimeSpan window, double limit, double audioSeconds)
     {
         var inWindow = spend.Where(e => e.AtUtc > now - window).ToList();

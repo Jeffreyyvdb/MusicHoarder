@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.BackgroundWork;
 using MusicHoarder.Api.Jobs;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
@@ -13,7 +14,8 @@ public class EnrichmentBackgroundService(
     EnrichmentPipelineChannel pipelineChannel,
     IEnrichmentOrchestrator orchestrator,
     IOptions<MusicEnricherOptions> options,
-    ILogger<EnrichmentBackgroundService> logger) : BackgroundService
+    ILogger<EnrichmentBackgroundService> logger,
+    BackgroundWorkStatus? status = null) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -364,15 +366,18 @@ public class EnrichmentBackgroundService(
     {
         var interval = TimeSpan.FromSeconds(options.Value.EnrichmentRetrySweepIntervalSeconds);
 
+        status?.Idle(BackgroundJobIds.EnrichmentRetries, DateTime.UtcNow + interval);
         while (!ct.IsCancellationRequested)
         {
             try
             {
                 await Task.Delay(interval, ct);
 
+                status?.Working(BackgroundJobIds.EnrichmentRetries);
                 await SweepRetryableSongsAsync(ct);
                 await BackfillMissingLyricsAsync(ct);
                 await RecheckStaleLyricsAsync(ct);
+                status?.Idle(BackgroundJobIds.EnrichmentRetries, DateTime.UtcNow + interval);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -381,6 +386,7 @@ public class EnrichmentBackgroundService(
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "Retry sweep failed");
+                status?.Failing(BackgroundJobIds.EnrichmentRetries, ex, DateTime.UtcNow + interval);
             }
         }
     }

@@ -123,15 +123,38 @@ internal static class EnrichmentQueries
         IReadOnlyCollection<EnrichmentProvider> enabled)
     {
         return query
-            .Where(a => a.Song.DeletedAtUtc == null)
-            .Where(a => !a.Song.IsSynthetic)
-            .ExcludingDemoTenant()
-            .Where(a => !a.Song.IsManuallyApproved)
-            .Where(a => enabled.Contains(a.Provider))
+            .WhereRetriesApply(enabled)
             .Where(a =>
                 (a.Status == ProviderAttemptStatus.RateLimited && (a.RetryAfterUtc == null || a.RetryAfterUtc <= now))
                 || ((a.Status == ProviderAttemptStatus.NoMatch || a.Status == ProviderAttemptStatus.Failed)
                     && a.NextRetryAfterUtc != null && a.NextRetryAfterUtc <= now));
+    }
+
+    /// <summary>
+    /// The attempts a retry may ever touch: for currently-enabled providers, on songs that are live, real,
+    /// not the demo tenant's and not locked by a manual approval.
+    /// </summary>
+    public static IQueryable<SongProviderAttempt> WhereRetriesApply(
+        this IQueryable<SongProviderAttempt> query, IReadOnlyCollection<EnrichmentProvider> enabled)
+    {
+        return query
+            .Where(a => a.Song.DeletedAtUtc == null)
+            .Where(a => !a.Song.IsSynthetic)
+            .ExcludingDemoTenant()
+            .Where(a => !a.Song.IsManuallyApproved)
+            .Where(a => enabled.Contains(a.Provider));
+    }
+
+    /// <summary>
+    /// Attempts with a retry on the calendar, due or not: rate-limited ones, and NoMatch/Failed ones that carry
+    /// a cooldown. <see cref="WhereRetryableProviderAttempts"/> is the due subset.
+    /// </summary>
+    public static IQueryable<SongProviderAttempt> WhereAwaitingRetry(this IQueryable<SongProviderAttempt> query)
+    {
+        return query.Where(a =>
+            a.Status == ProviderAttemptStatus.RateLimited
+            || ((a.Status == ProviderAttemptStatus.NoMatch || a.Status == ProviderAttemptStatus.Failed)
+                && a.NextRetryAfterUtc != null));
     }
 
     /// <summary>

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using MusicHoarder.Api.Auth;
+using MusicHoarder.Api.BackgroundWork;
 using MusicHoarder.Api.Download;
 using MusicHoarder.Api.Endpoints;
 using MusicHoarder.Api.Options;
@@ -58,7 +59,7 @@ public class MusicVideoCandidateCacheTests
     };
 
     private MusicVideoCandidateCache Cache() => new(
-        _downloader, _probe, Microsoft.Extensions.Options.Options.Create(_options), _clock,
+        _downloader, _probe, Microsoft.Extensions.Options.Options.Create(_options), _clock, new MusicVideoOutcomeMemo(),
         NullLogger<MusicVideoCandidateCache>.Instance);
 
     private readonly MusicVideoChannel _channel = new();

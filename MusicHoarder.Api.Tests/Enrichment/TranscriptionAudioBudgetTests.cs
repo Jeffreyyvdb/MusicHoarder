@@ -73,20 +73,29 @@ public class TranscriptionAudioBudgetTests
     }
 
     [Fact]
-    public async Task spend_older_than_a_day_no_longer_counts_and_is_cleared_away()
+    public async Task spend_older_than_a_day_no_longer_counts_but_is_kept_as_history_until_the_retention_ends()
     {
         await using var db = NewDb();
-        db.TranscriptionAudioSpends.Add(new TranscriptionAudioSpend
-        {
-            AtUtc = DateTime.UtcNow.AddDays(-1).AddMinutes(-1),
-            AudioSeconds = 900,
-            Purpose = TranscriptionPurpose.AutoResync,
-        });
+        db.TranscriptionAudioSpends.AddRange(
+            new TranscriptionAudioSpend
+            {
+                AtUtc = DateTime.UtcNow.AddDays(-1).AddMinutes(-1),
+                AudioSeconds = 900,
+                Purpose = TranscriptionPurpose.AutoResync,
+            },
+            new TranscriptionAudioSpend
+            {
+                AtUtc = DateTime.UtcNow.AddDays(-TranscriptionAudioBudget.RetentionDays).AddMinutes(-1),
+                AudioSeconds = 900,
+                Purpose = TranscriptionPurpose.AutoSync,
+            });
         await db.SaveChangesAsync();
         var budget = TestBudget.Over(db, Ceiling);
 
         Assert.Equal("ok", await Spend(budget, TranscriptionPurpose.TimingProbe, 900));
-        Assert.Single(await db.TranscriptionAudioSpends.ToListAsync());
+        Assert.Equal(
+            [TranscriptionPurpose.AutoResync, TranscriptionPurpose.TimingProbe],
+            (await db.TranscriptionAudioSpends.OrderBy(e => e.AtUtc).ToListAsync()).Select(e => e.Purpose));
     }
 
     [Fact]

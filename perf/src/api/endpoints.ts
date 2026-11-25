@@ -93,4 +93,6 @@ export const ENDPOINTS: Endpoint[] = [
   { name: 'History feed', group: 'Manage', path: () => '/api/history', budget: { p95Ms: 500 } },
   { name: 'Insights', group: 'Manage', path: () => '/insights', budget: { p95Ms: 500 } },
   { name: 'Directory tree', group: 'Manage', path: () => '/library/directory-tree', budget: { p95Ms: 500 } },
+  { name: 'Background work', group: 'Manage', path: () => '/api/background-work' },
+  { name: 'Background work: lyrics', group: 'Manage', path: () => '/api/background-work/lyrics' },
 ]

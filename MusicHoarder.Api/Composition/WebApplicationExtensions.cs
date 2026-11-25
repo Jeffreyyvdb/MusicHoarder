@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using MusicHoarder.Api.Auth;
+using MusicHoarder.Api.BackgroundWork;
 using MusicHoarder.Api.Endpoints;
 using MusicHoarder.Api.Persistence;
 
@@ -33,6 +34,7 @@ public static class WebApplicationExtensions
         app.MapStorageEndpoints();
         app.MapRunsEndpoints();
         app.MapHistoryEndpoints();
+        app.MapBackgroundWorkEndpoints();
         app.MapListeningEndpoints();
         app.MapSongsEndpoints();
         app.MapMusicVideoEndpoints();

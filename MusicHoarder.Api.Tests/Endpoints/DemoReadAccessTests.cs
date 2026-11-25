@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
+using MusicHoarder.Api.BackgroundWork;
 using MusicHoarder.Api.Endpoints;
 using MusicHoarder.Api.Tests.Auth;
 
@@ -59,6 +60,8 @@ public class DemoReadAccessTests
         "/api/albums/quality/progress",
         "/api/quality/progress",
         "/api/inbox/name-counts",
+        "/api/background-work",
+        "/api/background-work/{id}",
     };
 
     [Theory]
@@ -161,6 +164,7 @@ public class DemoReadAccessTests
         routes.MapPlaylistSyncEndpoints();
         routes.MapEnrichmentEndpoints();
         routes.MapInboxCountsEndpoints();
+        routes.MapBackgroundWorkEndpoints();
         return _endpoints = routes.DataSources.SelectMany(s => s.Endpoints).OfType<RouteEndpoint>().ToList();
     }
 

@@ -277,6 +277,52 @@
   }
 }
 
+/* Background work charts (the Pipeline page's job sheets). One colour per BackgroundTone, the
+   meaning of a mark rather than a series: `#lib/background-work/tone.ts` is the only place that
+   names these. Light and dark are the reference data-viz palette stepped for the card surface,
+   checked with its validator (adjacent CVD and normal-vision separation, contrast against white and
+   #2C2C2E); `pending` and `muted` are deliberately grey. Increase Contrast moves every tone to
+   at least 4.5:1 against the card, so a failure stays a failure with the translucent fills gone.
+   Same ordering rule as the token set above: base, dark, then Increase Contrast for both. */
+:root {
+  --viz-good: #008300;
+  --viz-neutral: #2a78d6;
+  --viz-ai: #e87ba4;
+  --viz-pending: #8e8e93;
+  --viz-warning: #eda100;
+  --viz-bad: #e34948;
+  --viz-muted: #d1d1d6;
+}
+.dark {
+  --viz-good: #0ca30c;
+  --viz-neutral: #3987e5;
+  --viz-ai: #d55181;
+  --viz-pending: #8e8e93;
+  --viz-warning: #d99a00;
+  --viz-bad: #e66767;
+  --viz-muted: #48484a;
+}
+@media (prefers-contrast: more) {
+  :root {
+    --viz-good: #006b1f;
+    --viz-neutral: #1a5fb4;
+    --viz-ai: #b8396b;
+    --viz-pending: #636366;
+    --viz-warning: #a86a00;
+    --viz-bad: #b8191f;
+    --viz-muted: #aeaeb2;
+  }
+  .dark {
+    --viz-good: #4ce070;
+    --viz-neutral: #6aa6f5;
+    --viz-ai: #f08ab4;
+    --viz-pending: #aeaeb2;
+    --viz-warning: #ffc43d;
+    --viz-bad: #ff8a82;
+    --viz-muted: #636366;
+  }
+}
+
 @theme inline {
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
