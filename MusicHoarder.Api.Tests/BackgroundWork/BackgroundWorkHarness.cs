@@ -4,10 +4,13 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.BackgroundWork;
+using MusicHoarder.Api.Download;
 using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Settings;
+using MusicHoarder.Api.Storage;
+using MusicHoarder.Api.Tests.Download;
 
 namespace MusicHoarder.Api.Tests.BackgroundWork;
 
@@ -25,11 +28,13 @@ internal sealed class BackgroundWorkHarness : IDisposable
     public QualityGradingOptions Grading { get; } = new() { ApiKey = "key" };
     public StubSettings Settings { get; } = new();
     public StubTranscriber Transcriber { get; } = new();
+    public FakeFreeDiskSpace Disk { get; } = new();
+    public StorageUsageSnapshotStore Storage { get; } = new();
     public HashSet<EnrichmentProvider> Providers { get; } = [EnrichmentProvider.AcoustID, EnrichmentProvider.SpotifyAPI];
     public BackgroundWorkStatus Status { get; }
     public DateTime Now { get; }
 
-    public BackgroundWorkHarness(DateTime? now = null)
+    public BackgroundWorkHarness(DateTime? now = null, Func<MusicHoarderDbContext>? contexts = null)
     {
         Now = now ?? BackgroundWorkTestData.Now;
         var clock = BackgroundWorkTestData.Clock(Now);
@@ -44,9 +49,11 @@ internal sealed class BackgroundWorkHarness : IDisposable
         services.AddSingleton<IOptionsMonitor<QualityGradingOptions>>(new FixedMonitor<QualityGradingOptions>(Grading));
         services.AddSingleton<IOptions<MusicEnricherOptions>>(Microsoft.Extensions.Options.Options.Create(Enricher));
         services.AddSingleton<IRuntimeSettingsService>(Settings);
+        services.AddSingleton<IFreeDiskSpace>(Disk);
+        services.AddSingleton(Storage);
         services.AddSingleton<ILyricsTranscriptionService>(Transcriber);
         services.AddSingleton<IEnrichmentOrchestrator>(new StubOrchestrator(Providers));
-        services.AddScoped(_ => new MusicHoarderDbContext(
+        services.AddScoped(_ => contexts?.Invoke() ?? new MusicHoarderDbContext(
             new DbContextOptionsBuilder<MusicHoarderDbContext>().UseInMemoryDatabase(_database).Options));
         services.AddBackgroundWork();
         _provider = services.BuildServiceProvider();
@@ -84,11 +91,12 @@ internal sealed class BackgroundWorkHarness : IDisposable
         public bool AutoSync { get; set; }
         public bool Grading { get; set; } = true;
         public bool AlbumCompletion { get; set; }
+        public bool AutoDownloadVideos { get; set; }
 
         public Task<EffectiveSettings> GetAsync(CancellationToken ct = default) => Task.FromResult(
             new EffectiveSettings(
                 true, true, true, true, true, true, Grading, true, AlbumCompletion, false, null,
-                LyricsAutoSyncEnabled: AutoSync, LyricsAutoSyncChosen: true));
+                LyricsAutoSyncEnabled: AutoSync, LyricsAutoSyncChosen: true, AutoDownloadMusicVideos: AutoDownloadVideos));
 
         public Task<EffectiveSettings> UpdateAsync(RuntimeSettingsUpdate update, CancellationToken ct = default)
             => GetAsync(ct);

@@ -20,6 +20,10 @@ public static class BackgroundPanels
     public static FigureDto Duration(string label, double seconds, string? sublabel = null, string tone = BackgroundTone.Neutral)
         => new(label, seconds, BackgroundFormat.Duration, null, sublabel, tone);
 
+    /// <param name="bytes">Null when it cannot be read; the figure then shows a dash.</param>
+    public static FigureDto Bytes(string label, double? bytes, string? sublabel = null, string tone = BackgroundTone.Neutral)
+        => new(label, bytes, BackgroundFormat.Bytes, null, sublabel, tone);
+
     public static FigureDto Moment(string label, DateTime? atUtc, string? sublabel = null, string tone = BackgroundTone.Neutral)
         => new(label, null, BackgroundFormat.Count, atUtc, sublabel, tone);
 }

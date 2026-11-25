@@ -159,9 +159,8 @@ public class MusicVideoCandidateCache(
         stored.SearchedAtUtc = now;
         stored.CandidatesJson = JsonSerializer.Serialize(candidates, Json);
         stored.Error = null;
-        Schedule(stored, song, MusicVideoAutoPick.Choose(candidates, song, options.Value) is null
-            ? MusicVideoSearchOutcome.NoClip
-            : MusicVideoSearchOutcome.Clip, now);
+        Schedule(stored, song,
+            MusicVideoAutoPick.OutcomeOf(candidates, song.Artist, song.DurationMs, song.DurationSeconds, options.Value), now);
         await SaveAsync(db, stored, isNew: row is null, ct);
 
         return new VideoCandidateList(candidates, now);
@@ -231,17 +230,25 @@ public class MusicVideoCandidateCache(
                 HasThumbnail = candidate.HasThumbnail || probed.ThumbnailUrl is not null,
             };
 
-    private IReadOnlyList<CachedVideoCandidate> Read(SongVideoCandidateSet row)
+    /// <summary>A stored list, or null when its JSON cannot be read.</summary>
+    internal static List<CachedVideoCandidate>? TryParse(string candidatesJson)
     {
         try
         {
-            return JsonSerializer.Deserialize<List<CachedVideoCandidate>>(row.CandidatesJson, Json) ?? [];
+            return JsonSerializer.Deserialize<List<CachedVideoCandidate>>(candidatesJson, Json) ?? [];
         }
-        catch (JsonException ex)
+        catch (JsonException)
         {
-            logger.LogWarning(ex, "Unreadable music video candidate list for song {SongId}", row.SongId);
-            return [];
+            return null;
         }
+    }
+
+    private IReadOnlyList<CachedVideoCandidate> Read(SongVideoCandidateSet row)
+    {
+        if (TryParse(row.CandidatesJson) is { } list)
+            return list;
+        logger.LogWarning("Unreadable music video candidate list for song {SongId}", row.SongId);
+        return [];
     }
 
     /// <summary>

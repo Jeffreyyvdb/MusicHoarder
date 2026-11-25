@@ -36,6 +36,29 @@ public static class TimeBuckets
         return [.. starts.Select((start, i) => new SeriesPointDto(start, values[i]))];
     }
 
+    /// <summary>
+    /// The daily buckets from today forward: <paramref name="count"/> days starting with the one that holds
+    /// <paramref name="nowUtc"/>. A sample before today (overdue work) lands on today; one past the last
+    /// bucket is dropped, and so is one for an unknown series.
+    /// </summary>
+    public static IReadOnlyList<SeriesPointDto> FillForward(
+        DateTime nowUtc, int count, int seriesCount, IEnumerable<(DateTime At, int Series, double Value)> samples)
+    {
+        var first = DateTime.SpecifyKind(nowUtc.Date, DateTimeKind.Utc);
+        var values = Enumerable.Range(0, count).Select(_ => new double[seriesCount]).ToArray();
+
+        foreach (var (at, series, value) in samples)
+        {
+            if (series < 0 || series >= seriesCount)
+                continue;
+            var index = at <= first ? 0 : (int)((at - first).Ticks / TimeSpan.TicksPerDay);
+            if (index < count)
+                values[index][series] += value;
+        }
+
+        return [.. values.Select((v, i) => new SeriesPointDto(first.AddDays(i), v))];
+    }
+
     /// <summary>Totals per UTC day for the last <paramref name="days"/> days, oldest first.</summary>
     public static IReadOnlyList<double> DailyTotals(DateTime nowUtc, int days, IEnumerable<(DateTime At, double Value)> samples)
         => [.. Fill(nowUtc, hourly: false, days, 1, samples.Select(s => (s.At, 0, s.Value))).Select(p => p.Values[0])];

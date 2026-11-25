@@ -20,6 +20,37 @@ public class ChartHelperTests
     }
 
     [Fact]
+    public void Forward_buckets_start_today_put_overdue_work_on_today_and_drop_what_is_past_the_last_day()
+    {
+        var points = TimeBuckets.FillForward(
+            Now, count: 4, seriesCount: 2,
+            [
+                (Now.AddDays(-9), 0, 1),
+                (Now.AddHours(1), 0, 2),
+                (Now.AddDays(2).AddHours(-5), 1, 3),
+                (Now.AddDays(3).AddHours(9), 1, 4),
+                (Now.AddDays(4), 0, 99),
+                (Now.AddDays(1), 5, 99),
+            ]);
+
+        Assert.Equal(new DateTime(2026, 11, 25, 0, 0, 0, DateTimeKind.Utc), points[0].StartUtc);
+        Assert.Equal(new DateTime(2026, 11, 28, 0, 0, 0, DateTimeKind.Utc), points[^1].StartUtc);
+        Assert.Equal([3.0, 0], points[0].Values);
+        Assert.Equal([0.0, 3], points[2].Values);
+        Assert.Equal([0.0, 4], points[3].Values);
+    }
+
+    [Theory]
+    [InlineData(0, "1 KB")]
+    [InlineData(900 * 1024, "900 KB")]
+    [InlineData(143L * 1024 * 1024, "143 MB")]
+    [InlineData(2.5 * 1024 * 1024 * 1024, "2.5 GB")]
+    [InlineData(20L * 1024 * 1024 * 1024, "20 GB")]
+    [InlineData(3.25 * 1024 * 1024 * 1024 * 1024, "3.3 TB")]
+    public void Bytes_read_in_the_binary_units_the_app_uses(double bytes, string expected)
+        => Assert.Equal(expected, MusicHoarder.Api.BackgroundWork.BackgroundText.Bytes(bytes));
+
+    [Fact]
     public void A_sample_older_than_the_first_bucket_is_dropped_not_folded_into_it()
     {
         var points = TimeBuckets.Fill(Now, hourly: false, count: 3, seriesCount: 1, [(Now.AddDays(-9), 0, 99)]);

@@ -55,6 +55,7 @@ public class BackgroundWorkEndpointTests
     [InlineData(BackgroundJobIds.TranscriptionAllowance)]
     [InlineData(BackgroundJobIds.CoverArt)]
     [InlineData(BackgroundJobIds.MusicVideos)]
+    [InlineData(BackgroundJobIds.MusicVideoDownloads)]
     [InlineData(BackgroundJobIds.QualityGrading)]
     [InlineData(BackgroundJobIds.EnrichmentRetries)]
     [InlineData(BackgroundJobIds.AlbumFillAndFollows)]
@@ -104,7 +105,7 @@ public class BackgroundWorkEndpointTests
 
         using var doc = await Read(result);
         var jobs = doc.RootElement.GetProperty("jobs").EnumerateArray().ToList();
-        Assert.Equal(7, jobs.Count);
+        Assert.Equal(BackgroundJobIds.All.Count, jobs.Count);
         var cover = jobs.Single(j => j.GetProperty("id").GetString() == BackgroundJobIds.CoverArt);
         Assert.Equal("unknown", cover.GetProperty("state").GetString());
     }

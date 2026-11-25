@@ -19,12 +19,18 @@ public static class MusicVideoAutoPick
     /// </summary>
     public static CachedVideoCandidate? Choose(
         IReadOnlyList<CachedVideoCandidate> ranked, SongMetadata song, MusicEnricherOptions options)
+        => Choose(ranked, song.Artist, song.DurationMs, song.DurationSeconds, options);
+
+    /// <summary>The same test from just the song's fields it reads, for a page that loads no more.</summary>
+    public static CachedVideoCandidate? Choose(
+        IReadOnlyList<CachedVideoCandidate> ranked, string? artist, int? durationMs, int? durationSeconds,
+        MusicEnricherOptions options)
     {
-        var songMs = song.DurationMs ?? song.DurationSeconds * 1000;
+        var songMs = durationMs ?? durationSeconds * 1000;
         if (songMs is not > 0)
             return null;
 
-        var artistKeys = MusicVideoDownloader.ArtistKeys(song.Artist ?? string.Empty);
+        var artistKeys = MusicVideoDownloader.ArtistKeys(artist ?? string.Empty);
         var songSeconds = songMs.Value / 1000.0;
         var maxBytes = options.MusicVideoAutoDownloadMaxClipMb * 1024L * 1024L;
 
@@ -40,4 +46,24 @@ public static class MusicVideoAutoPick
             && seconds >= songSeconds - 15 && seconds <= songSeconds + 90
             && c.EstimatedBytes is > 0 and var bytes && bytes <= maxBytes);
     }
+
+    /// <summary>What a search that returned candidates told us: a clip could be downloaded as it stands, or not.</summary>
+    public static MusicVideoSearchOutcome OutcomeOf(
+        IReadOnlyList<CachedVideoCandidate> candidates, string? artist, int? durationMs, int? durationSeconds,
+        MusicEnricherOptions options)
+        => Choose(candidates, artist, durationMs, durationSeconds, options) is null
+            ? MusicVideoSearchOutcome.NoClip
+            : MusicVideoSearchOutcome.Clip;
+
+    /// <summary>
+    /// The outcome the schedule recorded for a stored set. A set that carries an error or a run of empty
+    /// searches was last searched with nothing usable, whatever list it kept from before; one with no
+    /// candidates at all is the same.
+    /// </summary>
+    public static MusicVideoSearchOutcome OutcomeOfStoredSet(
+        bool hasError, int emptySearches, IReadOnlyList<CachedVideoCandidate> candidates,
+        string? artist, int? durationMs, int? durationSeconds, MusicEnricherOptions options)
+        => hasError || emptySearches > 0 || candidates.Count == 0
+            ? MusicVideoSearchOutcome.Empty
+            : OutcomeOf(candidates, artist, durationMs, durationSeconds, options);
 }

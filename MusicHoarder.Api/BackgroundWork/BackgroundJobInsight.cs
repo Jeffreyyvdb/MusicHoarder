@@ -40,8 +40,13 @@ public static class BackgroundJobDefinitions
 
     public static readonly BackgroundJobDefinition MusicVideos = new(
         BackgroundJobIds.MusicVideos,
-        "Music video candidates",
-        "Searches YouTube for the music video of every new song, so choosing one opens on a measured list.");
+        "Music video search",
+        "Searches YouTube for every song's music video, newest first, and again on a schedule, so choosing one opens on a measured list.");
+
+    public static readonly BackgroundJobDefinition MusicVideoDownloads = new(
+        BackgroundJobIds.MusicVideoDownloads,
+        "Music video downloads",
+        "Downloads the video the search is confident about, within a size limit and a free-space floor, and the ones you pick by hand.");
 
     public static readonly BackgroundJobDefinition QualityGrading = new(
         BackgroundJobIds.QualityGrading,
@@ -59,7 +64,7 @@ public static class BackgroundJobDefinitions
         "Queues the missing tracks of albums you part-own, and the new releases of artists you follow.");
 
     public static readonly IReadOnlyList<BackgroundJobDefinition> All =
-        [Lyrics, TranscriptionAllowance, CoverArt, MusicVideos, QualityGrading, EnrichmentRetries, AlbumFillAndFollows];
+        [Lyrics, TranscriptionAllowance, CoverArt, MusicVideos, MusicVideoDownloads, QualityGrading, EnrichmentRetries, AlbumFillAndFollows];
 }
 
 public static class BackgroundJobSummaries
@@ -96,6 +101,23 @@ public static class BackgroundJobSummaries
 public static class BackgroundText
 {
     public static string Count(double n) => ((long)Math.Round(n)).ToString("N0", CultureInfo.InvariantCulture);
+
+    /// <summary>Bytes in binary units, as the rest of the app labels them: "812 MB", "2.5 GB".</summary>
+    public static string Bytes(double bytes)
+    {
+        const double Kib = 1024;
+        var b = Math.Max(0, bytes);
+        if (b >= Kib * Kib * Kib * Kib)
+            return $"{(b / (Kib * Kib * Kib * Kib)).ToString("0.0", CultureInfo.InvariantCulture)} TB";
+        if (b >= Kib * Kib * Kib)
+        {
+            var gib = b / (Kib * Kib * Kib);
+            return $"{gib.ToString(gib < 10 ? "0.0" : "0", CultureInfo.InvariantCulture)} GB";
+        }
+        if (b >= Kib * Kib)
+            return $"{(b / (Kib * Kib)).ToString("0", CultureInfo.InvariantCulture)} MB";
+        return $"{Math.Max(1, Math.Round(b / Kib)).ToString("0", CultureInfo.InvariantCulture)} KB";
+    }
 
     /// <summary>Seconds as "5h 33m", "12m" or "40s".</summary>
     public static string Duration(double seconds)

@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
-using MusicHoarder.Api.Auth;
+using MusicHoarder.Api.BackgroundWork;
 using MusicHoarder.Api.Logging;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
@@ -50,14 +50,6 @@ public sealed class MusicVideoCandidatePrefetch(
     /// <summary>Consecutive failed searches that end a pass: yt-dlp is missing, or YouTube is refusing.</summary>
     private const int MaxConsecutiveFailures = 3;
 
-    /// <summary>
-    /// What deciding whether a song is due needs. The pass looks at the whole library, so it loads
-    /// these few columns, not the entities; only the batch it searches is loaded in full.
-    /// </summary>
-    private sealed record SongRow(int Id, string? Artist, string? Title, int? DurationMs, int? DurationSeconds);
-
-    private sealed record SetRow(int SongId, string QueryKey, DateTime? NextSearchAtUtc);
-
     /// <returns>How many songs got a list this pass.</returns>
     public async Task<int> RunAsync(CancellationToken ct)
     {
@@ -70,35 +62,22 @@ public sealed class MusicVideoCandidatePrefetch(
         var opts = options.Value;
         var now = time.GetUtcNow().UtcDateTime;
 
-        // IgnoreQueryFilters throughout: a background scope has no caller, and the admin restriction
-        // below is the scope wanted.
-        var adminIds = db.Users.IgnoreQueryFilters()
-            .Where(u => u.Role == UserRole.Admin)
-            .Select(u => u.Id);
-
-        // Newest first: a song just added is searched before the back catalogue. A song with no
-        // acquisition stamp is ordered by when it was indexed.
+        // The pass looks at the whole library, so it loads these few columns, not the entities;
+        // only the batch it searches is loaded in full.
         var songs = await db.Songs.IgnoreQueryFilters().AsNoTracking()
-            .Where(s => s.DeletedAtUtc == null
-                && adminIds.Contains(s.OwnerUserId)
-                && s.EnrichmentStatus != EnrichmentStatus.Pending
-                && s.Title != null && s.Title != ""
-                // A video that failed is exactly when a list of alternatives is wanted.
-                && !db.SongMusicVideos.IgnoreQueryFilters()
-                    .Any(v => v.SongId == s.Id && v.Status != MusicVideoStatus.Failed))
-            .OrderByDescending(s => s.AcquiredAtUtc ?? s.IndexedAtUtc)
-            .ThenByDescending(s => s.Id)
-            .Select(s => new SongRow(s.Id, s.Artist, s.Title, s.DurationMs, s.DurationSeconds))
+            .InPrefetchScope(db)
+            .InPrefetchOrder()
+            .Select(s => new PrefetchSong(s.Id, s.Artist, s.Title, s.DurationMs, s.DurationSeconds))
             .ToListAsync(ct);
         if (songs.Count == 0)
             return 0;
 
         var sets = await db.SongVideoCandidateSets.IgnoreQueryFilters().AsNoTracking()
-            .Select(c => new SetRow(c.SongId, c.QueryKey, c.NextSearchAtUtc))
+            .Select(c => new PrefetchSet(c.SongId, c.QueryKey, c.NextSearchAtUtc))
             .ToDictionaryAsync(c => c.SongId, ct);
 
         var dueIds = songs
-            .Where(song => IsDue(song, sets.GetValueOrDefault(song.Id), now))
+            .Where(song => MusicVideoPrefetchScope.IsDue(song, sets.GetValueOrDefault(song.Id), now))
             .Take(opts.MusicVideoCandidatePrefetchBatchSize)
             .Select(song => song.Id)
             .ToList();
@@ -204,13 +183,6 @@ public sealed class MusicVideoCandidatePrefetch(
             song.Id, pick.VideoId, pick.Score);
         return true;
     }
-
-    /// <summary>No list yet, the schedule has come round, or the song's search changed since the list was made.</summary>
-    private static bool IsDue(SongRow song, SetRow? set, DateTime now) =>
-        set is null
-        || set.NextSearchAtUtc is not { } next
-        || next <= now
-        || set.QueryKey != MusicVideoCandidateCache.QueryKeyFor(song.Artist, song.Title, song.DurationMs, song.DurationSeconds);
 }
 
 /// <summary>
@@ -222,7 +194,8 @@ public sealed class MusicVideoCandidatePrefetch(
 public sealed class MusicVideoCandidatePrefetchService(
     IServiceScopeFactory scopes,
     IOptionsMonitor<MusicEnricherOptions> options,
-    ILogger<MusicVideoCandidatePrefetchService> logger) : BackgroundService
+    ILogger<MusicVideoCandidatePrefetchService> logger,
+    BackgroundWorkStatus? status = null) : BackgroundService
 {
     private static readonly TimeSpan MinimumPause = TimeSpan.FromSeconds(15);
 
@@ -235,16 +208,22 @@ public sealed class MusicVideoCandidatePrefetchService(
         }
 
         // Let startup (migrations, the first scan) settle before searching.
-        if (!await DelayAsync(TimeSpan.FromMinutes(2), stoppingToken)) return;
+        var settle = TimeSpan.FromMinutes(2);
+        status?.Idle(BackgroundJobIds.MusicVideos, DateTime.UtcNow + settle);
+        if (!await DelayAsync(settle, stoppingToken)) return;
 
         while (!stoppingToken.IsCancellationRequested)
         {
             var passStarted = Stopwatch.StartNew();
+            var minutes = Math.Clamp(options.CurrentValue.MusicVideoCandidatePrefetchIntervalMinutes, 1, 1440);
+            var next = DateTime.UtcNow.AddMinutes(minutes);
+            status?.Working(BackgroundJobIds.MusicVideos);
             try
             {
                 await using var scope = scopes.CreateAsyncScope();
                 var prefetch = scope.ServiceProvider.GetRequiredService<MusicVideoCandidatePrefetch>();
-                await prefetch.RunAsync(stoppingToken);
+                var stored = await prefetch.RunAsync(stoppingToken);
+                status?.Idle(BackgroundJobIds.MusicVideos, next, stored > 0);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -253,9 +232,9 @@ public sealed class MusicVideoCandidatePrefetchService(
             catch (Exception ex)
             {
                 logger.LogError(ex, "Music video candidate prefetch failed");
+                status?.Failing(BackgroundJobIds.MusicVideos, ex, next);
             }
 
-            var minutes = Math.Clamp(options.CurrentValue.MusicVideoCandidatePrefetchIntervalMinutes, 1, 1440);
             // Never a hot loop: a pass that overran its interval still pauses before the next.
             var wait = TimeSpan.FromMinutes(minutes) - passStarted.Elapsed;
             if (!await DelayAsync(wait > MinimumPause ? wait : MinimumPause, stoppingToken)) return;
