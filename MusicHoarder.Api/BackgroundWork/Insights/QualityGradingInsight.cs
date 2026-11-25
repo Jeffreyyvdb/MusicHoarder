@@ -152,9 +152,10 @@ public sealed class QualityGradingInsight(
             i == 9 ? "90 to 100" : $"{i * 10} to {i * 10 + 9}", n,
             i < 4 ? BackgroundTone.Bad : i < 7 ? BackgroundTone.Warning : BackgroundTone.Good)).ToList();
 
-        var albumsGraded = await db.CanonicalAlbumQualityGrades.AsNoTracking()
-            .Select(g => g.CanonicalAlbumId).Distinct().CountAsync(ct);
-        var albums = await db.CanonicalAlbums.AsNoTracking().CountAsync(ct);
+        var gradeableAlbums = db.CanonicalAlbums.AsNoTracking().WhereGradeable();
+        var albumsGraded = await gradeableAlbums
+            .CountAsync(a => db.CanonicalAlbumQualityGrades.Any(g => g.CanonicalAlbumId == a.Id), ct);
+        var albums = await gradeableAlbums.CountAsync(ct);
         var weekAgo = d.Now.AddDays(-RateWindowDays);
         var shadowRuns = await db.GraderComparisonRuns.AsNoTracking()
             .CountAsync(r => r.Arm == GraderArm.Decision && r.CreatedAtUtc > weekAgo, ct);

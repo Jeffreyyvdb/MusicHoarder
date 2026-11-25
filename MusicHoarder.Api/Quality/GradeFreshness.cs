@@ -50,4 +50,8 @@ public static class QualityGradingQueries
             .ExcludingDemoTenant()
             .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic && !s.IsDuplicate)
             .Where(s => GradeableStatuses.Contains(s.EnrichmentStatus));
+
+    /// <summary>Albums the grader grades: those whose tracklist a catalog has supplied.</summary>
+    public static IQueryable<CanonicalAlbum> WhereGradeable(this IQueryable<CanonicalAlbum> albums)
+        => albums.Where(a => a.Status == CanonicalAlbumStatus.Fetched);
 }

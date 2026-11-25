@@ -202,7 +202,7 @@ public static class AlbumQualityEndpoints
         if (!(await runtimeSettings.GetAsync(ct)).QualityGradingEnabled) return GradingDisabledProblem();
 
         var ids = await db.CanonicalAlbums
-            .Where(a => a.Status == CanonicalAlbumStatus.Fetched)
+            .WhereGradeable()
             .Select(a => a.Id)
             .ToListAsync(ct);
 
@@ -224,7 +224,7 @@ public static class AlbumQualityEndpoints
         var ids = await db.CanonicalAlbumQualityGrades.LatestPerAlbum()
             .WhereOutdated(currentModel)
             .Join(
-                db.CanonicalAlbums.Where(a => a.Status == CanonicalAlbumStatus.Fetched),
+                db.CanonicalAlbums.WhereGradeable(),
                 g => g.CanonicalAlbumId, a => a.Id, (g, a) => a.Id)
             .ToListAsync(ct);
 

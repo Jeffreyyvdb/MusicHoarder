@@ -108,4 +108,38 @@ public class QualityGradingInsightTests
         h.Grading.ApiKey = "";
         Assert.Equal(BackgroundJobState.Off, (await h.SummarizeAsync(BackgroundJobIds.QualityGrading)).State);
     }
+
+    [Fact]
+    public async Task Albums_graded_counts_only_the_albums_the_grader_grades()
+    {
+        using var h = new BackgroundWorkHarness();
+        h.Seed(db =>
+        {
+            var statuses = new[]
+            {
+                CanonicalAlbumStatus.Fetched, CanonicalAlbumStatus.Fetched, CanonicalAlbumStatus.NotFound,
+                CanonicalAlbumStatus.Failed, CanonicalAlbumStatus.Pending,
+            };
+            var albums = statuses.Select((status, i) => new CanonicalAlbum
+            {
+                ArtistKey = "artist", AlbumKey = $"album {i}", Status = status,
+            }).ToList();
+            db.CanonicalAlbums.AddRange(albums);
+            db.SaveChanges();
+            foreach (var album in new[] { albums[0], albums[2] })
+            {
+                db.CanonicalAlbumQualityGrades.Add(new CanonicalAlbumQualityGrade
+                {
+                    CanonicalAlbumId = album.Id, OwnerUserId = BackgroundWorkTestData.Owner, Score = 80,
+                    Verdict = SongQualityVerdict.Good, GradedAtUtc = h.Now.AddDays(-1),
+                });
+            }
+        });
+
+        var albumsGraded = (await h.DescribeAsync(BackgroundJobIds.QualityGrading))
+            .Panel<FiguresPanelDto>("Around the grader").Item("Albums graded");
+
+        Assert.Equal(1, albumsGraded.Value);
+        Assert.Equal("of 2 albums matched to a catalog", albumsGraded.Sublabel);
+    }
 }
