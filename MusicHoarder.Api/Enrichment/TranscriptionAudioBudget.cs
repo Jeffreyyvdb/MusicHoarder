@@ -25,16 +25,28 @@ public sealed class TranscriptionAudioBudget(
     /// <summary>A song with no known length is metered as this long, so it cannot slip past the meter.</summary>
     public const int UnknownDurationSeconds = 300;
 
-    /// <summary>What the provider's free whisper tier allows, in audio-seconds. Our ceilings sit below these.</summary>
-    public const int ProviderAudioSecondsPerHour = 7200;
+    /// <summary>
+    /// What Groq's free whisper tier allows, in audio-seconds (https://console.groq.com/docs/rate-limits). Our
+    /// ceilings sit below these, but they are Groq's limits only: <see cref="IsGroq"/> says whether the
+    /// configured provider is the one they belong to.
+    /// </summary>
+    public const int GroqFreeTierAudioSecondsPerHour = 7200;
 
-    public const int ProviderAudioSecondsPerDay = 28800;
+    public const int GroqFreeTierAudioSecondsPerDay = 28800;
+
+    /// <summary>How many days of spend the Background work page charts.</summary>
+    public const int HistoryDays = 30;
 
     /// <summary>
-    /// How long a spend row is kept. The meter itself only reads the last day; the rest is the history the
-    /// Background work page charts, so the rows are not deleted the moment they stop counting.
+    /// How long a spend row is kept: the charted history and a margin, so a row is never deleted while the page
+    /// still draws it. The meter itself only reads the last day.
     /// </summary>
-    public const int RetentionDays = 35;
+    public const int RetentionDays = HistoryDays + 5;
+
+    /// <summary>Whether transcription is sent to Groq, whose free-tier limits the constants above are.</summary>
+    public static bool IsGroq(LyricsTranscriptionOptions options)
+        => Uri.TryCreate(options.BaseUrl, UriKind.Absolute, out var uri)
+            && (uri.Host == "groq.com" || uri.Host.EndsWith(".groq.com", StringComparison.OrdinalIgnoreCase));
 
     private static readonly TimeSpan Day = TimeSpan.FromDays(1);
     private static readonly TimeSpan Hour = TimeSpan.FromHours(1);

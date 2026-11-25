@@ -20,6 +20,7 @@ internal sealed class BackgroundWorkHarness : IDisposable
     private readonly string _database = Guid.NewGuid().ToString("N");
 
     public LyricsTimingOptions Lyrics { get; } = new();
+    public LyricsTranscriptionOptions Transcription { get; } = new();
     public MusicEnricherOptions Enricher { get; } = new() { SourceDirectory = "/src", DestinationDirectory = "/dst" };
     public QualityGradingOptions Grading { get; } = new() { ApiKey = "key" };
     public StubSettings Settings { get; } = new();
@@ -41,6 +42,7 @@ internal sealed class BackgroundWorkHarness : IDisposable
         services.AddSingleton(clock);
         services.AddSingleton(Status);
         services.AddSingleton<IOptionsMonitor<LyricsTimingOptions>>(new FixedMonitor<LyricsTimingOptions>(Lyrics));
+        services.AddSingleton<IOptionsMonitor<LyricsTranscriptionOptions>>(new FixedMonitor<LyricsTranscriptionOptions>(Transcription));
         services.AddSingleton<IOptionsMonitor<MusicEnricherOptions>>(new FixedMonitor<MusicEnricherOptions>(Enricher));
         services.AddSingleton<IOptionsMonitor<QualityGradingOptions>>(new FixedMonitor<QualityGradingOptions>(Grading));
         services.AddSingleton<IOptions<MusicEnricherOptions>>(Microsoft.Extensions.Options.Options.Create(Enricher));

@@ -10,11 +10,11 @@ namespace MusicHoarder.Api.BackgroundWork.Insights;
 public sealed class TranscriptionAllowanceInsight(
     MusicHoarderDbContext db,
     IOptionsMonitor<LyricsTimingOptions> options,
+    IOptionsMonitor<LyricsTranscriptionOptions> transcription,
     ILyricsTranscriptionService transcriber,
     TimeProvider time) : IBackgroundJobInsight
 {
     private const int HourlyBuckets = 48;
-    private const int DailyBuckets = 30;
     private static readonly TimeSpan Hour = TimeSpan.FromHours(1);
     private static readonly TimeSpan Day = TimeSpan.FromDays(1);
 
@@ -39,6 +39,7 @@ public sealed class TranscriptionAllowanceInsight(
     private sealed record Ledger(
         DateTime Now,
         LyricsTimingOptions Options,
+        bool OnGroq,
         List<TranscriptionAudioSpend> Spend,
         double HourSpent,
         double DaySpent,
@@ -54,20 +55,20 @@ public sealed class TranscriptionAllowanceInsight(
     {
         var now = time.GetUtcNow().UtcDateTime;
         var opts = options.CurrentValue;
-        var since = now.AddDays(-DailyBuckets);
+        var since = now.AddDays(-TranscriptionAudioBudget.HistoryDays);
         var spend = await db.TranscriptionAudioSpends.AsNoTracking()
             .Where(e => e.AtUtc > since)
             .OrderBy(e => e.AtUtc)
             .ToListAsync(ct);
 
         var lastDay = spend.Where(e => e.AtUtc > now - Day).ToList();
-        var probe = opts.ProbeWindowSeconds;
+        var smallestRequest = opts.ProbeWindowSeconds;
         return new Ledger(
-            now, opts, spend,
+            now, opts, TranscriptionAudioBudget.IsGroq(transcription.CurrentValue), spend,
             HourSpent: spend.Where(e => e.AtUtc > now - Hour).Sum(e => e.AudioSeconds),
             DaySpent: lastDay.Sum(e => e.AudioSeconds),
-            HourWait: TranscriptionAudioBudget.WaitForRoom(lastDay, now, Hour, opts.AudioSecondsPerHour, probe),
-            DayWait: TranscriptionAudioBudget.WaitForRoom(lastDay, now, Day, opts.AudioSecondsPerDay, probe));
+            HourWait: TranscriptionAudioBudget.WaitForRoom(lastDay, now, Hour, opts.AudioSecondsPerHour, smallestRequest),
+            DayWait: TranscriptionAudioBudget.WaitForRoom(lastDay, now, Day, opts.AudioSecondsPerDay, smallestRequest));
     }
 
     public async Task<BackgroundJobSummaryDto> SummarizeAsync(CancellationToken ct)
@@ -121,6 +122,29 @@ public sealed class TranscriptionAllowanceInsight(
             s.Key, s.Label, (long)Math.Round(lastDay.Where(e => SeriesOf(e.Purpose) == i).Sum(e => e.AudioSeconds)), s.Tone));
 
         var requests = lastDay.Count;
+
+        var hourLimits = new List<SeriesLimitDto>
+        {
+            new("Background ceiling per hour", o.AudioSecondsPerHour, BackgroundTone.Warning),
+        };
+        var dayLimits = new List<SeriesLimitDto>
+        {
+            new("Background ceiling per day", o.AudioSecondsPerDay, BackgroundTone.Warning),
+        };
+        if (l.OnGroq)
+        {
+            hourLimits.Add(new("Groq free tier per hour", TranscriptionAudioBudget.GroqFreeTierAudioSecondsPerHour, BackgroundTone.Bad));
+            dayLimits.Add(new("Groq free tier per day", TranscriptionAudioBudget.GroqFreeTierAudioSecondsPerDay, BackgroundTone.Bad));
+        }
+        dayLimits.Add(new("Share the timing probes may use", o.ProbeAudioSecondsPerDay, BackgroundTone.Pending));
+
+        FigureDto[] keptForManualRuns = l.OnGroq
+            ? [BackgroundPanels.Duration(
+                "Kept for manual runs",
+                Math.Max(0, TranscriptionAudioBudget.GroqFreeTierAudioSecondsPerDay - l.DaySpent),
+                $"left of Groq's {BackgroundText.Duration(TranscriptionAudioBudget.GroqFreeTierAudioSecondsPerDay)} a day on the free tier",
+                BackgroundTone.Good)]
+            : [];
         var panels = new List<BackgroundPanelDto>
         {
             new SeriesPanelDto(
@@ -128,20 +152,13 @@ public sealed class TranscriptionAllowanceInsight(
                 "Clock hours, UTC. The ceilings apply to any rolling hour, so a bar can sit just above a line without the budget being broken.",
                 "hour", BackgroundFormat.Duration, true, seriesDefs,
                 TimeBuckets.Fill(l.Now, hourly: true, HourlyBuckets, Series.Length, samples),
-                [
-                    new SeriesLimitDto("Background ceiling per hour", o.AudioSecondsPerHour, BackgroundTone.Warning),
-                    new SeriesLimitDto("Provider limit per hour", TranscriptionAudioBudget.ProviderAudioSecondsPerHour, BackgroundTone.Bad),
-                ]),
+                hourLimits),
             new SeriesPanelDto(
-                "Audio sent per day, last 30 days",
+                $"Audio sent per day, last {TranscriptionAudioBudget.HistoryDays} days",
                 "UTC days. History starts when the API first kept it, so older days can look emptier than they were.",
                 "day", BackgroundFormat.Duration, true, seriesDefs,
-                TimeBuckets.Fill(l.Now, hourly: false, DailyBuckets, Series.Length, samples),
-                [
-                    new SeriesLimitDto("Background ceiling per day", o.AudioSecondsPerDay, BackgroundTone.Warning),
-                    new SeriesLimitDto("Provider limit per day", TranscriptionAudioBudget.ProviderAudioSecondsPerDay, BackgroundTone.Bad),
-                    new SeriesLimitDto("Share the timing probes may use", o.ProbeAudioSecondsPerDay, BackgroundTone.Pending),
-                ]),
+                TimeBuckets.Fill(l.Now, hourly: false, TranscriptionAudioBudget.HistoryDays, Series.Length, samples),
+                dayLimits),
             BackgroundPanels.Breakdown(
                 "Where the last 24 hours went", "Audio seconds, by what asked for them.", "seconds", perPurpose),
             new FiguresPanelDto("The allowance right now", "Background spending stops at the ceilings, which sit below the provider's own limits so a manual run always has room.",
@@ -154,11 +171,7 @@ public sealed class TranscriptionAllowanceInsight(
                     $"of a {BackgroundText.Duration(o.AudioSecondsPerDay)} background ceiling",
                     l.DayLeft <= 0 ? BackgroundTone.Warning : BackgroundTone.Neutral),
                 BackgroundPanels.Duration("Left today", l.DayLeft, "for background work", l.DayLeft <= 0 ? BackgroundTone.Warning : BackgroundTone.Good),
-                BackgroundPanels.Duration(
-                    "Kept for manual runs",
-                    Math.Max(0, TranscriptionAudioBudget.ProviderAudioSecondsPerDay - l.DaySpent),
-                    $"left of the provider's {BackgroundText.Duration(TranscriptionAudioBudget.ProviderAudioSecondsPerDay)} a day",
-                    BackgroundTone.Good),
+                ..keptForManualRuns,
                 BackgroundPanels.Count("Requests in the last 24 hours", requests),
                 BackgroundPanels.Duration("Average request", requests == 0 ? 0 : l.DaySpent / requests, "of audio each"),
             ]),

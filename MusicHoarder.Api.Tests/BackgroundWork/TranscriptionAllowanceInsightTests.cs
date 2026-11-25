@@ -13,6 +13,7 @@ public class TranscriptionAllowanceInsightTests
     public async Task What_is_left_of_the_day_counts_every_purpose_in_the_last_24_hours_only()
     {
         using var h = new BackgroundWorkHarness();
+        h.Transcription.BaseUrl = GroqUrl;
         Spend(h, TimeSpan.FromMinutes(30), 2000, TranscriptionPurpose.AutoSync);
         Spend(h, TimeSpan.FromHours(5), 500, TranscriptionPurpose.TimingProbe);
         Spend(h, TimeSpan.FromHours(2), 1000, TranscriptionPurpose.ManualTranscribe);
@@ -37,10 +38,13 @@ public class TranscriptionAllowanceInsightTests
         Assert.Equal(1000, breakdown.Segment("manual"));
     }
 
+    private const string GroqUrl = "https://api.groq.com/openai/v1";
+
     [Fact]
     public async Task The_series_stack_each_purpose_in_clock_hours_and_draw_the_ceilings()
     {
         using var h = new BackgroundWorkHarness();
+        h.Transcription.BaseUrl = GroqUrl;
         Spend(h, TimeSpan.FromMinutes(30), 2000, TranscriptionPurpose.AutoSync);
         Spend(h, TimeSpan.FromHours(2), 1000, TranscriptionPurpose.ManualTimingProbe);
 
@@ -54,11 +58,31 @@ public class TranscriptionAllowanceInsightTests
         Assert.Equal([2000.0, 0, 0, 0], hourly.Points[^2].Values);
         Assert.Equal([0.0, 0, 0, 1000], hourly.Points[^3].Values);
         Assert.Equal([6000.0, 7200], hourly.Limits.Select(l => l.Value));
+        Assert.Equal(["Background ceiling per hour", "Groq free tier per hour"], hourly.Limits.Select(l => l.Label));
 
         var daily = detail.Panel<SeriesPanelDto>("Audio sent per day");
         Assert.Equal(30, daily.Points.Count);
         Assert.Equal([20000.0, 28800, 6000], daily.Limits.Select(l => l.Value));
         Assert.Equal(3000, daily.Points[^1].Values.Sum());
+    }
+
+    [Theory]
+    [InlineData("https://api.openai.com/v1")]
+    [InlineData("http://stt.local:9000/v1")]
+    [InlineData("https://groq.com.example.test/v1")]
+    [InlineData("not a url")]
+    public async Task Groqs_free_tier_is_drawn_only_when_the_provider_is_groq(string baseUrl)
+    {
+        using var h = new BackgroundWorkHarness();
+        h.Transcription.BaseUrl = baseUrl;
+        Spend(h, TimeSpan.FromMinutes(30), 2000, TranscriptionPurpose.AutoSync);
+
+        var detail = await h.DescribeAsync(BackgroundJobIds.TranscriptionAllowance);
+
+        Assert.Equal([6000.0], detail.Panel<SeriesPanelDto>("Audio sent per hour").Limits.Select(l => l.Value));
+        Assert.Equal([20000.0, 6000], detail.Panel<SeriesPanelDto>("Audio sent per day").Limits.Select(l => l.Value));
+        Assert.DoesNotContain(
+            detail.Panel<FiguresPanelDto>("The allowance right now").Items, i => i.Label == "Kept for manual runs");
     }
 
     [Fact]
