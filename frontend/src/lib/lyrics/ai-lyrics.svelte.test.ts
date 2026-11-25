@@ -205,6 +205,32 @@ describe('syncToSong', () => {
     expect(ai.transcription).toBeNull();
   });
 
+  it('takes LRCLIB’s instrumental verdict and the official lyrics from the fresh response', async () => {
+    const { ai } = setup({
+      song: makeSong({
+        hasTranscribedLyrics: true,
+        lyricsStatus: 'NotFound',
+        isInstrumental: false
+      }),
+      api: {
+        fetchTrackLyrics: vi.fn(async () => ({
+          id: 1,
+          lyricsStatus: 'Instrumental',
+          isInstrumental: true,
+          transcribedSynced: '[00:01.00] thank you for watching',
+          lyricsTranslationStatus: 'Completed',
+          translatedSynced: '[00:01.00] merci'
+        }))
+      }
+    });
+    ai.syncToSong();
+    await flushMicrotasks();
+    expect(ai.confirmedInstrumental).toBe(true);
+    expect(ai.isInstrumental).toBe(true);
+    expect(ai.translation).toBeNull();
+    expect(ai.officialLyrics).toEqual({ synced: undefined, plain: undefined });
+  });
+
   it('shows no transcript for a song LRCLIB calls instrumental', async () => {
     const { ai } = setup({
       song: makeSong({ hasTranscribedLyrics: true }),

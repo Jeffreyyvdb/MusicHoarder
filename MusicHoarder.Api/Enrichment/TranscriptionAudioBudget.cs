@@ -49,11 +49,11 @@ public sealed class TranscriptionAudioBudget(
     /// ceiling is not made at all: it throws <see cref="TranscriptionRateLimitedException"/> saying when there
     /// will be room, the same signal a provider refusal gives, because to the caller both mean "not now".
     ///
-    /// The request is handed a callback to run before each retry it makes: a retry uploads the audio again,
-    /// and the provider counts it again, so it is metered like a request of its own. A background retry with
-    /// no room left is not made, and the request fails as the upload before it did: reporting "not now"
-    /// instead would leave the song first in line, so a song that always needs a retry would hold up the
-    /// queue. The audio already sent is not given back.
+    /// The request is handed a callback to run before each retry of an upload the provider may have counted
+    /// (it failed, rather than being refused): that retry uploads the audio again, so it is metered like a
+    /// request of its own. A background retry with no room left is not made, and the request fails as the
+    /// upload before it did; reporting "not now" instead would leave the song first in line, so a song whose
+    /// upload always fails once would hold up the queue. The audio already sent is not given back.
     /// </summary>
     public async Task<T> SpendAsync<T>(
         TranscriptionPurpose purpose,

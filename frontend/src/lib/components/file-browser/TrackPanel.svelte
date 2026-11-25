@@ -68,7 +68,6 @@
   import type { DetailMode as RequestedDetailMode } from '#lib/stores/song-detail.svelte.ts';
   import { isAdmin } from '#lib/auth/capabilities.ts';
   import { cn } from '#lib/utils.ts';
-  import { isConfirmedInstrumental } from '#lib/lyrics/instrumental.ts';
   import { DYNAMIC_TYPE_CHANGE, dynamicTypeScale } from '#lib/dynamic-type.ts';
 
   /**
@@ -159,10 +158,13 @@
   // and a remounted viewer keeps what was loaded.
   const lrclibDoc = createLyricsDoc({
     songId: () => song.id,
-    synced: () => song.syncedLyrics ?? undefined,
-    plain: () => song.plainLyrics ?? undefined,
-    hasSynced: () => song.hasSyncedLyrics ?? false,
-    hasPlain: () => song.hasPlainLyrics ?? false,
+    // The song's own lyrics response, once it lands, is fresher than the library row.
+    synced: () => (ai.officialLyrics ? ai.officialLyrics.synced : (song.syncedLyrics ?? undefined)),
+    plain: () => (ai.officialLyrics ? ai.officialLyrics.plain : (song.plainLyrics ?? undefined)),
+    hasSynced: () =>
+      ai.officialLyrics ? Boolean(ai.officialLyrics.synced) : (song.hasSyncedLyrics ?? false),
+    hasPlain: () =>
+      ai.officialLyrics ? Boolean(ai.officialLyrics.plain) : (song.hasPlainLyrics ?? false),
     status: () => ai.lyricsStatus,
     provenance: () => ai.lrclibProvenance,
     trustProvidedProvenance: true
@@ -194,7 +196,7 @@
     lyricsAvailability({
       hasLyrics: viewerDoc.hasAny,
       busy: ai.enhanceBusy,
-      instrumental: isConfirmedInstrumental(song),
+      instrumental: ai.confirmedInstrumental,
       canRecheck: isOwner,
       canEnhance: ai.canEnhance
     })
@@ -207,7 +209,7 @@
     })
   );
   // The reason a toggle is disabled, for its tooltip and accessible name.
-  const lyricsWhy = $derived(song.isInstrumental === true ? 'instrumental' : 'none for this song');
+  const lyricsWhy = $derived(ai.isInstrumental ? 'instrumental' : 'none for this song');
   // The panel mounts on each open, so it starts on the artwork. A request that names a mode (a row
   // menu's "Song info") switches to it. One that names none is the host following playback to the
   // next song: the view the listener picked stays, except Lyrics for a song that has none.

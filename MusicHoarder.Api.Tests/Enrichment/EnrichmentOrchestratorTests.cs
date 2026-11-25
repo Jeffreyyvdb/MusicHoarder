@@ -904,6 +904,54 @@ public class EnrichmentOrchestratorTests
     }
 
     [Fact]
+    public async Task FetchLyrics_ForABuiltSong_RetagsInPlaceKeepingTheFileItWasBuiltTo()
+    {
+        await using var db = CreateDbWithRebuildInterceptor();
+        var song = AddPendingSong(db);
+        song.EnrichmentStatus = EnrichmentStatus.Matched;
+        song.MarkBuildDone("/dest/Some Song.mp3");
+        await db.SaveChangesAsync();
+
+        var lrcLib = new StubLrcLibService(_ =>
+            Task.FromResult<LyricsResult?>(new LyricsResult("[00:00.00]Hello", "Hello", false, 99)));
+        var orchestrator = CreateOrchestratorWithProviders(db, [], lrcLibService: lrcLib);
+
+        Assert.True(await orchestrator.FetchLyricsForSongAsync(song.Id));
+
+        db.ChangeTracker.Clear();
+        var saved = await db.Songs.SingleAsync();
+        Assert.Equal(LibraryBuildStatus.Pending, saved.LibraryBuildStatus);
+        Assert.Equal("/dest/Some Song.mp3", saved.DestinationPath);
+        Assert.Equal("/dest/Some Song.mp3", saved.PreviousDestinationPath);
+    }
+
+    [Fact]
+    public async Task FetchLyrics_ReportsNothingAndLeavesTheBuildAloneWhenTheSongNoLongerNeededIt()
+    {
+        await using var db = CreateDb();
+        var song = AddPendingSong(db);
+        song.EnrichmentStatus = EnrichmentStatus.Matched;
+        song.MarkBuildDone("/dest/Some Song.mp3");
+        await db.SaveChangesAsync();
+
+        var options = (DbContextOptions<MusicHoarderDbContext>)db.GetService<IDbContextOptions>();
+        var lrcLib = new StubLrcLibService(async _ =>
+        {
+            await using var button = new MusicHoarderDbContext(options);
+            var row = await button.Songs.IgnoreQueryFilters().SingleAsync();
+            row.TryApplyLyricsUpgrade(null, "Adopted words", instrumental: false, lrclibId: 42);
+            await button.SaveChangesAsync();
+            return new LyricsResult(null, "Fallback words", false, 99);
+        });
+        var orchestrator = CreateOrchestratorWithProviders(db, [], lrcLibService: lrcLib);
+
+        Assert.False(await orchestrator.FetchLyricsForSongAsync(song.Id));
+
+        await using var fresh = new MusicHoarderDbContext(options);
+        Assert.Equal(LibraryBuildStatus.Done, (await fresh.Songs.IgnoreQueryFilters().SingleAsync()).LibraryBuildStatus);
+    }
+
+    [Fact]
     public async Task FetchLyrics_LrclibEmpty_UsesGeniusAndLabelsTheOrigin()
     {
         await using var db = CreateDb();

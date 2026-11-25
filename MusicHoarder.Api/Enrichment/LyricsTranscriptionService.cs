@@ -51,8 +51,9 @@ public interface ILyricsTranscriptionService
     /// word clock, falling back to a deterministic split. Throws on a transcode or API failure.
     /// </summary>
     /// <param name="beforeRetry">
-    /// Runs before each retry of the upload, which sends the audio again; the audio meter's
-    /// <see cref="TranscriptionAudioBudget.SpendAsync{T}"/> hands one over to count it.
+    /// Runs before each retry of an upload that failed (not one the provider refused with a 429, which it
+    /// did not count); the audio meter's <see cref="TranscriptionAudioBudget.SpendAsync{T}"/> hands one over
+    /// to count the audio sent again.
     /// </param>
     Task<TranscriptionResult> TranscribeAsync(
         SongMetadata song, string audioFilePath, CancellationToken ct = default, Func<CancellationToken, Task>? beforeRetry = null);
@@ -364,11 +365,14 @@ public sealed class LyricsTranscriptionService(
         var url = $"{opts.BaseUrl.TrimEnd('/')}/audio/transcriptions";
         var maxAttempts = Math.Max(0, opts.MaxRetries) + 1;
 
+        // Whether the last attempt sent audio the provider may have counted: a 429 is a refusal, not a run.
+        var lastAttemptCounted = false;
         for (var attempt = 0; ; attempt++)
         {
             ct.ThrowIfCancellationRequested();
-            if (attempt > 0 && beforeRetry is not null)
+            if (lastAttemptCounted && beforeRetry is not null)
                 await beforeRetry(ct);
+            lastAttemptCounted = true;
 
             // Per ATTEMPT, not per call: the provider counts a retry as another request, so metering the
             // call would let one reservation fire three times and trip the very limit we are avoiding.
@@ -430,6 +434,7 @@ public sealed class LyricsTranscriptionService(
 
                 if (attempt < maxAttempts - 1 && IsRetryableStatus(resp.StatusCode))
                 {
+                    lastAttemptCounted = resp.StatusCode != HttpStatusCode.TooManyRequests;
                     await Task.Delay(ComputeBackoff(attempt), ct);
                     continue;
                 }

@@ -61,6 +61,51 @@ public sealed class LyricsTranscriptionRetryMeteringTests : IDisposable
         Assert.Equal(2, await db.TranscriptionAudioSpends.CountAsync());
     }
 
+    [FfmpegFact]
+    public async Task a_retry_after_a_429_is_not_metered_again_since_the_provider_counted_nothing()
+    {
+        var audio = Path.Combine(_tmpDir.FullName, "clip.wav");
+        MakeSilence(audio, seconds: 2);
+
+        var provider = new FailsOnceProvider(HttpStatusCode.TooManyRequests);
+        var (transcriber, db, budget) = Wire(provider);
+        await using var _ = db;
+
+        await budget.SpendAsync(
+            TranscriptionPurpose.TimingProbe,
+            2,
+            retry => transcriber.TranscribeClipAsync(audio, 0, 2, null, CancellationToken.None, retry),
+            CancellationToken.None);
+
+        Assert.Equal(2, provider.Uploads);
+        Assert.Equal(1, await db.TranscriptionAudioSpends.CountAsync());
+    }
+
+    private static (LyricsTranscriptionService, MusicHoarderDbContext, TranscriptionAudioBudget) Wire(HttpMessageHandler provider)
+    {
+        var options = new StaticOptionsMonitor<LyricsTranscriptionOptions>(new LyricsTranscriptionOptions
+        {
+            BaseUrl = "http://stt.test/v1",
+            ApiKey = "test-key",
+            RequestsPerMinute = 100,
+        });
+        var transcriber = new LyricsTranscriptionService(
+            new HttpClient(provider),
+            null!,
+            new LlmLyricsAligner(
+                new HttpClient(provider),
+                new StaticOptionsMonitor<QualityGradingOptions>(new QualityGradingOptions()),
+                options,
+                NullLogger<LlmLyricsAligner>.Instance),
+            new LyricsTranscriptionRateLimiter(options, NullLogger<LyricsTranscriptionRateLimiter>.Instance),
+            options,
+            Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions { SourceDirectory = "/src", DestinationDirectory = "/dst" }),
+            NullLogger<LyricsTranscriptionService>.Instance);
+        var db = new MusicHoarderDbContext(new DbContextOptionsBuilder<MusicHoarderDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString("N")).Options);
+        return (transcriber, db, TestBudget.Over(db, new LyricsTimingOptions()));
+    }
+
     private static void MakeSilence(string path, int seconds)
     {
         var psi = new ProcessStartInfo("ffmpeg") { RedirectStandardError = true, UseShellExecute = false };
@@ -71,16 +116,21 @@ public sealed class LyricsTranscriptionRetryMeteringTests : IDisposable
         Assert.Equal(0, process.ExitCode);
     }
 
-    private sealed class FailsOnceProvider : HttpMessageHandler
+    private sealed class FailsOnceProvider(HttpStatusCode first = HttpStatusCode.InternalServerError) : HttpMessageHandler
     {
         public int Uploads { get; private set; }
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             Uploads++;
-            return Task.FromResult(Uploads == 1
-                ? new HttpResponseMessage(HttpStatusCode.InternalServerError) { Content = new StringContent("boom") }
-                : new HttpResponseMessage(HttpStatusCode.OK)
+            if (Uploads == 1)
+            {
+                var refusal = new HttpResponseMessage(first) { Content = new StringContent("boom") };
+                refusal.Headers.TryAddWithoutValidation("Retry-After", "1");
+                return Task.FromResult(refusal);
+            }
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = new StringContent("{\"text\":\"\",\"words\":[],\"segments\":[]}", Encoding.UTF8, "application/json"),
                 });

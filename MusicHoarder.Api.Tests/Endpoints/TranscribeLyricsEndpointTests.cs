@@ -129,6 +129,31 @@ public class TranscribeLyricsEndpointTests : IDisposable
         Assert.Equal(TranscriptionStatus.Completed, saved.TranscriptionStatus);
     }
 
+    [Fact]
+    public async Task a_failed_request_records_nothing_against_words_that_arrived_meanwhile()
+    {
+        await using var db = NewContext();
+        var song = NewBuiltSongWithLyrics();
+        song.SyncedLyrics = null;
+        song.PlainLyrics = null;
+        song.LyricsStatus = LyricsStatus.NotFound;
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        var transcriber = new MeanwhileTranscriber(async () =>
+        {
+            await Meanwhile(db, song.Id, s => s.TryApplyLyricsUpgrade(null, "official words", instrumental: false));
+            throw new HttpRequestException("provider error");
+        });
+
+        await SongsEndpoints.TranscribeLyrics(song.Id, db, transcriber, TestBudget.Over(db), CancellationToken.None);
+
+        // Nothing recorded, so the AI sync still sees words no transcription was made for.
+        var saved = await db.Songs.AsNoTracking().FirstAsync(s => s.Id == song.Id);
+        Assert.Equal(TranscriptionStatus.NotRequested, saved.TranscriptionStatus);
+        Assert.NotEqual(saved.LyricsTextChangedAtUtc, saved.TranscriptionWordsStampUtc);
+    }
+
     /// <summary>A built song with LRCLIB lyrics and a real (stub) file the endpoint can resolve.</summary>
     private SongMetadata NewBuiltSongWithLyrics()
     {

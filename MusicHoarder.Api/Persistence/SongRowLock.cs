@@ -20,7 +20,7 @@ public static class SongRowLock
         return await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
         {
             await using var tx = await db.Database.BeginTransactionAsync(ct);
-            await db.Database.ExecuteSqlInterpolatedAsync(
+            await db.Database.ExecuteSqlAsync(
                 $"SELECT 1 FROM \"Songs\" WHERE \"Id\" = {songId} FOR UPDATE", ct);
             var result = await work();
             await tx.CommitAsync(ct);

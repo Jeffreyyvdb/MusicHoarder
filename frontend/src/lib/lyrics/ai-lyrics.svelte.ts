@@ -165,7 +165,13 @@ export function createAiLyrics(opts: {
 
   // What this song's own lyrics response said about its official lyrics. It is fresher than the library row,
   // which the background AI sync and the lyrics re-check can outdate, so it wins once it lands.
-  let fetchedOfficial = $state<{ status: LyricsStatus | null; hasLyrics: boolean } | null>(null);
+  let fetchedOfficial = $state<{
+    status: LyricsStatus | null;
+    hasLyrics: boolean;
+    synced: string | undefined;
+    plain: string | undefined;
+    isInstrumental: boolean | undefined;
+  } | null>(null);
   const lyricsStatus = $derived(
     (fetchedOfficial?.status ?? song.lyricsStatus ?? 'NotFetched') as LyricsStatus
   );
@@ -379,6 +385,23 @@ export function createAiLyrics(opts: {
     get enhanceBusy() {
       return enhanceBusy;
     },
+    /** LRCLIB calls the song instrumental, by the freshest answer the app has. */
+    get confirmedInstrumental() {
+      return confirmedInstrumental;
+    },
+    /** The song is marked instrumental, by LRCLIB or the AI, by the freshest answer the app has. */
+    get isInstrumental() {
+      return fetchedOfficial?.isInstrumental ?? song.isInstrumental === true;
+    },
+    /**
+     * The official lyrics from the song's own lyrics response, once it lands (null before, and for a guest,
+     * whose response holds the displayed words instead). Fresher than the library row.
+     */
+    get officialLyrics() {
+      return fetchedOfficial?.status
+        ? { synced: fetchedOfficial.synced, plain: fetchedOfficial.plain }
+        : null;
+    },
     get lyricsStatus() {
       return lyricsStatus;
     },
@@ -474,7 +497,11 @@ export function createAiLyrics(opts: {
       const apply = (d: TrackLyricsResponse) => {
         fetchedOfficial = {
           status: (d.lyricsStatus as LyricsStatus | undefined) ?? null,
-          hasLyrics: Boolean(d.synced) || Boolean(d.plain) || d.lyricsStatus === 'Fetched'
+          hasLyrics: Boolean(d.synced) || Boolean(d.plain) || d.lyricsStatus === 'Fetched',
+          // The grantee response carries the displayed words, not the official ones; only the owner's does.
+          synced: d.lyricsStatus ? (d.synced ?? undefined) : undefined,
+          plain: d.lyricsStatus ? (d.plain ?? undefined) : undefined,
+          isInstrumental: d.isInstrumental ?? undefined
         };
         // LRCLIB's instrumental verdict outranks a transcript made before it, which the server keeps.
         transcription =
@@ -488,7 +515,9 @@ export function createAiLyrics(opts: {
               }
             : null;
         syncOffsetMs = d.lyricsSyncOffsetMs ?? null;
-        const translated = d.lyricsTranslationStatus === 'Completed';
+        // Nothing is shown for an instrumental, so neither is a translation of it.
+        const translated =
+          d.lyricsTranslationStatus === 'Completed' && d.lyricsStatus !== 'Instrumental';
         translation = translated
           ? {
               romanizedSynced: d.romanizedSynced ?? undefined,

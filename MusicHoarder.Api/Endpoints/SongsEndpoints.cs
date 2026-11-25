@@ -850,10 +850,11 @@ public static class SongsEndpoints
         }
         catch (Exception ex)
         {
-            // Not over a transcription another run stored while this one was failing.
+            // Not over a transcription another run stored while this one was failing, and not against words
+            // that arrived meanwhile: recording the failure for them would keep the AI sync from timing them.
             await db.UpdateLatestAsync(song, () =>
             {
-                if (song.TranscribedAtUtc != transcribedBefore)
+                if (song.TranscribedAtUtc != transcribedBefore || song.LyricsTextChangedAtUtc != wordsStamp)
                     return false;
                 song.MarkTranscriptionFailed(ex.Message);
                 return true;
