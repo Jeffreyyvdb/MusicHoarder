@@ -268,9 +268,73 @@ public class MusicVideoDownloaderTests
         var tokens = Tokens(
             "BabyChiefDoit", "Lyrical Lemonade, BabyChiefDoit - Riley N Lamilton (Lunchbreak Freestyle) [Official Audio]");
 
-        Assert.Equal(["freestyle", "lamilton", "lunchbreak", "riley"], tokens.Order().ToArray());
+        Assert.Equal(["freestyle", "lamilton", "lunchbreak", "n", "riley"], tokens.Order().ToArray());
         Assert.DoesNotContain("official", tokens);
         Assert.DoesNotContain("babychiefdoit", tokens);
+    }
+
+    [Theory]
+    [InlineData("Gucci Mane", "She on GO", new[] { "go", "on", "she" })]
+    [InlineData("Offset", "5 Star", new[] { "5", "star" })]
+    [InlineData("Kendrick Lamar", "u", new[] { "u" })]
+    [InlineData("Drake", "9", new[] { "9" })]
+    [InlineData("21 Savage", "X", new[] { "x" })]
+    [InlineData("Jay-Z", "4:44", new[] { "4", "44" })]
+    [InlineData("J. Cole", "G.O.M.D.", new[] { "gomd" })]
+    [InlineData("Clipse", "The Birds Don't Sing", new[] { "birds", "dont", "sing" })]
+    [InlineData("Yeat", "Gët Busy", new[] { "busy", "get" })]
+    [InlineData("Artist", "Song ft. Guest", new[] { "guest", "song" })]
+    public void TitleTokens_KeepShortWordsAndDigitsAndFoldPunctuation(string artist, string title, string[] expected)
+    {
+        Assert.Equal(expected, Tokens(artist, title).Order().ToArray());
+    }
+
+    [Fact]
+    public void ScoreCandidate_ShortTitleTokensDistinguishSameArtistSongs()
+    {
+        // Production, 2026-11-24: "She on GO" previously dropped "on" and "GO" (< 3 chars), so
+        // "She Be Puttin' On" matched 1/1 on "she" and scored 75. Keeping short tokens drops it
+        // below 75 while the real song still scores 75.
+        var target = Target("Gucci Mane", "She on GO");
+        var wrong = new MusicVideoDownloader.SearchCandidate(
+            "wrong", "Gucci Mane & Waka Flocka Flame - She Be Puttin' On (Official Video)", "Gucci Mane", 200);
+        var right = new MusicVideoDownloader.SearchCandidate(
+            "right", "Gucci Mane - She on GO (Official Video)", "Gucci Mane", 200);
+
+        Assert.True(MusicVideoDownloader.ScoreCandidate(wrong, 200_000, target) < 75);
+        Assert.Equal(75, MusicVideoDownloader.ScoreCandidate(right, 200_000, target));
+        Assert.Equal("right", MusicVideoDownloader.PickBestCandidate([wrong, right], 200_000, target)?.Id);
+    }
+
+    [Theory]
+    [InlineData("Kendrick Lamar", "u", "Kendrick Lamar - HUMBLE. (Official Video)", "KendrickLamarVEVO")]
+    [InlineData("Drake", "9", "Drake - 2019 Freestyle (Official Video)", "DrakeVEVO")]
+    [InlineData("21 Savage", "X", "21 Savage - Bank Account Remix (Official Video)", "21 Savage")]
+    [InlineData("Gucci Mane", "She on GO", "Gucci Mane - Gonna Be Good (Official Video)", "Gucci Mane")]
+    [InlineData("Offset", "5 Star", "Offset - 50 Bars (Official Video)", "OffsetVEVO")]
+    public void ScoreCandidate_ShortTitleTokensMatchWholeWordsOnly(
+        string artist, string title, string wrongVideoTitle, string channel)
+    {
+        var wrong = new MusicVideoDownloader.SearchCandidate("wrong", wrongVideoTitle, channel, 200);
+
+        Assert.True(MusicVideoDownloader.ScoreCandidate(wrong, 200_000, Target(artist, title)) < 0);
+        Assert.Empty(MusicVideoDownloader.RankCandidates([wrong], 200_000, Target(artist, title)));
+    }
+
+    [Theory]
+    [InlineData("Kendrick Lamar", "u", "Kendrick Lamar - u (Official Video)", "KendrickLamarVEVO")]
+    [InlineData("Drake", "9", "Drake - 9 (Official Video)", "DrakeVEVO")]
+    [InlineData("21 Savage", "X", "21 Savage - X ft. Future (Official Music Video)", "21 Savage")]
+    [InlineData("Offset", "5 Star", "Offset - 5 Star (Official Music Video)", "OffsetVEVO")]
+    [InlineData("J. Cole", "G.O.M.D.", "J. Cole - GOMD (Official Music Video)", "JColeVEVO")]
+    [InlineData("Yeat", "Gët Busy", "Yeat - Get Busy (Official Video)", "Lyrical Lemonade")]
+    [InlineData("Clipse", "The Birds Don't Sing", "Clipse - The Birds Dont Sing (Official Video)", "Clipse")]
+    public void ScoreCandidate_ShortTitlesAndNormalizedVariantsKeepFullScore(
+        string artist, string title, string videoTitle, string channel)
+    {
+        var right = new MusicVideoDownloader.SearchCandidate("right", videoTitle, channel, 200);
+
+        Assert.Equal(75, MusicVideoDownloader.ScoreCandidate(right, 200_000, Target(artist, title)));
     }
 
     [Theory]

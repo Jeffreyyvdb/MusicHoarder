@@ -477,7 +477,8 @@ public class MusicVideoDownloader(
     /// <summary>
     /// Distinctive tokens of the song's title (noise/credit-prefix stripped, artist + generic words
     /// removed) used to check that a search candidate is the SAME SONG — an artist's unrelated
-    /// "(Official Music Video)" must never outrank the right track.
+    /// "(Official Music Video)" must never outrank the right track. Keeps 1- and 2-character tokens
+    /// ("5" in "5 Star", "GO" in "She on GO", "U", "X", "9") because matching is whole-word.
     /// </summary>
     internal static IReadOnlyCollection<string> TitleTokens(string artist, string title)
     {
@@ -492,16 +493,48 @@ public class MusicVideoDownloader(
         var artistTokens = Tokenize(artist);
         return Tokenize(t)
             .Where(token => !artistTokens.Contains(token) && !GenericTokens.Contains(token))
-            .ToHashSet();
+            .ToHashSet(StringComparer.Ordinal);
     }
 
     private static readonly HashSet<string> GenericTokens =
-        ["official", "video", "audio", "music", "feat", "featuring", "prod", "the", "and", "with"];
+        ["official", "video", "audio", "music", "feat", "featuring", "ft", "prod", "the", "and", "with"];
 
-    private static HashSet<string> Tokenize(string text) =>
-        System.Text.RegularExpressions.Regex.Matches(text.ToLowerInvariant(), @"[\p{L}\p{N}]{3,}")
+    /// <summary>
+    /// Whole normalized word tokens (letters and digits of any length). Folds case and diacritics,
+    /// reads "$" inside a word as "s" ("$ave" = "save"), collapses intra-word apostrophes
+    /// ("Don't" = "dont"), and collapses dotted initialisms ("G.O.M.D." = "gomd", "R.I.P." = "rip").
+    /// </summary>
+    private static HashSet<string> Tokenize(string text)
+    {
+        var folded = TitleNormalizer.FoldDiacritics(text.ToLowerInvariant());
+        folded = System.Text.RegularExpressions.Regex.Replace(folded, @"(?<=\p{L})\$|\$(?=\p{L})", "s");
+        folded = System.Text.RegularExpressions.Regex.Replace(folded, @"(?<=[\p{L}\p{N}])['’](?=[\p{L}\p{N}])", "");
+        folded = System.Text.RegularExpressions.Regex.Replace(
+            folded,
+            @"\b[\p{L}](?:\.[\p{L}])+\.?(?=$|[^\p{L}\p{N}])",
+            m => m.Value.Replace(".", "", StringComparison.Ordinal));
+        return System.Text.RegularExpressions.Regex.Matches(folded, @"[\p{L}\p{N}]+")
             .Select(m => m.Value)
-            .ToHashSet();
+            .ToHashSet(StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    /// Whole-word match against the candidate title's tokens, plus the common "-in'" / "-ing"
+    /// spelling drift on longer words ("Last Man Breathin" ↔ "Last Man Breathing", guarded so
+    /// short pairs like "thin"/"thing" or "sin"/"sing" stay distinct).
+    /// </summary>
+    private static bool MatchesTitleToken(string token, HashSet<string> candidateTokens)
+    {
+        if (candidateTokens.Contains(token))
+            return true;
+        if (token.Length >= 5 && token.EndsWith("in", StringComparison.Ordinal)
+            && candidateTokens.Contains(token + "g"))
+            return true;
+        if (token.Length >= 6 && token.EndsWith("ing", StringComparison.Ordinal)
+            && candidateTokens.Contains(token[..^1]))
+            return true;
+        return false;
+    }
 
     /// <summary>
     /// What a candidate is checked against: the song title's distinctive tokens
@@ -620,7 +653,8 @@ public class MusicVideoDownloader(
         var titleTokens = target.TitleTokens;
         if (titleTokens.Count > 0)
         {
-            var matched = titleTokens.Count(token => t.Contains(token));
+            var candidateTokens = Tokenize(candidate.Title);
+            var matched = titleTokens.Count(token => MatchesTitleToken(token, candidateTokens));
             if (matched == 0) score -= 80; // wrong song
             else score += 30 * matched / titleTokens.Count;
         }

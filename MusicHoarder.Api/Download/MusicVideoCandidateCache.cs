@@ -47,7 +47,8 @@ public class MusicVideoCandidateCache(
     /// searched it, so a change to <see cref="MusicVideoDownloader.ScoreCandidate"/> that should reach
     /// stored lists bumps this: every list then fails <see cref="IsServable"/> and is searched again
     /// (the picker on open, the prefetch for recent songs), keeping the probes already measured.
-    /// 2: a candidate must name one of the song's artists (lists from before carry no version).
+    /// 2: a candidate must name one of the song's artists, and title tokens match whole words
+    ///    including 1- and 2-character tokens (lists from before carry no version).
     /// </summary>
     internal const int RankingVersion = 2;
 
