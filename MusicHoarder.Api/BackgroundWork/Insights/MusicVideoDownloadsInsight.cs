@@ -51,7 +51,7 @@ public sealed class MusicVideoDownloadsInsight(
     {
         var now = time.GetUtcNow().UtcDateTime;
         var opts = options.CurrentValue;
-        var videos = db.SongMusicVideos.IgnoreQueryFilters().AsNoTracking();
+        var videos = db.SongMusicVideos.AsNoTracking();
 
         var rows = (await videos
             .GroupBy(v => new { v.Status, v.Pick })
