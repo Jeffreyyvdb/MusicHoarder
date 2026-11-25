@@ -152,7 +152,20 @@ public sealed class LyricsInsight(
             TimeBuckets.DailyCounts(
                 d.Now, TimeBuckets.TrendDays,
                 d.Finished.Where(f => f.Kind is Finished.AiTimed or Finished.AiWritten).Select(f => f.At)),
-            "songs given AI-timed lyrics per day");
+            "songs given AI-timed lyrics per day",
+            IdleLabel(d));
+    }
+
+    /// <summary>An idle sweep with songs still queued is idle because the passes that would take them cannot run.</summary>
+    private string IdleLabel(Data d)
+    {
+        if (d.AiQueue.Count == 0)
+            return "Nothing to do right now.";
+        if (d.AutoSyncOn)
+            return "Resting between passes.";
+        return transcriber.IsConfigured
+            ? "Only LRCLIB look-ups run: AI sync is switched off."
+            : "Only LRCLIB look-ups run: no transcription provider is configured.";
     }
 
     public async Task<BackgroundJobDetailDto> DescribeAsync(CancellationToken ct)

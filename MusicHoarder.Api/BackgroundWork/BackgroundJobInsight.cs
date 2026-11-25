@@ -71,7 +71,8 @@ public static class BackgroundJobSummaries
         DateTime? lastWorkedAtUtc,
         BackgroundHeadlineDto headline,
         IReadOnlyList<double> trend,
-        string trendLabel)
+        string trendLabel,
+        string idleLabel = "Nothing to do right now.")
     {
         var (state, label, nextRun) = offReason is not null
             ? (BackgroundJobState.Off, offReason, (DateTime?)null)
@@ -82,7 +83,7 @@ public static class BackgroundJobSummaries
                     BackgroundJobState.Working => (runtime.State, "Working through a pass now.", null),
                     BackgroundJobState.Waiting => (runtime.State, runtime.Reason ?? "Waiting.", runtime.UntilUtc),
                     BackgroundJobState.Failing => (runtime.State, $"The last pass failed ({runtime.Reason}).", runtime.NextRunAtUtc),
-                    _ => (BackgroundJobState.Idle, "Nothing to do right now.", runtime.NextRunAtUtc),
+                    _ => (BackgroundJobState.Idle, idleLabel, runtime.NextRunAtUtc),
                 };
 
         var worked = new[] { lastWorkedAtUtc, runtime?.LastWorkedAtUtc }.Max();

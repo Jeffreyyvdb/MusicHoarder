@@ -233,4 +233,21 @@ public class LyricsInsightTests
         Assert.Equal(h.Now.AddHours(2), summary.NextRunAtUtc);
         Assert.DoesNotContain(":", summary.StateLabel);
     }
+
+    [Fact]
+    public async Task An_idle_sweep_with_songs_queued_says_why_they_are_not_moving()
+    {
+        using var h = new BackgroundWorkHarness();
+        Add(h, 1, s => { s.LyricsStatus = LyricsStatus.NotFound; s.DurationSeconds = 200; });
+        h.Status.Idle(BackgroundJobIds.Lyrics, h.Now.AddMinutes(5));
+
+        h.Transcriber.IsConfigured = false;
+        Assert.Contains("no transcription provider", (await h.SummarizeAsync(BackgroundJobIds.Lyrics)).StateLabel);
+
+        h.Transcriber.IsConfigured = true;
+        Assert.Contains("AI sync is switched off", (await h.SummarizeAsync(BackgroundJobIds.Lyrics)).StateLabel);
+
+        h.Settings.AutoSync = true;
+        Assert.Equal("Resting between passes.", (await h.SummarizeAsync(BackgroundJobIds.Lyrics)).StateLabel);
+    }
 }
