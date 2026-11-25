@@ -365,7 +365,7 @@ public static class SharesEndpoints
                     s.HasCoverArt,
                     HasSyncedLyrics = !string.IsNullOrWhiteSpace(s.DisplaySyncedLyrics),
                     HasPlainLyrics = !string.IsNullOrWhiteSpace(s.DisplayPlainLyrics),
-                    IsInstrumental = s.IsInstrumental == true,
+                    IsInstrumental = s.ShowsAsInstrumental,
                     HasVideo = video is not null,
                     VideoOffsetMs = video?.SyncOffsetMs,
                     VideoDurationSeconds = video?.DurationSeconds,
@@ -416,7 +416,9 @@ public static class SharesEndpoints
         // viewers who have no Regenerate button.
         var translationFresh =
             song.LyricsTranslationStatus == LyricsTranslationStatus.Completed
-            && !song.IsLyricsTranslationStale;
+            && !song.IsLyricsTranslationStale
+            // No words are shown for an instrumental, so neither is a translation of them.
+            && !song.ShowsAsInstrumental;
         return Results.Ok(new
         {
             song.Id,
@@ -425,7 +427,7 @@ public static class SharesEndpoints
             // The AI disclosure travels with the lyrics onto the public share page — anyone reading these
             // words is entitled to know a machine wrote or re-timed them, signed in or not.
             LyricsProvenance = song.LyricsProvenance.ToString(),
-            IsInstrumental = song.IsInstrumental == true,
+            IsInstrumental = song.ShowsAsInstrumental,
             RomanizedSynced = translationFresh ? song.RomanizedSyncedLyrics : null,
             RomanizedPlain = translationFresh ? song.RomanizedPlainLyrics : null,
             TranslatedSynced = translationFresh ? song.TranslatedSyncedLyrics : null,

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Endpoints;
 using MusicHoarder.Api.Enrichment;
@@ -34,11 +35,12 @@ public class TranscribeLyricsEndpointTests : IDisposable
         public bool IsConfigured => true;
 
         public Task<TranscriptionResult> TranscribeAsync(
-            SongMetadata song, string audioFilePath, CancellationToken ct = default)
+            SongMetadata song, string audioFilePath, CancellationToken ct = default, Func<CancellationToken, Task>? beforeRetry = null)
             => Task.FromResult(result);
 
         public Task<IReadOnlyList<TimedWord>> TranscribeClipAsync(
-            string audioFilePath, double startSeconds, double lengthSeconds, string? promptText = null, CancellationToken ct = default)
+            string audioFilePath, double startSeconds, double lengthSeconds, string? promptText = null, CancellationToken ct = default,
+            Func<CancellationToken, Task>? beforeRetry = null)
             => Task.FromResult<IReadOnlyList<TimedWord>>(Array.Empty<TimedWord>());
     }
 
@@ -47,12 +49,109 @@ public class TranscribeLyricsEndpointTests : IDisposable
         public bool IsConfigured => true;
 
         public Task<TranscriptionResult> TranscribeAsync(
-            SongMetadata song, string audioFilePath, CancellationToken ct = default)
+            SongMetadata song, string audioFilePath, CancellationToken ct = default, Func<CancellationToken, Task>? beforeRetry = null)
             => throw new TranscriptionRateLimitedException("429 from the provider", retryAfter);
 
         public Task<IReadOnlyList<TimedWord>> TranscribeClipAsync(
-            string audioFilePath, double startSeconds, double lengthSeconds, string? promptText = null, CancellationToken ct = default)
+            string audioFilePath, double startSeconds, double lengthSeconds, string? promptText = null, CancellationToken ct = default,
+            Func<CancellationToken, Task>? beforeRetry = null)
             => throw new NotSupportedException();
+    }
+
+    /// <summary>A transcriber that does something else to the database while the audio is out.</summary>
+    private sealed class MeanwhileTranscriber(Func<Task<TranscriptionResult>> transcribe) : ILyricsTranscriptionService
+    {
+        public bool IsConfigured => true;
+
+        public Task<TranscriptionResult> TranscribeAsync(
+            SongMetadata song, string audioFilePath, CancellationToken ct = default, Func<CancellationToken, Task>? beforeRetry = null)
+            => transcribe();
+
+        public Task<IReadOnlyList<TimedWord>> TranscribeClipAsync(
+            string audioFilePath, double startSeconds, double lengthSeconds, string? promptText = null, CancellationToken ct = default,
+            Func<CancellationToken, Task>? beforeRetry = null)
+            => throw new NotSupportedException();
+    }
+
+    private static async Task Meanwhile(MusicHoarderDbContext db, int songId, Action<SongMetadata> change)
+    {
+        var options = (DbContextOptions<MusicHoarderDbContext>)db.GetService<IDbContextOptions>();
+        await using var other = new MusicHoarderDbContext(options);
+        change(await other.Songs.SingleAsync(s => s.Id == songId));
+        await other.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task an_lrc_published_while_the_audio_was_out_is_not_hidden_behind_the_older_alignment()
+    {
+        await using var db = NewContext();
+        var song = NewBuiltSongWithLyrics();
+        song.SyncedLyrics = null;
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        var transcriber = new MeanwhileTranscriber(async () =>
+        {
+            await Meanwhile(db, song.Id, s => s.SetOfficialLyricsText(
+                "[00:01.50]official line one\n[00:05.50]official line two", s.PlainLyrics));
+            return new TranscriptionResult(
+                "[00:02.10]official line one\n[00:06.40]official line two",
+                "official line one\nofficial line two",
+                "whisper-1",
+                AlignedToReference: true);
+        });
+
+        await SongsEndpoints.TranscribeLyrics(song.Id, db, transcriber, TestBudget.Over(db), CancellationToken.None);
+
+        var saved = await db.Songs.AsNoTracking().FirstAsync(s => s.Id == song.Id);
+        Assert.Equal("[00:01.50]official line one\n[00:05.50]official line two", saved.DisplaySyncedLyrics);
+        Assert.Equal("[00:01.50]official line one\n[00:05.50]official line two", saved.EffectiveSyncedLyrics);
+    }
+
+    [Fact]
+    public async Task a_failed_request_does_not_mark_failed_a_transcription_another_run_stored_meanwhile()
+    {
+        await using var db = NewContext();
+        var song = NewBuiltSongWithLyrics();
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        var transcriber = new MeanwhileTranscriber(async () =>
+        {
+            await Meanwhile(db, song.Id, s => s.ApplyTranscriptionResult("[00:02.00]official line one", "official line one", "whisper-1"));
+            throw new HttpRequestException("provider error");
+        });
+
+        var response = await SongsEndpoints.TranscribeLyrics(song.Id, db, transcriber, TestBudget.Over(db), CancellationToken.None);
+
+        Assert.Equal(StatusCodes.Status502BadGateway, (response as IStatusCodeHttpResult)?.StatusCode);
+        var saved = await db.Songs.AsNoTracking().FirstAsync(s => s.Id == song.Id);
+        Assert.Equal(TranscriptionStatus.Completed, saved.TranscriptionStatus);
+    }
+
+    [Fact]
+    public async Task a_failed_request_records_nothing_against_words_that_arrived_meanwhile()
+    {
+        await using var db = NewContext();
+        var song = NewBuiltSongWithLyrics();
+        song.SyncedLyrics = null;
+        song.PlainLyrics = null;
+        song.LyricsStatus = LyricsStatus.NotFound;
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        var transcriber = new MeanwhileTranscriber(async () =>
+        {
+            await Meanwhile(db, song.Id, s => s.TryApplyLyricsUpgrade(null, "official words", instrumental: false));
+            throw new HttpRequestException("provider error");
+        });
+
+        await SongsEndpoints.TranscribeLyrics(song.Id, db, transcriber, TestBudget.Over(db), CancellationToken.None);
+
+        // Nothing recorded, so the AI sync still sees words no transcription was made for.
+        var saved = await db.Songs.AsNoTracking().FirstAsync(s => s.Id == song.Id);
+        Assert.Equal(TranscriptionStatus.NotRequested, saved.TranscriptionStatus);
+        Assert.NotEqual(saved.LyricsTextChangedAtUtc, saved.TranscriptionWordsStampUtc);
     }
 
     /// <summary>A built song with LRCLIB lyrics and a real (stub) file the endpoint can resolve.</summary>

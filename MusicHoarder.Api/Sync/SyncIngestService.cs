@@ -424,8 +424,7 @@ public sealed class SyncIngestService(
         song.EnrichmentError = null;
         song.LockManualApproval();
 
-        song.PlainLyrics = payload.PlainLyrics;
-        song.SyncedLyrics = payload.SyncedLyrics;
+        song.SetOfficialLyricsText(payload.SyncedLyrics, payload.PlainLyrics);
         song.LyricsOrigin = payload.LyricsOrigin;
         song.GeniusSongId = payload.LyricsOrigin == LyricsOrigin.Genius ? payload.GeniusSongId : null;
         song.IsInstrumental = payload.IsInstrumental;

@@ -593,20 +593,10 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         if (song is null || !song.IsReadyForLyricsFetch)
             return false;
 
-        // Capture before the fetch: an already-built file was tagged without these lyrics, so it
-        // needs an in-place re-tag once we have them (the inline path runs pre-build, so it never does this).
-        var wasBuilt = song.LibraryBuildStatus == LibraryBuildStatus.Done;
-
-        await FetchLyricsForSongAsync(song, dbContext, ct);
-
-        var gotLyrics = song.LyricsStatus == LyricsStatus.Fetched;
-        if (gotLyrics && wasBuilt)
-        {
-            song.RequeueForRetag();
-            await dbContext.SaveChangesAsync(ct);
-        }
-
-        return gotLyrics;
+        // An already-built file was tagged without these lyrics, so it is re-tagged in place in the same
+        // save (the inline path runs pre-build, so it never does this).
+        return await FetchLyricsForSongAsync(song, dbContext, ct, retagIfBuilt: true)
+            && song.LyricsStatus == LyricsStatus.Fetched;
     }
 
     /// <summary>
@@ -643,20 +633,48 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         return await _geniusLyricsService.FetchLyricsAsync(song, ct) ?? lrcLib;
     }
 
-    private async Task FetchLyricsForSongAsync(SongMetadata song, MusicHoarderDbContext dbContext, CancellationToken ct)
+    /// <returns>Whether the answer was stored (false when the song stopped needing it meanwhile).</returns>
+    private async Task<bool> FetchLyricsForSongAsync(
+        SongMetadata song, MusicHoarderDbContext dbContext, CancellationToken ct, bool retagIfBuilt = false)
     {
         if (!song.IsReadyForLyricsFetch)
         {
             _logger.LogDebug("Skipping lyrics fetch for {Track} (SongId={SongId}): not eligible (status={LyricsStatus})",
                 song.TrackLabel, song.Id, song.LyricsStatus);
-            return;
+            return false;
         }
 
+        LyricsResult? result = null;
+        Exception? failure = null;
         try
         {
-            var result = await FetchFromSourcesAsync(song, songHasNoLyrics: true, ct);
+            result = await FetchFromSourcesAsync(song, songHasNoLyrics: true, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            failure = ex;
+        }
 
-            if (result is null)
+        // The lookup takes seconds, in which "Sync with AI" may have stored words it found itself, so the
+        // answer is applied to the song as it is now.
+        return await dbContext.UpdateLatestAsync(song, () =>
+        {
+            if (!song.IsReadyForLyricsFetch)
+                return false;
+
+            var wasBuilt = song.LibraryBuildStatus == LibraryBuildStatus.Done;
+            var effectiveBefore = (song.EffectiveSyncedLyrics, song.EffectivePlainLyrics);
+
+            if (failure is not null)
+            {
+                song.MarkLyricsFailed();
+                _logger.LogWarning(failure, "Lyrics fetch failed for {Track} (SongId={SongId})", song.TrackLabel, song.Id);
+            }
+            else if (result is null)
             {
                 song.MarkLyricsNotFound();
                 _logger.LogDebug("No lyrics found for {Track} (SongId={SongId})", song.TrackLabel, song.Id);
@@ -677,19 +695,13 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
             }
 
             RecordLyricsAttempt(song);
-            await dbContext.SaveChangesAsync(ct);
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            song.MarkLyricsFailed();
-            RecordLyricsAttempt(song);
-            await dbContext.SaveChangesAsync(ct);
-            _logger.LogWarning(ex, "Lyrics fetch failed for {Track} (SongId={SongId})", song.TrackLabel, song.Id);
-        }
+
+            // Re-tagged in this same save, before the rebuild interceptor sees the lyrics change, so the
+            // destination path the re-tag keeps is the real one.
+            if (retagIfBuilt && wasBuilt && (song.EffectiveSyncedLyrics, song.EffectivePlainLyrics) != effectiveBefore)
+                song.RequeueForRetag();
+            return true;
+        }, ct);
     }
 
     public async Task<bool> RecheckLyricsForSongAsync(int songId, bool force = false, CancellationToken ct = default)
@@ -710,14 +722,33 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         if (!force && song.LyricsNextRecheckAfterUtc > DateTime.UtcNow)
             return false;
 
-        var wasBuilt = song.LibraryBuildStatus == LibraryBuildStatus.Done;
-        var improved = false;
-
+        LyricsResult? result = null;
         try
         {
             var songHasNoLyrics = string.IsNullOrWhiteSpace(song.SyncedLyrics) && string.IsNullOrWhiteSpace(song.PlainLyrics);
-            var result = await FetchFromSourcesAsync(song, songHasNoLyrics, ct);
+            result = await FetchFromSourcesAsync(song, songHasNoLyrics, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // A transient LRCLIB failure must not downgrade the stored lyrics — only the attempt is
+            // recorded, which pushes the next re-check out by one rung of the backoff.
+            _logger.LogWarning(ex, "Lyrics re-check failed for {Track} (SongId={SongId})", song.TrackLabel, song.Id);
+        }
 
+        // The lookup takes seconds, in which the AI sync may have saved the song (an instrumental mark, a
+        // transcription), so the answer is applied to the song as it is now.
+        var improved = false;
+        await dbContext.UpdateLatestAsync(song, () =>
+        {
+            // Reset, deleted or resolved by someone else meanwhile: this lookup no longer counts.
+            if (!song.IsLyricsRecheckCandidate)
+                return false;
+
+            var wasBuilt = song.LibraryBuildStatus == LibraryBuildStatus.Done;
             improved = result is not null
                 && song.TryApplyLyricsUpgrade(
                     result.SyncedLyrics, result.PlainLyrics, result.IsInstrumental, result.LrclibId, result.DurationSeconds,
@@ -733,24 +764,13 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
                     "Lyrics re-check upgraded {Track} (SongId={SongId}) to {Kind} on attempt {Attempt}",
                     song.TrackLabel, song.Id, kind, song.LyricsFetchAttempts + 1);
             }
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            // A transient LRCLIB failure must not downgrade the stored lyrics — only the attempt is
-            // recorded, which pushes the next re-check out by one rung of the backoff.
-            _logger.LogWarning(ex, "Lyrics re-check failed for {Track} (SongId={SongId})", song.TrackLabel, song.Id);
-        }
 
-        RecordLyricsAttempt(song);
+            RecordLyricsAttempt(song);
 
-        if (improved && wasBuilt)
-            song.RequeueForRetag();
-
-        await dbContext.SaveChangesAsync(ct);
+            if (improved && wasBuilt)
+                song.RequeueForRetag();
+            return true;
+        }, ct);
         return improved;
     }
 

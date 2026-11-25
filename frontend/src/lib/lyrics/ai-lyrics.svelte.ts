@@ -12,6 +12,7 @@ import {
 import { isRefusal } from '#lib/refusal.ts';
 import { toast } from 'svelte-sonner';
 import { computeLyricsProvenance } from '#lib/lyrics/provenance.ts';
+import { isConfirmedInstrumental } from '#lib/lyrics/instrumental.ts';
 import type { LyricsProvenance, LyricsStatus } from '#lib/types.ts';
 
 export type LyricsSource = 'lrclib' | 'transcribed';
@@ -131,8 +132,11 @@ export function createAiLyrics(opts: {
   let preferredSource = $state<LyricsSource>('lrclib');
   let showCompare = $state(false);
   let preferSaving = $state(false);
-  // Plain (non-reactive) guard so re-syncing on song change can't loop the caller's effect.
+  // Plain (non-reactive) guards so re-syncing on song change can't loop the caller's effect.
   let loadedForSongId: number | null = null;
+  // The song and its lyric flags as last fetched for: a library refresh that changes the flags (the
+  // background AI sync gave the song lyrics) fetches again without resetting what is on screen.
+  let fetchedForKey: string | null = null;
   // Bumped by every write of the AI lyrics from an action, so a load that was already in flight
   // (older than that write) does not put the previous state back. Plain, not $state.
   let edits = 0;
@@ -159,9 +163,27 @@ export function createAiLyrics(opts: {
     }, ms);
   }
 
-  const lyricsStatus = $derived((song.lyricsStatus ?? 'NotFetched') as LyricsStatus);
+  // What this song's own lyrics response said about its official lyrics. It is fresher than the library row,
+  // which the background AI sync and the lyrics re-check can outdate, so it wins once it lands.
+  let fetchedOfficial = $state<{
+    status: LyricsStatus | null;
+    hasLyrics: boolean;
+    synced: string | undefined;
+    plain: string | undefined;
+    isInstrumental: boolean | undefined;
+  } | null>(null);
+  const lyricsStatus = $derived(
+    (fetchedOfficial?.status ?? song.lyricsStatus ?? 'NotFetched') as LyricsStatus
+  );
   const hasLyrics = $derived(
-    Boolean(song.hasSyncedLyrics) || Boolean(song.hasPlainLyrics) || lyricsStatus === 'Fetched'
+    fetchedOfficial
+      ? fetchedOfficial.hasLyrics
+      : Boolean(song.hasSyncedLyrics) || Boolean(song.hasPlainLyrics) || lyricsStatus === 'Fetched'
+  );
+  const confirmedInstrumental = $derived(
+    fetchedOfficial?.status
+      ? fetchedOfficial.status === 'Instrumental'
+      : isConfirmedInstrumental(song)
   );
 
   const translationIsEnglish = $derived(translation != null && isAlreadyEnglish(translation));
@@ -172,11 +194,11 @@ export function createAiLyrics(opts: {
   // the two stages (a demo row with no file on disk fails stage 1 and falls through to stage 2).
   // Owner-gated: these are server writes on the owner's rows; friends still SEE existing
   // pronunciation/translation documents (hasTranslation), they just can't generate them.
-  const canTranscribe = $derived(isOwner && lyricsFeatureEnabled && song.isInstrumental !== true);
+  const canTranscribe = $derived(isOwner && lyricsFeatureEnabled && !confirmedInstrumental);
   const canTranslate = $derived(
     isOwner &&
       translationFeatureEnabled &&
-      song.isInstrumental !== true &&
+      !confirmedInstrumental &&
       (hasLyrics || transcription != null)
   );
   const canEnhance = $derived(canTranscribe || canTranslate);
@@ -250,7 +272,7 @@ export function createAiLyrics(opts: {
 
   // The mobile lyrics card / fullscreen overlay present the same source as the big viewer.
   const expandable = $derived(
-    song.isInstrumental !== true &&
+    !confirmedInstrumental &&
       (showAiInViewer ? Boolean(transcription?.synced || transcription?.plain) : hasLyrics)
   );
 
@@ -363,6 +385,23 @@ export function createAiLyrics(opts: {
     get enhanceBusy() {
       return enhanceBusy;
     },
+    /** LRCLIB calls the song instrumental, by the freshest answer the app has. */
+    get confirmedInstrumental() {
+      return confirmedInstrumental;
+    },
+    /** The song is marked instrumental, by LRCLIB or the AI, by the freshest answer the app has. */
+    get isInstrumental() {
+      return fetchedOfficial?.isInstrumental ?? song.isInstrumental === true;
+    },
+    /**
+     * The official lyrics from the song's own lyrics response, once it lands (null before, and for a guest,
+     * whose response holds the displayed words instead). Fresher than the library row.
+     */
+    get officialLyrics() {
+      return fetchedOfficial?.status
+        ? { synced: fetchedOfficial.synced, plain: fetchedOfficial.plain }
+        : null;
+    },
     get lyricsStatus() {
       return lyricsStatus;
     },
@@ -435,34 +474,38 @@ export function createAiLyrics(opts: {
     /**
      * Load any existing AI transcription + pronunciation/translation when the song changes, and
      * reset transient state so a prior song's data never bleeds into the next (the panel instance
-     * is reused across songs). Keyed on the plain `loadedForSongId` (not $state) so the caller's
-     * `$effect` can't re-trigger itself; a repeat call for the same song is a no-op.
+     * is reused across songs). Keyed on plain fields (not $state) so the caller's `$effect` can't
+     * re-trigger itself; a repeat call for the same song and flags is a no-op.
+     *
+     * It always asks the server, even when the library row says the song has no lyrics: the
+     * background AI sync gives songs lyrics while the app holds an older copy of the library.
      */
     syncToSong() {
       const current = song;
       const id = current.id;
-      if (loadedForSongId === id) return;
-      loadedForSongId = id;
-      transcription = null;
-      syncOffsetMs = null;
-      showCompare = false;
-      translation = null;
-      lyricsView = 'original';
-      translationStale = false;
-      // A pending banner reset from the previous song must not fire onto this one's fresh state.
-      if (enhanceTimer) clearTimeout(enhanceTimer);
-      enhanceTimer = null;
-      enhanceState = 'idle';
-      enhanceError = null;
-      preferredSource = current.preferredLyricsSource === 'Transcribed' ? 'transcribed' : 'lrclib';
-      // The songs list carries no translation flag, so any song with lyrics may have one — one small
-      // fetch covers both the transcription and the translation.
-      if (!current.hasTranscribedLyrics && !current.hasSyncedLyrics && !current.hasPlainLyrics)
-        return;
+      const key = [
+        id,
+        current.hasTranscribedLyrics === true,
+        current.hasSyncedLyrics === true,
+        current.hasPlainLyrics === true,
+        current.preferredLyricsSource ?? '',
+        current.lyricsStatus ?? ''
+      ].join(':');
+      if (fetchedForKey === key) return;
+      fetchedForKey = key;
       // Sets every field from the answer, so a fresh fetch also clears what a remembered one had.
       const apply = (d: TrackLyricsResponse) => {
+        fetchedOfficial = {
+          status: (d.lyricsStatus as LyricsStatus | undefined) ?? null,
+          hasLyrics: Boolean(d.synced) || Boolean(d.plain) || d.lyricsStatus === 'Fetched',
+          // The grantee response carries the displayed words, not the official ones; only the owner's does.
+          synced: d.lyricsStatus ? (d.synced ?? undefined) : undefined,
+          plain: d.lyricsStatus ? (d.plain ?? undefined) : undefined,
+          isInstrumental: d.isInstrumental ?? undefined
+        };
+        // LRCLIB's instrumental verdict outranks a transcript made before it, which the server keeps.
         transcription =
-          d.transcribedSynced || d.transcribedPlain
+          d.lyricsStatus !== 'Instrumental' && (d.transcribedSynced || d.transcribedPlain)
             ? {
                 synced: d.transcribedSynced ?? undefined,
                 plain: d.transcribedPlain ?? undefined,
@@ -472,7 +515,9 @@ export function createAiLyrics(opts: {
               }
             : null;
         syncOffsetMs = d.lyricsSyncOffsetMs ?? null;
-        const translated = d.lyricsTranslationStatus === 'Completed';
+        // Nothing is shown for an instrumental, so neither is a translation of it.
+        const translated =
+          d.lyricsTranslationStatus === 'Completed' && d.lyricsStatus !== 'Instrumental';
         translation = translated
           ? {
               romanizedSynced: d.romanizedSynced ?? undefined,
@@ -485,9 +530,30 @@ export function createAiLyrics(opts: {
             }
           : null;
         translationStale = translated && d.lyricsTranslationStale === true;
+        // The server may have promoted or demoted the AI version since the library was loaded. A flip the
+        // listener is saving right now wins.
+        if (d.preferredLyricsSource && !preferSaving)
+          preferredSource = d.preferredLyricsSource === 'Transcribed' ? 'transcribed' : 'lrclib';
       };
-      const last = api.lastFetchedTrackLyrics?.(id);
-      if (last) apply(last);
+      if (loadedForSongId !== id) {
+        loadedForSongId = id;
+        fetchedOfficial = null;
+        transcription = null;
+        syncOffsetMs = null;
+        showCompare = false;
+        translation = null;
+        lyricsView = 'original';
+        translationStale = false;
+        // A pending banner reset from the previous song must not fire onto this one's fresh state.
+        if (enhanceTimer) clearTimeout(enhanceTimer);
+        enhanceTimer = null;
+        enhanceState = 'idle';
+        enhanceError = null;
+        preferredSource =
+          current.preferredLyricsSource === 'Transcribed' ? 'transcribed' : 'lrclib';
+        const last = api.lastFetchedTrackLyrics?.(id);
+        if (last) apply(last);
+      }
       const editsBefore = edits;
       // Dropped when the song changed, or an action wrote newer lyrics, while it was in flight.
       const stillWanted = () => loadedForSongId === id && edits === editsBefore;

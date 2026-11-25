@@ -192,7 +192,7 @@
           variant="theater"
           songId={song.id}
           doc={viewDoc}
-          isInstrumental={song.isInstrumental ?? undefined}
+          isInstrumental={ai.isInstrumental && !viewDoc.hasAny}
           {currentTimeMs}
           onSeek={seek}
           secondarySynced={ai.secondarySynced}

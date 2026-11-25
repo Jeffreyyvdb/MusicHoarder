@@ -113,14 +113,162 @@ afterEach(() => {
 });
 
 describe('syncToSong', () => {
-  it('initialises the preferred source from the song and skips the fetch when it has no lyrics', () => {
-    const { ai, api } = setup({
+  it('initialises the preferred source from the song', () => {
+    const { ai } = setup({
       song: makeSong({ preferredLyricsSource: 'Transcribed' })
     });
     ai.syncToSong();
     expect(ai.preferredSource).toBe('transcribed');
-    // No lyric flags at all — nothing stored server-side is worth a round trip.
-    expect(api.fetchTrackLyrics).not.toHaveBeenCalled();
+  });
+
+  it('asks the server even when the library row says the song has no lyrics', async () => {
+    // The background AI sync gave the song lyrics after the app loaded the library.
+    const { ai, api } = setup({
+      song: makeSong(),
+      api: {
+        fetchTrackLyrics: vi.fn(async () => ({
+          id: 1,
+          lyricsStatus: 'NotFound',
+          transcribedSynced: '[00:01.00] heard by the ai'
+        }))
+      }
+    });
+    ai.syncToSong();
+    await flushMicrotasks();
+    expect(api.fetchTrackLyrics).toHaveBeenCalledWith(1);
+    expect(ai.transcription).toMatchObject({ synced: '[00:01.00] heard by the ai' });
+  });
+
+  it('follows the source the server prefers now, not the one the library row remembers', async () => {
+    const { ai } = setup({
+      song: songWithLyrics({ hasTranscribedLyrics: true, preferredLyricsSource: 'Lrclib' }),
+      api: {
+        fetchTrackLyrics: vi.fn(async () => ({
+          id: 1,
+          lyricsStatus: 'Fetched',
+          transcribedSynced: '[00:01.00] official words re-timed',
+          transcriptionAlignedToReference: true,
+          preferredLyricsSource: 'Transcribed'
+        }))
+      }
+    });
+    ai.syncToSong();
+    expect(ai.preferredSource).toBe('lrclib');
+    await flushMicrotasks();
+    expect(ai.preferredSource).toBe('transcribed');
+  });
+
+  it('shows the official lyrics a fresh response has, over an AI version the row says is all there is', async () => {
+    const { ai } = setup({
+      song: makeSong({ hasTranscribedLyrics: true }),
+      api: {
+        fetchTrackLyrics: vi.fn(async () => ({
+          id: 1,
+          lyricsStatus: 'Fetched',
+          synced: '[00:01.00] official words',
+          transcribedSynced: '[00:01.00] what the ai heard',
+          preferredLyricsSource: 'Lrclib'
+        }))
+      }
+    });
+    ai.syncToSong();
+    await flushMicrotasks();
+    expect(ai.showAiInViewer).toBe(false);
+  });
+
+  it('fetches again when a library refresh says LRCLIB now calls the song instrumental', async () => {
+    const fetchTrackLyrics = vi
+      .fn()
+      .mockResolvedValueOnce({
+        id: 1,
+        lyricsStatus: 'NotFound',
+        transcribedSynced: '[00:01.00] what the ai heard'
+      })
+      .mockResolvedValueOnce({
+        id: 1,
+        lyricsStatus: 'Instrumental',
+        transcribedSynced: '[00:01.00] what the ai heard'
+      });
+    const { ai, setSong } = setup({
+      song: makeSong({ hasTranscribedLyrics: true, lyricsStatus: 'NotFound' }),
+      api: { fetchTrackLyrics }
+    });
+    ai.syncToSong();
+    await flushMicrotasks();
+    expect(ai.transcription).not.toBeNull();
+
+    setSong(
+      makeSong({ hasTranscribedLyrics: true, lyricsStatus: 'Instrumental', isInstrumental: true })
+    );
+    ai.syncToSong();
+    await flushMicrotasks();
+    expect(ai.transcription).toBeNull();
+  });
+
+  it('takes LRCLIB’s instrumental verdict and the official lyrics from the fresh response', async () => {
+    const { ai } = setup({
+      song: makeSong({
+        hasTranscribedLyrics: true,
+        lyricsStatus: 'NotFound',
+        isInstrumental: false
+      }),
+      api: {
+        fetchTrackLyrics: vi.fn(async () => ({
+          id: 1,
+          lyricsStatus: 'Instrumental',
+          isInstrumental: true,
+          transcribedSynced: '[00:01.00] thank you for watching',
+          lyricsTranslationStatus: 'Completed',
+          translatedSynced: '[00:01.00] merci'
+        }))
+      }
+    });
+    ai.syncToSong();
+    await flushMicrotasks();
+    expect(ai.confirmedInstrumental).toBe(true);
+    expect(ai.isInstrumental).toBe(true);
+    expect(ai.translation).toBeNull();
+    expect(ai.officialLyrics).toEqual({ synced: undefined, plain: undefined });
+  });
+
+  it('shows no transcript for a song LRCLIB calls instrumental', async () => {
+    const { ai } = setup({
+      song: makeSong({ hasTranscribedLyrics: true }),
+      api: {
+        fetchTrackLyrics: vi.fn(async () => ({
+          id: 1,
+          lyricsStatus: 'Instrumental',
+          transcribedSynced: '[00:01.00] thank you for watching'
+        }))
+      }
+    });
+    ai.syncToSong();
+    await flushMicrotasks();
+    expect(ai.transcription).toBeNull();
+  });
+
+  it('fetches again when a library refresh changes the song’s lyric flags, keeping the view', async () => {
+    const fetchTrackLyrics = vi
+      .fn()
+      .mockResolvedValueOnce({ id: 1, lyricsStatus: 'NotFound' })
+      .mockResolvedValueOnce({
+        id: 1,
+        lyricsStatus: 'NotFound',
+        transcribedSynced: '[00:01.00] heard by the ai'
+      });
+    const { ai, api, setSong } = setup({ song: makeSong(), api: { fetchTrackLyrics } });
+    ai.syncToSong();
+    await flushMicrotasks();
+    expect(ai.transcription).toBeNull();
+    ai.toggleCompare();
+
+    setSong(makeSong({ hasTranscribedLyrics: true }));
+    ai.syncToSong();
+    await flushMicrotasks();
+
+    expect(api.fetchTrackLyrics).toHaveBeenCalledTimes(2);
+    expect(ai.transcription).toMatchObject({ synced: '[00:01.00] heard by the ai' });
+    expect(ai.showCompare).toBe(true);
   });
 
   it('loads a stored transcription and completed translation, including the stale bit', async () => {
@@ -454,10 +602,27 @@ describe('capability and label rules', () => {
     expect(ai.canEnhance).toBe(false);
   });
 
-  it('never offers either stage for an instrumental', () => {
-    const { ai } = setup({ song: songWithLyrics({ isInstrumental: true }) });
+  it('never offers either stage for a song LRCLIB calls instrumental', () => {
+    const { ai } = setup({
+      song: songWithLyrics({ isInstrumental: true, lyricsStatus: 'Instrumental' })
+    });
     ai.syncToSong();
     expect(ai.canEnhance).toBe(false);
+  });
+
+  it('still offers a transcription for a song only the AI heard no singing in', () => {
+    const { ai } = setup({ song: makeSong({ isInstrumental: true, lyricsStatus: 'NotFound' }) });
+    ai.syncToSong();
+    expect(ai.canTranscribe).toBe(true);
+  });
+
+  it('translates and expands lyrics a song gained after the AI heard no singing in it', () => {
+    const { ai } = setup({
+      song: songWithLyrics({ isInstrumental: true, lyricsStatus: 'NotFound' })
+    });
+    ai.syncToSong();
+    expect(ai.canTranslate).toBe(true);
+    expect(ai.expandable).toBe(true);
   });
 
   it('only offers translation once there are lyrics to work from', () => {
@@ -613,7 +778,10 @@ describe('viewer document selection', () => {
   });
 
   it('only offers compare once an AI transcription exists alongside LRCLIB lyrics', async () => {
-    const { ai } = setup({ song: makeSong() }); // no lyrics
+    const { ai } = setup({
+      song: makeSong(), // no lyrics
+      api: { fetchTrackLyrics: vi.fn(async () => ({ id: 1, lyricsStatus: 'NotFound' })) }
+    });
     ai.syncToSong();
     await ai.enhance();
     expect(ai.canCompare).toBe(false);
@@ -623,7 +791,9 @@ describe('viewer document selection', () => {
   });
 
   it('collapses expandability for an instrumental and for an AI viewer with no document', () => {
-    const instrumental = setup({ song: songWithLyrics({ isInstrumental: true }) });
+    const instrumental = setup({
+      song: songWithLyrics({ isInstrumental: true, lyricsStatus: 'Instrumental' })
+    });
     instrumental.ai.syncToSong();
     expect(instrumental.ai.expandable).toBe(false);
     const withLyrics = setup();

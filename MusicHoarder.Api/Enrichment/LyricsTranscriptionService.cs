@@ -20,7 +20,12 @@ namespace MusicHoarder.Api.Enrichment;
 /// which must never silently replace curated lyrics. Callers use this to decide whether promoting
 /// the transcription to the display/file default is safe.
 /// </param>
-public record TranscriptionResult(string? SyncedLyrics, string? PlainLyrics, string Model, bool AlignedToReference = false);
+/// <param name="ReferenceLrclibId">
+/// The LRCLIB entry the transcriber looked the official words up from itself, when the song held none; its
+/// id lets a later correction of that entry replace the words.
+/// </param>
+public record TranscriptionResult(
+    string? SyncedLyrics, string? PlainLyrics, string Model, bool AlignedToReference = false, int? ReferenceLrclibId = null);
 
 /// <summary>
 /// The provider is rate-limiting us, or a local slot never came free. Deliberately its own type: this means
@@ -45,7 +50,13 @@ public interface ILyricsTranscriptionService
     /// synced LRC — preferring LLM alignment of the song's official lyrics (LRCLIB plain) to Whisper's
     /// word clock, falling back to a deterministic split. Throws on a transcode or API failure.
     /// </summary>
-    Task<TranscriptionResult> TranscribeAsync(SongMetadata song, string audioFilePath, CancellationToken ct = default);
+    /// <param name="beforeRetry">
+    /// Runs before each retry of an upload that failed (not one the provider refused with a 429, which it
+    /// did not count); the audio meter's <see cref="TranscriptionAudioBudget.SpendAsync{T}"/> hands one over
+    /// to count the audio sent again.
+    /// </param>
+    Task<TranscriptionResult> TranscribeAsync(
+        SongMetadata song, string audioFilePath, CancellationToken ct = default, Func<CancellationToken, Task>? beforeRetry = null);
 
     /// <summary>
     /// Transcribes a single short WINDOW of a file and returns its words on the track's own clock (times are
@@ -62,7 +73,12 @@ public interface ILyricsTranscriptionService
     /// scores on. Free: the prompt is not audio and does not touch the audio-seconds budget.
     /// </param>
     Task<IReadOnlyList<TimedWord>> TranscribeClipAsync(
-        string audioFilePath, double startSeconds, double lengthSeconds, string? promptText = null, CancellationToken ct = default);
+        string audioFilePath,
+        double startSeconds,
+        double lengthSeconds,
+        string? promptText = null,
+        CancellationToken ct = default,
+        Func<CancellationToken, Task>? beforeRetry = null);
 }
 
 /// <summary>
@@ -83,7 +99,8 @@ public sealed class LyricsTranscriptionService(
 
     public bool IsConfigured => options.CurrentValue.IsConfigured;
 
-    public async Task<TranscriptionResult> TranscribeAsync(SongMetadata song, string audioFilePath, CancellationToken ct = default)
+    public async Task<TranscriptionResult> TranscribeAsync(
+        SongMetadata song, string audioFilePath, CancellationToken ct = default, Func<CancellationToken, Task>? beforeRetry = null)
     {
         var opts = options.CurrentValue;
         if (!opts.IsConfigured)
@@ -105,9 +122,9 @@ public sealed class LyricsTranscriptionService(
             // enough — so an unprimed run can land either side of that bar on the same song, which is why
             // asking twice used to give two different answers. Priming it costs nothing and stops most of
             // that coin-flip at the source.
-            var referenceText = await ResolveReferenceLyricsAsync(song, ct);
+            var (referenceText, referenceLrclibId) = await ResolveReferenceLyricsAsync(song, ct);
 
-            var response = await UploadWithRetryAsync(tempMp3, opts, BuildPrompt(referenceText), ct);
+            var response = await UploadWithRetryAsync(tempMp3, opts, BuildPrompt(referenceText), beforeRetry, ct);
             var words = ToTimedWords(response.Words);
             var transcriptText = NullIfBlank(response.Text);
 
@@ -163,7 +180,7 @@ public sealed class LyricsTranscriptionService(
 
             var synced = lines is { Count: > 0 } ? LrcBuilder.Format(lines) : null;
             var plain = NullIfBlank(referenceText) ?? transcriptText;
-            return new TranscriptionResult(synced, plain, opts.Model, alignedToReference);
+            return new TranscriptionResult(synced, plain, opts.Model, alignedToReference, referenceLrclibId);
         }
         finally
         {
@@ -176,7 +193,8 @@ public sealed class LyricsTranscriptionService(
         double startSeconds,
         double lengthSeconds,
         string? promptText = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        Func<CancellationToken, Task>? beforeRetry = null)
     {
         var opts = options.CurrentValue;
         if (!opts.IsConfigured)
@@ -193,7 +211,7 @@ public sealed class LyricsTranscriptionService(
         try
         {
             await TranscodeToMp3Async(audioFilePath, tempMp3, ct, start, lengthSeconds);
-            var response = await UploadWithRetryAsync(tempMp3, opts, promptText, ct);
+            var response = await UploadWithRetryAsync(tempMp3, opts, promptText, beforeRetry, ct);
 
             // The clip's clock starts at zero; put the words back on the track's clock so the caller can
             // compare them with an LRC without having to remember the window it asked for.
@@ -229,15 +247,19 @@ public sealed class LyricsTranscriptionService(
             ? new List<TranscriptSegment>()
             : segments.Select(s => new TranscriptSegment(s.Start, s.Text)).ToList();
 
-    /// <summary>Official lyric text for the song: the stored LRCLIB plain lyrics, else a fresh LRCLIB fetch.</summary>
-    private async Task<string?> ResolveReferenceLyricsAsync(SongMetadata song, CancellationToken ct)
+    /// <summary>
+    /// Official lyric text for the song: the stored LRCLIB plain lyrics, else a fresh LRCLIB fetch, with the
+    /// entry it came from in the second case.
+    /// </summary>
+    private async Task<(string? Text, int? FetchedLrclibId)> ResolveReferenceLyricsAsync(SongMetadata song, CancellationToken ct)
     {
         if (!string.IsNullOrWhiteSpace(song.PlainLyrics))
-            return song.PlainLyrics;
+            return (song.PlainLyrics, null);
         try
         {
             var result = await lrcLib.FetchLyricsAsync(song, ct);
-            return NullIfBlank(result?.PlainLyrics);
+            var text = NullIfBlank(result?.PlainLyrics);
+            return (text, text is null ? null : result?.LrclibId);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -246,7 +268,7 @@ public sealed class LyricsTranscriptionService(
         catch (Exception ex)
         {
             logger.LogDebug(ex, "LRCLIB reference-lyrics fetch failed for SongId={SongId}; transcribing without it.", song.Id);
-            return null;
+            return (null, null);
         }
     }
 
@@ -334,14 +356,23 @@ public sealed class LyricsTranscriptionService(
 
     /// <summary>Posts the mp3 to <c>/audio/transcriptions</c>, retrying transient failures with backoff.</summary>
     private async Task<WhisperVerboseResponse> UploadWithRetryAsync(
-        string mp3Path, LyricsTranscriptionOptions opts, string? promptText, CancellationToken ct)
+        string mp3Path,
+        LyricsTranscriptionOptions opts,
+        string? promptText,
+        Func<CancellationToken, Task>? beforeRetry,
+        CancellationToken ct)
     {
         var url = $"{opts.BaseUrl.TrimEnd('/')}/audio/transcriptions";
         var maxAttempts = Math.Max(0, opts.MaxRetries) + 1;
 
+        // Whether the last attempt sent audio the provider may have counted: a 429 is a refusal, not a run.
+        var lastAttemptCounted = false;
         for (var attempt = 0; ; attempt++)
         {
             ct.ThrowIfCancellationRequested();
+            if (lastAttemptCounted && beforeRetry is not null)
+                await beforeRetry(ct);
+            lastAttemptCounted = true;
 
             // Per ATTEMPT, not per call: the provider counts a retry as another request, so metering the
             // call would let one reservation fire three times and trip the very limit we are avoiding.
@@ -403,6 +434,7 @@ public sealed class LyricsTranscriptionService(
 
                 if (attempt < maxAttempts - 1 && IsRetryableStatus(resp.StatusCode))
                 {
+                    lastAttemptCounted = resp.StatusCode != HttpStatusCode.TooManyRequests;
                     await Task.Delay(ComputeBackoff(attempt), ct);
                     continue;
                 }

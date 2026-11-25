@@ -4707,6 +4707,10 @@ export interface SettingsQualityGradingView {
 export interface SettingsLyricsTranscriptionView {
   /** True when a transcription provider is configured on the server (the experimental feature is live). */
   enabled: boolean;
+  /** Runtime toggle: the background sweep gives songs with no LRC AI-timed lyrics. */
+  autoSync?: boolean;
+  /** False until someone decides about {@link autoSync}; the app asks the admin once while it is. */
+  autoSyncChosen?: boolean;
 }
 
 export interface SettingsLyricsTranslationView {
@@ -4746,6 +4750,7 @@ export interface SettingsUpdateRequest {
   providers?: Partial<SettingsProvidersView>;
   qualityGrading?: { enabled?: boolean };
   downloads?: { autoDownload?: boolean; albumCompletion?: boolean; releaseStagedSources?: boolean };
+  lyricsTranscription?: { autoSync?: boolean };
 }
 
 export async function fetchSettings(): Promise<SettingsResponse> {

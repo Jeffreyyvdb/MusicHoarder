@@ -35,10 +35,12 @@ public sealed class TranscriptionAudioBudget(
 
     /// <summary>The audio a whole-song transcription of <paramref name="song"/> sends.</summary>
     public static double WholeSongSeconds(SongMetadata song)
-        => song.DurationSeconds is > 0 ? song.DurationSeconds.Value : UnknownDurationSeconds;
+        => song.DurationSeconds is > 0 ? song.DurationSeconds.Value
+            : song.DurationMs is > 0 ? song.DurationMs.Value / 1000.0
+            : UnknownDurationSeconds;
 
     public static bool IsBackground(TranscriptionPurpose purpose)
-        => purpose is TranscriptionPurpose.TimingProbe or TranscriptionPurpose.AutoResync;
+        => purpose is TranscriptionPurpose.TimingProbe or TranscriptionPurpose.AutoResync or TranscriptionPurpose.AutoSync;
 
     /// <summary>
     /// Makes one transcription request on the meter. The audio is recorded before the request goes out, so
@@ -46,18 +48,42 @@ public sealed class TranscriptionAudioBudget(
     /// us, or the caller gave up). A background request that would take total spend past the background
     /// ceiling is not made at all: it throws <see cref="TranscriptionRateLimitedException"/> saying when there
     /// will be room, the same signal a provider refusal gives, because to the caller both mean "not now".
+    ///
+    /// The request is handed a callback to run before each retry of an upload the provider may have counted
+    /// (it failed, rather than being refused): that retry uploads the audio again, so it is metered like a
+    /// request of its own. A background retry with no room left is not made, and the request fails as the
+    /// upload before it did; reporting "not now" instead would leave the song first in line, so a song whose
+    /// upload always fails once would hold up the queue. The audio already sent is not given back.
     /// </summary>
     public async Task<T> SpendAsync<T>(
-        TranscriptionPurpose purpose, double audioSeconds, Func<Task<T>> request, CancellationToken ct)
+        TranscriptionPurpose purpose,
+        double audioSeconds,
+        Func<Func<CancellationToken, Task>, Task<T>> request,
+        CancellationToken ct)
     {
         var entry = await ReserveAsync(purpose, audioSeconds, ct);
+        var retried = false;
         try
         {
-            return await request();
+            return await request(async retryCt =>
+            {
+                retried = true;
+                try
+                {
+                    await ReserveAsync(purpose, audioSeconds, retryCt);
+                }
+                catch (TranscriptionRateLimitedException ex)
+                {
+                    throw new InvalidOperationException(
+                        "The transcription upload failed, and the background share has no room to retry it.", ex);
+                }
+            });
         }
         catch (Exception ex) when (ex is TranscriptionRateLimitedException or OperationCanceledException)
         {
-            await RefundAsync(entry);
+            // Only a request that never reached the provider costs nothing; a retry means it did.
+            if (!retried)
+                await RefundAsync(entry);
             throw;
         }
     }
@@ -71,6 +97,22 @@ public sealed class TranscriptionAudioBudget(
             var spend = await LoadAsync(ct);
             Prune(spend, DateTime.UtcNow);
             return spend.Count(e => e.Purpose == purpose);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>How many audio-seconds requests for <paramref name="purpose"/> sent in the last day.</summary>
+    public async Task<double> SecondsLastDayAsync(TranscriptionPurpose purpose, CancellationToken ct)
+    {
+        await _gate.WaitAsync(ct);
+        try
+        {
+            var spend = await LoadAsync(ct);
+            Prune(spend, DateTime.UtcNow);
+            return spend.Where(e => e.Purpose == purpose).Sum(e => e.AudioSeconds);
         }
         finally
         {
@@ -104,20 +146,30 @@ public sealed class TranscriptionAudioBudget(
                 }
             }
 
-            var entry = new TranscriptionAudioSpend { AtUtc = now, AudioSeconds = audioSeconds, Purpose = purpose };
-            using (var scope = scopeFactory.CreateScope())
-            {
-                var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
-                db.TranscriptionAudioSpends.Add(entry);
-                await db.SaveChangesAsync(ct);
-            }
-            spend.Add(entry);
-            return entry;
+            return await AddAsync(spend, purpose, audioSeconds, now, ct);
         }
         finally
         {
             _gate.Release();
         }
+    }
+
+    private async Task<TranscriptionAudioSpend> AddAsync(
+        List<TranscriptionAudioSpend> spend,
+        TranscriptionPurpose purpose,
+        double audioSeconds,
+        DateTime now,
+        CancellationToken ct)
+    {
+        var entry = new TranscriptionAudioSpend { AtUtc = now, AudioSeconds = audioSeconds, Purpose = purpose };
+        using (var scope = scopeFactory.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+            db.TranscriptionAudioSpends.Add(entry);
+            await db.SaveChangesAsync(ct);
+        }
+        spend.Add(entry);
+        return entry;
     }
 
     /// <summary>

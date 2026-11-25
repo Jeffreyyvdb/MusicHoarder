@@ -101,7 +101,7 @@
   const speedOptions = [0.5, 0.65, 0.75, 0.85, 1, 1.1, 1.25, 1.5];
 
   const recheckLabel = $derived(lrclibDoc.hasAny ? 'Look for synced lyrics' : 'Check LRCLIB again');
-  const canRecheck = $derived(isOwner && !lrclibDoc.hasSynced && song.isInstrumental !== true);
+  const canRecheck = $derived(isOwner && !lrclibDoc.hasSynced && !ai.confirmedInstrumental);
   const canCheckTiming = $derived(isOwner && lrclibDoc.hasSynced);
   const canPickSource = $derived(isOwner && ai.canCompare);
   const problem = $derived(videoProblem(video.info, video.infoUnavailable));

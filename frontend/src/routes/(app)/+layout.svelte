@@ -4,6 +4,7 @@
   import { page } from '$app/state';
   import ImportPipelineDrawer from '#lib/components/pipeline/ImportPipelineDrawer.svelte';
   import CommandPalette from '#lib/components/CommandPalette.svelte';
+  import LyricsAutoSyncPrompt from '#lib/components/LyricsAutoSyncPrompt.svelte';
   import AppShellV2 from '#lib/components/v2/AppShellV2.svelte';
   import SendToSheet from '#lib/components/chat/SendToSheet.svelte';
   import { chatStore } from '#lib/stores/chat.svelte.ts';
@@ -309,4 +310,8 @@
 
 {#if drawerOpen && !isFriendSession}
   <ImportPipelineDrawer />
+{/if}
+
+{#if !isFriendSession}
+  <LyricsAutoSyncPrompt />
 {/if}

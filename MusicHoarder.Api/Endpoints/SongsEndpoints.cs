@@ -444,6 +444,7 @@ public static class SongsEndpoints
             LyricsProvenance = SongMetadata.ComputeLyricsProvenance(
                 showingTranscription:
                     s.HasTranscribedLyrics
+                    && s.LyricsStatus != LyricsStatus.Instrumental
                     && (s.PreferredLyricsSource == PreferredLyricsSource.Transcribed
                         || (s.SyncedLyricsBlank && s.PlainLyricsBlank)),
                 alignedToReference: s.TranscriptionAlignedToReference,
@@ -573,13 +574,15 @@ public static class SongsEndpoints
         {
             var translationFresh =
                 song.LyricsTranslationStatus == LyricsTranslationStatus.Completed
-                && !song.IsLyricsTranslationStale;
+                && !song.IsLyricsTranslationStale
+                // No words are shown for an instrumental, so neither is a translation of them.
+                && !song.ShowsAsInstrumental;
             return Results.Ok(new
             {
                 song.Id,
                 Synced = song.DisplaySyncedLyrics,
                 Plain = song.DisplayPlainLyrics,
-                IsInstrumental = song.IsInstrumental == true,
+                IsInstrumental = song.ShowsAsInstrumental,
                 LyricsOrigin = song.LyricsOrigin.ToString(),
                 song.GeniusSongId,
                 // A guest sees the same AI label the owner does — the disclosure is about the words on the
@@ -770,7 +773,9 @@ public static class SongsEndpoints
         if (song.IsSynthetic)
             return Results.UnprocessableEntity(new { message = "Demo songs have no audio file on disk to transcribe." });
 
-        if (song.IsInstrumental == true)
+        // Only LRCLIB's verdict is final. A song the AI heard no singing in may be transcribed again, in case it
+        // was wrong.
+        if (song.LyricsStatus == LyricsStatus.Instrumental)
             return Results.UnprocessableEntity(new { message = "Track is marked instrumental — nothing to transcribe." });
 
         var filePath = ResolveAudioFilePath(song);
@@ -783,15 +788,28 @@ public static class SongsEndpoints
                 destinationPath = song.DestinationPath,
             });
 
+        var wordsStamp = song.LyricsTextChangedAtUtc;
+        var transcribedBefore = song.TranscribedAtUtc;
         try
         {
             var result = await budget.SpendAsync(
                 TranscriptionPurpose.ManualTranscribe,
                 TranscriptionAudioBudget.WholeSongSeconds(song),
-                () => transcriber.TranscribeAsync(song, filePath, ct),
+                retry => transcriber.TranscribeAsync(song, filePath, ct, retry),
                 ct);
-            var (promoted, retagQueued) = LyricsResync.Apply(song, result);
-            await db.SaveChangesAsync(ct);
+            // A lyrics re-check may have saved the song while the audio was out. Stored against the song as it
+            // is now, so its new words are neither overwritten nor shown under an alignment made for the old.
+            TranscriptionApplied? applied = null;
+            await db.UpdateLatestAsync(song, () =>
+            {
+                if (song.LyricsStatus == LyricsStatus.Instrumental)
+                    return false;
+                applied = LyricsResync.Apply(song, result, wordsStamp);
+                return true;
+            }, ct);
+            if (applied is not { } stored)
+                return Results.UnprocessableEntity(new { message = "Track is marked instrumental — nothing to transcribe." });
+            var (promoted, retagQueued) = stored;
 
             return Results.Ok(new
             {
@@ -832,8 +850,15 @@ public static class SongsEndpoints
         }
         catch (Exception ex)
         {
-            song.MarkTranscriptionFailed(ex.Message);
-            await db.SaveChangesAsync(CancellationToken.None);
+            // Not over a transcription another run stored while this one was failing, and not against words
+            // that arrived meanwhile: recording the failure for them would keep the AI sync from timing them.
+            await db.UpdateLatestAsync(song, () =>
+            {
+                if (song.TranscribedAtUtc != transcribedBefore || song.LyricsTextChangedAtUtc != wordsStamp)
+                    return false;
+                song.MarkTranscriptionFailed(ex.Message);
+                return true;
+            }, CancellationToken.None);
             return Results.Json(
                 new { message = "Transcription failed.", error = ex.Message },
                 statusCode: StatusCodes.Status502BadGateway);
@@ -868,7 +893,7 @@ public static class SongsEndpoints
         if (song is null)
             return Results.NotFound(new { message = $"Song with id {id} not found." });
 
-        if (song.IsInstrumental == true)
+        if (song.ShowsAsInstrumental)
             return Results.UnprocessableEntity(new { message = "Track is marked instrumental — nothing to translate." });
 
         // Translate whatever the viewer shows (LRCLIB or the chosen/only AI transcription).

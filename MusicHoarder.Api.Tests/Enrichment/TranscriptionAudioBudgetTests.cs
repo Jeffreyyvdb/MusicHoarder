@@ -98,15 +98,75 @@ public class TranscriptionAudioBudgetTests
         await Assert.ThrowsAsync<TranscriptionRateLimitedException>(() => budget.SpendAsync<string>(
             TranscriptionPurpose.ManualTranscribe,
             900,
-            () => throw new TranscriptionRateLimitedException("429"),
+            _ => throw new TranscriptionRateLimitedException("429"),
             CancellationToken.None));
 
         Assert.Empty(await db.TranscriptionAudioSpends.ToListAsync());
         Assert.Equal("ok", await Spend(budget, TranscriptionPurpose.TimingProbe, 900));
     }
 
+    [Fact]
+    public async Task each_retry_uploads_the_audio_again_and_is_metered_again()
+    {
+        await using var db = NewDb();
+        var budget = TestBudget.Over(db, Ceiling);
+
+        await budget.SpendAsync(
+            TranscriptionPurpose.AutoSync,
+            200,
+            async retry =>
+            {
+                await retry(CancellationToken.None);
+                await retry(CancellationToken.None);
+                return "ok";
+            },
+            CancellationToken.None);
+
+        Assert.Equal(600, (await db.TranscriptionAudioSpends.ToListAsync()).Sum(e => e.AudioSeconds));
+        await Assert.ThrowsAsync<TranscriptionRateLimitedException>(
+            () => Spend(budget, TranscriptionPurpose.TimingProbe, 500));
+    }
+
+    [Fact]
+    public async Task a_background_retry_with_no_room_left_fails_the_request_and_the_upload_already_sent_stays_counted()
+    {
+        await using var db = NewDb();
+        var budget = TestBudget.Over(db, Ceiling);
+        await Spend(budget, TranscriptionPurpose.AutoSync, 500);
+
+        // A failure, not "not now": the song must not stay first in line for the next pass.
+        await Assert.ThrowsAsync<InvalidOperationException>(() => budget.SpendAsync<string>(
+            TranscriptionPurpose.AutoSync,
+            400,
+            async retry =>
+            {
+                await retry(CancellationToken.None);
+                return "ok";
+            },
+            CancellationToken.None));
+
+        Assert.Equal(900, (await db.TranscriptionAudioSpends.ToListAsync()).Sum(e => e.AudioSeconds));
+    }
+
+    [Fact]
+    public void a_song_known_only_in_milliseconds_is_metered_at_its_length()
+    {
+        var song = new SongMetadata
+        {
+            SourcePath = "/x.mp3",
+            FileName = "x.mp3",
+            Extension = ".mp3",
+            FileSizeBytes = 1,
+            LastModifiedUtc = DateTime.UtcNow,
+            IndexedAtUtc = DateTime.UtcNow,
+            DurationMs = 2_400_000,
+        };
+
+        Assert.Equal(2400, TranscriptionAudioBudget.WholeSongSeconds(song));
+    }
+
     private static Task<string> Spend(TranscriptionAudioBudget budget, TranscriptionPurpose purpose, double seconds)
-        => budget.SpendAsync(purpose, seconds, () => Task.FromResult("ok"), CancellationToken.None);
+        => budget.SpendAsync(purpose, seconds, _ => Task.FromResult("ok"), CancellationToken.None);
 
     private static MusicHoarderDbContext NewDb() =>
         new(new DbContextOptionsBuilder<MusicHoarderDbContext>()

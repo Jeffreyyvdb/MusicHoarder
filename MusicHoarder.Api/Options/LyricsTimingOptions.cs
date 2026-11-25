@@ -106,4 +106,27 @@ public class LyricsTimingOptions
     /// </summary>
     [Range(0, 1000)]
     public int AutoResyncPerDay { get; set; } = 30;
+
+    /// <summary>
+    /// Most audio the probe pass sends in a rolling day. The probes and the AI sync pass share the background
+    /// ceiling, and a probe sweep through an unprobed back catalogue would otherwise take all of it, leaving
+    /// songs with no LRC at all waiting behind songs whose LRC is most likely fine. The default is two hundred
+    /// thirty-second windows; whatever the probes leave goes to AI sync.
+    /// </summary>
+    [Range(0, 10_000_000)]
+    public int ProbeAudioSecondsPerDay { get; set; } = 6000;
+
+    /// <summary>
+    /// Whether the sweep gives AI-timed lyrics to songs that have no LRC: a full transcription, forced-aligned
+    /// to the song's official words when it has them, the AI's own words when it does not. It runs again when
+    /// a lyrics re-check later brings official words, so an AI guess becomes the real lyrics re-timed. Works
+    /// from both ends of the library, newest and oldest additions alternately, so new songs are not stuck
+    /// behind the back catalogue and the back catalogue is not starved by new songs.
+    ///
+    /// Unset by default, which means off and lets the web app ask the admin; the answer, stored in
+    /// <see cref="Persistence.RuntimeSettings.LyricsAutoSyncEnabled"/>, overrides this. Off unless chosen
+    /// because it sends the whole unsynced library to the transcription provider, which bills per minute
+    /// unless it is a free tier.
+    /// </summary>
+    public bool? EnableAutoSync { get; set; }
 }

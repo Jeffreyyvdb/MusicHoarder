@@ -215,4 +215,82 @@ public class SongMetadataLyricsRecheckTests
         Assert.Null(song.LyricsNextRecheckAfterUtc);
         Assert.Equal(LyricsStatus.NotFetched, song.LyricsStatus);
     }
+
+    [Fact]
+    public void A_correction_to_the_same_lrclib_entry_replaces_the_words_and_marks_them_changed()
+    {
+        var song = NewSong();
+        song.ApplyLyricsResult(null, "a line", instrumental: false, lrclibId: 7);
+        var before = song.LyricsTextChangedAtUtc;
+
+        Assert.True(song.TryApplyLyricsUpgrade(null, "a corrected line", instrumental: false, lrclibId: 7));
+
+        Assert.Equal("a corrected line", song.PlainLyrics);
+        Assert.NotEqual(before, song.LyricsTextChangedAtUtc);
+    }
+
+    [Fact]
+    public void A_different_lrclib_entry_does_not_replace_the_words()
+    {
+        var song = NewSong();
+        song.ApplyLyricsResult(null, "a line", instrumental: false, lrclibId: 7);
+
+        Assert.False(song.TryApplyLyricsUpgrade(null, "another song's line", instrumental: false, lrclibId: 8));
+        Assert.Equal("a line", song.PlainLyrics);
+    }
+
+    [Fact]
+    public void Every_writer_of_the_official_words_marks_when_they_changed()
+    {
+        var song = NewSong();
+        song.SetOfficialLyricsText(null, "a line");
+        var first = song.LyricsTextChangedAtUtc;
+        Assert.NotNull(first);
+
+        song.SetOfficialLyricsText(null, "a line");
+        Assert.Equal(first, song.LyricsTextChangedAtUtc);
+
+        song.SetOfficialLyricsText("[00:01.00]a line", "a line");
+        Assert.NotEqual(first, song.LyricsTextChangedAtUtc);
+    }
+
+    [Fact]
+    public void Lrclibs_instrumental_verdict_hides_an_earlier_transcript_without_deleting_it()
+    {
+        var song = NotFoundSong();
+        song.ApplyTranscriptionResult("[00:01.00]words the ai heard", "words the ai heard", "whisper-test");
+        song.PreferredLyricsSource = PreferredLyricsSource.Transcribed;
+
+        Assert.True(song.TryApplyLyricsUpgrade(null, null, instrumental: true));
+
+        Assert.Null(song.DisplaySyncedLyrics);
+        Assert.Null(song.EffectiveSyncedLyrics);
+        Assert.True(song.ShowsAsInstrumental);
+        Assert.Equal("[00:01.00]words the ai heard", song.TranscribedSyncedLyrics);
+    }
+
+    [Fact]
+    public void New_official_words_replace_an_ai_version_that_timed_the_old_ones()
+    {
+        var song = PlainOnlySong();
+        song.ApplyTranscriptionResult("[00:01.00]a line", "a line", "whisper-test", alignedToReference: true);
+        song.PreferredLyricsSource = PreferredLyricsSource.Transcribed;
+
+        Assert.True(song.TryApplyLyricsUpgrade("[00:02.00]a corrected line", "a corrected line", instrumental: false));
+
+        Assert.Equal("[00:02.00]a corrected line", song.DisplaySyncedLyrics);
+        Assert.Equal("[00:02.00]a corrected line", song.EffectiveSyncedLyrics);
+    }
+
+    [Fact]
+    public void An_ai_version_the_owner_chose_over_unaligned_words_stays_chosen()
+    {
+        var song = PlainOnlySong();
+        song.ApplyTranscriptionResult("[00:01.00]what the ai heard", "what the ai heard", "whisper-test");
+        song.PreferredLyricsSource = PreferredLyricsSource.Transcribed;
+
+        song.SetOfficialLyricsText(null, "a corrected line");
+
+        Assert.Equal(PreferredLyricsSource.Transcribed, song.PreferredLyricsSource);
+    }
 }

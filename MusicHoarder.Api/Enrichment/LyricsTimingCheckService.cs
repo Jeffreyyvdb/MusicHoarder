@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
@@ -8,8 +9,8 @@ using MusicHoarder.Api.Persistence;
 namespace MusicHoarder.Api.Enrichment;
 
 /// <summary>
-/// Background sweep that keeps every song's lyric timing verdict current, and fixes what it can, in three
-/// passes with very different costs.
+/// Background sweep that keeps every song's lyric timing verdict current, fixes what it can, and gives songs
+/// with no LRC AI-timed lyrics, in four passes with very different costs.
 ///
 /// The <b>free pass</b> runs the arithmetic checks over any song that has never been judged. It touches no
 /// API, so it is allowed to chew through the entire library as fast as the database will serve it — which is
@@ -26,12 +27,16 @@ namespace MusicHoarder.Api.Enrichment;
 /// LRC on the spot; one that finds the timing drifting leaves the song Suspect, and this pass then runs the
 /// same full transcription and forced alignment as the "Sync with AI" button. It costs a whole song's audio,
 /// so it is capped per day and draws on the same budget.
+///
+/// The <b>AI sync pass</b> transcribes songs that have no LRC at all, taking the newest and the oldest
+/// additions in turn. It gets whatever background audio the probes, capped per day, leave over.
 /// </summary>
-public sealed class LyricsTimingCheckService(
+public sealed partial class LyricsTimingCheckService(
     IServiceScopeFactory scopeFactory,
     LyricsTimingProbe probe,
     ILyricsTranscriptionService transcriber,
     TranscriptionAudioBudget budget,
+    Settings.IRuntimeSettingsService runtimeSettings,
     IOptionsMonitor<LyricsTimingOptions> options,
     ILogger<LyricsTimingCheckService> logger) : BackgroundService
 {
@@ -46,7 +51,20 @@ public sealed class LyricsTimingCheckService(
     /// <summary>The same, for the re-sync pass, which a closed budget or a busy provider stops just the same.</summary>
     private DateTime _resyncDeferredUntilUtc = DateTime.MinValue;
 
+    /// <summary>The same, for the AI sync pass.</summary>
+    private DateTime _autoSyncDeferredUntilUtc = DateTime.MinValue;
+
     private const int ResyncSongsPerPass = 3;
+
+    /// <summary>Half from the newest end of the library, half from the oldest.</summary>
+    private const int AutoSyncSongsPerPass = 4;
+
+    /// <summary>
+    /// Fewer letters than this in a transcription of a song with no official lyrics means nobody sang: Whisper
+    /// fills an instrumental with a stock phrase or two ("Thank you for watching" is 20), which must not be
+    /// shown as lyrics. A dozen sung English words is about fifty.
+    /// </summary>
+    private const int MinHeardLetters = 40;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -61,6 +79,8 @@ public sealed class LyricsTimingCheckService(
                 // Re-sync before probing: a song the last probe heard drifting is then re-synced, rather
                 // than spending its second probe attempt on the same window first.
                 worked |= await RunResyncPassAsync(stoppingToken);
+                // A song with no LRC at all goes before checking an LRC that is most likely fine.
+                worked |= await RunAutoSyncPassAsync(stoppingToken);
                 worked |= await RunProbePassAsync(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -140,6 +160,12 @@ public sealed class LyricsTimingCheckService(
         if (DateTime.UtcNow < _probeDeferredUntilUtc)
             return false;
 
+        var shareLeft = opts.ProbeAudioSecondsPerDay
+            - await budget.SecondsLastDayAsync(TranscriptionPurpose.TimingProbe, ct);
+        var batchSize = Math.Min(opts.SweepBatchSize, (int)(shareLeft / opts.ProbeWindowSeconds));
+        if (batchSize <= 0)
+            return false;
+
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
 
@@ -152,10 +178,10 @@ public sealed class LyricsTimingCheckService(
                 .Where(s => s.LyricsSyncProbeAttempts < opts.MaxProbeAttempts)
                 .OrderBy(s => s.LyricsSyncProbeAttempts)
                 .ThenByDescending(s => s.Id),
-            opts.SweepBatchSize,
+            batchSize,
             ct);
 
-        if (songs.Count < opts.SweepBatchSize && opts.ProbeUnconfirmedSongs)
+        if (songs.Count < batchSize && opts.ProbeUnconfirmedSongs)
         {
             // "Ok" with no probe attempt means only the arithmetic has looked at it: nothing provably wrong,
             // which a uniformly shifted or carelessly timed LRC also satisfies. Newest first, so what was
@@ -168,7 +194,7 @@ public sealed class LyricsTimingCheckService(
                     .Where(s => s.LyricsSyncStatus == LyricsSyncStatus.Ok)
                     .Where(s => s.LyricsSyncProbeAttempts == 0)
                     .OrderByDescending(s => s.Id),
-                opts.SweepBatchSize - songs.Count,
+                batchSize - songs.Count,
                 ct));
         }
 
@@ -246,19 +272,16 @@ public sealed class LyricsTimingCheckService(
         {
             ct.ThrowIfCancellationRequested();
 
+            var wordsStamp = song.LyricsTextChangedAtUtc;
+            TranscriptionResult? result = null;
+            string? failure = null;
             try
             {
-                var result = await budget.SpendAsync(
+                result = await budget.SpendAsync(
                     TranscriptionPurpose.AutoResync,
                     TranscriptionAudioBudget.WholeSongSeconds(song),
-                    () => transcriber.TranscribeAsync(song, path, ct),
+                    retry => transcriber.TranscribeAsync(song, path, ct, retry),
                     ct);
-                var applied = LyricsResync.Apply(song, result);
-                logger.LogInformation(
-                    "Lyrics auto re-sync for {Track} (SongId={SongId}): {Outcome}.",
-                    song.TrackLabel,
-                    song.Id,
-                    applied.Promoted ? "official lyrics re-timed and now shown" : "transcribed, but the lyrics could not be aligned, so the LRCLIB version stays");
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -277,17 +300,204 @@ public sealed class LyricsTimingCheckService(
                 // Recorded as failed, which takes it out of the queue: a song that cannot be transcribed would
                 // otherwise be retried on every pass. The button can still try it again.
                 logger.LogWarning(ex, "Lyrics auto re-sync failed for SongId={SongId}.", song.Id);
-                song.MarkTranscriptionFailed(ex.Message);
+                failure = ex.Message;
             }
 
-            resynced++;
-        }
+            // Stored against the song as it is now: the button may have re-synced it while this one ran.
+            var stored = await db.WithSongLockedAsync(song.Id, async () =>
+            {
+                await db.Entry(song).ReloadAsync(ct);
+                if (!await db.Songs.IgnoreQueryFilters().WhereDueForAutoResync().AnyAsync(s => s.Id == song.Id, ct))
+                    return false;
 
-        if (resynced > 0)
-            await db.SaveChangesAsync(ct);
+                if (result is null)
+                {
+                    song.MarkTranscriptionFailed(failure ?? "The transcription returned nothing.");
+                }
+                else
+                {
+                    var applied = LyricsResync.Apply(song, result, wordsStamp);
+                    logger.LogInformation(
+                        "Lyrics auto re-sync for {Track} (SongId={SongId}): {Outcome}.",
+                        song.TrackLabel,
+                        song.Id,
+                        applied.Promoted ? "official lyrics re-timed and now shown" : "transcribed, but the lyrics could not be aligned, so the LRCLIB version stays");
+                }
+
+                await db.SaveChangesAsync(ct);
+                return true;
+            }, ct);
+
+            if (stored)
+                resynced++;
+        }
 
         return resynced > 0;
     }
+
+    /// <summary>
+    /// Transcribes songs that have no LRC, newest and oldest additions in turn, until the background audio
+    /// ceiling stops it. A song with official words gets them re-timed and shown; one without gets the AI's
+    /// words, which the player shows only while there is nothing official, or an instrumental mark when the
+    /// AI heard no singing.
+    /// </summary>
+    internal async Task<bool> RunAutoSyncPassAsync(CancellationToken ct)
+    {
+        var opts = options.CurrentValue;
+        if (!transcriber.IsConfigured || !(await runtimeSettings.GetAsync(ct)).LyricsAutoSyncEnabled)
+            return false;
+
+        if (DateTime.UtcNow < _autoSyncDeferredUntilUtc)
+            return false;
+
+        List<(int Id, string Path)> picked;
+        using (var scope = scopeFactory.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+            var due = db.Songs
+                .IgnoreQueryFilters()
+                .WhereDueForAutoSync()
+                .WhereFitsBackgroundAudioCeiling(opts.BackgroundAudioCeilingSeconds);
+            var newest = await TakeAudibleAsync(
+                db,
+                due.OrderByDescending(s => s.AcquiredAtUtc ?? s.IndexedAtUtc).ThenByDescending(s => s.Id),
+                AutoSyncSongsPerPass / 2,
+                ct);
+            var oldest = await TakeAudibleAsync(
+                db,
+                due.OrderBy(s => s.AcquiredAtUtc ?? s.IndexedAtUtc).ThenBy(s => s.Id),
+                AutoSyncSongsPerPass / 2,
+                ct);
+            picked = newest.Zip(oldest, (n, o) => new[] { n, o })
+                .SelectMany(pair => pair)
+                .Concat(newest.Skip(oldest.Count))
+                .Concat(oldest.Skip(newest.Count))
+                .DistinctBy(p => p.Song.Id)
+                .Select(p => (p.Song.Id, p.Path))
+                .ToList();
+        }
+
+        if (picked.Count == 0)
+            return false;
+
+        var synced = 0;
+        foreach (var (id, path) in picked)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                if (await AutoSyncSongAsync(id, path, ct))
+                    synced++;
+            }
+            catch (TranscriptionRateLimitedException ex)
+            {
+                _autoSyncDeferredUntilUtc = DeferUntil(ex);
+                logger.LogInformation(
+                    "Lyrics AI sync deferred until {Until:HH:mm} UTC: {Reason}", _autoSyncDeferredUntilUtc, ex.Message);
+                break;
+            }
+        }
+
+        return synced > 0;
+    }
+
+    /// <summary>
+    /// Transcribes one song and saves the outcome on its own, so a restart mid-pass loses at most the song in
+    /// flight. A transcription takes up to a minute, in which a lyrics re-check or the AI button may have
+    /// changed the song, so it is read again under the song's row lock before anything is written, and the
+    /// result is dropped unless the song is still due for the same words.
+    /// </summary>
+    private async Task<bool> AutoSyncSongAsync(int id, string path, CancellationToken ct)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+        var due = db.Songs.IgnoreQueryFilters().WhereDueForAutoSync();
+        var song = await due.FirstOrDefaultAsync(s => s.Id == id, ct);
+        if (song is null)
+            return false;
+
+        var wordsBefore = (song.PlainLyrics, song.LyricsTextChangedAtUtc);
+        TranscriptionResult? result = null;
+        string? failure = null;
+        try
+        {
+            result = await budget.SpendAsync(
+                TranscriptionPurpose.AutoSync,
+                TranscriptionAudioBudget.WholeSongSeconds(song),
+                retry => transcriber.TranscribeAsync(song, path, ct, retry),
+                ct);
+        }
+        catch (Exception ex) when (ex is not TranscriptionRateLimitedException
+            && !(ex is OperationCanceledException && ct.IsCancellationRequested))
+        {
+            logger.LogWarning(ex, "Lyrics AI sync failed for SongId={SongId}.", id);
+            failure = ex.Message;
+        }
+
+        // New official words make the result stale even when the song is still due: it was made without
+        // them, and storing it would record the song as transcribed for words it never heard aligned.
+        var stored = await db.WithSongLockedAsync(id, async () =>
+        {
+            await db.Entry(song).ReloadAsync(ct);
+            if (!await due.AnyAsync(s => s.Id == id, ct)
+                || (song.PlainLyrics, song.LyricsTextChangedAtUtc) != wordsBefore)
+            {
+                return false;
+            }
+
+            if (result is null)
+                song.MarkTranscriptionFailed(failure ?? "The transcription returned nothing.");
+            else
+                ApplyAutoSync(song, result, wordsBefore.LyricsTextChangedAtUtc);
+
+            await db.SaveChangesAsync(ct);
+            return true;
+        }, ct);
+
+        if (!stored)
+        {
+            logger.LogInformation(
+                "Lyrics AI sync for SongId={SongId} dropped: the song changed while it was transcribed.", id);
+        }
+
+        return true;
+    }
+
+    private void ApplyAutoSync(SongMetadata song, TranscriptionResult result, DateTime? wordsStamp)
+    {
+        if (!result.AlignedToReference
+            && string.IsNullOrWhiteSpace(song.PlainLyrics)
+            && HeardLetters(result) < MinHeardLetters)
+        {
+            song.ApplyHeardNoSinging(result.Model);
+            logger.LogInformation(
+                "Lyrics AI sync for {Track} (SongId={SongId}): no singing heard, marked instrumental.",
+                song.TrackLabel,
+                song.Id);
+            return;
+        }
+
+        LyricsResync.Apply(song, result, wordsStamp);
+        logger.LogInformation(
+            "Lyrics AI sync for {Track} (SongId={SongId}): {Outcome}.",
+            song.TrackLabel,
+            song.Id,
+            result.AlignedToReference ? "official lyrics timed and now shown" : "transcribed from the audio");
+    }
+
+    /// <summary>
+    /// Letters, not words, because Japanese, Chinese and Thai transcripts have no spaces between words. Read
+    /// from both texts, since a transcript can come back without timestamps.
+    /// </summary>
+    private static int HeardLetters(TranscriptionResult result)
+        => Math.Max(
+            CountLetters(result.SyncedLyrics is null ? null : LrcTimestamp().Replace(result.SyncedLyrics, " ")),
+            CountLetters(result.PlainLyrics));
+
+    private static int CountLetters(string? text) => text?.Count(char.IsLetter) ?? 0;
+
+    [GeneratedRegex(@"\[[^\]]*\]")]
+    private static partial Regex LrcTimestamp();
 
     private static async Task<List<(SongMetadata Song, string Path)>> TakeAudibleAsync(
         MusicHoarderDbContext db, IQueryable<SongMetadata> candidates, int count, CancellationToken ct)
@@ -396,8 +606,37 @@ public static class LyricsTimingQueries
             .Where(s => s.IsInstrumental != true)
             .Where(s => s.PlainLyrics != null && s.PlainLyrics != string.Empty);
 
+    /// <summary>
+    /// Songs the AI sync pass should transcribe: live, not a duplicate, no LRC, a known length (the audio
+    /// meter cannot count a song of unknown length honestly), and lyrics already looked up (or impossible to
+    /// look up, having no title or artist). Each is transcribed once, and again whenever its official words
+    /// are not the ones its last transcription was made for, which a lyrics re-check brings: that is what
+    /// turns an AI guess into the official words re-timed. A failed transcription waits for the same. A song
+    /// the AI heard no singing in stays out until official words arrive.
+    /// </summary>
+    public static IQueryable<SongMetadata> WhereDueForAutoSync(this IQueryable<SongMetadata> query)
+        => query
+            .Where(s => s.DeletedAtUtc == null)
+            .Where(s => !s.IsSynthetic)
+            .ExcludingDemoTenant()
+            .Where(s => !s.IsDuplicate)
+            .Where(s => s.EnrichmentStatus == EnrichmentStatus.Matched || s.EnrichmentStatus == EnrichmentStatus.NeedsReview)
+            .Where(s => s.SyncedLyrics == null || s.SyncedLyrics == string.Empty)
+            .Where(s => s.DurationSeconds > 0 || s.DurationMs > 0)
+            .Where(s => s.IsInstrumental != true || (s.PlainLyrics != null && s.PlainLyrics != string.Empty))
+            .Where(s => s.LyricsStatus == LyricsStatus.Fetched
+                || s.LyricsStatus == LyricsStatus.NotFound
+                || s.LyricsStatus == LyricsStatus.Failed
+                || (s.LyricsStatus == LyricsStatus.NotFetched
+                    && (string.IsNullOrWhiteSpace(s.Title) || string.IsNullOrWhiteSpace(s.Artist))))
+            .Where(s => s.TranscriptionStatus == TranscriptionStatus.NotRequested
+                || (s.PlainLyrics != null && s.PlainLyrics != string.Empty
+                    && s.LyricsTextChangedAtUtc != s.TranscriptionWordsStampUtc));
+
     public static IQueryable<SongMetadata> WhereFitsBackgroundAudioCeiling(
         this IQueryable<SongMetadata> query, int ceilingSeconds)
-        => query.Where(s => (s.DurationSeconds > 0 ? s.DurationSeconds.Value : TranscriptionAudioBudget.UnknownDurationSeconds)
+        => query.Where(s => (s.DurationSeconds > 0 ? s.DurationSeconds.Value
+                : s.DurationMs > 0 ? s.DurationMs.Value / 1000.0
+                : TranscriptionAudioBudget.UnknownDurationSeconds)
             <= ceilingSeconds);
 }

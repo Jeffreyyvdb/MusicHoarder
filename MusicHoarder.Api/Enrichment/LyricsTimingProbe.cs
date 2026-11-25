@@ -83,7 +83,7 @@ public sealed class LyricsTimingProbe(
             words = await budget.SpendAsync(
                 purpose,
                 window,
-                () => transcriber.TranscribeClipAsync(audioFilePath, start, window, BuildPrompt(song), ct),
+                retry => transcriber.TranscribeClipAsync(audioFilePath, start, window, BuildPrompt(song), ct, retry),
                 ct);
         }
         catch (Exception ex) when (ex is OperationCanceledException or TranscriptionRateLimitedException)
