@@ -444,27 +444,106 @@ const coverDetail: BackgroundJobDetail = {
   ]
 };
 
-// ── music videos ────────────────────────────────────────────────────────────────────────────────
+// ── music video search ──────────────────────────────────────────────────────────────────────────
+
+// Right after the search was widened to the whole library: 1,127 of 20,816 songs searched, so the
+// never-searched backlog dominates and the searched stretch is a sliver at the newest end.
+const VIDEO_SCOPE = 20_816;
+const VIDEO_SEARCHED = 1_127;
+const VIDEO_NEVER = VIDEO_SCOPE - VIDEO_SEARCHED;
+const VIDEO_OUTCOMES = { clip: 40, noClip: 790, empty: 297 };
+
+const OUTCOME_SERIES: SeriesPanel['series'] = [
+  { key: 'clip', label: 'A confident pick', tone: 'neutral' },
+  { key: 'no-clip', label: 'Candidates, none confident', tone: 'muted' },
+  { key: 'empty', label: 'Found nothing, or failed', tone: 'warning' }
+];
+
+/** One point per day from `first`, each day's values as given. */
+const dayPoints = (first: number, rows: number[][]): SeriesPanel['points'] =>
+  rows.map((values, i) => ({ startUtc: iso(first + i * DAY), values }));
+
+/** A day's total split over the outcomes in their stored proportions. */
+const byOutcome = (total: number): number[] => {
+  const { clip, noClip } = VIDEO_OUTCOMES;
+  const clips = Math.round((total * clip) / VIDEO_SEARCHED);
+  const noClips = Math.round((total * noClip) / VIDEO_SEARCHED);
+  return [clips, noClips, Math.max(0, total - clips - noClips)];
+};
+
+const SEARCHES_PER_DAY = [
+  0, 1, 0, 2, 0, 0, 3, 1, 0, 2, 0, 0, 1, 0, 2, 0, 2, 0, 3, 1, 4, 0, 2, 5, 1, 3, 0, 2, 6, 1_052
+];
+
+// Re-searches coming due, as [clip, no clip, empty] per day; what falls later is the rest of the searched songs.
+const COMING_DUE = [
+  [0, 2, 3],
+  [0, 0, 31],
+  [0, 1, 2],
+  [0, 0, 1],
+  [0, 1, 2],
+  [0, 0, 0],
+  [0, 7, 22],
+  [0, 88, 226],
+  [0, 31, 8],
+  [0, 4, 1],
+  ...Array.from({ length: 19 }, (_, i) => [i === 18 ? 5 : 0, i % 4 === 0 ? 2 : 0, 0]),
+  [0, 0, 0]
+];
+const COMING_DUE_LATER =
+  VIDEO_SEARCHED - COMING_DUE.reduce((sum, day) => sum + day.reduce((a, b) => a + b, 0), 0);
+
+function videoSearchMap(): LibraryMapPanel {
+  const binCount = 60;
+  const perBin = VIDEO_SCOPE / binCount;
+  const from = Date.parse('2009-02-01T00:00:00Z');
+  const at = (i: number) => from + (NOW - from) * (1 - (1 - i / binCount) ** 1.7);
+  // The pass takes the newest first, so the searched stretch grows from the right.
+  const doneShare = (i: number) => (i >= 57 ? 1 : i === 56 ? 0.26 : 0);
+  const bins = Array.from({ length: binCount }, (_, i) => {
+    const excluded = Math.round(perBin * (0.0025 + wobble(i + 7) * 0.0065));
+    const done = Math.round((perBin - excluded) * doneShare(i));
+    return {
+      fromUtc: iso(at(i)),
+      toUtc: iso(at(i + 1)),
+      done,
+      waiting: Math.round(perBin) - excluded - done,
+      excluded
+    };
+  });
+  return {
+    kind: 'library-map',
+    title: 'Where the search has reached',
+    caption:
+      'The songs the search considers, oldest addition on the left. The pass takes the newest first, so the searched stretch grows from the right.',
+    doneLabel: 'Searched',
+    waitingLabel: 'Not searched yet',
+    excludedLabel: 'Has a video',
+    bins,
+    markers: [{ label: 'Next in line, newest first', atUtc: bins[56].toUtc }]
+  };
+}
 
 const videosSummary: BackgroundJobSummary = {
   id: 'music-videos',
-  title: 'Music videos',
+  title: 'Music video search',
   description:
-    'Searches for an official video of songs you play and downloads the ones that pass a check.',
+    "Searches YouTube for every song's music video, newest first, and again on a schedule, so choosing one opens on a measured list.",
   state: 'working',
-  stateLabel: 'Checking 3 candidates',
+  stateLabel: 'Working through a pass now.',
   lastWorkedAtUtc: '2026-11-25T10:27:00Z',
   nextRunAtUtc: null,
   headline: {
-    value: 112,
-    of: null,
+    value: VIDEO_SEARCHED,
+    of: VIDEO_SCOPE,
     format: 'count',
-    caption: 'music videos ready to play',
-    etaUtc: '2027-02-14T00:00:00Z',
-    etaLabel: "at the last 7 days' rate of 9 videos a day, for the 1,022 songs still queued"
+    caption: 'of 20,816 songs have been searched for a music video',
+    etaUtc: '2027-04-03T22:00:00Z',
+    etaLabel:
+      "First pass through the library: 19,689 songs never searched, at the last 7 days' rate of 152 searches a day."
   },
-  trend: trend(9, 5, 17),
-  trendLabel: 'videos added per day'
+  trend: SEARCHES_PER_DAY.slice(-14),
+  trendLabel: 'songs searched per day'
 };
 
 const videosDetail: BackgroundJobDetail = {
@@ -472,41 +551,275 @@ const videosDetail: BackgroundJobDetail = {
   panels: [
     {
       kind: 'breakdown',
-      title: 'What happened to each search',
-      total: 1_290,
+      title: 'What the last search found',
+      caption:
+        'Every song the search considers, counted once: by the video it already has, or by what its most recent search found.',
+      total: 20_931,
       unit: 'songs',
       segments: [
-        { key: 'ready', label: 'Ready to play', count: 112, tone: 'good' },
-        { key: 'queued', label: 'Queued', count: 41, tone: 'pending' },
         {
-          key: 'static',
-          label: 'Rejected, a still picture',
-          count: 87,
-          tone: 'warning',
-          note: 'The candidate was an audio upload with a cover image.'
+          key: 'video-automatic',
+          label: 'Has a video, downloaded automatically',
+          count: 36,
+          tone: 'good'
         },
-        { key: 'none', label: 'No candidate found', count: 1_022, tone: 'muted' },
-        { key: 'failed', label: 'Download failed', count: 28, tone: 'bad' }
+        {
+          key: 'video-requested',
+          label: 'Has a video, picked by a person',
+          count: 79,
+          tone: 'good'
+        },
+        {
+          key: 'clip',
+          label: 'A confident pick',
+          count: VIDEO_OUTCOMES.clip,
+          tone: 'neutral',
+          note: 'A candidate passes every check a download needs; it waits for its download.'
+        },
+        {
+          key: 'no-clip',
+          label: 'Candidates, none confident',
+          count: VIDEO_OUTCOMES.noClip,
+          tone: 'muted',
+          note: 'A person can still choose one from the list.'
+        },
+        {
+          key: 'empty',
+          label: 'Found nothing, or failed',
+          count: VIDEO_OUTCOMES.empty,
+          tone: 'warning',
+          note: 'Searched again on a back-off that doubles with each empty search.'
+        },
+        { key: 'never', label: 'Not searched yet', count: VIDEO_NEVER, tone: 'pending' }
       ]
     },
-    dailySeries(
-      'Videos added per day',
-      'The last 14 UTC days.',
-      [{ key: 'v', label: 'Ready', tone: 'good' }],
-      [1],
-      9,
-      [],
-      'count',
-      53
-    ),
+    videoSearchMap(),
+    {
+      kind: 'series',
+      title: 'Searches per day, last 30 days',
+      caption:
+        'A song counts on the day of its latest search, so a day that was later searched again reads lower than it was.',
+      bucket: 'day',
+      format: 'count',
+      stacked: true,
+      series: OUTCOME_SERIES,
+      points: dayPoints(startOfUtcDay(NOW) - 29 * DAY, SEARCHES_PER_DAY.map(byOutcome)),
+      limits: []
+    },
+    {
+      kind: 'series',
+      title: 'Searches coming due, next 30 days',
+      caption:
+        'When each searched song is searched again, by what its last search found: a clip every 30 or 180 days, no clip every 7 or 120, nothing found on a back-off from 1 to 180. Searches already due are counted on today.',
+      bucket: 'day',
+      format: 'count',
+      stacked: true,
+      series: OUTCOME_SERIES,
+      points: dayPoints(startOfUtcDay(NOW), COMING_DUE),
+      limits: []
+    },
     {
       kind: 'bars',
-      title: 'Download size',
-      format: 'bytes',
+      title: 'Empty searches in a row',
+      caption:
+        'Songs whose last search found nothing or failed, by how many searches in a row did. Each doubles the wait, up to 14 days for a recent release and 180 for an older one. 0 is a record from before the count was kept.',
+      format: 'count',
       bars: [
-        { label: 'Under 50 MB', value: 52 * 1024 ** 2, tone: 'neutral' },
-        { label: '50 to 100 MB', value: 190 * 1024 ** 2, tone: 'neutral' },
-        { label: 'Over 100 MB', value: 330 * 1024 ** 2, tone: 'neutral' }
+        { label: '0', value: 12, tone: 'muted' },
+        { label: '1', value: 241, tone: 'pending' },
+        { label: '2', value: 33, tone: 'pending' },
+        { label: '3', value: 9, tone: 'pending' },
+        { label: '4 to 5', value: 2, tone: 'pending' },
+        { label: '6 or more', value: 0, tone: 'warning' }
+      ]
+    },
+    {
+      kind: 'figures',
+      title: 'The search in numbers',
+      items: [
+        {
+          label: 'Songs in scope',
+          value: VIDEO_SCOPE,
+          format: 'count',
+          sublabel: 'no video yet, or a failed one',
+          tone: 'neutral'
+        },
+        {
+          label: 'Searched',
+          value: VIDEO_SEARCHED,
+          format: 'count',
+          sublabel: 'have a stored list',
+          tone: 'neutral'
+        },
+        {
+          label: 'Due now',
+          value: VIDEO_NEVER + 5,
+          format: 'count',
+          sublabel: '19,689 never searched, 5 coming round again',
+          tone: 'pending'
+        },
+        {
+          label: 'Per pass',
+          value: 20,
+          format: 'count',
+          sublabel: 'songs every 5 min, at most 5,760 a day',
+          tone: 'neutral'
+        },
+        {
+          label: 'Failed searches',
+          value: 4,
+          format: 'count',
+          sublabel: 'YouTube or yt-dlp errored; tried again on the back-off',
+          tone: 'warning'
+        },
+        {
+          label: 'Due after 30 days',
+          value: COMING_DUE_LATER,
+          format: 'count',
+          sublabel: 'beyond the chart above',
+          tone: 'neutral'
+        }
+      ]
+    }
+  ]
+};
+
+// ── music video downloads ───────────────────────────────────────────────────────────────────────
+
+// [downloaded automatically, picked by a person] per day, oldest first; the automatic ones start with the search.
+const FETCHED_PER_DAY: number[][] = [
+  ...[0, 0, 1, 0, 0, 2, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0].map((requested) => [0, requested]),
+  [0, 0],
+  [0, 1],
+  [0, 0],
+  [0, 2],
+  [0, 0],
+  [0, 1],
+  [0, 0],
+  [0, 0],
+  [4, 2],
+  [3, 0],
+  [0, 0],
+  [5, 0],
+  [8, 0],
+  [14, 0]
+];
+
+const downloadsSummary: BackgroundJobSummary = {
+  id: 'music-video-downloads',
+  title: 'Music video downloads',
+  description:
+    'Downloads the video the search is confident about, within a size limit and a free-space floor, and the ones you pick by hand.',
+  state: 'waiting',
+  stateLabel: 'Waiting for disk space: 14 GB free on the videos drive, and the floor is 20 GB.',
+  lastWorkedAtUtc: '2026-11-25T09:48:00Z',
+  nextRunAtUtc: null,
+  headline: {
+    value: 112,
+    of: null,
+    format: 'count',
+    caption: 'music videos are ready to play, 6.9 GB on disk',
+    etaUtc: null,
+    etaLabel: null
+  },
+  trend: FETCHED_PER_DAY.slice(-14).map(([auto, requested]) => auto + requested),
+  trendLabel: 'videos fetched per day'
+};
+
+const downloadsDetail: BackgroundJobDetail = {
+  summary: downloadsSummary,
+  panels: [
+    {
+      kind: 'series',
+      title: 'Videos fetched per day, last 30 days',
+      caption:
+        'A video counts on the day it was last fetched. A failed fetch carries no date, so failures are in the counts below, not on this chart.',
+      bucket: 'day',
+      format: 'count',
+      stacked: true,
+      series: [
+        { key: 'automatic', label: 'Downloaded automatically', tone: 'good' },
+        { key: 'requested', label: 'Picked by a person', tone: 'good' }
+      ],
+      points: dayPoints(startOfUtcDay(NOW) - 29 * DAY, FETCHED_PER_DAY),
+      limits: []
+    },
+    {
+      kind: 'breakdown',
+      title: 'Where every video stands',
+      caption: 'One row per song that has a video row.',
+      total: 121,
+      unit: 'videos',
+      segments: [
+        {
+          key: 'ready-automatic',
+          label: 'Ready, downloaded automatically',
+          count: 34,
+          tone: 'good'
+        },
+        { key: 'ready-requested', label: 'Ready, picked by a person', count: 78, tone: 'good' },
+        { key: 'fetching', label: 'Downloading', count: 3, tone: 'pending' },
+        {
+          key: 'failed',
+          label: 'Failed',
+          count: 6,
+          tone: 'bad',
+          note: 'Waits for a person: the automatic download never retries a song that has a row.'
+        }
+      ]
+    },
+    {
+      kind: 'figures',
+      title: 'Downloads in numbers',
+      items: [
+        {
+          label: 'Confident picks waiting',
+          value: 40,
+          format: 'count',
+          sublabel: '2.5 GB to download',
+          tone: 'pending'
+        },
+        {
+          label: 'Free on the videos drive',
+          value: 14 * 1024 ** 3,
+          format: 'bytes',
+          sublabel: 'the floor is 20 GB',
+          tone: 'warning'
+        },
+        {
+          label: 'Clips on disk',
+          value: 6.9 * 1024 ** 3,
+          format: 'bytes',
+          sublabel: 'from the last storage scan',
+          tone: 'neutral'
+        },
+        {
+          label: 'Failed videos',
+          value: 6,
+          format: 'count',
+          sublabel: 'waiting for a person',
+          tone: 'bad'
+        },
+        {
+          label: 'Size limit per clip',
+          value: 400 * 1024 ** 2,
+          format: 'bytes',
+          sublabel: 'and a score of at least 75',
+          tone: 'neutral'
+        }
+      ]
+    },
+    {
+      kind: 'bars',
+      title: 'Why searches found no confident pick',
+      caption:
+        "Songs whose list has candidates but none to download, by the best candidate's score against the bar of 75. At or above the bar, a list failed another check: a still picture, the wrong artist, a length that does not fit, or a file over the size limit.",
+      format: 'count',
+      bars: [
+        { label: 'Under 35', value: 212, tone: 'neutral' },
+        { label: '35 to 54', value: 301, tone: 'neutral' },
+        { label: '55 to 74', value: 198, tone: 'neutral' },
+        { label: '75 or more', value: 79, tone: 'pending' }
       ]
     }
   ]
@@ -703,6 +1016,7 @@ export const FIXTURE_DETAILS: Record<BackgroundJobId, BackgroundJobDetail> = {
   'transcription-allowance': allowanceDetail,
   'cover-art': coverDetail,
   'music-videos': videosDetail,
+  'music-video-downloads': downloadsDetail,
   'quality-grading': qualityDetail,
   'enrichment-retries': retriesDetail,
   'album-fill-follows': followsDetail

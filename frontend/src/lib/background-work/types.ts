@@ -6,6 +6,7 @@ export type BackgroundJobId =
   | 'transcription-allowance'
   | 'cover-art'
   | 'music-videos'
+  | 'music-video-downloads'
   | 'quality-grading'
   | 'enrichment-retries'
   | 'album-fill-follows';

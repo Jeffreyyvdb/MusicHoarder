@@ -60,6 +60,21 @@ describe('PanelView', () => {
     expect(body).toContain('border-dashed');
   });
 
+  it('draws a series that looks forward as far as it looks back', () => {
+    const panel = FIXTURE_DETAILS['music-videos'].panels.find(
+      (p) => p.kind === 'series' && p.title.startsWith('Searches coming due')
+    );
+    if (panel?.kind !== 'series') throw new Error('fixture lost its schedule chart');
+    expect(panel.points).toHaveLength(30);
+    expect(Date.parse(panel.points[0].startUtc)).toBeLessThanOrEqual(NOW);
+    expect(Date.parse(panel.points[29].startUtc)).toBeGreaterThan(NOW);
+    const body = html(PanelView, { panel, now: NOW });
+    expect(body).toContain('role="slider"');
+    expect(body).toContain('Searches already due are counted on today.');
+    expect(body.match(/<th scope="row">/g)).toHaveLength(30);
+    expect(body).toContain('A confident pick');
+  });
+
   it('turns the library map into columns of done, waiting and excluded', () => {
     const panel = FIXTURE_DETAILS.lyrics.panels.find((p) => p.kind === 'library-map');
     if (panel?.kind !== 'library-map') throw new Error('fixture lost its library map');
@@ -127,6 +142,17 @@ describe('BackgroundWorkSection', () => {
     expect(body).toContain('Working');
     expect(body).toContain('Failing');
     expect(body).toContain('songs synced per day');
+  });
+
+  it('splits the music videos into a search and its downloads, each with its own state', () => {
+    const body = html(BackgroundWorkSection, props());
+    expect(body).toContain('data-job="music-videos"');
+    expect(body).toContain('data-job="music-video-downloads"');
+    expect(body).toContain('Music video search');
+    expect(body).toContain('of 20,816 songs have been searched for a music video');
+    expect(body).toContain('Music video downloads');
+    expect(body).toContain('music videos are ready to play, 6.9 GB on disk');
+    expect(body).toContain('Waiting for disk space: 14 GB free on the videos drive');
   });
 
   it('reads the trend aloud with its numbers', () => {

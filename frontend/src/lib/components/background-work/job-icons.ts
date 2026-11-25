@@ -4,6 +4,7 @@ import {
   Captions,
   Clapperboard,
   DiscAlbum,
+  Download,
   Gauge,
   Image,
   RefreshCw
@@ -18,6 +19,7 @@ export const JOB_ICONS: Record<BackgroundJobId, Icon> = {
   'transcription-allowance': AudioLines,
   'cover-art': Image,
   'music-videos': Clapperboard,
+  'music-video-downloads': Download,
   'quality-grading': Gauge,
   'enrichment-retries': RefreshCw,
   'album-fill-follows': DiscAlbum
