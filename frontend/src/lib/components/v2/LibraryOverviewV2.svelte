@@ -32,6 +32,7 @@
   } from '#lib/api-client.ts';
   import { isAdmin } from '#lib/auth/capabilities.ts';
   import { albumHref, lastPlayedAlbums } from '#lib/library/last-played.ts';
+  import { overviewDailySeed } from '#lib/library/overview-seed.ts';
   import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
   import { NAV_GROUPS, navGroupsFor } from '#lib/nav.ts';
   import { playerStore } from '#lib/stores/player.svelte.ts';
@@ -69,11 +70,12 @@
   // The Tracks list's own base, so the Library rows count exactly what they open.
   const trackListSongs = $derived(songsStore.trackListSongs);
 
-  // ── per-visit random order that stays stable across live refetches ──────────
-  // A real shuffle inside $derived would reorder the shelves every time the
-  // songs store silently refreshes; seededOrder hashes item keys against this
-  // per-mount seed, keeping the "random" sections random per visit but stable within it.
-  const seed = Math.floor(Math.random() * 0xffff_ffff).toString(36);
+  // ── daily deterministic order that stays stable across navigation & refetches ──
+  // Seeded from the account and local calendar day so the shelves stay put when you open an album
+  // and come back (and match across tabs/devices for the day), then rotate tomorrow. Each shelf
+  // adds its own salt so overlapping pools (e.g. New to you vs Discover) don't open on the same
+  // leading albums.
+  const seed = $derived(overviewDailySeed(user?.id));
 
   const SHELF_SIZE = 12;
   /** Rows per column in the Favourite tracks list. */
@@ -97,7 +99,10 @@
   // Discover: albums you've never pressed play on — a random rummage through the
   // unlistened corners of the hoard.
   const discoverAlbums = $derived(
-    seededOrder(allAlbums.filter(neverPlayed), (a) => a.key, seed).slice(0, SHELF_SIZE)
+    seededOrder(allAlbums.filter(neverPlayed), (a) => a.key, `${seed}:discover`).slice(
+      0,
+      SHELF_SIZE
+    )
   );
 
   // New to you: albums that album completion filled in and you haven't played yet. This is the
@@ -110,14 +115,16 @@
           neverPlayed(a)
       ),
       (a) => a.key,
-      seed
+      `${seed}:new-to-you`
     ).slice(0, SHELF_SIZE)
   );
 
   const randomArtists = $derived(
-    seededOrder(artistGroups, (g) => g.key, seed).slice(0, SHELF_SIZE)
+    seededOrder(artistGroups, (g) => g.key, `${seed}:artists`).slice(0, SHELF_SIZE)
   );
-  const randomAlbums = $derived(seededOrder(allAlbums, (a) => a.key, seed).slice(0, SHELF_SIZE));
+  const randomAlbums = $derived(
+    seededOrder(allAlbums, (a) => a.key, `${seed}:shelves`).slice(0, SHELF_SIZE)
+  );
 
   // ── Library rows ────────────────────────────────────────────────────────────
   // The Listen pages the tab bar does not carry. An admin's and the demo's tab bar has one tab per

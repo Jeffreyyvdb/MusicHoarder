@@ -19,9 +19,8 @@
  */
 
 import {
-  fetchDuplicates,
+  fetchInboxDecisionCounts,
   fetchInboxNameCounts,
-  fetchQualityOverview,
   type NormalizedEnrichmentStatus
 } from '#lib/api-client.ts';
 import { songsStore } from '#lib/stores/songs.svelte.ts';
@@ -90,16 +89,14 @@ function load(kind: 'decisions' | 'names', force: boolean): Promise<void> {
   const run = (async () => {
     // Each figure independently: one failing endpoint leaves its row blank, not the others.
     if (kind === 'decisions') {
-      await Promise.all([
-        fetchDuplicates()
-          .then((r) => (fetched.dupes = (r.duplicateGroups ?? []).length))
-          .catch(() => {}),
-        // The server counts it with the queue's own predicate (the "wrong-or-questionable"
-        // category), over every grade — not the overview's top-50 worst-offenders sample.
-        fetchQualityOverview()
-          .then((r) => (fetched.ai = r.aiFlaggedCount))
-          .catch(() => {})
-      ]);
+      // One lightweight request for both figures instead of fetching the full duplicate report and
+      // quality overview on every document load just to count two numbers.
+      await fetchInboxDecisionCounts()
+        .then((r) => {
+          fetched.dupes = r.dupes;
+          fetched.ai = r.ai;
+        })
+        .catch(() => {});
     } else {
       if (!force) await afterLibraryLoad();
       // One request for both figures: the server counts them from a single read of the library

@@ -333,7 +333,7 @@ public static class DashboardEndpoints
             .Select(g => new InsightsSongCounts
             {
                 Indexed = g.Count(),
-                Fingerprinted = g.Count(s => s.Fingerprint != null && s.Fingerprint != ""),
+                Fingerprinted = g.Count(s => s.HasFingerprint),
                 Matched = g.Count(s => s.EnrichmentStatus == EnrichmentStatus.Matched),
                 NeedsReview = g.Count(s => s.EnrichmentStatus == EnrichmentStatus.NeedsReview),
                 FailedEnrich = g.Count(s => s.EnrichmentStatus == EnrichmentStatus.Failed),
@@ -445,30 +445,36 @@ public static class DashboardEndpoints
 
     private static async Task<IResult> GetStats(MusicHoarderDbContext db)
     {
-        var active = db.Songs.Where(s => s.DeletedAtUtc == null);
-        var totalCount = await active.CountAsync();
-        var deletedCount = await db.Songs.CountAsync(s => s.DeletedAtUtc != null);
-
-        var storage = await active
+        // Single table scan for all scalar aggregates (uses stored HasFingerprint so Fingerprint
+        // TOAST values are never detoasted).
+        var summary = await db.Songs.AsNoTracking()
             .GroupBy(_ => 1)
             .Select(g => new
             {
-                TotalBytes = g.Sum(s => s.FileSizeBytes),
-                AvgBytes = (long)g.Average(s => s.FileSizeBytes),
+                TotalCount = g.Count(s => s.DeletedAtUtc == null),
+                DeletedCount = g.Count(s => s.DeletedAtUtc != null),
+                TotalBytes = g.Sum(s => s.DeletedAtUtc == null ? s.FileSizeBytes : 0L),
+                TotalDurationSeconds = g.Sum(s => s.DeletedAtUtc == null && s.DurationSeconds != null ? s.DurationSeconds.Value : 0L),
+                TrackCountWithDuration = g.Count(s => s.DeletedAtUtc == null && s.DurationSeconds != null),
+                WithFingerprint = g.Count(s => s.DeletedAtUtc == null && s.HasFingerprint),
+                WithMusicBrainzId = g.Count(s => s.DeletedAtUtc == null && s.MusicBrainzId != null && s.MusicBrainzId != ""),
+                WithSpotifyId = g.Count(s => s.DeletedAtUtc == null && s.SpotifyId != null && s.SpotifyId != ""),
+                WithIsrc = g.Count(s => s.DeletedAtUtc == null && s.Isrc != null && s.Isrc != ""),
+                WithArtist = g.Count(s => s.DeletedAtUtc == null && s.Artist != null && s.Artist != ""),
+                WithAlbum = g.Count(s => s.DeletedAtUtc == null && s.Album != null && s.Album != ""),
+                WithTitle = g.Count(s => s.DeletedAtUtc == null && s.Title != null && s.Title != ""),
+                OldestIndexed = g.Min(s => s.DeletedAtUtc == null ? (DateTime?)s.IndexedAtUtc : null),
+                NewestIndexed = g.Max(s => s.DeletedAtUtc == null ? (DateTime?)s.IndexedAtUtc : null),
+                OldestModified = g.Min(s => s.DeletedAtUtc == null ? (DateTime?)s.LastModifiedUtc : null),
+                NewestModified = g.Max(s => s.DeletedAtUtc == null ? (DateTime?)s.LastModifiedUtc : null),
             })
             .SingleOrDefaultAsync();
 
-        var duration = await active
-            .Where(s => s.DurationSeconds != null)
-            .GroupBy(_ => 1)
-            .Select(g => new
-            {
-                TotalSeconds = g.Sum(s => s.DurationSeconds ?? 0),
-                TrackCountWithDuration = g.Count(),
-            })
-            .SingleOrDefaultAsync();
+        var totalCount = summary?.TotalCount ?? 0;
+        var deletedCount = summary?.DeletedCount ?? 0;
 
-        var byExtensionRaw = await active
+        var byExtensionRaw = await db.Songs.AsNoTracking()
+            .Where(s => s.DeletedAtUtc == null)
             .GroupBy(s => s.Extension)
             .Select(g => new { Extension = g.Key, Count = g.Count() })
             .ToListAsync();
@@ -478,31 +484,6 @@ public static class DashboardEndpoints
             .OrderByDescending(x => x.Count)
             .ToList();
 
-        var enrichment = await active
-            .GroupBy(_ => 1)
-            .Select(g => new
-            {
-                WithFingerprint = g.Count(s => s.Fingerprint != null && s.Fingerprint != ""),
-                WithMusicBrainzId = g.Count(s => s.MusicBrainzId != null && s.MusicBrainzId != ""),
-                WithSpotifyId = g.Count(s => s.SpotifyId != null && s.SpotifyId != ""),
-                WithIsrc = g.Count(s => s.Isrc != null && s.Isrc != ""),
-                WithArtist = g.Count(s => s.Artist != null && s.Artist != ""),
-                WithAlbum = g.Count(s => s.Album != null && s.Album != ""),
-                WithTitle = g.Count(s => s.Title != null && s.Title != ""),
-            })
-            .SingleOrDefaultAsync();
-
-        var indexWindow = await active
-            .GroupBy(_ => 1)
-            .Select(g => new
-            {
-                OldestIndexed = g.Min(s => s.IndexedAtUtc),
-                NewestIndexed = g.Max(s => s.IndexedAtUtc),
-                OldestModified = g.Min(s => s.LastModifiedUtc),
-                NewestModified = g.Max(s => s.LastModifiedUtc),
-            })
-            .SingleOrDefaultAsync();
-
         var stats = new
         {
             Tracks = new
@@ -510,48 +491,46 @@ public static class DashboardEndpoints
                 Total = totalCount,
                 Deleted = deletedCount,
             },
-            Storage = storage == null
+            Storage = totalCount == 0 || summary is null
                 ? null
                 : new
                 {
-                    TotalBytes = storage.TotalBytes,
-                    TotalGiB = Math.Round(storage.TotalBytes / (1024.0 * 1024.0 * 1024.0), 2),
-                    AverageBytesPerTrack = storage.AvgBytes,
+                    TotalBytes = summary.TotalBytes,
+                    TotalGiB = Math.Round(summary.TotalBytes / (1024.0 * 1024.0 * 1024.0), 2),
+                    AverageBytesPerTrack = summary.TotalBytes / totalCount,
                 },
-            Duration = duration == null
+            Duration = summary is null || summary.TrackCountWithDuration == 0
                 ? null
                 : new
                 {
-                    TotalSeconds = duration.TotalSeconds,
-                    TotalHours = Math.Round(duration.TotalSeconds / 3600.0, 1),
-                    TracksWithDuration = duration.TrackCountWithDuration,
-                    AverageSecondsPerTrack = duration.TrackCountWithDuration > 0
-                        ? Math.Round(duration.TotalSeconds / (double)duration.TrackCountWithDuration, 1)
-                        : (double?)null,
+                    TotalSeconds = summary.TotalDurationSeconds,
+                    TotalHours = Math.Round(summary.TotalDurationSeconds / 3600.0, 1),
+                    TracksWithDuration = summary.TrackCountWithDuration,
+                    AverageSecondsPerTrack = (double?)Math.Round(summary.TotalDurationSeconds / (double)summary.TrackCountWithDuration, 1),
                 },
             ByExtension = byExtension,
-            Enrichment = enrichment == null
+            Enrichment = totalCount == 0 || summary is null
                 ? null
                 : new
                 {
-                    enrichment.WithFingerprint,
-                    enrichment.WithMusicBrainzId,
-                    enrichment.WithSpotifyId,
-                    enrichment.WithIsrc,
-                    enrichment.WithArtist,
-                    enrichment.WithAlbum,
-                    enrichment.WithTitle,
-                    FingerprintPct = totalCount > 0 ? Math.Round(100.0 * enrichment.WithFingerprint / totalCount, 1) : 0,
-                    MusicBrainzPct = totalCount > 0 ? Math.Round(100.0 * enrichment.WithMusicBrainzId / totalCount, 1) : 0,
+                    summary.WithFingerprint,
+                    summary.WithMusicBrainzId,
+                    summary.WithSpotifyId,
+                    summary.WithIsrc,
+                    summary.WithArtist,
+                    summary.WithAlbum,
+                    summary.WithTitle,
+                    FingerprintPct = Math.Round(100.0 * summary.WithFingerprint / totalCount, 1),
+                    MusicBrainzPct = Math.Round(100.0 * summary.WithMusicBrainzId / totalCount, 1),
                 },
-            IndexWindow = indexWindow == null
+            IndexWindow = totalCount == 0 || summary is null
                 ? null
                 : new
                 {
-                    OldestIndexedUtc = indexWindow.OldestIndexed,
-                    NewestIndexedUtc = indexWindow.NewestIndexed,
-                    OldestFileModifiedUtc = indexWindow.OldestModified,
-                    NewestFileModifiedUtc = indexWindow.NewestModified,
+                    OldestIndexedUtc = summary.OldestIndexed!.Value,
+                    NewestIndexedUtc = summary.NewestIndexed!.Value,
+                    OldestFileModifiedUtc = summary.OldestModified!.Value,
+                    NewestFileModifiedUtc = summary.NewestModified!.Value,
                 },
         };
 
@@ -571,15 +550,7 @@ public static class DashboardEndpoints
         var isAdmin = currentUser.User?.IsAdmin == true;
         var active = db.Songs.Where(s => s.DeletedAtUtc == null);
 
-        var counts = await PipelineSnapshot.ComputeCountsAsync(active);
-
-        var indexWindow = await active
-            .GroupBy(_ => 1)
-            .Select(g => new
-            {
-                NewestIndexed = g.Max(s => s.IndexedAtUtc),
-            })
-            .SingleOrDefaultAsync();
+        var (counts, newestIndexed) = await PipelineSnapshot.ComputeOverviewCountsAsync(active);
 
         var scanState = isAdmin ? scanTracker.GetCurrent() : null;
         var scanRunning = scanState is { IsComplete: false };
@@ -591,7 +562,7 @@ public static class DashboardEndpoints
         var now = DateTime.UtcNow;
         var activities = await PipelineSnapshot.ComputeRecentActivityAsync(active, 50);
 
-        var startedAt = scanState?.StartedAt ?? indexWindow?.NewestIndexed ?? now;
+        var startedAt = scanState?.StartedAt ?? newestIndexed ?? now;
 
         var overview = new
         {

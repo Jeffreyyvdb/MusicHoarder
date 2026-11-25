@@ -15,11 +15,23 @@ public static class GradingIssueJson
     public static List<GradingIssue> Parse(string? json)
     {
         if (string.IsNullOrWhiteSpace(json)) return [];
+        var trimmed = json.AsSpan().Trim();
+        if (trimmed.Length <= 2 && trimmed.SequenceEqual("[]")) return [];
         try { return JsonSerializer.Deserialize<List<GradingIssue>>(json, Json) ?? []; }
         catch { return []; }
     }
 
     /// <summary>The non-blank issue codes only, for frequency rollups.</summary>
-    public static IEnumerable<string> ParseCodes(string? json) =>
-        Parse(json).Where(i => !string.IsNullOrWhiteSpace(i.Code)).Select(i => i.Code);
+    public static List<string> ParseCodes(string? json)
+    {
+        var parsed = Parse(json);
+        if (parsed.Count == 0) return [];
+        var codes = new List<string>(parsed.Count);
+        foreach (var issue in parsed)
+        {
+            if (!string.IsNullOrWhiteSpace(issue.Code))
+                codes.Add(issue.Code);
+        }
+        return codes;
+    }
 }

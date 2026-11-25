@@ -25,29 +25,48 @@ public static class PipelineSnapshot
         IQueryable<SongMetadata> active,
         CancellationToken ct = default)
     {
-        var totalCount = await active.CountAsync(ct);
-        var fingerprintedCount = await active.CountAsync(
-            s => s.Fingerprint != null && s.Fingerprint != string.Empty && s.DurationSeconds != null, ct);
-        var enrichedCount = await active.CountAsync(
-            s => s.EnrichmentStatus == EnrichmentStatus.Matched || s.EnrichmentStatus == EnrichmentStatus.NeedsReview, ct);
-        var buildEligibleCount = await active.CountAsync(s => s.EnrichmentStatus == EnrichmentStatus.Matched, ct);
-        var copiedCount = await active.CountAsync(
-            s => s.LibraryBuildStatus == LibraryBuildStatus.Copied ||
-                 s.LibraryBuildStatus == LibraryBuildStatus.Tagged ||
-                 s.LibraryBuildStatus == LibraryBuildStatus.Done, ct);
-        var reviewCount = await active.CountAsync(s => s.EnrichmentStatus == EnrichmentStatus.NeedsReview, ct);
-        var failedCount = await active.CountAsync(
-            s => s.EnrichmentStatus == EnrichmentStatus.Failed || s.LibraryBuildStatus == LibraryBuildStatus.Failed, ct);
+        var (counts, _) = await ComputeOverviewCountsAsync(active, ct);
+        return counts;
+    }
 
-        return new PipelineCounts(
-            Discovered: totalCount,
-            Processed: totalCount,
-            Fingerprinted: fingerprintedCount,
-            Enriched: enrichedCount,
-            BuildEligible: buildEligibleCount,
-            Copied: copiedCount,
-            Review: reviewCount,
-            Failed: failedCount);
+    public static async Task<(PipelineCounts Counts, DateTime? NewestIndexedAtUtc)> ComputeOverviewCountsAsync(
+        IQueryable<SongMetadata> active,
+        CancellationToken ct = default)
+    {
+        // Single table scan using stored HasFingerprint (avoids TOAST detoasting on Fingerprint).
+        var row = await active
+            .AsNoTracking()
+            .GroupBy(_ => 1)
+            .Select(g => new
+            {
+                Total = g.Count(),
+                Fingerprinted = g.Count(s => s.HasFingerprint && s.DurationSeconds != null),
+                Enriched = g.Count(s => s.EnrichmentStatus == EnrichmentStatus.Matched || s.EnrichmentStatus == EnrichmentStatus.NeedsReview),
+                BuildEligible = g.Count(s => s.EnrichmentStatus == EnrichmentStatus.Matched),
+                Copied = g.Count(s =>
+                    s.LibraryBuildStatus == LibraryBuildStatus.Copied ||
+                    s.LibraryBuildStatus == LibraryBuildStatus.Tagged ||
+                    s.LibraryBuildStatus == LibraryBuildStatus.Done),
+                Review = g.Count(s => s.EnrichmentStatus == EnrichmentStatus.NeedsReview),
+                Failed = g.Count(s =>
+                    s.EnrichmentStatus == EnrichmentStatus.Failed ||
+                    s.LibraryBuildStatus == LibraryBuildStatus.Failed),
+                NewestIndexedAtUtc = g.Max(s => (DateTime?)s.IndexedAtUtc),
+            })
+            .SingleOrDefaultAsync(ct);
+
+        if (row is null)
+            return (new PipelineCounts(0, 0, 0, 0, 0, 0, 0, 0), null);
+
+        return (new PipelineCounts(
+            Discovered: row.Total,
+            Processed: row.Total,
+            Fingerprinted: row.Fingerprinted,
+            Enriched: row.Enriched,
+            BuildEligible: row.BuildEligible,
+            Copied: row.Copied,
+            Review: row.Review,
+            Failed: row.Failed), row.NewestIndexedAtUtc);
     }
 
     /// <summary>Rows read per source stamp before deriving; far more than the few dozen events shown.</summary>
@@ -67,28 +86,37 @@ public static class PipelineSnapshot
         int take,
         CancellationToken ct = default)
     {
-        var failed = await active
+        var noTrack = active.AsNoTracking();
+
+        var failed = await noTrack
             .Where(s => s.EnrichmentStatus == EnrichmentStatus.Failed || s.LibraryBuildStatus == LibraryBuildStatus.Failed)
             .OrderByDescending(s => s.EnrichedAtUtc ?? s.EnrichmentLastAttemptedAtUtc ?? s.LibraryBuildLastAttemptedAtUtc ?? s.IndexedAtUtc)
             .Take(CandidateCap).Select(ToFacts).ToListAsync(ct);
 
-        var review = await active
+        var review = await noTrack
             .Where(s => s.EnrichmentStatus == EnrichmentStatus.NeedsReview)
             .OrderByDescending(s => s.EnrichedAtUtc ?? s.EnrichmentLastAttemptedAtUtc ?? s.IndexedAtUtc)
             .Take(CandidateCap).Select(ToFacts).ToListAsync(ct);
 
-        var inLibrary = await active
-            .Where(s => s.DestinationPath != null)
-            .OrderByDescending(s => s.AcquiredAtUtc ?? s.IndexedAtUtc)
+        // Split AcquiredAtUtc != null from legacy null rows so the primary query uses the
+        // (OwnerUserId, DeletedAtUtc, AcquiredAtUtc) index without a COALESCE full-table sort.
+        var inLibrary = await noTrack
+            .Where(s => s.DestinationPath != null && s.AcquiredAtUtc != null)
+            .OrderByDescending(s => s.AcquiredAtUtc)
             .Take(CandidateCap).Select(ToFacts).ToListAsync(ct);
 
-        var matched = await active
+        var inLibraryLegacy = await noTrack
+            .Where(s => s.DestinationPath != null && s.AcquiredAtUtc == null)
+            .OrderByDescending(s => s.IndexedAtUtc)
+            .Take(CandidateCap).Select(ToFacts).ToListAsync(ct);
+
+        var matched = await noTrack
             .Where(s => s.EnrichmentStatus == EnrichmentStatus.Matched
                 && s.DestinationPath == null && s.PreviousDestinationPath == null && s.EnrichedAtUtc != null)
             .OrderByDescending(s => s.EnrichedAtUtc)
             .Take(CandidateCap).Select(ToFacts).ToListAsync(ct);
 
-        var candidates = failed.Concat(review).Concat(inLibrary).Concat(matched)
+        var candidates = failed.Concat(review).Concat(inLibrary).Concat(inLibraryLegacy).Concat(matched)
             .GroupBy(f => f.Id).Select(g => g.First());
 
         return RecentActivity.Derive(candidates, take);

@@ -279,4 +279,20 @@ public class QualityEndpointsTests
         Assert.Equal("Good", worstByDir["/music/good"]);
         Assert.Equal("Ungradeable", worstByDir["/music/unjudged"]);
     }
+
+    [Fact]
+    public async Task GetOverview_HandlesTiedGradedAtUtcWithoutThrowing()
+    {
+        using var db = NewContext();
+        var song = AddSong(db, 1, EnrichmentStatus.Matched);
+        var tiedTime = new DateTime(2026, 5, 1, 12, 0, 0, DateTimeKind.Utc);
+        AddGrade(db, song.Id, SongQualityVerdict.Wrong, 15, "Matched", at: tiedTime);
+        AddGrade(db, song.Id, SongQualityVerdict.Wrong, 25, "Matched", at: tiedTime);
+
+        var result = await QualityEndpoints.GetOverview(db, Opts(), CancellationToken.None);
+
+        Assert.Equal(StatusCodes.Status200OK, ((IStatusCodeHttpResult)result).StatusCode);
+        var worst = Read<List<object>>(result, "worstOffenders");
+        Assert.Equal(2, worst.Count);
+    }
 }

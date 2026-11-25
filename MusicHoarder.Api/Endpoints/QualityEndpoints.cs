@@ -101,15 +101,44 @@ public static class QualityEndpoints
         int PromptVersion,
         string? Model);
 
+    private record GradeOverviewRowDto(
+        int GradeId,
+        int SongId,
+        string SourcePath,
+        int Score,
+        SongQualityVerdict Verdict,
+        string? IssuesJson,
+        string? EnrichmentStatusAtGrade,
+        DateTime GradedAtUtc,
+        int PromptVersion,
+        string? Model);
+
+    private readonly record struct ParsedOverviewRow(
+        GradeOverviewRowDto Row,
+        IReadOnlyList<string> IssueCodes);
+
     private static async Task<List<GradeRowDto>> LoadGradeRowsAsync(MusicHoarderDbContext db, CancellationToken ct)
     {
-        return await db.SongQualityGrades.LatestPerSong()
-            .Join(db.Songs.Where(s => s.DeletedAtUtc == null),
+        return await db.SongQualityGrades.AsNoTracking().LatestPerSong()
+            .Join(db.Songs.AsNoTracking().Where(s => s.DeletedAtUtc == null),
                 g => g.SongId, s => s.Id,
                 (g, s) => new GradeRowDto(
                     s.Id, s.SourcePath, s.FileName, s.Artist, s.Title, s.Album,
                     g.Score, g.Verdict, g.Summary, g.IssuesJson,
                     g.EnrichmentStatusAtGrade, g.DestinationPathPreview, g.GradedAtUtc,
+                    g.PromptVersion, g.Model))
+            .ToListAsync(ct);
+    }
+
+    private static async Task<List<GradeOverviewRowDto>> LoadOverviewGradeRowsAsync(MusicHoarderDbContext db, CancellationToken ct)
+    {
+        return await db.SongQualityGrades.AsNoTracking().LatestPerSong()
+            .Join(db.Songs.AsNoTracking().Where(s => s.DeletedAtUtc == null),
+                g => g.SongId, s => s.Id,
+                (g, s) => new GradeOverviewRowDto(
+                    g.Id, s.Id, s.SourcePath,
+                    g.Score, g.Verdict, g.IssuesJson,
+                    g.EnrichmentStatusAtGrade, g.GradedAtUtc,
                     g.PromptVersion, g.Model))
             .ToListAsync(ct);
     }
@@ -194,44 +223,86 @@ public static class QualityEndpoints
     internal static async Task<IResult> GetOverview(
         MusicHoarderDbContext db, IOptionsMonitor<QualityGradingOptions> options, CancellationToken ct)
     {
-        var rows = await LoadGradeRowsAsync(db, ct);
+        var rawRows = await LoadOverviewGradeRowsAsync(db, ct);
         var currentModel = options.CurrentValue.Model;
 
-        var gradeableTotal = await db.Songs
+        var gradeableTotal = await db.Songs.AsNoTracking()
             .Where(s => s.DeletedAtUtc == null && !s.IsDuplicate && GradeableStatuses.Contains(s.EnrichmentStatus))
             .CountAsync(ct);
 
-        var agg = QualityRollup.Aggregate(rows.Select(r => new QualityRollup.GradeRow(r.Verdict, r.Score, r.IssuesJson)));
+        // Parse IssuesJson once per graded row and reuse the codes across library + directory rollups.
+        var parsedRows = new ParsedOverviewRow[rawRows.Count];
+        var rollupRows = new QualityRollup.PreParsedGradeRow[rawRows.Count];
+        int flagged = 0, silent = 0, verified = 0, outdatedCount = 0, aiFlaggedCount = 0;
 
-        var worst = OrderWorstFirst(rows)
-            .Take(50)
-            .Select(ToWorstOffender)
-            .ToList();
-
-        var directories = BuildDirectoryRollups(rows).Take(200).ToList();
-
-        // Bucket the latest grades for the workbench's three "needs attention" cards.
-        int flagged = 0, silent = 0, verified = 0;
-        foreach (var r in rows)
+        for (var i = 0; i < rawRows.Count; i++)
         {
+            var r = rawRows[i];
+            var codes = GradingIssueJson.ParseCodes(r.IssuesJson);
+            parsedRows[i] = new ParsedOverviewRow(r, codes);
+            rollupRows[i] = new QualityRollup.PreParsedGradeRow(r.Verdict, r.Score, codes);
+
             switch (QualityBuckets.Classify(r.EnrichmentStatusAtGrade, r.Verdict))
             {
                 case QualityBucket.Flagged: flagged++; break;
                 case QualityBucket.Silent: silent++; break;
                 case QualityBucket.Verified: verified++; break;
             }
+
+            if (GradeFreshness.IsSongGradeOutdated(r.PromptVersion, r.Model, currentModel))
+                outdatedCount++;
+            if (VerdictSeverity.IsAiFlagged(r.Verdict))
+                aiFlaggedCount++;
         }
 
-        var outdatedCount = rows.Count(r => GradeFreshness.IsSongGradeOutdated(r.PromptVersion, r.Model, currentModel));
+        var agg = QualityRollup.AggregatePreParsed(rollupRows);
 
-        // The Inbox's "AI flagged" count: exactly what the wrong-or-questionable category lists, so a
-        // badge never has to count the capped worst-offender list.
-        var aiFlaggedCount = rows.Count(r => VerdictSeverity.IsAiFlagged(r.Verdict));
+        var worstHead = rawRows
+            .OrderBy(r => VerdictSeverity.WorstFirstRank(r.Verdict))
+            .ThenBy(r => r.Score)
+            .ThenByDescending(r => r.GradedAtUtc)
+            .Take(50)
+            .ToList();
+
+        List<object> worst;
+        if (worstHead.Count == 0)
+        {
+            worst = [];
+        }
+        else
+        {
+            var worstGradeIds = worstHead.Select(r => r.GradeId).ToList();
+            // Key by GradeId (primary key) rather than SongId: LatestPerSong() can return multiple
+            // grades for one song if they tie on GradedAtUtc.
+            var worstDetails = await db.SongQualityGrades.AsNoTracking()
+                .Where(g => worstGradeIds.Contains(g.Id))
+                .Join(db.Songs.AsNoTracking(),
+                    g => g.SongId, s => s.Id,
+                    (g, s) => new
+                    {
+                        GradeId = g.Id,
+                        Row = new GradeRowDto(
+                            s.Id, s.SourcePath, s.FileName, s.Artist, s.Title, s.Album,
+                            g.Score, g.Verdict, g.Summary, g.IssuesJson,
+                            g.EnrichmentStatusAtGrade, g.DestinationPathPreview, g.GradedAtUtc,
+                            g.PromptVersion, g.Model),
+                    })
+                .ToDictionaryAsync(x => x.GradeId, x => x.Row, ct);
+
+            worst = new List<object>(worstHead.Count);
+            foreach (var r in worstHead)
+            {
+                if (worstDetails.TryGetValue(r.GradeId, out var detail))
+                    worst.Add(ToWorstOffender(detail));
+            }
+        }
+
+        var directories = BuildDirectoryRollups(parsedRows).Take(200).ToList();
 
         return Results.Ok(new
         {
             gradeableTotal,
-            coverage = gradeableTotal == 0 ? 0d : Math.Round((double)rows.Count / gradeableTotal, 3),
+            coverage = gradeableTotal == 0 ? 0d : Math.Round((double)rawRows.Count / gradeableTotal, 3),
             library = AggregateToDto(agg),
             flaggedCount = flagged,
             silentFailureCount = silent,
@@ -272,15 +343,15 @@ public static class QualityEndpoints
         return Results.Ok(new { total = filtered.Count, skip = offset, take = pageSize, items });
     }
 
-    private static IEnumerable<object> BuildDirectoryRollups(List<GradeRowDto> rows)
+    private static IEnumerable<object> BuildDirectoryRollups(IEnumerable<ParsedOverviewRow> rows)
     {
         return rows
-            .GroupBy(r => DirectoryOf(r.SourcePath))
+            .GroupBy(r => DirectoryOf(r.Row.SourcePath))
             .Select(grp =>
             {
-                var agg = QualityRollup.Aggregate(
-                    grp.Select(r => new QualityRollup.GradeRow(r.Verdict, r.Score, r.IssuesJson)));
-                var worstInDir = VerdictSeverity.WorstOf(grp.Select(r => r.Verdict));
+                var agg = QualityRollup.AggregatePreParsed(
+                    grp.Select(r => new QualityRollup.PreParsedGradeRow(r.Row.Verdict, r.Row.Score, r.IssueCodes)));
+                var worstInDir = VerdictSeverity.WorstOf(grp.Select(r => r.Row.Verdict));
                 return (
                     directory: grp.Key,
                     agg,
@@ -301,8 +372,9 @@ public static class QualityEndpoints
 
     private static async Task<IResult> GetDirectories(MusicHoarderDbContext db, CancellationToken ct)
     {
-        var rows = await LoadGradeRowsAsync(db, ct);
-        return Results.Ok(new { directories = BuildDirectoryRollups(rows).ToList() });
+        var rawRows = await LoadOverviewGradeRowsAsync(db, ct);
+        var parsed = rawRows.Select(r => new ParsedOverviewRow(r, GradingIssueJson.ParseCodes(r.IssuesJson)));
+        return Results.Ok(new { directories = BuildDirectoryRollups(parsed).ToList() });
     }
 
     private static async Task<IResult> GetSongGrade(

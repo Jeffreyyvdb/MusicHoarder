@@ -815,19 +815,21 @@ export function sortAlbums(albums: AlbumSummary[], key: AlbumSortKey): AlbumSumm
 // exactly what calling the key function from the comparator gave, just without redoing the work.
 
 /**
- * A per-visit "random" order that stays stable across a silent background refetch of the same
- * items: hashing each item's key together with a seed set once per page mount is what makes a
- * shelf look randomly ordered between visits without reshuffling under your thumb while a live
- * refresh replaces the array it reads from.
+ * A seeded "random" order that stays stable across silent background refetches and back
+ * navigations: hashing the seed before each item's key and running a 32-bit Murmur3 finalizer
+ * ensures consecutive seeds (such as adjacent calendar days) and prefix-sharing keys produce
+ * independent shuffles while staying deterministic for the same seed.
  */
 export function seededOrder<T>(items: readonly T[], keyOf: (item: T) => string, seed: string): T[] {
   const hash = (s: string): number => {
     let h = 5381;
     for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
-    return h;
+    h = Math.imul(h ^ (h >>> 16), 0x85ebca6b) >>> 0;
+    h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35) >>> 0;
+    return (h ^ (h >>> 16)) >>> 0;
   };
   return items
-    .map((item) => ({ item, k: hash(keyOf(item) + seed) }))
+    .map((item) => ({ item, k: hash(`${seed}\0${keyOf(item)}`) }))
     .sort((a, b) => a.k - b.k)
     .map((d) => d.item);
 }
@@ -5053,6 +5055,22 @@ export interface InboxNameCounts {
  */
 export async function fetchInboxNameCounts(): Promise<InboxNameCounts> {
   return requestJson<InboxNameCounts>('/api/inbox/name-counts');
+}
+
+/** How many items the Inbox's two server-counted decision queues hold. */
+export interface InboxDecisionCounts {
+  /** Duplicate tracks: active duplicate groups. */
+  dupes: number;
+  /** AI flagged: latest grades with Wrong or Questionable verdict. */
+  ai: number;
+}
+
+/**
+ * The Duplicate tracks and AI flagged counts, without loading the duplicate report or quality
+ * overview. Used by the shell's nav badges on every page load.
+ */
+export async function fetchInboxDecisionCounts(): Promise<InboxDecisionCounts> {
+  return requestJson<InboxDecisionCounts>('/api/inbox/decision-counts');
 }
 
 // ── Dedup action history (merges / splits / heals, with revert) ────────────────
