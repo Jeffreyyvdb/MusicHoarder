@@ -85,24 +85,21 @@ public sealed class TranscriptionAllowanceInsight(
         var background = l.Spend.Where(e => TranscriptionAudioBudget.IsBackground(e.Purpose)).ToList();
         var lastBackground = background.Count == 0 ? (DateTime?)null : background.Max(e => e.AtUtc);
 
-        JobRuntime? runtime = null;
+        JobRuntime runtime;
         if (l.Wait > TimeSpan.Zero)
         {
-            var hourly = l.HourWait >= l.DayWait;
             runtime = new JobRuntime(
                 BackgroundJobState.Waiting,
-                hourly
+                l.HourWait >= l.DayWait
                     ? "Background transcription is waiting for the hourly audio allowance."
                     : "Background transcription is waiting for the daily audio allowance.",
                 l.Now + l.Wait, l.Now + l.Wait, l.Now, lastBackground);
         }
-        else if (lastBackground is { } last && l.Now - last < TimeSpan.FromMinutes(10))
-        {
-            runtime = new JobRuntime(BackgroundJobState.Working, null, null, null, l.Now, lastBackground);
-        }
         else
         {
-            runtime = new JobRuntime(BackgroundJobState.Idle, null, null, null, l.Now, lastBackground);
+            var busy = lastBackground is { } last && l.Now - last < TimeSpan.FromMinutes(10);
+            runtime = new JobRuntime(
+                busy ? BackgroundJobState.Working : BackgroundJobState.Idle, null, null, null, l.Now, lastBackground);
         }
 
         var perDay = (double)l.Options.AudioSecondsPerDay;

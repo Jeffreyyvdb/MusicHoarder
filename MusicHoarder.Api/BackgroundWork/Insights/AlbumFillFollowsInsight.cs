@@ -69,9 +69,11 @@ public sealed class AlbumFillFollowsInsight(
         var rate = EtaEstimator.RatePerDay(
             recent.Count, d.Items.Count == 0 ? null : d.Items.Min(i => i.CreatedAtUtc), d.Now, RateWindowDays);
 
-        var lastWorked = d.Items.Count == 0
-            ? (DateTime?)null
-            : new[] { d.Items.Max(i => i.CreatedAtUtc), downloaded.Count == 0 ? DateTime.MinValue : downloaded.Max(i => i.UpdatedAtUtc) }.Max();
+        // A queued track or a finished download, whichever is newer.
+        var lastWorked = d.Items
+            .SelectMany(i => i.Status == WishlistItemStatus.Downloaded ? [i.CreatedAtUtc, i.UpdatedAtUtc] : new[] { i.CreatedAtUtc })
+            .Select(t => (DateTime?)t)
+            .Max();
 
         return BackgroundJobSummaries.Build(
             BackgroundJobDefinitions.AlbumFillAndFollows,

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using MusicHoarder.Api.BackgroundWork.Insights;
 
 namespace MusicHoarder.Api.BackgroundWork;
@@ -6,7 +7,7 @@ public static class BackgroundWorkServiceCollectionExtensions
 {
     public static IServiceCollection AddBackgroundWork(this IServiceCollection services)
     {
-        services.AddSingleton<BackgroundWorkStatus>();
+        services.TryAddSingleton<BackgroundWorkStatus>();
 
         // One per id in BackgroundJobIds; a test fails if one is missing or doubled.
         services.AddScoped<IBackgroundJobInsight, LyricsInsight>();
