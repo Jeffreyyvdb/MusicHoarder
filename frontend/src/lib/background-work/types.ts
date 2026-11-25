@@ -110,7 +110,12 @@ export interface FiguresPanel {
   }[];
 }
 
-export type BackgroundPanel = BreakdownPanel | SeriesPanel | LibraryMapPanel | BarsPanel | FiguresPanel;
+export type BackgroundPanel =
+  | BreakdownPanel
+  | SeriesPanel
+  | LibraryMapPanel
+  | BarsPanel
+  | FiguresPanel;
 
 export interface BackgroundJobDetail {
   summary: BackgroundJobSummary;

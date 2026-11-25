@@ -16,6 +16,7 @@
     TriangleAlert
   } from '@lucide/svelte';
   import PageToolbarV2 from '#lib/components/v2/PageToolbarV2.svelte';
+  import BackgroundWork from '#lib/components/background-work/BackgroundWork.svelte';
   import type { Component } from 'svelte';
   import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
   import { Skeleton } from '#lib/components/ui/skeleton/index.ts';
@@ -1030,6 +1031,15 @@
           </GroupedList.Row>
         {/each}
       </GroupedList.Section>
+
+      <!-- Background work — admin only: what the sweeps are doing and have done. -->
+      {#if isAdmin(page.data.user)}
+        <BackgroundWork>
+          {#snippet header()}
+            {@render sectionHeader('Background work')}
+          {/snippet}
+        </BackgroundWork>
+      {/if}
 
       <!-- Recent activity + Just landed: side by side from lg. -->
       <div class="grid grid-cols-1 items-start gap-7 lg:grid-cols-2 lg:gap-6">

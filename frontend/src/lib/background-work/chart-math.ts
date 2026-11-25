@@ -1,9 +1,5 @@
 import { formatBytesShort, formatCompactCount } from '#lib/formatters.ts';
-import {
-  formatDayBucket,
-  formatMonthYear,
-  type MomentOptions
-} from './format.ts';
+import { formatDayBucket, formatMonthYear, type MomentOptions } from './format.ts';
 import type { BackgroundFormat, LibraryMapPanel, SeriesPanel } from './types.ts';
 
 // The geometry behind the charts, with no DOM in it: scales, ticks, stacks and the library map's
@@ -100,7 +96,8 @@ export interface StackSegment {
 export function stackSegments(values: readonly number[], top: number): StackSegment[] {
   const segments: StackSegment[] = [];
   values.forEach((value, series) => {
-    if (value > 0) segments.push({ series, value, heightPct: top > 0 ? (value / top) * 100 : 0, top: false });
+    if (value > 0)
+      segments.push({ series, value, heightPct: top > 0 ? (value / top) * 100 : 0, top: false });
   });
   if (segments.length > 0) segments[segments.length - 1].top = true;
   return segments;
@@ -141,9 +138,14 @@ export function timeTicks(
   const dates = starts.map((s) => new Date(s));
   let candidates: TimeTick[] = [];
   if (bucket === 'day') {
-    candidates = dates.map((d, index) => ({ index, label: formatDayBucket(d.toISOString(), options) }));
+    candidates = dates.map((d, index) => ({
+      index,
+      label: formatDayBucket(d.toISOString(), options)
+    }));
   } else {
-    const midnights = dates.flatMap((d, index) => (localHour(d, options.timeZone) === 0 ? [index] : []));
+    const midnights = dates.flatMap((d, index) =>
+      localHour(d, options.timeZone) === 0 ? [index] : []
+    );
     if (midnights.length >= 2) {
       candidates = midnights.map((index) => ({
         index,
@@ -191,7 +193,12 @@ export interface BinShares {
 export function binShares(bin: Bin): BinShares {
   const total = bin.done + bin.waiting + bin.excluded;
   if (total <= 0) return { total: 0, done: 0, waiting: 0, excluded: 0 };
-  return { total, done: bin.done / total, waiting: bin.waiting / total, excluded: bin.excluded / total };
+  return {
+    total,
+    done: bin.done / total,
+    waiting: bin.waiting / total,
+    excluded: bin.excluded / total
+  };
 }
 
 /** Where a moment falls along the strip, 0 to 1: bins are equal in songs, not in time, so it is placed inside its own bin. */
@@ -218,7 +225,11 @@ export interface MapTick {
 }
 
 /** Evenly spaced axis labels, each the date at that point of the library; the last is the newest bin's end. */
-export function mapTicks(bins: readonly Bin[], count: number, options: MomentOptions = {}): MapTick[] {
+export function mapTicks(
+  bins: readonly Bin[],
+  count: number,
+  options: MomentOptions = {}
+): MapTick[] {
   if (bins.length === 0 || count < 2) return [];
   return Array.from({ length: count }, (_, i) => {
     const position = i / (count - 1);
@@ -287,7 +298,8 @@ export function placeMarkers(
   for (const i of order) {
     const { position, width } = markers[i];
     const align = position < 0.25 ? 'start' : position > 0.75 ? 'end' : 'center';
-    const start = align === 'start' ? position : align === 'end' ? position - width : position - width / 2;
+    const start =
+      align === 'start' ? position : align === 'end' ? position - width : position - width / 2;
     const end = start + width;
     let lane = laneEnds.findIndex((laneEnd) => laneEnd + gap <= start);
     if (lane === -1) lane = laneEnds.length;

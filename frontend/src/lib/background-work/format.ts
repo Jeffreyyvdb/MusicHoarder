@@ -100,12 +100,19 @@ export function formatMoment(iso: string, options: MomentOptions = {}): string {
   if (Number.isNaN(date.getTime())) return '';
   const now = new Date(options.now ?? Date.now());
   const time = dateParts(date, { hour: '2-digit', minute: '2-digit', hour12: false }, options);
-  const gap = dayNumber(date, options.timeZone, options.locale) - dayNumber(now, options.timeZone, options.locale);
+  const gap =
+    dayNumber(date, options.timeZone, options.locale) -
+    dayNumber(now, options.timeZone, options.locale);
   if (gap === 0) return `today ${time}`;
   if (gap === 1) return `tomorrow ${time}`;
   if (gap === -1) return `yesterday ${time}`;
-  const sameYear = dateParts(date, { year: 'numeric' }, options) === dateParts(now, { year: 'numeric' }, options);
-  const day = dateParts(date, { day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) }, options);
+  const sameYear =
+    dateParts(date, { year: 'numeric' }, options) === dateParts(now, { year: 'numeric' }, options);
+  const day = dateParts(
+    date,
+    { day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) },
+    options
+  );
   return `${day}, ${time}`;
 }
 
@@ -152,9 +159,15 @@ export function formatEta(etaUtc: string, options: MomentOptions = {}): string {
     return `about ${plural(Math.round(hours), 'hour')}, around ${time}`;
   }
   const days = gap / DAY_MS;
-  const sameYear = dateParts(eta, { year: 'numeric' }, options) === dateParts(new Date(now), { year: 'numeric' }, options);
+  const sameYear =
+    dateParts(eta, { year: 'numeric' }, options) ===
+    dateParts(new Date(now), { year: 'numeric' }, options);
   if (days < 60) {
-    const day = dateParts(eta, { day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) }, options);
+    const day = dateParts(
+      eta,
+      { day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) },
+      options
+    );
     return `about ${plural(Math.round(days), 'day')}, around ${day}`;
   }
   if (days < 730) {

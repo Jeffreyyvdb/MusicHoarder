@@ -98,12 +98,16 @@ describe('formatEta', () => {
   });
 
   it('says days with the date, as the section shows it', () => {
-    expect(formatEta('2026-12-28T10:30:00Z', { ...AMS, now: NOW })).toBe('about 33 days, around 28 Dec');
+    expect(formatEta('2026-12-28T10:30:00Z', { ...AMS, now: NOW })).toBe(
+      'about 33 days, around 28 Dec'
+    );
     expect(formatEta(at(2 * 86_400_000), { ...AMS, now: NOW })).toBe('about 2 days, around 27 Nov');
   });
 
   it('moves to months, then gives up on a date', () => {
-    expect(formatEta('2027-04-25T10:30:00Z', { ...AMS, now: NOW })).toBe('about 5 months, around Apr 2027');
+    expect(formatEta('2027-04-25T10:30:00Z', { ...AMS, now: NOW })).toBe(
+      'about 5 months, around Apr 2027'
+    );
     expect(formatEta('2029-06-01T00:00:00Z', { ...AMS, now: NOW })).toBe('more than 2 years away');
   });
 });

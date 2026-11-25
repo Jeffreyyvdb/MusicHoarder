@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { STATE_TONE, STATE_WORD, toneColor, toneFills, toneIsTrouble, toneTextClass } from './tone.ts';
+import {
+  STATE_TONE,
+  STATE_WORD,
+  toneColor,
+  toneFills,
+  toneIsTrouble,
+  toneTextClass
+} from './tone.ts';
 import type { BackgroundJobState, BackgroundTone } from './types.ts';
 
 const TONES: BackgroundTone[] = ['good', 'ai', 'neutral', 'pending', 'warning', 'bad', 'muted'];

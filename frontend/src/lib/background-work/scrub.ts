@@ -10,13 +10,22 @@ export interface ScrubOptions {
 }
 
 /** The position under a horizontal coordinate, or null when the box has no width. */
-export function indexAt(clientX: number, left: number, width: number, count: number): number | null {
+export function indexAt(
+  clientX: number,
+  left: number,
+  width: number,
+  count: number
+): number | null {
   if (width <= 0 || count < 1) return null;
   return Math.min(count - 1, Math.max(0, Math.floor(((clientX - left) / width) * count)));
 }
 
 /** The index a key moves to, or undefined for a key that is not ours. */
-export function indexAfterKey(key: string, current: number | null, count: number): number | null | undefined {
+export function indexAfterKey(
+  key: string,
+  current: number | null,
+  count: number
+): number | null | undefined {
   if (count < 1) return undefined;
   switch (key) {
     case 'ArrowLeft':

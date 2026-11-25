@@ -102,7 +102,9 @@ describe('series geometry', () => {
 });
 
 describe('timeTicks', () => {
-  const hours = Array.from({ length: 72 }, (_, i) => new Date(Date.UTC(2026, 10, 23, 0, 0) + i * 3_600_000).toISOString());
+  const hours = Array.from({ length: 72 }, (_, i) =>
+    new Date(Date.UTC(2026, 10, 23, 0, 0) + i * 3_600_000).toISOString()
+  );
 
   it('labels each local midnight on an hourly axis', () => {
     const ticks = timeTicks(hours, 'hour', 8, AMS);
@@ -112,7 +114,9 @@ describe('timeTicks', () => {
   });
 
   it('labels every day and thins to the room it has', () => {
-    const days = Array.from({ length: 14 }, (_, i) => new Date(Date.UTC(2026, 10, 12 + i)).toISOString());
+    const days = Array.from({ length: 14 }, (_, i) =>
+      new Date(Date.UTC(2026, 10, 12 + i)).toISOString()
+    );
     expect(timeTicks(days, 'day', 20, AMS)).toHaveLength(14);
     const thin = timeTicks(days, 'day', 4, AMS);
     expect(thin.length).toBeLessThanOrEqual(4);
@@ -129,10 +133,34 @@ describe('timeTicks', () => {
 
 describe('library map', () => {
   const bins = [
-    { fromUtc: '2010-01-01T00:00:00Z', toUtc: '2012-01-01T00:00:00Z', done: 100, waiting: 0, excluded: 0 },
-    { fromUtc: '2012-01-01T00:00:00Z', toUtc: '2018-01-01T00:00:00Z', done: 20, waiting: 70, excluded: 10 },
-    { fromUtc: '2018-01-01T00:00:00Z', toUtc: '2019-01-01T00:00:00Z', done: 0, waiting: 80, excluded: 20 },
-    { fromUtc: '2019-01-01T00:00:00Z', toUtc: '2026-01-01T00:00:00Z', done: 90, waiting: 5, excluded: 5 }
+    {
+      fromUtc: '2010-01-01T00:00:00Z',
+      toUtc: '2012-01-01T00:00:00Z',
+      done: 100,
+      waiting: 0,
+      excluded: 0
+    },
+    {
+      fromUtc: '2012-01-01T00:00:00Z',
+      toUtc: '2018-01-01T00:00:00Z',
+      done: 20,
+      waiting: 70,
+      excluded: 10
+    },
+    {
+      fromUtc: '2018-01-01T00:00:00Z',
+      toUtc: '2019-01-01T00:00:00Z',
+      done: 0,
+      waiting: 80,
+      excluded: 20
+    },
+    {
+      fromUtc: '2019-01-01T00:00:00Z',
+      toUtc: '2026-01-01T00:00:00Z',
+      done: 90,
+      waiting: 5,
+      excluded: 5
+    }
   ];
 
   it('splits a bin into fractions that sum to one', () => {
