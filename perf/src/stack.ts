@@ -229,6 +229,9 @@ function apiEnvironment(cfg: StackConfig): Record<string, string> {
     Frontend__PublicBaseUrl: cfg.webUrl,
     // Nothing here may call out: the rows are invented, and a provider lookup for them would be
     // both pointless traffic and noise in the numbers.
+    http_proxy: 'http://127.0.0.1:9',
+    https_proxy: 'http://127.0.0.1:9',
+    no_proxy: 'localhost,127.0.0.1,::1',
     MusicEnricher__AutoScanIntervalMinutes: '0',
     MusicEnricher__EnableUpdateCheck: 'false',
     MusicEnricher__EnableAcoustIdProvider: 'false',
@@ -325,7 +328,8 @@ export async function up(cfg: StackConfig, options: UpOptions): Promise<Target> 
   log(`seeding ${cfg.songs} songs (skipped when already there)`)
   run('dotnet', [
     seedDll,
-    '--connection', cfg.connection,
+    // Migrations can spend as long committing WAL as executing SQL on a busy disk.
+    '--connection', `${cfg.connection};Command Timeout=600`,
     '--songs', String(cfg.songs),
     '--source', join(cfg.workDir, 'source'),
     '--destination', join(cfg.workDir, 'destination'),

@@ -289,9 +289,19 @@ static async Task EnsureArtistImagesAsync(MusicHoarderDbContext db, string webUr
         }
     }
 
+    // Discography has its own Deezer lookup, independent of the enrichment provider switches.
+    var links = await db.ArtistCatalogLinks.ToDictionaryAsync(l => l.ArtistKey);
+    foreach (var key in rawArtists.Select(s => TitleNormalizer.NormalizeForSearch(s.AlbumArtist)).Where(k => k.Length > 0).Distinct())
+    {
+        if (!links.TryGetValue(key, out var link))
+            link = db.ArtistCatalogLinks.Add(new ArtistCatalogLink { ArtistKey = key }).Entity;
+        link.Status = ArtistCatalogLinkStatus.NotFound;
+        link.CheckedAtUtc = nowUtc;
+        link.NextCheckAfterUtc = nowUtc.AddYears(5);
+    }
+    await db.SaveChangesAsync();
     if (changed > 0)
     {
-        await db.SaveChangesAsync();
         await db.Database.ExecuteSqlRawAsync("ANALYZE \"ArtistImages\"");
         Console.WriteLine($"perf-seed: ensured {byNormalized.Count} artist portraits ({changed} written).");
     }

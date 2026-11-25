@@ -91,6 +91,7 @@ export interface WebBenchOptions {
 // Runs in the page before any app code. Everything is read back through window.__perf.
 const INIT_SCRIPT = `(() => {
   const perf = { fcp: null, lcp: null, cls: 0, longTasks: [], events: [], seenAt: null, playCalledAt: null, playingAt: null, audio: {} }
+  performance.setResourceTimingBufferSize(12000)
   window.__perf = perf
   const observe = (type, handle, extra) => {
     try { new PerformanceObserver((list) => list.getEntries().forEach(handle)).observe({ type, buffered: true, ...extra }) } catch {}
@@ -395,7 +396,7 @@ async function measureInteractions(browser: Browser, profile: Profile, target: T
         return tasks.filter(([at]) => at >= start - 1).reduce((total, [, duration]) => total + duration, 0)
       }, from)
 
-    /** Waits until every visible cover/portrait matching `coverSelector` has loaded (or settled) after a scroll. */
+    /** Waits until every visible cover/portrait matching `coverSelector` has loaded after a scroll. */
     const waitVisibleImages = async (
       anchorSelector: string,
       coverSelector: string,
@@ -403,12 +404,12 @@ async function measureInteractions(browser: Browser, profile: Profile, target: T
       frames: number[] | null,
     ) => {
       const res = (await page.evaluate(
-        async ({ anchor, cover, offset }) => {
+        async ({ anchor, cover, offset, seededPortraits }) => {
           let scroller: Element | null = document.querySelector(anchor)
           while (scroller && !(scroller.scrollHeight > scroller.clientHeight + 200 && /auto|scroll/.test(getComputedStyle(scroller).overflowY)))
             scroller = scroller.parentElement
           const element = scroller ?? document.scrollingElement!
-          const scrollEndedAt = performance.now()
+          const scrollEndedAt = performance.getEntriesByName('image-scroll-end').at(-1)!.startTime
           const box =
             element === document.scrollingElement
               ? { top: 0, bottom: window.innerHeight, left: 0, right: window.innerWidth }
@@ -418,10 +419,7 @@ async function measureInteractions(browser: Browser, profile: Profile, target: T
           const visLeft = Math.max(0, box.left)
           const visRight = Math.min(window.innerWidth, box.right)
 
-          let lastProgressAt = scrollEndedAt
-          let lastChangeAt = scrollEndedAt
-          let prevSig = ''
-          let prevDone = -1
+          let readyMs = 0
           let state = { visible: 0, loaded: 0, failed: 0, pending: 0 }
 
           const sample = () => {
@@ -435,41 +433,29 @@ async function measureInteractions(browser: Browser, profile: Profile, target: T
               visible++
               const img = el.querySelector<HTMLImageElement>('img.mh-cover-img')
               if (!img) continue
-              if (img.complete && img.naturalWidth > 0) loaded++
-              else if (img.complete) failed++
+              if (img.complete && img.naturalWidth > 0) {
+                if (seededPortraits && !/\/(?:artists\/image|placeholder-user\.jpg)\?/.test(img.currentSrc)) failed++
+                else loaded++
+              } else if (img.complete) failed++
               else pending++
             }
             return { visible, loaded, failed, pending }
           }
 
-          await new Promise<void>((resolve) => {
+          await new Promise<void>((resolve, reject) => {
             const check = () => {
-              const now = performance.now()
               state = sample()
-              const sig = `${state.visible}:${state.loaded}:${state.failed}:${state.pending}`
-              const done = state.loaded + state.failed
-              if (sig !== prevSig) {
-                if (prevDone >= 0 && done > prevDone) lastProgressAt = now
-                lastChangeAt = now
-                prevSig = sig
-                prevDone = done
+              const now = performance.now()
+              if (state.visible > 0 && state.loaded === state.visible) {
+                readyMs = now - scrollEndedAt
+                return resolve()
               }
-              const elapsed = now - scrollEndedAt
-              if (state.visible > 0 && state.loaded === state.visible && state.pending === 0) return resolve()
-              if (state.visible > 0 && state.pending === 0 && elapsed >= 350 && now - lastChangeAt >= 350) return resolve()
-              if (elapsed >= 15_000) return resolve()
+              if (now - scrollEndedAt >= 15_000)
+                return reject(new Error(`Images did not finish for ${cover}: ${JSON.stringify(state)}`))
               requestAnimationFrame(check)
             }
-            requestAnimationFrame(check)
+            check()
           })
-
-          const endedAt = performance.now()
-          const readyMs =
-            state.pending > 0
-              ? endedAt - scrollEndedAt
-              : lastProgressAt > scrollEndedAt
-                ? lastProgressAt - scrollEndedAt
-                : 0
 
           const entries = (performance.getEntriesByType('resource') as PerformanceResourceTiming[]).slice(offset)
           let requests = 0
@@ -484,7 +470,7 @@ async function measureInteractions(browser: Browser, profile: Profile, target: T
           }
           return { readyMs, ...state, requests, transferBytes }
         },
-        { anchor: anchorSelector, cover: coverSelector, offset: resourceOffset },
+        { anchor: anchorSelector, cover: coverSelector, offset: resourceOffset, seededPortraits: target.local !== null && anchorSelector === ARTIST_CARD },
       )) as { readyMs: number; visible: number; loaded: number; failed: number; pending: number; requests: number; transferBytes: number }
 
       const metrics: Record<string, number | null> = {
@@ -515,6 +501,7 @@ async function measureInteractions(browser: Browser, profile: Profile, target: T
           const startTop = element.scrollTop
           const maxScroll = Math.max(0, element.scrollHeight - element.clientHeight)
           const targetTop = Math.min(maxScroll, startTop + Math.round(element.clientHeight * screensCount))
+          if (targetTop <= startTop) throw new Error(`No scrollable rows for ${anchor}`)
           const deltas: number[] = []
           let last = performance.now()
           const started = last
@@ -529,6 +516,7 @@ async function measureInteractions(browser: Browser, profile: Profile, target: T
             }
             requestAnimationFrame(step)
           })
+          performance.mark('image-scroll-end')
           return deltas.slice(1)
         },
         { anchor: anchorSelector, screensCount: screens, duration: durationMs },
@@ -554,7 +542,7 @@ async function measureInteractions(browser: Browser, profile: Profile, target: T
     }
     await navigate('Tracks → Albums', followLink('/library', has(ALBUM_CARD)))
     await endProfile('tracks-to-albums')
-    out['Scroll Albums → covers ready'] = await scrollAndWaitImages(ALBUM_CARD, `${ALBUM_CARD} .mh-cover`, { reset: true })
+    out['Scroll Albums → covers ready'] = await scrollAndWaitImages(ALBUM_CARD, ALBUM_CARD, { reset: true })
     await endProfile('scroll-albums-covers')
     await navigate('Open an album', `(() => {
       window.__perf.watch(${jsString(has(TRACK_ROW))})
@@ -601,6 +589,7 @@ async function measureInteractions(browser: Browser, profile: Profile, target: T
         }
         requestAnimationFrame(step)
       })
+      performance.mark('image-scroll-end')
       return deltas.slice(1)
     }, TRACK_ROW)) as number[]
     await endProfile('scroll')
@@ -611,7 +600,7 @@ async function measureInteractions(browser: Browser, profile: Profile, target: T
         'Slow frames (over 34 ms)': frames.length ? (frames.filter((f) => f > 34).length / frames.length) * 100 : 0,
       },
     }
-    out['Scroll Tracks → covers ready'] = await waitVisibleImages(TRACK_ROW, '[data-mh-content] .mh-cover', tracksResourceOffset, null)
+    out['Scroll Tracks → covers ready'] = await waitVisibleImages(TRACK_ROW, '[data-mh-tracks] .mh-cover', tracksResourceOffset, null)
     await endProfile('scroll-tracks-covers')
     await page.evaluate((rowSelector) => {
       let scroller: Element | null = document.querySelector(rowSelector)
@@ -677,7 +666,7 @@ async function measureInteractions(browser: Browser, profile: Profile, target: T
     await page.evaluate(followLink('/artists', has(ARTIST_CARD)))
     await seen(page, 60_000)
     await settle(page, 8000)
-    out['Scroll Artists → portraits ready'] = await scrollAndWaitImages(ARTIST_CARD, `${ARTIST_CARD} .mh-cover`)
+    out['Scroll Artists → portraits ready'] = await scrollAndWaitImages(ARTIST_CARD, ARTIST_CARD)
     await endProfile('scroll-artists-portraits')
     return { steps: out }
   } catch (error) {
