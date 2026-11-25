@@ -1030,6 +1030,21 @@ public class MusicEnricherOptions
     public int MusicVideoCandidatePrefetchBatchSize { get; set; } = 20;
 
     /// <summary>
+    /// The lowest <see cref="MusicVideoDownloader.ScoreCandidate"/> score a candidate needs to be
+    /// picked automatically. 75 is the best a right-artist candidate can score (full title match,
+    /// "official (music) video", length in range), so the default takes only those.
+    /// </summary>
+    [Range(0, 100)]
+    public int MusicVideoAutoDownloadMinScore { get; set; } = 75;
+
+    /// <summary>
+    /// The largest clip (megabytes, as the probe estimated it) that is picked automatically; a bigger
+    /// one is left for a person to choose. Clips average about 60 MB.
+    /// </summary>
+    [Range(1, 4096)]
+    public int MusicVideoAutoDownloadMaxClipMb { get; set; } = 400;
+
+    /// <summary>
     /// How long a remembered candidate list is served before the picker searches again. YouTube's
     /// results for a song change slowly; the picker's "Search again" refreshes it on demand.
     /// </summary>

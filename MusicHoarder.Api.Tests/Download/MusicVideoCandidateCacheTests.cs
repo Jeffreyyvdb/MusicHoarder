@@ -409,4 +409,117 @@ public class MusicVideoCandidateCacheTests
 
         Assert.Equal(4, (await Cache().GetAsync(db, song, default))!.Candidates.Count);
     }
+
+    [Fact]
+    public async Task A_list_holding_a_confident_pick_is_searched_again_in_a_month_when_the_song_is_recent()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+        var song = Song(1);
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        await Cache().SearchAsync(db, song, null, probeTop: true, default);
+
+        var set = await db.SongVideoCandidateSets.SingleAsync();
+        Assert.Equal(Now.AddDays(30), set.NextSearchAtUtc);
+        Assert.Equal(0, set.EmptySearches);
+    }
+
+    [Fact]
+    public async Task An_old_release_with_a_confident_pick_waits_half_a_year()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+        var song = Song(1);
+        song.ReleaseDate = "2012-05-01";
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        await Cache().SearchAsync(db, song, null, probeTop: true, default);
+
+        Assert.Equal(Now.AddDays(180), (await db.SongVideoCandidateSets.SingleAsync()).NextSearchAtUtc);
+    }
+
+    [Fact]
+    public async Task A_list_with_no_confident_pick_is_searched_again_in_a_week_for_a_recent_song()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+        var song = Song(1);
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+        _probe.OnProbe = id => Measured(id, MusicVideoMotion.LowMotion);
+
+        await Cache().SearchAsync(db, song, null, probeTop: true, default);
+
+        Assert.Equal(Now.AddDays(7), (await db.SongVideoCandidateSets.SingleAsync()).NextSearchAtUtc);
+    }
+
+    [Fact]
+    public async Task A_list_nobody_probed_has_no_confident_pick_either()
+    {
+        // The picker's own search leaves probing to its per-candidate requests.
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+        var song = Song(1);
+        song.ReleaseDate = "2012";
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        await Cache().SearchAsync(db, song, null, probeTop: false, default);
+
+        Assert.Equal(Now.AddDays(120), (await db.SongVideoCandidateSets.SingleAsync()).NextSearchAtUtc);
+    }
+
+    [Fact]
+    public async Task Each_empty_search_in_a_row_doubles_the_wait_and_a_found_list_resets_the_count()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+        var song = Song(1);
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+        var answers = _downloader.OnSuggest;
+        _downloader.OnSuggest = _ => [];
+
+        await Cache().SearchAsync(db, song, null, probeTop: false, default);
+        var set = await db.SongVideoCandidateSets.AsNoTracking().SingleAsync();
+        Assert.Equal((1, Now.AddDays(1)), (set.EmptySearches, set.NextSearchAtUtc));
+
+        await Cache().RecordFailureAsync(db, song, "yt-dlp not found", default);
+        set = await db.SongVideoCandidateSets.AsNoTracking().SingleAsync();
+        Assert.Equal((2, Now.AddDays(2)), (set.EmptySearches, set.NextSearchAtUtc));
+
+        await Cache().RecordFailureAsync(db, song, "yt-dlp not found", default);
+        set = await db.SongVideoCandidateSets.AsNoTracking().SingleAsync();
+        Assert.Equal((3, Now.AddDays(4)), (set.EmptySearches, set.NextSearchAtUtc));
+
+        _downloader.OnSuggest = answers;
+        await Cache().SearchAsync(db, song, null, probeTop: false, default);
+        set = await db.SongVideoCandidateSets.AsNoTracking().SingleAsync();
+        Assert.Equal(0, set.EmptySearches);
+        Assert.Null(set.Error);
+    }
+
+    [Fact]
+    public async Task An_empty_search_leaves_a_good_list_in_place_but_still_moves_its_schedule()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+        var song = Song(1);
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+        await Cache().SearchAsync(db, song, null, probeTop: false, default);
+
+        _clock.Now = Now.AddDays(8);
+        _downloader.OnSuggest = _ => [];
+        await Cache().SearchAsync(db, song, null, probeTop: false, default);
+
+        var set = await db.SongVideoCandidateSets.AsNoTracking().SingleAsync();
+        Assert.Null(set.Error);
+        Assert.Equal(1, set.EmptySearches);
+        Assert.Equal(_clock.Now.AddDays(1), set.NextSearchAtUtc);
+        Assert.Equal(4, (await Cache().GetAsync(db, song, default))!.Candidates.Count);
+    }
 }
