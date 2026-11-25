@@ -6,6 +6,7 @@ import {
   formatTick,
   heightPct,
   mapTicks,
+  placeLimitLabels,
   niceTicks,
   placeMarkers,
   positionOnMap,
@@ -235,5 +236,21 @@ describe('sparkline and coverage', () => {
     expect(coverage(5, 0)).toBeNull();
     expect(coverage(5, null)).toBeNull();
     expect(coverage(30, 10)).toBe(1);
+  });
+});
+
+describe('placeLimitLabels', () => {
+  it('puts a label above its line when there is room', () => {
+    expect(placeLimitLabels([40])).toEqual([{ above: true }]);
+  });
+
+  it('puts a label under a line that is too near the top', () => {
+    expect(placeLimitLabels([97])).toEqual([{ above: false }]);
+  });
+
+  it('moves the lower of two close limits under its line so the labels do not overlap', () => {
+    // The hourly chart: a provider limit at the top and our ceiling just under it.
+    expect(placeLimitLabels([83, 100])).toEqual([{ above: false }, { above: false }]);
+    expect(placeLimitLabels([30, 60])).toEqual([{ above: true }, { above: true }]);
   });
 });

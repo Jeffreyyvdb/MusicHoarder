@@ -11,12 +11,12 @@
   const color = $derived(toneColor(STATE_TONE[state]));
 </script>
 
-<span class="inline-flex items-center gap-1.5 {className}">
+<span class="inline-flex items-center gap-2 {className}">
   <span class="relative inline-flex size-2 shrink-0" aria-hidden="true">
     {#if state === 'working'}
       <!-- The halo pulses on opacity alone, which the compositor does without a frame callback. -->
       <span
-        class="absolute -inset-1 rounded-full opacity-30 motion-safe:animate-pulse"
+        class="absolute -inset-[3px] rounded-full opacity-30 motion-safe:animate-pulse"
         style:background-color={color}
       ></span>
     {/if}

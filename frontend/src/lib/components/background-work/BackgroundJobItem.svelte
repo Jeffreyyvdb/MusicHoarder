@@ -44,7 +44,9 @@
     </span>
     <span class="flex min-w-0 flex-1 flex-col">
       <span class="flex items-center justify-between gap-2">
-        <span class="text-body min-w-0 font-semibold md:text-sm">{job.title}</span>
+        <span class={cn('text-body min-w-0 font-semibold md:text-sm', layout === 'sheet' && 'sr-only')}>
+          {job.title}
+        </span>
         <StateDot state={job.state} />
       </span>
       <span class="text-footnote text-muted-foreground md:text-xs">{job.stateLabel}</span>
@@ -98,10 +100,14 @@
     <span class="text-footnote text-muted-foreground flex min-w-0 flex-1 flex-col md:text-xs">
       {#if eta}
         <span class="text-foreground font-medium">At this pace: {eta}</span>
-        {#if headline.etaLabel}<span>{headline.etaLabel}</span>{/if}
+        {#if layout === 'sheet' && headline.etaLabel}<span>{headline.etaLabel}</span>{/if}
       {/if}
-      {#if lastWorked}<span>Last worked {lastWorked}</span>{/if}
-      {#if nextRun}<span>Next look {nextRun}</span>{/if}
+      {#if layout === 'sheet'}
+        {#if lastWorked}<span>Last worked {lastWorked}</span>{/if}
+        {#if nextRun}<span>Next look {nextRun}</span>{/if}
+      {:else if !eta}
+        {#if nextRun}<span>Next look {nextRun}</span>{:else if lastWorked}<span>Last worked {lastWorked}</span>{/if}
+      {/if}
     </span>
   </span>
 {/snippet}

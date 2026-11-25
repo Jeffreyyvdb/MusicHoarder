@@ -109,6 +109,33 @@ export function heightPct(value: number, top: number, minPct = 0): number {
   return Math.min(100, Math.max(minPct, (value / top) * 100));
 }
 
+export interface LimitLabelPlacement {
+  /** True when the label sits above its line, false when below. */
+  above: boolean;
+}
+
+/**
+ * Which side of its dashed line each limit label goes, so two limits close together do not print
+ * their labels over each other. `positions` are percentages of the plot height; `labelPct` is a
+ * label's height in the same unit. Answers in the order given.
+ */
+export function placeLimitLabels(positions: readonly number[], labelPct = 11): LimitLabelPlacement[] {
+  const order = positions.map((_, i) => i).sort((a, b) => positions[b] - positions[a]);
+  const taken: [number, number][] = [];
+  const result: LimitLabelPlacement[] = new Array(positions.length);
+  const clear = (span: [number, number]) =>
+    span[0] >= 0 && span[1] <= 100 && taken.every(([lo, hi]) => span[1] <= lo || span[0] >= hi);
+  for (const i of order) {
+    const at = positions[i];
+    const above: [number, number] = [at + 1, at + 1 + labelPct];
+    const below: [number, number] = [at - 1 - labelPct, at - 1];
+    const pickAbove = clear(above) || !clear(below);
+    taken.push(pickAbove ? above : below);
+    result[i] = { above: pickAbove };
+  }
+  return result;
+}
+
 // ── time axis ───────────────────────────────────────────────────────────────────────────────────
 
 function localHour(date: Date, timeZone?: string): number {

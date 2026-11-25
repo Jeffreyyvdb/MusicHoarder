@@ -101,17 +101,17 @@
 </script>
 
 <PanelFrame title={panel.title} caption={panel.caption} kind="library-map">
-  <div class="min-h-14" aria-live="polite">
+  <div class="min-h-[6.5rem]">
     {#if readout}
       <p class="text-footnote text-muted-foreground md:text-xs">
         {readout.when} · {readout.songs} songs
       </p>
-      <ul class="mt-0.5 flex flex-wrap gap-x-4 gap-y-0.5">
+      <ul class="mt-0.5 flex flex-col gap-0.5">
         {#each readout.rows as row (row.label)}
-          <li class="flex items-center gap-1.5">
+          <li class="flex min-w-0 items-center gap-1.5">
             <Swatch fill={row.fill} tone={row.tone} />
             <span class="text-subheadline font-semibold tabular-nums md:text-sm">{row.value}</span>
-            <span class="text-footnote text-muted-foreground md:text-xs">{row.label}</span>
+            <span class="text-footnote text-muted-foreground truncate md:text-xs">{row.label}</span>
           </li>
         {/each}
       </ul>

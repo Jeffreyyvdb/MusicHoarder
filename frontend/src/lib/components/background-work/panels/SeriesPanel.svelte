@@ -3,6 +3,7 @@
     axisScale,
     formatTick,
     heightPct,
+    placeLimitLabels,
     seriesMax,
     stackSegments,
     timeTicks
@@ -70,37 +71,15 @@
 
   const centre = (index: number) => ((index + 0.5) / Math.max(1, count)) * 100;
   const up = (value: number) => (scale.top > 0 ? (value / scale.top) * 100 : 0);
+  const limitSides = $derived(placeLimitLabels(panel.limits.map((l) => up(l.value))));
 </script>
 
 <PanelFrame title={panel.title} caption={panel.caption} kind="series">
-  <div class="min-h-14" aria-live="polite">
-    {#if readout}
-      <p class="text-footnote text-muted-foreground md:text-xs">{readout.when}</p>
-      <ul class="mt-0.5 flex flex-wrap gap-x-4 gap-y-0.5">
-        {#each readout.rows as row, i (row.key)}
-          <li class="flex items-center gap-1.5">
-            <Swatch fill={fills[i]} tone={panel.series[i].tone} />
-            <span class="text-subheadline font-semibold tabular-nums md:text-sm">{row.value}</span>
-            <span class="text-footnote text-muted-foreground md:text-xs">{row.label}</span>
-          </li>
-        {/each}
-        {#if readout.total}
-          <li class="flex items-center gap-1.5">
-            <span class="text-subheadline font-semibold tabular-nums md:text-sm"
-              >{readout.total}</span
-            >
-            <span class="text-footnote text-muted-foreground md:text-xs">Total</span>
-          </li>
-        {/if}
-      </ul>
-    {:else}
-      <p class="text-footnote text-muted-foreground md:text-xs">
-        Touch or hover the chart to read one {panel.bucket}.
-      </p>
-    {/if}
-  </div>
+  <p class="text-footnote text-muted-foreground md:text-xs">
+    Touch, drag or hover across the chart to read one {panel.bucket}.
+  </p>
 
-  <div class="mt-2 flex gap-2">
+  <div class="mt-3 flex gap-2">
     <div class="relative h-44 w-11 shrink-0" aria-hidden="true">
       {#each scale.ticks as tick (tick)}
         <span
@@ -175,7 +154,7 @@
           {/each}
         </div>
 
-        {#each panel.limits as limit (limit.label)}
+        {#each panel.limits as limit, l (limit.label)}
           {@const at = up(limit.value)}
           <span
             aria-hidden="true"
@@ -186,8 +165,8 @@
           <span
             aria-hidden="true"
             class="text-caption-2 text-muted-foreground bg-card absolute left-0 rounded-[3px] px-1 whitespace-nowrap"
-            style:bottom={at > 88 ? undefined : `calc(${at}% + 3px)`}
-            style:top={at > 88 ? `calc(${100 - at}% + 3px)` : undefined}
+            style:bottom={limitSides[l].above ? `calc(${at}% + 3px)` : undefined}
+            style:top={limitSides[l].above ? undefined : `calc(${100 - at}% + 3px)`}
           >
             {limit.label}
           </span>
@@ -199,6 +178,34 @@
             class="bg-foreground/50 absolute inset-y-0 w-px"
             style:left="{centre(selected)}%"
           ></span>
+        {/if}
+
+        {#if readout}
+          <!-- One tooltip for every series, on the side of the plot the column is not on, so
+               it never covers what it describes. The slider's value text says the same aloud. -->
+          <div
+            aria-hidden="true"
+            class="bg-popover text-popover-foreground ring-foreground/10 pointer-events-none absolute top-1 z-10 max-w-[78%] rounded-lg px-2 py-1 shadow-md ring-1 {(selected ?? 0) < count / 2
+              ? 'right-1'
+              : 'left-1'}"
+          >
+            <p class="text-footnote text-muted-foreground md:text-xs">{readout.when}</p>
+            <ul class="mt-0.5 flex flex-col gap-0.5">
+              {#each readout.rows as row, i (row.key)}
+                <li class="flex items-center gap-1.5 whitespace-nowrap">
+                  <Swatch fill={fills[i]} tone={panel.series[i].tone} />
+                  <span class="text-footnote font-semibold tabular-nums md:text-xs">{row.value}</span>
+                  <span class="text-footnote text-muted-foreground md:text-xs">{row.label}</span>
+                </li>
+              {/each}
+              {#if readout.total}
+                <li class="text-footnote border-separator flex items-center gap-1.5 border-t pt-0.5 whitespace-nowrap md:text-xs">
+                  <span class="font-semibold tabular-nums">{readout.total}</span>
+                  <span class="text-muted-foreground">Total</span>
+                </li>
+              {/if}
+            </ul>
+          </div>
         {/if}
       </div>
 
