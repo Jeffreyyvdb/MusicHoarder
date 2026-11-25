@@ -12,12 +12,6 @@ public partial class _20261125073700_AddLyricsAutoSync : Migration
     protected override void Up(MigrationBuilder migrationBuilder)
     {
         migrationBuilder.AddColumn<DateTime>(
-            name: "LyricsTextChangedAtUtc",
-            table: "Songs",
-            type: "timestamp with time zone",
-            nullable: true);
-
-        migrationBuilder.AddColumn<DateTime>(
             name: "TranscriptionWordsStampUtc",
             table: "Songs",
             type: "timestamp with time zone",
@@ -33,10 +27,6 @@ public partial class _20261125073700_AddLyricsAutoSync : Migration
     /// <inheritdoc />
     protected override void Down(MigrationBuilder migrationBuilder)
     {
-        migrationBuilder.DropColumn(
-            name: "LyricsTextChangedAtUtc",
-            table: "Songs");
-
         migrationBuilder.DropColumn(
             name: "TranscriptionWordsStampUtc",
             table: "Songs");
