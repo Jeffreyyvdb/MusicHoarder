@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.BackgroundWork;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 
@@ -35,6 +36,7 @@ public class MusicVideoCandidateCache(
     IMusicVideoProbe probe,
     IOptions<MusicEnricherOptions> options,
     TimeProvider time,
+    MusicVideoOutcomeMemo memo,
     ILogger<MusicVideoCandidateCache> logger)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
@@ -163,6 +165,7 @@ public class MusicVideoCandidateCache(
             MusicVideoAutoPick.OutcomeOf(
                 candidates, song.Artist, song.DurationMs, song.DurationSeconds, MusicVideoPickGates.From(options.Value)), now);
         await SaveAsync(db, stored, isNew: row is null, ct);
+        memo.Forget(song.Id);
 
         return new VideoCandidateList(candidates, now);
     }
@@ -200,6 +203,7 @@ public class MusicVideoCandidateCache(
         candidates[index] = Merge(candidates[index], result);
         row.CandidatesJson = JsonSerializer.Serialize(candidates, Json);
         await TrySaveAsync(db, songId, ct);
+        memo.Forget(songId);
     }
 
     /// <summary>Sets when the song is searched again, and the run of empty searches that decides it.</summary>

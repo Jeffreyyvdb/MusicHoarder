@@ -104,7 +104,7 @@ public class MusicVideosInsightTests
         {
             var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
             var cache = new MusicVideoCandidateCache(
-                downloader, probe, Microsoft.Extensions.Options.Options.Create(h.Enricher), clock,
+                downloader, probe, Microsoft.Extensions.Options.Options.Create(h.Enricher), clock, new MusicVideoOutcomeMemo(),
                 NullLogger<MusicVideoCandidateCache>.Instance);
             var prefetch = new MusicVideoCandidatePrefetch(
                 db, cache, new MusicVideoChannel(), downloader, h.Disk, h.Settings,
@@ -130,6 +130,64 @@ public class MusicVideosInsightTests
         Assert.Equal(1, Column(coming, 2)[1]);
         Assert.Equal(0, Column(coming, 0).Sum());
         Assert.Equal(1, detail.Panel<FiguresPanelDto>("The search in numbers").Item("Due after 30 days").Value);
+    }
+
+    [Fact]
+    public async Task A_probe_written_into_a_stored_list_reaches_both_sheets()
+    {
+        using var h = new BackgroundWorkHarness();
+        SongMetadata song = null!;
+        SeedLibrary(h, db =>
+        {
+            song = Add(db, 1);
+            db.SongVideoCandidateSets.Add(Found(song, h.Now.AddDays(-1), null,
+                Confident() with { Motion = MusicVideoMotion.Unknown, EstimatedBytes = null }));
+        });
+
+        Assert.Equal(1, (await h.DescribeAsync(BackgroundJobIds.MusicVideos)).Panel<BreakdownPanelDto>("What the last search found").Segment("no-clip"));
+        Assert.Equal(0, (await h.DescribeAsync(BackgroundJobIds.MusicVideoDownloads)).Panel<FiguresPanelDto>("Downloads in numbers").Item("Confident picks waiting").Value);
+
+        using (var scope = h.Scope())
+        {
+            var cache = new MusicVideoCandidateCache(
+                new FakeMusicVideoDownloader(), new RealVideoProbe(), Microsoft.Extensions.Options.Options.Create(h.Enricher),
+                BackgroundWorkTestData.Clock(h.Now), scope.ServiceProvider.GetRequiredService<MusicVideoOutcomeMemo>(),
+                NullLogger<MusicVideoCandidateCache>.Instance);
+            await cache.RecordProbeAsync(
+                scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>(), song.Id,
+                await new RealVideoProbe().ProbeAsync("vid-confident", CancellationToken.None), CancellationToken.None);
+        }
+
+        Assert.Equal(1, (await h.DescribeAsync(BackgroundJobIds.MusicVideos)).Panel<BreakdownPanelDto>("What the last search found").Segment("clip"));
+        Assert.Equal(1, (await h.DescribeAsync(BackgroundJobIds.MusicVideoDownloads)).Panel<FiguresPanelDto>("Downloads in numbers").Item("Confident picks waiting").Value);
+    }
+
+    [Theory]
+    [InlineData("artist")]
+    [InlineData("duration")]
+    public async Task A_song_whose_artist_or_length_changed_is_judged_again(string change)
+    {
+        using var h = new BackgroundWorkHarness();
+        SongMetadata song = null!;
+        SeedLibrary(h, db =>
+        {
+            song = Add(db, 1);
+            db.SongVideoCandidateSets.Add(Found(song, h.Now.AddDays(-1), null, Confident()));
+        });
+        Assert.Equal(1, (await h.DescribeAsync(BackgroundJobIds.MusicVideos)).Panel<BreakdownPanelDto>("What the last search found").Segment("clip"));
+
+        h.Seed(db =>
+        {
+            var row = db.Songs.Single(s => s.Id == song.Id);
+            if (change == "artist")
+                row.Artist = "Somebody Else";
+            else
+                row.DurationSeconds = 1000;
+        });
+
+        var breakdown = (await h.DescribeAsync(BackgroundJobIds.MusicVideos)).Panel<BreakdownPanelDto>("What the last search found");
+        Assert.Equal(0, breakdown.Segment("clip"));
+        Assert.Equal(1, breakdown.Segment("no-clip"));
     }
 
     private sealed class RealVideoProbe : IMusicVideoProbe

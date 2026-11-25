@@ -65,17 +65,18 @@ public sealed class MusicVideoBacklogLoader(
 
         var gates = MusicVideoPickGates.From(opts);
         var verdicts = new Dictionary<int, MusicVideoVerdict>();
-        var unread = new List<(SongFacts Song, SetFacts Set)>();
+        var unread = new List<(SongFacts Song, SetFacts Set, MusicVideoVerdictKey Key, int Rewrites)>();
         foreach (var song in newestFirst)
         {
             if (!setBySong.TryGetValue(song.Id, out var set))
                 continue;
+            var key = new MusicVideoVerdictKey(set.SearchedAtUtc, gates, song.Artist, song.DurationMs, song.DurationSeconds);
             if (set.HasError || set.EmptySearches > 0)
                 verdicts[set.Id] = new MusicVideoVerdict(MusicVideoSearchOutcome.Empty, null, null);
-            else if (memo.Get(set.Id, set.SearchedAtUtc, gates) is { } known)
+            else if (memo.Get(song.Id, key) is { } known)
                 verdicts[set.Id] = known;
             else
-                unread.Add((song, set));
+                unread.Add((song, set, key, memo.RewritesOf(song.Id)));
         }
 
         foreach (var chunk in unread.Chunk(JsonChunk))
@@ -85,15 +86,15 @@ public sealed class MusicVideoBacklogLoader(
                 .Where(c => ids.Contains(c.Id))
                 .Select(c => new { c.Id, c.CandidatesJson })
                 .ToDictionaryAsync(c => c.Id, c => c.CandidatesJson, ct);
-            foreach (var (song, set) in chunk)
+            foreach (var (song, set, key, rewrites) in chunk)
             {
                 var candidates = json.TryGetValue(set.Id, out var text) ? MusicVideoCandidateCache.TryParse(text) ?? [] : [];
                 var verdict = VerdictOf(candidates, song, gates);
-                memo.Remember(set.Id, set.SearchedAtUtc, gates, verdict);
+                memo.Remember(song.Id, rewrites, key, verdict);
                 verdicts[set.Id] = verdict;
             }
         }
-        memo.Retain(sets.Select(c => c.Id).ToHashSet());
+        memo.Retain(sets.Select(c => c.SongId).ToHashSet());
 
         var oldestFirst = new List<BacklogSong>(newestFirst.Count);
         for (var i = newestFirst.Count - 1; i >= 0; i--)
