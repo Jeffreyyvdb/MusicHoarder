@@ -86,6 +86,12 @@ describe('moments in the viewer zone', () => {
     expect(formatHourBucket('2026-11-25T13:00:00Z', AMS)).toBe('Wed 14:00');
     expect(formatMonthYear('2019-03-14T00:00:00Z', AMS)).toBe('Mar 2019');
   });
+
+  it('names a daily bucket by its UTC day, west of UTC too', () => {
+    const newYork = { locale: 'en-GB', timeZone: 'America/New_York' };
+    expect(formatDayBucket('2026-11-25T00:00:00Z', newYork)).toBe('25 Nov');
+    expect(formatHourBucket('2026-11-25T00:00:00Z', newYork)).toBe('Tue 19:00');
+  });
 });
 
 describe('formatEta', () => {

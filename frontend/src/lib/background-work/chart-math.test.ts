@@ -123,6 +123,14 @@ describe('timeTicks', () => {
     expect(thin[0].index).toBe(0);
   });
 
+  it('labels daily buckets by their UTC day in a zone west of UTC', () => {
+    const days = [Date.UTC(2026, 10, 24), Date.UTC(2026, 10, 25)].map((t) =>
+      new Date(t).toISOString()
+    );
+    const ticks = timeTicks(days, 'day', 4, { locale: 'en-GB', timeZone: 'America/New_York' });
+    expect(ticks.map((t) => t.label)).toEqual(['24 Nov', '25 Nov']);
+  });
+
   it('falls back to six-hourly marks inside one day', () => {
     const day = hours.slice(0, 20);
     const ticks = timeTicks(day, 'hour', 8, AMS);

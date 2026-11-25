@@ -113,10 +113,11 @@ export function formatMonthYear(iso: string, options: MomentOptions = {}): strin
   return dateParts(date, { month: 'short', year: 'numeric' }, options);
 }
 
+/** Daily buckets start at UTC midnight, so they are named in UTC; in the viewer's zone a day west of UTC reads one day early. */
 export function formatDayBucket(iso: string, options: MomentOptions = {}): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return '';
-  return dateParts(date, { day: 'numeric', month: 'short' }, options);
+  return dateParts(date, { day: 'numeric', month: 'short' }, { ...options, timeZone: 'UTC' });
 }
 
 export function formatHourBucket(iso: string, options: MomentOptions = {}): string {
