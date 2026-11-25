@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -756,6 +757,36 @@ public class EnrichmentOrchestratorTests
         Assert.Equal("/dest/Artist/Album/Title.mp3", updated.PreviousDestinationPath);
         // Synced lyrics are terminal: never re-checked again.
         Assert.Null(updated.LyricsNextRecheckAfterUtc);
+    }
+
+    [Fact]
+    public async Task RecheckLyrics_AppliesItsAnswerToTheSongAsSavedWhileLrclibWasAsked()
+    {
+        await using var db = CreateDb();
+        var song = AddPendingSong(db);
+        song.EnrichmentStatus = EnrichmentStatus.Matched;
+        song.ApplyLyricsResult(null, null, instrumental: false);
+        await db.SaveChangesAsync();
+
+        var options = (DbContextOptions<MusicHoarderDbContext>)db.GetService<IDbContextOptions>();
+        var lrcLib = new StubLrcLibService(async _ =>
+        {
+            // The AI sync heard no singing and saved its mark while LRCLIB was being asked.
+            await using var sweep = new MusicHoarderDbContext(options);
+            var row = await sweep.Songs.IgnoreQueryFilters().SingleAsync();
+            row.ApplyHeardNoSinging("whisper-test");
+            await sweep.SaveChangesAsync();
+            return new LyricsResult(null, "Hello", false, 99);
+        });
+        var orchestrator = CreateOrchestratorWithProviders(db, [], lrcLibService: lrcLib);
+
+        Assert.True(await orchestrator.RecheckLyricsForSongAsync(song.Id));
+
+        await using var fresh = new MusicHoarderDbContext(options);
+        var stored = await fresh.Songs.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal("Hello", stored.PlainLyrics);
+        Assert.False(stored.IsInstrumental);
+        Assert.Equal(TranscriptionStatus.Completed, stored.TranscriptionStatus);
     }
 
     [Fact]

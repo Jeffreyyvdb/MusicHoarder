@@ -139,6 +139,41 @@ describe('syncToSong', () => {
     expect(ai.transcription).toMatchObject({ synced: '[00:01.00] heard by the ai' });
   });
 
+  it('follows the source the server prefers now, not the one the library row remembers', async () => {
+    const { ai } = setup({
+      song: songWithLyrics({ hasTranscribedLyrics: true, preferredLyricsSource: 'Lrclib' }),
+      api: {
+        fetchTrackLyrics: vi.fn(async () => ({
+          id: 1,
+          lyricsStatus: 'Fetched',
+          transcribedSynced: '[00:01.00] official words re-timed',
+          transcriptionAlignedToReference: true,
+          preferredLyricsSource: 'Transcribed'
+        }))
+      }
+    });
+    ai.syncToSong();
+    expect(ai.preferredSource).toBe('lrclib');
+    await flushMicrotasks();
+    expect(ai.preferredSource).toBe('transcribed');
+  });
+
+  it('shows no transcript for a song LRCLIB calls instrumental', async () => {
+    const { ai } = setup({
+      song: makeSong({ hasTranscribedLyrics: true }),
+      api: {
+        fetchTrackLyrics: vi.fn(async () => ({
+          id: 1,
+          lyricsStatus: 'Instrumental',
+          transcribedSynced: '[00:01.00] thank you for watching'
+        }))
+      }
+    });
+    ai.syncToSong();
+    await flushMicrotasks();
+    expect(ai.transcription).toBeNull();
+  });
+
   it('fetches again when a library refresh changes the song’s lyric flags, keeping the view', async () => {
     const fetchTrackLyrics = vi
       .fn()

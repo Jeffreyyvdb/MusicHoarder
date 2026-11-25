@@ -50,8 +50,8 @@ public sealed class TranscriptionAudioBudget(
     /// will be room, the same signal a provider refusal gives, because to the caller both mean "not now".
     ///
     /// The request is handed a callback to run before each retry it makes: a retry uploads the audio again,
-    /// and the provider counts it again. Retries of an admitted request are recorded, never refused, since
-    /// stopping one halfway would waste the upload that failed.
+    /// and the provider counts it again, so it is metered like a request of its own and a background retry
+    /// with no room left is refused. The audio already sent is then not given back.
     /// </summary>
     public async Task<T> SpendAsync<T>(
         TranscriptionPurpose purpose,
@@ -60,13 +60,20 @@ public sealed class TranscriptionAudioBudget(
         CancellationToken ct)
     {
         var entry = await ReserveAsync(purpose, audioSeconds, ct);
+        var retried = false;
         try
         {
-            return await request(retryCt => RecordAsync(purpose, audioSeconds, retryCt));
+            return await request(retryCt =>
+            {
+                retried = true;
+                return ReserveAsync(purpose, audioSeconds, retryCt);
+            });
         }
         catch (Exception ex) when (ex is TranscriptionRateLimitedException or OperationCanceledException)
         {
-            await RefundAsync(entry);
+            // Only a request that never reached the provider costs nothing; a retry means it did.
+            if (!retried)
+                await RefundAsync(entry);
             throw;
         }
     }
@@ -130,19 +137,6 @@ public sealed class TranscriptionAudioBudget(
             }
 
             return await AddAsync(spend, purpose, audioSeconds, now, ct);
-        }
-        finally
-        {
-            _gate.Release();
-        }
-    }
-
-    private async Task RecordAsync(TranscriptionPurpose purpose, double audioSeconds, CancellationToken ct)
-    {
-        await _gate.WaitAsync(ct);
-        try
-        {
-            await AddAsync(await LoadAsync(ct), purpose, audioSeconds, DateTime.UtcNow, ct);
         }
         finally
         {

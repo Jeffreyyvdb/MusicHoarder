@@ -710,15 +710,31 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
         if (!force && song.LyricsNextRecheckAfterUtc > DateTime.UtcNow)
             return false;
 
-        var wasBuilt = song.LibraryBuildStatus == LibraryBuildStatus.Done;
-        var improved = false;
-
+        LyricsResult? result = null;
         try
         {
             var songHasNoLyrics = string.IsNullOrWhiteSpace(song.SyncedLyrics) && string.IsNullOrWhiteSpace(song.PlainLyrics);
-            var result = await FetchFromSourcesAsync(song, songHasNoLyrics, ct);
+            result = await FetchFromSourcesAsync(song, songHasNoLyrics, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // A transient LRCLIB failure must not downgrade the stored lyrics — only the attempt is
+            // recorded, which pushes the next re-check out by one rung of the backoff.
+            _logger.LogWarning(ex, "Lyrics re-check failed for {Track} (SongId={SongId})", song.TrackLabel, song.Id);
+        }
 
-            improved = result is not null
+        // The lookup takes seconds, in which the AI sync may have saved the song (an instrumental mark, a
+        // transcription), so the answer is applied to the song as it is now, under its row lock.
+        return await dbContext.WithSongLockedAsync(songId, async () =>
+        {
+            await dbContext.Entry(song).ReloadAsync(ct);
+            var wasBuilt = song.LibraryBuildStatus == LibraryBuildStatus.Done;
+            var improved = result is not null
+                && song.IsLyricsRecheckCandidate
                 && song.TryApplyLyricsUpgrade(
                     result.SyncedLyrics, result.PlainLyrics, result.IsInstrumental, result.LrclibId, result.DurationSeconds,
                     result.Origin, result.GeniusSongId);
@@ -733,25 +749,15 @@ public class EnrichmentOrchestrator : IEnrichmentOrchestrator
                     "Lyrics re-check upgraded {Track} (SongId={SongId}) to {Kind} on attempt {Attempt}",
                     song.TrackLabel, song.Id, kind, song.LyricsFetchAttempts + 1);
             }
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            // A transient LRCLIB failure must not downgrade the stored lyrics — only the attempt is
-            // recorded, which pushes the next re-check out by one rung of the backoff.
-            _logger.LogWarning(ex, "Lyrics re-check failed for {Track} (SongId={SongId})", song.TrackLabel, song.Id);
-        }
 
-        RecordLyricsAttempt(song);
+            RecordLyricsAttempt(song);
 
-        if (improved && wasBuilt)
-            song.RequeueForRetag();
+            if (improved && wasBuilt)
+                song.RequeueForRetag();
 
-        await dbContext.SaveChangesAsync(ct);
-        return improved;
+            await dbContext.SaveChangesAsync(ct);
+            return improved;
+        }, ct);
     }
 
     private void RecordLyricsAttempt(SongMetadata song)

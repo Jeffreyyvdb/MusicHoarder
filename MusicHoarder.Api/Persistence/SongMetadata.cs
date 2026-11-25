@@ -456,12 +456,14 @@ public class SongMetadata
     /// so the choice can be switched at any time and the file re-tagged accordingly.
     /// </summary>
     public string? EffectiveSyncedLyrics =>
-        PreferredLyricsSource == PreferredLyricsSource.Transcribed && !string.IsNullOrWhiteSpace(TranscribedSyncedLyrics)
+        PreferredLyricsSource == PreferredLyricsSource.Transcribed && LyricsStatus != LyricsStatus.Instrumental
+            && !string.IsNullOrWhiteSpace(TranscribedSyncedLyrics)
             ? TranscribedSyncedLyrics
             : SyncedLyrics;
 
     public string? EffectivePlainLyrics =>
-        PreferredLyricsSource == PreferredLyricsSource.Transcribed && !string.IsNullOrWhiteSpace(TranscribedPlainLyrics)
+        PreferredLyricsSource == PreferredLyricsSource.Transcribed && LyricsStatus != LyricsStatus.Instrumental
+            && !string.IsNullOrWhiteSpace(TranscribedPlainLyrics)
             ? TranscribedPlainLyrics
             : PlainLyrics;
 
@@ -487,8 +489,10 @@ public class SongMetadata
             && string.IsNullOrWhiteSpace(DisplaySyncedLyrics)
             && string.IsNullOrWhiteSpace(DisplayPlainLyrics));
 
+    /// <remarks>Never for a song LRCLIB calls instrumental: its verdict outranks an earlier transcript.</remarks>
     private bool UseTranscribedForDisplay =>
-        (!string.IsNullOrWhiteSpace(TranscribedSyncedLyrics) || !string.IsNullOrWhiteSpace(TranscribedPlainLyrics))
+        LyricsStatus != LyricsStatus.Instrumental
+        && (!string.IsNullOrWhiteSpace(TranscribedSyncedLyrics) || !string.IsNullOrWhiteSpace(TranscribedPlainLyrics))
         && (PreferredLyricsSource == PreferredLyricsSource.Transcribed
             || (string.IsNullOrWhiteSpace(SyncedLyrics) && string.IsNullOrWhiteSpace(PlainLyrics)));
 
@@ -1183,10 +1187,8 @@ public class SongMetadata
             LyricsStatus = LyricsStatus.Instrumental;
             SyncedLyrics = null;
             PlainLyrics = null;
-            // LRCLIB's verdict is final, and nothing transcribes a song it gives, so a transcript made before
-            // it would be shown and tagged as the lyrics of an instrumental.
-            if (TranscriptionStatus != TranscriptionStatus.NotRequested)
-                ResetTranscription();
+            // LRCLIB's verdict is final, so a transcript made before it is neither shown nor tagged. It is
+            // kept: the verdict can come from a search hit for another version, and a reset brings it back.
             PreferredLyricsSource = PreferredLyricsSource.Lrclib;
             return;
         }
@@ -1210,10 +1212,20 @@ public class SongMetadata
     public void SetOfficialLyricsText(string? syncedLyrics, string? plainLyrics)
     {
         var previousPlain = PlainLyrics;
+        var previousSynced = SyncedLyrics;
         SyncedLyrics = string.IsNullOrWhiteSpace(syncedLyrics) ? null : syncedLyrics;
         PlainLyrics = string.IsNullOrWhiteSpace(plainLyrics) ? null : plainLyrics;
         if (PlainLyrics is not null && PlainLyrics != previousPlain)
             LyricsTextChangedAtUtc = DateTime.UtcNow;
+
+        // An AI version shown because it was the official words re-timed is a timing of the old words now. The
+        // new ones are shown instead until they are re-timed (or, for a new LRC, for good).
+        if ((PlainLyrics != previousPlain || SyncedLyrics != previousSynced)
+            && PreferredLyricsSource == PreferredLyricsSource.Transcribed
+            && TranscriptionAlignedToReference)
+        {
+            PreferredLyricsSource = PreferredLyricsSource.Lrclib;
+        }
     }
 
     public void MarkLyricsNotFound()

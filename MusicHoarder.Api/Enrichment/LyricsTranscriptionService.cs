@@ -20,7 +20,12 @@ namespace MusicHoarder.Api.Enrichment;
 /// which must never silently replace curated lyrics. Callers use this to decide whether promoting
 /// the transcription to the display/file default is safe.
 /// </param>
-public record TranscriptionResult(string? SyncedLyrics, string? PlainLyrics, string Model, bool AlignedToReference = false);
+/// <param name="ReferenceLrclibId">
+/// The LRCLIB entry the transcriber looked the official words up from itself, when the song held none; its
+/// id lets a later correction of that entry replace the words.
+/// </param>
+public record TranscriptionResult(
+    string? SyncedLyrics, string? PlainLyrics, string Model, bool AlignedToReference = false, int? ReferenceLrclibId = null);
 
 /// <summary>
 /// The provider is rate-limiting us, or a local slot never came free. Deliberately its own type: this means
@@ -116,7 +121,7 @@ public sealed class LyricsTranscriptionService(
             // enough — so an unprimed run can land either side of that bar on the same song, which is why
             // asking twice used to give two different answers. Priming it costs nothing and stops most of
             // that coin-flip at the source.
-            var referenceText = await ResolveReferenceLyricsAsync(song, ct);
+            var (referenceText, referenceLrclibId) = await ResolveReferenceLyricsAsync(song, ct);
 
             var response = await UploadWithRetryAsync(tempMp3, opts, BuildPrompt(referenceText), beforeRetry, ct);
             var words = ToTimedWords(response.Words);
@@ -174,7 +179,7 @@ public sealed class LyricsTranscriptionService(
 
             var synced = lines is { Count: > 0 } ? LrcBuilder.Format(lines) : null;
             var plain = NullIfBlank(referenceText) ?? transcriptText;
-            return new TranscriptionResult(synced, plain, opts.Model, alignedToReference);
+            return new TranscriptionResult(synced, plain, opts.Model, alignedToReference, referenceLrclibId);
         }
         finally
         {
@@ -241,15 +246,19 @@ public sealed class LyricsTranscriptionService(
             ? new List<TranscriptSegment>()
             : segments.Select(s => new TranscriptSegment(s.Start, s.Text)).ToList();
 
-    /// <summary>Official lyric text for the song: the stored LRCLIB plain lyrics, else a fresh LRCLIB fetch.</summary>
-    private async Task<string?> ResolveReferenceLyricsAsync(SongMetadata song, CancellationToken ct)
+    /// <summary>
+    /// Official lyric text for the song: the stored LRCLIB plain lyrics, else a fresh LRCLIB fetch, with the
+    /// entry it came from in the second case.
+    /// </summary>
+    private async Task<(string? Text, int? FetchedLrclibId)> ResolveReferenceLyricsAsync(SongMetadata song, CancellationToken ct)
     {
         if (!string.IsNullOrWhiteSpace(song.PlainLyrics))
-            return song.PlainLyrics;
+            return (song.PlainLyrics, null);
         try
         {
             var result = await lrcLib.FetchLyricsAsync(song, ct);
-            return NullIfBlank(result?.PlainLyrics);
+            var text = NullIfBlank(result?.PlainLyrics);
+            return (text, text is null ? null : result?.LrclibId);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -258,7 +267,7 @@ public sealed class LyricsTranscriptionService(
         catch (Exception ex)
         {
             logger.LogDebug(ex, "LRCLIB reference-lyrics fetch failed for SongId={SongId}; transcribing without it.", song.Id);
-            return null;
+            return (null, null);
         }
     }
 

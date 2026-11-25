@@ -547,6 +547,29 @@ public class LyricsTimingCheckServiceTests : IDisposable
     }
 
     [Fact]
+    public void words_the_transcriber_found_keep_their_lrclib_entry_so_a_correction_of_it_is_taken()
+    {
+        var song = new SongMetadata
+        {
+            SourcePath = "/x.mp3",
+            FileName = "x.mp3",
+            Extension = ".mp3",
+            FileSizeBytes = 1,
+            LastModifiedUtc = DateTime.UtcNow,
+            IndexedAtUtc = DateTime.UtcNow,
+            LyricsStatus = LyricsStatus.NotFound,
+        };
+
+        LyricsResync.Apply(
+            song,
+            new TranscriptionResult(AlignedLrc, "line 0 words here", "whisper-test", AlignedToReference: true, ReferenceLrclibId: 42),
+            wordsStampUtc: null);
+
+        Assert.Equal("42", song.LrclibId);
+        Assert.True(song.TryApplyLyricsUpgrade(null, "line 0 corrected words", instrumental: false, lrclibId: 42));
+    }
+
+    [Fact]
     public async Task ai_sync_pass_keeps_the_words_the_transcriber_found_so_a_recheck_does_not_sync_them_again()
     {
         await using var db = CreateDbContext();
@@ -727,7 +750,6 @@ public class LyricsTimingCheckServiceTests : IDisposable
         await db.SaveChangesAsync();
         await NewService(db, new FakeTranscriber(), new LyricsTimingOptions()).RunAutoSyncPassAsync(CancellationToken.None);
         Assert.Equal(PreferredLyricsSource.Transcribed, song.PreferredLyricsSource);
-        song.LibraryBuildStatus = LibraryBuildStatus.Done;
 
         song.SetOfficialLyricsText(null, "corrected words here\nsecond corrected line");
         await db.SaveChangesAsync();
@@ -737,6 +759,22 @@ public class LyricsTimingCheckServiceTests : IDisposable
         Assert.Equal(PreferredLyricsSource.Lrclib, song.PreferredLyricsSource);
         Assert.Equal("corrected words here\nsecond corrected line", song.DisplayPlainLyrics);
         Assert.Equal("corrected words here\nsecond corrected line", song.EffectivePlainLyrics);
+    }
+
+    [Fact]
+    public async Task a_new_transcription_that_cannot_time_the_words_gives_way_to_them_and_retags_the_file()
+    {
+        await using var db = CreateDbContext();
+        var song = AddUnsynced(db, 1);
+        await db.SaveChangesAsync();
+        await NewService(db, new FakeTranscriber(), new LyricsTimingOptions()).RunAutoSyncPassAsync(CancellationToken.None);
+        song.LibraryBuildStatus = LibraryBuildStatus.Done;
+
+        LyricsResync.Apply(
+            song, new TranscriptionResult(HeardLrc, "what the ai heard", "whisper-test"), song.LyricsTextChangedAtUtc);
+
+        Assert.Equal(PreferredLyricsSource.Lrclib, song.PreferredLyricsSource);
+        Assert.Equal("line 0 words here\nline 1 words here", song.EffectivePlainLyrics);
         Assert.Equal(LibraryBuildStatus.Pending, song.LibraryBuildStatus);
     }
 

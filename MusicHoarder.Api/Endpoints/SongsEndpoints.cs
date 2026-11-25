@@ -444,6 +444,7 @@ public static class SongsEndpoints
             LyricsProvenance = SongMetadata.ComputeLyricsProvenance(
                 showingTranscription:
                     s.HasTranscribedLyrics
+                    && s.LyricsStatus != LyricsStatus.Instrumental
                     && (s.PreferredLyricsSource == PreferredLyricsSource.Transcribed
                         || (s.SyncedLyricsBlank && s.PlainLyricsBlank)),
                 alignedToReference: s.TranscriptionAlignedToReference,

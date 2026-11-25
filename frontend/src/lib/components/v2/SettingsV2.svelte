@@ -1486,7 +1486,8 @@
     {/if}
   </GroupedList.Section>
 
-  {#if admin && settings?.lyricsTranscription.enabled}
+  <!-- An API too old to report the choice would ignore the switch, so it is not offered there. -->
+  {#if admin && settings?.lyricsTranscription.enabled && settings.lyricsTranscription.autoSyncChosen !== undefined}
     {#snippet autoSyncFooter()}
       <div class="flex flex-col gap-2">
         {#if autoSyncError}

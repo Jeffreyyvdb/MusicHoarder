@@ -128,6 +128,26 @@ public class TranscriptionAudioBudgetTests
     }
 
     [Fact]
+    public async Task a_background_retry_with_no_room_left_is_refused_and_the_upload_already_sent_stays_counted()
+    {
+        await using var db = NewDb();
+        var budget = TestBudget.Over(db, Ceiling);
+        await Spend(budget, TranscriptionPurpose.AutoSync, 500);
+
+        await Assert.ThrowsAsync<TranscriptionRateLimitedException>(() => budget.SpendAsync<string>(
+            TranscriptionPurpose.AutoSync,
+            400,
+            async retry =>
+            {
+                await retry(CancellationToken.None);
+                return "ok";
+            },
+            CancellationToken.None));
+
+        Assert.Equal(900, (await db.TranscriptionAudioSpends.ToListAsync()).Sum(e => e.AudioSeconds));
+    }
+
+    [Fact]
     public void a_song_known_only_in_milliseconds_is_metered_at_its_length()
     {
         var song = new SongMetadata

@@ -27,7 +27,7 @@ public static class LyricsResync
         // aligned to are the song's official lyrics now; without this the next lyrics re-check would bring
         // the same words as new and the AI sync pass would transcribe the song again to align them.
         if (wordsUnchanged && result.AlignedToReference && string.IsNullOrWhiteSpace(song.PlainLyrics)
-            && song.TryApplyLyricsUpgrade(null, result.PlainLyrics, instrumental: false))
+            && song.TryApplyLyricsUpgrade(null, result.PlainLyrics, instrumental: false, lrclibId: result.ReferenceLrclibId))
         {
             // That was an LRCLIB lookup, and History dates the words it found by it.
             song.LyricsLastAttemptedAtUtc = DateTime.UtcNow;

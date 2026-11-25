@@ -252,7 +252,7 @@ public class SongMetadataLyricsRecheckTests
     }
 
     [Fact]
-    public void Lrclibs_instrumental_verdict_drops_an_earlier_transcript()
+    public void Lrclibs_instrumental_verdict_hides_an_earlier_transcript_without_deleting_it()
     {
         var song = NotFoundSong();
         song.ApplyTranscriptionResult("[00:01.00]words the ai heard", "words the ai heard", "whisper-test");
@@ -262,7 +262,32 @@ public class SongMetadataLyricsRecheckTests
 
         Assert.Null(song.DisplaySyncedLyrics);
         Assert.Null(song.EffectiveSyncedLyrics);
-        Assert.Equal(TranscriptionStatus.NotRequested, song.TranscriptionStatus);
         Assert.True(song.ShowsAsInstrumental);
+        Assert.Equal("[00:01.00]words the ai heard", song.TranscribedSyncedLyrics);
+    }
+
+    [Fact]
+    public void New_official_words_replace_an_ai_version_that_timed_the_old_ones()
+    {
+        var song = PlainOnlySong();
+        song.ApplyTranscriptionResult("[00:01.00]a line", "a line", "whisper-test", alignedToReference: true);
+        song.PreferredLyricsSource = PreferredLyricsSource.Transcribed;
+
+        Assert.True(song.TryApplyLyricsUpgrade("[00:02.00]a corrected line", "a corrected line", instrumental: false));
+
+        Assert.Equal("[00:02.00]a corrected line", song.DisplaySyncedLyrics);
+        Assert.Equal("[00:02.00]a corrected line", song.EffectiveSyncedLyrics);
+    }
+
+    [Fact]
+    public void An_ai_version_the_owner_chose_over_unaligned_words_stays_chosen()
+    {
+        var song = PlainOnlySong();
+        song.ApplyTranscriptionResult("[00:01.00]what the ai heard", "what the ai heard", "whisper-test");
+        song.PreferredLyricsSource = PreferredLyricsSource.Transcribed;
+
+        song.SetOfficialLyricsText(null, "a corrected line");
+
+        Assert.Equal(PreferredLyricsSource.Transcribed, song.PreferredLyricsSource);
     }
 }

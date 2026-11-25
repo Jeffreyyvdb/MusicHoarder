@@ -452,14 +452,16 @@ export function createAiLyrics(opts: {
         id,
         current.hasTranscribedLyrics === true,
         current.hasSyncedLyrics === true,
-        current.hasPlainLyrics === true
+        current.hasPlainLyrics === true,
+        current.preferredLyricsSource ?? ''
       ].join(':');
       if (fetchedForKey === key) return;
       fetchedForKey = key;
       // Sets every field from the answer, so a fresh fetch also clears what a remembered one had.
       const apply = (d: TrackLyricsResponse) => {
+        // LRCLIB's instrumental verdict outranks a transcript made before it, which the server keeps.
         transcription =
-          d.transcribedSynced || d.transcribedPlain
+          d.lyricsStatus !== 'Instrumental' && (d.transcribedSynced || d.transcribedPlain)
             ? {
                 synced: d.transcribedSynced ?? undefined,
                 plain: d.transcribedPlain ?? undefined,
@@ -482,6 +484,10 @@ export function createAiLyrics(opts: {
             }
           : null;
         translationStale = translated && d.lyricsTranslationStale === true;
+        // The server may have promoted or demoted the AI version since the library was loaded. A flip the
+        // listener is saving right now wins.
+        if (d.preferredLyricsSource && !preferSaving)
+          preferredSource = d.preferredLyricsSource === 'Transcribed' ? 'transcribed' : 'lrclib';
       };
       if (loadedForSongId !== id) {
         loadedForSongId = id;
