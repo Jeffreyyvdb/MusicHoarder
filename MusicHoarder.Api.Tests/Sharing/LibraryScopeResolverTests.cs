@@ -361,6 +361,71 @@ public class LibraryScopeResolverTests
         }
     }
 
+    [Fact]
+    public async Task ResolveSongMediaAsync_matches_ResolveSongAsync_across_self_grants_revocation_duplicates_and_tenants()
+    {
+        var options = NewDb();
+        var builtGranted = Song(1, TestUsers.OwnerId, "Daft Punk", "Discovery", "One More Time");
+        builtGranted.LibraryBuildStatus = LibraryBuildStatus.Done;
+        builtGranted.DestinationPath = "/dest/1.flac";
+
+        var unbuiltGranted = Song(2, TestUsers.OwnerId, "Daft Punk", "Homework", "Around the World");
+
+        var duplicateGranted = Song(3, TestUsers.OwnerId, "Daft Punk", "Discovery", "Duplicate Copy");
+        duplicateGranted.LibraryBuildStatus = LibraryBuildStatus.Done;
+        duplicateGranted.DestinationPath = "/dest/3.flac";
+        duplicateGranted.IsDuplicate = true;
+
+        var otherTenantLookalike = Song(4, SecondAdminId, "Daft Punk", "Discovery", "One More Time");
+        otherTenantLookalike.LibraryBuildStatus = LibraryBuildStatus.Done;
+        otherTenantLookalike.DestinationPath = "/dest/4.flac";
+
+        await Seed(options, builtGranted, unbuiltGranted, duplicateGranted, otherTenantLookalike);
+
+        // Library grant (built: false so unbuilt song 2 stays unbuilt)
+        await Grant(options, ShareGrantScope.Library, granteeId: TestUsers.FriendId, built: false);
+
+        // Self owner sees own songs (including unbuilt and duplicate) and never another tenant's song
+        await using (var ownerDb = new MusicHoarderDbContext(options, new TestCurrentUserAccessor(TestCurrentUserAccessor.OwnerUser)))
+        {
+            var resolver = new LibraryScopeResolver(new TestCurrentUserAccessor(TestCurrentUserAccessor.OwnerUser), new SharedLibraryGrantResolver());
+            foreach (var id in new[] { 1, 2, 3, 4 })
+            {
+                var full = await resolver.ResolveSongAsync(ownerDb, id, CancellationToken.None);
+                var media = await resolver.ResolveSongMediaAsync(ownerDb, id, CancellationToken.None);
+                Assert.Equal(full?.Song.Id, media?.Song.Id);
+                Assert.Equal(full?.Slice.IsSelf, media?.Slice.IsSelf);
+            }
+        }
+
+        // Grantee with library grant sees built non-duplicate (1), not unbuilt (2), not duplicate (3), not other tenant (4)
+        await using (var friendDb = new MusicHoarderDbContext(options, new TestCurrentUserAccessor(TestCurrentUserAccessor.FriendUser)))
+        {
+            var resolver = new LibraryScopeResolver(new TestCurrentUserAccessor(TestCurrentUserAccessor.FriendUser), new SharedLibraryGrantResolver());
+            Assert.Equal(1, (await resolver.ResolveSongMediaAsync(friendDb, 1, CancellationToken.None))?.Song.Id);
+            Assert.Null(await resolver.ResolveSongMediaAsync(friendDb, 2, CancellationToken.None));
+            Assert.Null(await resolver.ResolveSongMediaAsync(friendDb, 3, CancellationToken.None));
+            Assert.Null(await resolver.ResolveSongMediaAsync(friendDb, 4, CancellationToken.None));
+        }
+
+        // Revoke library grant, add Album grant for Homework (covers unbuilt song 2, drops song 1)
+        await using (var adminDb = new MusicHoarderDbContext(options))
+        {
+            var grant = await adminDb.LibraryShareGrants.SingleAsync();
+            grant.RevokedAtUtc = DateTime.UtcNow;
+            await adminDb.SaveChangesAsync();
+        }
+        await Grant(options, ShareGrantScope.Album, artistKey: "daft punk", albumKey: "homework", granteeId: TestUsers.FriendId);
+
+        await using (var friendDb2 = new MusicHoarderDbContext(options, new TestCurrentUserAccessor(TestCurrentUserAccessor.FriendUser)))
+        {
+            var resolver = new LibraryScopeResolver(new TestCurrentUserAccessor(TestCurrentUserAccessor.FriendUser), new SharedLibraryGrantResolver());
+            Assert.Null(await resolver.ResolveSongMediaAsync(friendDb2, 1, CancellationToken.None));
+            Assert.Equal(2, (await resolver.ResolveSongMediaAsync(friendDb2, 2, CancellationToken.None))?.Song.Id);
+            Assert.Null(await resolver.ResolveSongMediaAsync(friendDb2, 4, CancellationToken.None));
+        }
+    }
+
     private static SongMetadata Song(
         int id, Guid ownerId, string artist, string album, string title) => new()
     {

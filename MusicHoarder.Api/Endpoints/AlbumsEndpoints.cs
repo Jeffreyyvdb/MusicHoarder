@@ -104,15 +104,34 @@ public static class AlbumsEndpoints
         bool unreleased = false)
     {
         var scope = await scopeResolver.ResolveAsync(db, ct);
-        var rows = new List<AlbumTrackRow>();
-        rows.AddRange(await OwnRowsAsync(db, scope, builtOnly, unreleased, ct));
+        var ownRows = await OwnRowsAsync(db, scope, builtOnly, unreleased, ct);
 
         var (sharedSongs, _) =
             await SharedSongProjection.BuildAsync(db, scope, scope.Slices[0].GrantorUserId, ct);
-        rows.AddRange(sharedSongs.Select(FromSharedRow));
 
-        var filtered = rows.Where(r => Matches(r, builtOnly, artist, year, unreleased)).ToList();
-        var albums = AlbumProjection.Build(filtered, merge);
+        List<AlbumTrackRow> rows;
+        if (sharedSongs.Count == 0 && string.IsNullOrWhiteSpace(artist) && string.IsNullOrWhiteSpace(year) && !unreleased)
+        {
+            // OwnRowsAsync already applied builtOnly, so no extra copy/filter pass is needed on the default call.
+            rows = ownRows;
+        }
+        else
+        {
+            rows = new List<AlbumTrackRow>(ownRows.Count + sharedSongs.Count);
+            foreach (var r in ownRows)
+            {
+                if (Matches(r, builtOnly, artist, year, unreleased))
+                    rows.Add(r);
+            }
+            foreach (var shared in sharedSongs)
+            {
+                var r = FromSharedRow(shared);
+                if (Matches(r, builtOnly, artist, year, unreleased))
+                    rows.Add(r);
+            }
+        }
+
+        var albums = AlbumProjection.Build(rows, merge);
 
         return Results.Ok(new { Count = albums.Count, Albums = albums });
     }
@@ -132,21 +151,38 @@ public static class AlbumsEndpoints
             query = query.Where(s => s.LibraryBuildStatus == LibraryBuildStatus.Done && s.DestinationPath != null);
 
         var songs = await query
-            .OrderBy(s => s.Artist ?? "")
-            .ThenBy(s => s.Album ?? "")
-            .ThenBy(s => s.TrackNumber ?? 0)
-            .ThenBy(s => s.Title ?? "")
-            .ThenBy(s => s.FileName)
             .Select(s => new
             {
                 s.Id, s.FileName, s.DestinationPath, s.Album, s.AlbumArtist, s.Artist, s.Artists,
                 s.Title, s.TrackNumber, s.Year, s.DurationSeconds, s.FileSizeBytes,
                 s.Genre, s.Label, s.CatalogNumber, s.Upc, s.ReleaseDate, s.MusicBrainzReleaseId,
                 s.HasCoverArt, s.PlayCount, s.LikedAtUtc, s.AcquisitionIntent, s.LibraryBuildStatus,
-                s.SpotifyId, s.Isrc, s.IsUnreleased, s.EnrichmentStatus, s.MatchedBy, s.MatchWarnings,
+                s.SpotifyId,
+                Isrc = unreleased ? s.Isrc : null,
+                IsUnreleased = unreleased && s.IsUnreleased,
+                EnrichmentStatus = unreleased ? s.EnrichmentStatus : default,
+                MatchedBy = unreleased ? s.MatchedBy : null,
+                MatchWarnings = unreleased ? s.MatchWarnings : null,
                 s.AcquiredAtUtc, s.LibraryBuiltAtUtc, s.IndexedAtUtc,
             })
             .ToListAsync(ct);
+
+        // Sort in memory to match GET /songs (InvariantCulture + deterministic Id tie-break)
+        // without paying for an unindexed 5-column COALESCE sort in PostgreSQL.
+        var names = StringComparer.InvariantCulture;
+        songs.Sort((a, b) =>
+        {
+            var cmp = names.Compare(a.Artist ?? string.Empty, b.Artist ?? string.Empty);
+            if (cmp != 0) return cmp;
+            cmp = names.Compare(a.Album ?? string.Empty, b.Album ?? string.Empty);
+            if (cmp != 0) return cmp;
+            cmp = (a.TrackNumber ?? 0).CompareTo(b.TrackNumber ?? 0);
+            if (cmp != 0) return cmp;
+            cmp = names.Compare(a.Title ?? string.Empty, b.Title ?? string.Empty);
+            if (cmp != 0) return cmp;
+            cmp = names.Compare(a.FileName, b.FileName);
+            return cmp != 0 ? cmp : a.Id.CompareTo(b.Id);
+        });
 
         var saveDates = await SpotifySaveDates.LoadAsync(db, ct);
 

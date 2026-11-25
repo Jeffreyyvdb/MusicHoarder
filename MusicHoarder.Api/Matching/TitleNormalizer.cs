@@ -21,9 +21,12 @@ public static partial class TitleNormalizer
             return string.Empty;
 
         var result = value.ToLowerInvariant();
-        result = ParenthesesPattern().Replace(result, "");
-        result = BracketsPattern().Replace(result, "");
-        result = FeaturingPattern().Replace(result, "");
+        if (result.Contains('('))
+            result = ParenthesesPattern().Replace(result, "");
+        if (result.Contains('['))
+            result = BracketsPattern().Replace(result, "");
+        if (result.Contains("feat", StringComparison.Ordinal) || result.Contains("ft", StringComparison.Ordinal))
+            result = FeaturingPattern().Replace(result, "");
         result = FoldDiacritics(result);
         result = PunctuationPattern().Replace(result, "");
         result = WhitespacePattern().Replace(result, " ");
@@ -72,6 +75,10 @@ public static partial class TitleNormalizer
     {
         if (string.IsNullOrEmpty(value))
             return string.Empty;
+
+        // Pure ASCII has no combining marks or Cyrillic lookalikes, so FormKD/FormC is a no-op.
+        if (!ContainsNonAscii(value))
+            return value;
 
         var mapped = MapLookalikes(value);
         var decomposed = mapped.Normalize(NormalizationForm.FormKD);

@@ -6,12 +6,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  * and the songs store are faked; each test gets a fresh store.
  */
 
+const fetchInboxDecisionCounts = vi.fn();
+const fetchDuplicates = vi.fn();
+const fetchQualityOverview = vi.fn();
 const fetchInboxNameCounts = vi.fn();
 const fetchArtistDuplicates = vi.fn();
 const fetchAlbumDuplicates = vi.fn();
 const fetchSplitAlbums = vi.fn();
 vi.mock('#lib/api-client.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('#lib/api-client.ts')>()),
+  fetchInboxDecisionCounts: () => fetchInboxDecisionCounts(),
+  fetchDuplicates: () => fetchDuplicates(),
+  fetchQualityOverview: () => fetchQualityOverview(),
   fetchInboxNameCounts: () => fetchInboxNameCounts(),
   fetchArtistDuplicates: () => fetchArtistDuplicates(),
   fetchAlbumDuplicates: () => fetchAlbumDuplicates(),
@@ -31,6 +37,9 @@ beforeEach(() => {
   // The store does nothing during server rendering; any window will do.
   vi.stubGlobal('window', {});
   for (const mock of [
+    fetchInboxDecisionCounts,
+    fetchDuplicates,
+    fetchQualityOverview,
     fetchInboxNameCounts,
     fetchArtistDuplicates,
     fetchAlbumDuplicates,
@@ -102,6 +111,21 @@ describe('refreshInboxNameCounts', () => {
     store.publishInboxQueueCount('albums', 824);
 
     expect(store.inboxCounts()).toMatchObject({ artists: 6, albums: 824 });
+  });
+});
+
+describe('refreshInboxQueueCounts', () => {
+  it('fills both decision rows from one lightweight request, without fetching duplicates or quality overview', async () => {
+    fetchInboxDecisionCounts.mockResolvedValue({ dupes: 4, ai: 9 });
+    const store = await freshStore();
+
+    await store.refreshInboxQueueCounts(true);
+
+    expect(store.inboxCounts()).toMatchObject({ dupes: 4, ai: 9, total: 13 });
+    expect(store.inboxBadgeCount()).toBe(13);
+    expect(fetchInboxDecisionCounts).toHaveBeenCalledTimes(1);
+    expect(fetchDuplicates).not.toHaveBeenCalled();
+    expect(fetchQualityOverview).not.toHaveBeenCalled();
   });
 });
 

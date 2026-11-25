@@ -58,30 +58,68 @@ internal sealed class ArtistCreditEvidence
 
         var lists = new Dictionary<string, Dictionary<string, (int Count, string[] List)>>(StringComparer.Ordinal);
         var idOwners = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        var artistKeyCache = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        string ArtistKey(string value)
+        {
+            if (!artistKeyCache.TryGetValue(value, out var key))
+            {
+                key = TitleNormalizer.NormalizeArtistKey(value);
+                artistKeyCache[value] = key;
+            }
+            return key;
+        }
+
         foreach (var song in songs)
         {
+            if (string.IsNullOrWhiteSpace(song.Artists))
+                continue;
+
             var raw = MultiValue.Split(song.Artists);
+            if (raw.Length == 0)
+                continue;
+
             var ids = MultiValue.Split(song.ArtistMusicBrainzIds);
             if (ids.Length == raw.Length)
             {
                 for (var i = 0; i < raw.Length; i++)
                 {
                     var owners = idOwners.TryGetValue(ids[i], out var o) ? o : idOwners[ids[i]] = new(StringComparer.Ordinal);
-                    owners.Add(TitleNormalizer.NormalizeArtistKey(raw[i]));
+                    owners.Add(ArtistKey(raw[i]));
                 }
             }
 
-            var discrete = DiscreteArtists(song);
+            var hasDelimiter = false;
+            for (var i = 0; i < raw.Length; i++)
+            {
+                if (ArtistCreditNormalizer.IsDelimiterToken(raw[i]))
+                {
+                    hasDelimiter = true;
+                    break;
+                }
+            }
+            var discrete = hasDelimiter
+                ? raw.Where(s => !ArtistCreditNormalizer.IsDelimiterToken(s)).ToArray()
+                : raw;
             if (discrete.Length < 2)
                 continue;
+
             var joined = MultiValue.Join(discrete)!;
-            foreach (var key in new[] { song.Artist, song.AlbumArtist }
-                .Where(v => ArtistCreditNormalizer.IsJoinedCreditOf(v, discrete))
-                .Select(TitleNormalizer.NormalizeArtistKey)
-                .Distinct(StringComparer.Ordinal))
+            string? firstKey = null;
+            if (!string.IsNullOrWhiteSpace(song.Artist) && ArtistCreditNormalizer.IsJoinedCreditOf(song.Artist, discrete))
             {
-                var byList = lists.TryGetValue(key, out var l) ? l : lists[key] = new(StringComparer.Ordinal);
+                firstKey = ArtistKey(song.Artist);
+                var byList = lists.TryGetValue(firstKey, out var l) ? l : lists[firstKey] = new(StringComparer.Ordinal);
                 byList[joined] = (byList.GetValueOrDefault(joined).Count + 1, discrete);
+            }
+            if (!string.IsNullOrWhiteSpace(song.AlbumArtist) && ArtistCreditNormalizer.IsJoinedCreditOf(song.AlbumArtist, discrete))
+            {
+                var albumKey = ArtistKey(song.AlbumArtist);
+                if (!string.Equals(albumKey, firstKey, StringComparison.Ordinal))
+                {
+                    var byList = lists.TryGetValue(albumKey, out var l) ? l : lists[albumKey] = new(StringComparer.Ordinal);
+                    byList[joined] = (byList.GetValueOrDefault(joined).Count + 1, discrete);
+                }
             }
         }
 

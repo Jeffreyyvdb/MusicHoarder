@@ -39,6 +39,7 @@ public class DemoReadAccessTests
         "/api/wishlist/sources",
         "/api/albums/quality/overview",
         "/api/library/albums/duplicates",
+        "/api/inbox/decision-counts",
     ];
 
     public static TheoryData<string> DemoReadableRoutes => new(DemoRoutes);

@@ -511,6 +511,27 @@ public class DestinationPathResolverTests
         return new DestinationPathResolver(options);
     }
 
+    [Fact]
+    public void ResolveDirectory_MatchesGetDirectoryNameOfResolvePath()
+    {
+        var resolver = CreateResolver();
+        var cases = new[]
+        {
+            CreateSong("Kanye West", null, "Graduation", "Stronger", 2007, 3),
+            CreateSong("Kanye West", "Kanye West", "Yeezus", "On Sight", null, 1),
+            CreateSong("Juice WRLD", null, null, "Righteous", null, null, isUnreleased: true),
+            CreateSong("Track Artist", "Various Artists", "Top Hits", "Hit", 2024, 1, isCompilation: true),
+            CreateSong("A/B:C", "D*E?F", "Album<1>", "Title|2", 2020, 2),
+        };
+
+        foreach (var song in cases)
+        {
+            Assert.Equal(
+                Path.GetDirectoryName(resolver.ResolvePath(song)) ?? string.Empty,
+                resolver.ResolveDirectory(song));
+        }
+    }
+
     private static SongMetadata CreateSong(
         string? artist,
         string? albumArtist,

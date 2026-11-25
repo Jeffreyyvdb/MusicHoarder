@@ -113,13 +113,17 @@ public sealed class SharedLibraryGrantResolver : ISharedLibraryGrantResolver
     }
 
     /// <summary>In-memory twin of <see cref="ScopeSongs"/>'s predicate for point lookups.</summary>
-    internal static bool Matches(GrantSet set, SongMetadata song)
+    internal static bool Matches(GrantSet set, SongMetadata song) =>
+        Matches(set, song.LibraryBuildStatus, song.AlbumArtist, song.Artist, song.Album);
+
+    internal static bool Matches(
+        GrantSet set, LibraryBuildStatus buildStatus, string? albumArtist, string? artist, string? album)
     {
-        if (set.Library && song.LibraryBuildStatus == LibraryBuildStatus.Done)
+        if (set.Library && buildStatus == LibraryBuildStatus.Done)
             return true;
 
-        var artistKey = ((song.AlbumArtist ?? song.Artist) ?? "").ToLower();
-        var albumKey = song.Album?.ToLower();
+        var artistKey = ((albumArtist ?? artist) ?? "").ToLower();
+        var albumKey = album?.ToLower();
 
         foreach (var key in set.Keys)
         {

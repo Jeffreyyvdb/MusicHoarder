@@ -5052,6 +5052,22 @@ export async function fetchInboxNameCounts(): Promise<InboxNameCounts> {
   return requestJson<InboxNameCounts>('/api/inbox/name-counts');
 }
 
+/** How many items the Inbox's two server-counted decision queues hold. */
+export interface InboxDecisionCounts {
+  /** Duplicate tracks: active duplicate groups. */
+  dupes: number;
+  /** AI flagged: latest grades with Wrong or Questionable verdict. */
+  ai: number;
+}
+
+/**
+ * The Duplicate tracks and AI flagged counts, without loading the duplicate report or quality
+ * overview. Used by the shell's nav badges on every page load.
+ */
+export async function fetchInboxDecisionCounts(): Promise<InboxDecisionCounts> {
+  return requestJson<InboxDecisionCounts>('/api/inbox/decision-counts');
+}
+
 // ── Dedup action history (merges / splits / heals, with revert) ────────────────
 
 export interface DedupAction {

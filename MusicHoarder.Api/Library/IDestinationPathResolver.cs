@@ -24,4 +24,10 @@ public interface IDestinationPathResolver
     /// <see cref="ResolvePath(SongMetadata)"/>.
     /// </summary>
     string ResolveLegacyPath(SongMetadata song) => ResolvePath(song);
+
+    /// <summary>
+    /// Resolves only the destination directory (album folder) for a song, avoiding file-name
+    /// normalization when a caller only needs the folder path (e.g. split-album detection).
+    /// </summary>
+    string ResolveDirectory(SongMetadata song) => Path.GetDirectoryName(ResolvePath(song)) ?? string.Empty;
 }
