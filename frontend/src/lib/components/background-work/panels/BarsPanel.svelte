@@ -22,7 +22,7 @@
 <PanelFrame title={panel.title} caption={panel.caption} kind="bars">
   {#if columns}
     <ul class="flex h-40 items-end gap-2" aria-label={panel.title}>
-      {#each panel.bars as bar, i (bar.label)}
+      {#each panel.bars as bar, i (i)}
         <li class="flex h-full min-w-0 flex-1 flex-col items-center justify-end">
           <span class="text-caption-2 mb-1 flex items-center gap-0.5 font-medium tabular-nums">
             <TroubleGlyph tone={bar.tone} />{formatValue(panel.format, bar.value)}
@@ -44,7 +44,7 @@
     </ul>
   {:else}
     <ul class="flex flex-col gap-2.5" aria-label={panel.title}>
-      {#each panel.bars as bar, i (bar.label)}
+      {#each panel.bars as bar, i (i)}
         <li class="grid grid-cols-[minmax(5rem,9rem)_minmax(0,1fr)_auto] items-center gap-x-3">
           <span class="text-footnote text-muted-foreground min-w-0 break-words md:text-xs">
             {bar.label}
@@ -71,7 +71,7 @@
       <caption>{panel.title}</caption>
       <thead><tr><th>Label</th><th>Value</th></tr></thead>
       <tbody>
-        {#each panel.bars as bar (bar.label)}
+        {#each panel.bars as bar, i (i)}
           <tr><th scope="row">{bar.label}</th><td>{formatValue(panel.format, bar.value)}</td></tr>
         {/each}
       </tbody>

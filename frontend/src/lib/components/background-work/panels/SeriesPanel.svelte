@@ -81,7 +81,7 @@
 
   <div class="mt-3 flex gap-2">
     <div class="relative h-44 w-11 shrink-0" aria-hidden="true">
-      {#each scale.ticks as tick (tick)}
+      {#each scale.ticks as tick, i (i)}
         <span
           class="text-caption-2 text-muted-foreground absolute right-0 translate-y-1/2 tabular-nums"
           style:bottom="{up(tick)}%"
@@ -104,7 +104,7 @@
         class="focus-visible:ring-ring relative h-44 touch-pan-y rounded-sm select-none focus-visible:ring-2 focus-visible:outline-hidden"
         use:scrub={{ count, index: selected, onchange: (i) => (selected = i) }}
       >
-        {#each scale.ticks as tick (tick)}
+        {#each scale.ticks as tick, i (i)}
           <span
             class="bg-separator absolute inset-x-0 h-(--hairline)"
             style:bottom="{up(tick)}%"
@@ -154,7 +154,7 @@
           {/each}
         </div>
 
-        {#each panel.limits as limit, l (limit.label)}
+        {#each panel.limits as limit, l (l)}
           {@const at = up(limit.value)}
           <span
             aria-hidden="true"
@@ -239,7 +239,7 @@
           <span class="text-footnote text-muted-foreground md:text-xs">{s.label}</span>
         </li>
       {/each}
-      {#each panel.limits as limit (limit.label)}
+      {#each panel.limits as limit, l (l)}
         <li class="flex items-center gap-1.5">
           <Swatch fill={toneColor(limit.tone)} tone={limit.tone} shape="dash" />
           <span class="text-footnote text-muted-foreground md:text-xs">
@@ -260,7 +260,7 @@
         </tr>
       </thead>
       <tbody>
-        {#each panel.points as point (point.startUtc)}
+        {#each panel.points as point, p (p)}
           <tr>
             <th scope="row">{bucketName(point.startUtc)}</th>
             {#each point.values as value, i (i)}<td>{formatValue(panel.format, value)}</td>{/each}

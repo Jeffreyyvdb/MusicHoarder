@@ -18,7 +18,7 @@
 
 <PanelFrame title={panel.title} caption={panel.caption} kind="figures">
   <dl class="grid grid-cols-2 gap-x-4 gap-y-4 md:grid-cols-3">
-    {#each panel.items as item (item.label)}
+    {#each panel.items as item, i (i)}
       {@const text = shown(item)}
       <div class="flex min-w-0 gap-2.5">
         <span

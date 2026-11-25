@@ -107,7 +107,7 @@
         {readout.when} · {readout.songs} songs
       </p>
       <ul class="mt-0.5 flex flex-col gap-0.5 md:flex-row md:flex-wrap md:gap-x-4">
-        {#each readout.rows as row (row.label)}
+        {#each readout.rows as row, i (i)}
           <li class="flex min-w-0 items-center gap-1.5">
             <Swatch fill={row.fill} tone={row.tone} />
             <span class="text-subheadline font-semibold tabular-nums md:text-sm">{row.value}</span>
@@ -126,7 +126,7 @@
   <div class="relative mt-2">
     {#if lanes > 0}
       <div class="relative" style:height="{lanes * LANE_HEIGHT + 4}px" aria-hidden="true">
-        {#each markers as marker (marker.label)}
+        {#each markers as marker, i (i)}
           <span
             class="bg-foreground absolute bottom-0 w-0.5 -translate-x-1/2"
             style:left="{marker.position * 100}%"
@@ -164,7 +164,7 @@
            proportions inside it are the story: done at the foot, still to do above it, the
            songs this sweep leaves alone on top, faint. -->
       <div class="absolute inset-0 flex gap-px" aria-hidden="true">
-        {#each panel.bins as bin, i (bin.fromUtc)}
+        {#each panel.bins as bin, i (i)}
           <div
             class="flex h-full min-w-0 flex-1 flex-col-reverse overflow-hidden rounded-[2px]"
             style:outline={selected === i ? '2px solid var(--foreground)' : undefined}
@@ -176,7 +176,7 @@
           </div>
         {/each}
       </div>
-      {#each markers as marker (marker.label)}
+      {#each markers as marker, i (i)}
         <span
           aria-hidden="true"
           class="bg-foreground absolute inset-y-0 w-0.5 -translate-x-1/2"
@@ -187,7 +187,7 @@
     </div>
 
     <div class="relative mt-1 h-5" aria-hidden="true">
-      {#each ticks as tick (tick.position)}
+      {#each ticks as tick, i (i)}
         <span
           class="text-caption-2 text-muted-foreground absolute whitespace-nowrap tabular-nums"
           style:left="{tick.position * 100}%"
@@ -239,7 +239,7 @@
         </tr>
       </thead>
       <tbody>
-        {#each panel.bins as bin (bin.fromUtc)}
+        {#each panel.bins as bin, i (i)}
           <tr>
             <th scope="row">{formatMonthYear(bin.fromUtc)} to {formatMonthYear(bin.toUtc)}</th>
             <td>{formatCount(bin.done)}</td>
