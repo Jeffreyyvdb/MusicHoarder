@@ -12,8 +12,8 @@ public sealed record PrefetchSet(int SongId, string QueryKey, DateTime? NextSear
 /// <summary>
 /// Which songs <see cref="MusicVideoCandidatePrefetch"/> searches for, in the order it takes them, and when one
 /// is due. The prefetch and the Background work page both read it from here, so the page cannot count a song
-/// the pass would not pick. Callers pass <c>db.Songs.IgnoreQueryFilters()</c>: a background scope has no caller,
-/// and the admin restriction below is the scope wanted.
+/// the pass would not pick. The queries start from the context and lift its query filters themselves: a
+/// background scope has no caller, and the admin restriction below is the scope wanted.
 /// </summary>
 public static class MusicVideoPrefetchScope
 {
@@ -21,24 +21,32 @@ public static class MusicVideoPrefetchScope
     /// Live songs of an admin that enrichment has finished with and that have a title: the search is by artist
     /// and title, and enrichment is what corrects them.
     /// </summary>
-    public static IQueryable<SongMetadata> Eligible(this IQueryable<SongMetadata> songs, MusicHoarderDbContext db)
+    public static IQueryable<SongMetadata> Eligible(MusicHoarderDbContext db)
     {
         var adminIds = db.Users.IgnoreQueryFilters()
             .Where(u => u.Role == UserRole.Admin)
             .Select(u => u.Id);
-        return songs.Where(s => s.DeletedAtUtc == null
-            && adminIds.Contains(s.OwnerUserId)
-            && s.EnrichmentStatus != EnrichmentStatus.Pending
-            && s.Title != null && s.Title != "");
+        return db.Songs.IgnoreQueryFilters().AsNoTracking()
+            .Where(s => s.DeletedAtUtc == null
+                && adminIds.Contains(s.OwnerUserId)
+                && s.EnrichmentStatus != EnrichmentStatus.Pending
+                && s.Title != null && s.Title != "");
     }
 
-    /// <summary>A video that failed is exactly when a list of alternatives is wanted, so only a working or queued one excludes.</summary>
-    public static IQueryable<SongMetadata> WithoutWorkingVideo(this IQueryable<SongMetadata> songs, MusicHoarderDbContext db)
-        => songs.Where(s => !db.SongMusicVideos.IgnoreQueryFilters()
+    /// <summary>
+    /// The eligible songs without a working video. A video that failed is exactly when a list of alternatives
+    /// is wanted, so only a working or queued one excludes.
+    /// </summary>
+    public static IQueryable<SongMetadata> InPrefetchScope(MusicHoarderDbContext db)
+        => Eligible(db).Where(s => !db.SongMusicVideos.IgnoreQueryFilters()
             .Any(v => v.SongId == s.Id && v.Status != MusicVideoStatus.Failed));
 
-    public static IQueryable<SongMetadata> InPrefetchScope(this IQueryable<SongMetadata> songs, MusicHoarderDbContext db)
-        => songs.Eligible(db).WithoutWorkingVideo(db);
+    /// <summary>
+    /// Whether the search runs at all: only where music videos are used, so an instance that has never fetched
+    /// one and has not asked for them to be downloaded automatically gets no YouTube traffic from it.
+    /// </summary>
+    public static async Task<bool> HasStartedAsync(MusicHoarderDbContext db, bool autoDownload, CancellationToken ct)
+        => autoDownload || await db.SongMusicVideos.IgnoreQueryFilters().AnyAsync(ct);
 
     /// <summary>
     /// Newest first: a song just added is searched before the back catalogue. A song with no acquisition stamp is

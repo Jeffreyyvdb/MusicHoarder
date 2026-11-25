@@ -44,7 +44,7 @@ public sealed class MusicVideosInsight(
         var now = time.GetUtcNow().UtcDateTime;
         var opts = options.CurrentValue;
 
-        var scope = db.Songs.IgnoreQueryFilters().AsNoTracking().InPrefetchScope(db);
+        var scope = MusicVideoPrefetchScope.InPrefetchScope(db);
         var scopedSets = db.SongVideoCandidateSets.IgnoreQueryFilters().AsNoTracking()
             .Where(c => scope.Select(s => s.Id).Contains(c.SongId));
 
@@ -63,7 +63,7 @@ public sealed class MusicVideosInsight(
             return "Switched off in the configuration (MusicVideoCandidatePrefetchIntervalMinutes is 0).";
 
         var automatic = (await runtimeSettings.GetAsync(ct)).AutoDownloadMusicVideos;
-        if (!automatic && !await db.SongMusicVideos.IgnoreQueryFilters().AnyAsync(ct))
+        if (!await MusicVideoPrefetchScope.HasStartedAsync(db, automatic, ct))
             return "Not started: searches begin once a music video has been fetched or automatic downloads are turned on.";
         return null;
     }

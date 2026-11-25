@@ -160,7 +160,8 @@ public class MusicVideoCandidateCache(
         stored.CandidatesJson = JsonSerializer.Serialize(candidates, Json);
         stored.Error = null;
         Schedule(stored, song,
-            MusicVideoAutoPick.OutcomeOf(candidates, song.Artist, song.DurationMs, song.DurationSeconds, options.Value), now);
+            MusicVideoAutoPick.OutcomeOf(
+                candidates, song.Artist, song.DurationMs, song.DurationSeconds, MusicVideoPickGates.From(options.Value)), now);
         await SaveAsync(db, stored, isNew: row is null, ct);
 
         return new VideoCandidateList(candidates, now);

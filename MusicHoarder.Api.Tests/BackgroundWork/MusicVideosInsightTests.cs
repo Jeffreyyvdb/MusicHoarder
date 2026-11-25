@@ -318,6 +318,21 @@ public class MusicVideosInsightTests
         Assert.Equal(1, stricter.Segment("no-clip"));
     }
 
+    [Fact]
+    public async Task A_change_to_the_clip_size_cap_reads_every_list_again()
+    {
+        using var h = new BackgroundWorkHarness();
+        h.Enricher.MusicVideoAutoDownloadMaxClipMb = 100;
+        SeedLibrary(h, db => db.SongVideoCandidateSets.Add(Found(Add(db, 1), h.Now.AddDays(-1), null, Confident(bytes: 60_000_000))));
+
+        Assert.Equal(1, (await Breakdown(h)).Segment("clip"));
+
+        h.Enricher.MusicVideoAutoDownloadMaxClipMb = 10;
+        var smaller = await Breakdown(h);
+        Assert.Equal(0, smaller.Segment("clip"));
+        Assert.Equal(1, smaller.Segment("no-clip"));
+    }
+
     private static async Task<BreakdownPanelDto> Breakdown(BackgroundWorkHarness h)
         => (await h.DescribeAsync(BackgroundJobIds.MusicVideos)).Panel<BreakdownPanelDto>("What the last search found");
 

@@ -11,7 +11,7 @@ public class MusicVideoStoredOutcomeTests
         new("vid-real", "Offset - Trickin' (Official Video)", "Offset", 215, 90, true, MusicVideoMotion.RealVideo, 60_000_000, false);
 
     private static MusicVideoSearchOutcome Of(bool hasError, int emptySearches, params CachedVideoCandidate[] list)
-        => MusicVideoAutoPick.OutcomeOfStoredSet(hasError, emptySearches, list, "Offset", null, 200, Options);
+        => MusicVideoAutoPick.OutcomeOfStoredSet(hasError, emptySearches, list, "Offset", null, 200, MusicVideoPickGates.From(Options));
 
     [Fact]
     public void A_list_with_a_pick_is_a_clip_and_one_without_is_no_clip()

@@ -46,8 +46,7 @@ public sealed class MusicVideoBacklogLoader(
         var now = time.GetUtcNow().UtcDateTime;
         var opts = options.CurrentValue;
 
-        var newestFirst = await db.Songs.IgnoreQueryFilters().AsNoTracking()
-            .Eligible(db)
+        var newestFirst = await MusicVideoPrefetchScope.Eligible(db)
             .InPrefetchOrder()
             .Select(s => new SongFacts(s.Id, s.Artist, s.Title, s.DurationMs, s.DurationSeconds, s.AcquiredAtUtc ?? s.IndexedAtUtc))
             .ToListAsync(ct);
@@ -64,7 +63,7 @@ public sealed class MusicVideoBacklogLoader(
             .Select(v => new { v.SongId, v.Status, v.Pick })
             .ToListAsync(ct)).ToDictionary(v => v.SongId);
 
-        var gates = MusicVideoOutcomeMemo.GatesOf(opts);
+        var gates = MusicVideoPickGates.From(opts);
         var verdicts = new Dictionary<int, MusicVideoVerdict>();
         var unread = new List<(SongFacts Song, SetFacts Set)>();
         foreach (var song in newestFirst)
@@ -89,7 +88,7 @@ public sealed class MusicVideoBacklogLoader(
             foreach (var (song, set) in chunk)
             {
                 var candidates = json.TryGetValue(set.Id, out var text) ? MusicVideoCandidateCache.TryParse(text) ?? [] : [];
-                var verdict = VerdictOf(candidates, song, opts);
+                var verdict = VerdictOf(candidates, song, gates);
                 memo.Remember(set.Id, set.SearchedAtUtc, gates, verdict);
                 verdicts[set.Id] = verdict;
             }
@@ -120,12 +119,12 @@ public sealed class MusicVideoBacklogLoader(
         return new MusicVideoBacklog(now, opts, oldestFirst);
     }
 
-    private static MusicVideoVerdict VerdictOf(List<CachedVideoCandidate> candidates, SongFacts song, MusicEnricherOptions opts)
+    private static MusicVideoVerdict VerdictOf(List<CachedVideoCandidate> candidates, SongFacts song, MusicVideoPickGates gates)
     {
         var outcome = MusicVideoAutoPick.OutcomeOfStoredSet(
-            hasError: false, emptySearches: 0, candidates, song.Artist, song.DurationMs, song.DurationSeconds, opts);
+            hasError: false, emptySearches: 0, candidates, song.Artist, song.DurationMs, song.DurationSeconds, gates);
         long? pickBytes = outcome == MusicVideoSearchOutcome.Clip
-            ? MusicVideoAutoPick.Choose(candidates, song.Artist, song.DurationMs, song.DurationSeconds, opts)?.EstimatedBytes
+            ? MusicVideoAutoPick.Choose(candidates, song.Artist, song.DurationMs, song.DurationSeconds, gates)?.EstimatedBytes
             : null;
         return new MusicVideoVerdict(outcome, candidates.Count > 0 ? candidates.Max(c => c.Score) : null, pickBytes);
     }

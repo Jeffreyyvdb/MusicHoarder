@@ -53,10 +53,8 @@ public sealed class MusicVideoCandidatePrefetch(
     /// <returns>How many songs got a list this pass.</returns>
     public async Task<int> RunAsync(CancellationToken ct)
     {
-        // Only where music videos are used: an instance that has never fetched one, and has not asked
-        // for them to be downloaded automatically, gets no YouTube traffic from this.
         var autoDownload = (await settings.GetAsync(ct)).AutoDownloadMusicVideos;
-        if (!autoDownload && !await db.SongMusicVideos.IgnoreQueryFilters().AnyAsync(ct))
+        if (!await MusicVideoPrefetchScope.HasStartedAsync(db, autoDownload, ct))
             return 0;
 
         var opts = options.Value;
@@ -64,8 +62,7 @@ public sealed class MusicVideoCandidatePrefetch(
 
         // The pass looks at the whole library, so it loads these few columns, not the entities;
         // only the batch it searches is loaded in full.
-        var songs = await db.Songs.IgnoreQueryFilters().AsNoTracking()
-            .InPrefetchScope(db)
+        var songs = await MusicVideoPrefetchScope.InPrefetchScope(db)
             .InPrefetchOrder()
             .Select(s => new PrefetchSong(s.Id, s.Artist, s.Title, s.DurationMs, s.DurationSeconds))
             .ToListAsync(ct);
