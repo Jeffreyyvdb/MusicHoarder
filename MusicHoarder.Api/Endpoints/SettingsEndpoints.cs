@@ -74,7 +74,8 @@ public static class SettingsEndpoints
                         Enabled: opts.EnableWishlistDownloads,
                         AutoDownload: effective.AutoDownloadWishlist,
                         AlbumCompletion: effective.AlbumCompletionEnabled,
-                        ReleaseStagedSources: effective.ReleaseStagedSourcesEnabled),
+                        ReleaseStagedSources: effective.ReleaseStagedSourcesEnabled,
+                        AutoDownloadMusicVideos: effective.AutoDownloadMusicVideos),
                     UpdatedAtUtc: effective.UpdatedAtUtc));
             })
             .WithName("GetSettings")
@@ -100,6 +101,7 @@ public static class SettingsEndpoints
                     AutoDownloadWishlist = request.Downloads?.AutoDownload,
                     AlbumCompletionEnabled = request.Downloads?.AlbumCompletion,
                     ReleaseStagedSourcesEnabled = request.Downloads?.ReleaseStagedSources,
+                    AutoDownloadMusicVideos = request.Downloads?.AutoDownloadMusicVideos,
                     LyricsAutoSyncEnabled = request.LyricsTranscription?.AutoSync,
                 };
 
@@ -119,6 +121,7 @@ public static class SettingsEndpoints
                         autoDownload = effective.AutoDownloadWishlist,
                         albumCompletion = effective.AlbumCompletionEnabled,
                         releaseStagedSources = effective.ReleaseStagedSourcesEnabled,
+                        autoDownloadMusicVideos = effective.AutoDownloadMusicVideos,
                     },
                     lyricsTranscription = new
                     {
@@ -160,7 +163,8 @@ public sealed record SpotifyView(string OAuthRedirectBaseUrl, IReadOnlyList<stri
 public sealed record QualityGradingView(bool Enabled, bool Configured);
 public sealed record LyricsTranscriptionView(bool Enabled, bool AutoSync, bool AutoSyncChosen);
 public sealed record LyricsTranslationView(bool Enabled);
-public sealed record DownloadsView(bool Enabled, bool AutoDownload, bool AlbumCompletion, bool ReleaseStagedSources);
+public sealed record DownloadsView(
+    bool Enabled, bool AutoDownload, bool AlbumCompletion, bool ReleaseStagedSources, bool AutoDownloadMusicVideos);
 
 public sealed record SettingsUpdateRequest(
     ProvidersUpdate? Providers,
@@ -169,5 +173,6 @@ public sealed record SettingsUpdateRequest(
     LyricsTranscriptionUpdate? LyricsTranscription = null);
 public sealed record LyricsTranscriptionUpdate(bool? AutoSync);
 public sealed record QualityGradingUpdate(bool? Enabled);
-public sealed record DownloadsUpdate(bool? AutoDownload, bool? AlbumCompletion, bool? ReleaseStagedSources = null);
+public sealed record DownloadsUpdate(
+    bool? AutoDownload, bool? AlbumCompletion, bool? ReleaseStagedSources = null, bool? AutoDownloadMusicVideos = null);
 public sealed record ProvidersUpdate(bool? AcoustId, bool? MusicBrainzWeb, bool? SpotifyApi, bool? Tracker, bool? Deezer, bool? AppleMusic);

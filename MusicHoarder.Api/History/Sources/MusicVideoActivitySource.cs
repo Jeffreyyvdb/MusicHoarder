@@ -26,7 +26,7 @@ public sealed class MusicVideoActivitySource(MusicHoarderDbContext db) : IActivi
             .Take(window.MaxRowsPerSource)
             .Select(v => new
             {
-                v.Id, v.SongId, v.Status, v.SyncSource, v.SyncOffsetMs, v.YouTubeVideoId, v.LastError,
+                v.Id, v.SongId, v.Status, v.Pick, v.SyncSource, v.SyncOffsetMs, v.YouTubeVideoId, v.LastError,
                 v.FetchedAtUtc,
                 Title = v.Song.Title,
                 Album = v.Song.Album,
@@ -43,7 +43,9 @@ public sealed class MusicVideoActivitySource(MusicHoarderDbContext db) : IActivi
                 ActivityCategory.Video, "video-added", ActivityTint.Ok,
                 idKey: v.Id.ToString(),
                 headline: $"Got a music video for {ActivityText.Quote(v.Title)}",
-                detail: DescribeChoice(v.SyncSource, v.SyncOffsetMs, v.YouTubeVideoId),
+                detail: v.Pick == MusicVideoPick.Automatic
+                    ? $"{PickedAutomatically} · {DescribeChoice(v.SyncSource, v.SyncOffsetMs, v.YouTubeVideoId)}"
+                    : DescribeChoice(v.SyncSource, v.SyncOffsetMs, v.YouTubeVideoId),
                 items: [new ActivityItem(v.SongId, v.Title, v.Album, v.AlbumArtist ?? v.Artist, v.FetchedAtUtc)]));
         }
 
@@ -59,6 +61,12 @@ public sealed class MusicVideoActivitySource(MusicHoarderDbContext db) : IActivi
 
         return summaries;
     }
+
+    /// <summary>
+    /// Says that nobody chose the clip, so the owner can review it. The prefetch downloads a clip only
+    /// when it is measured as moving and names the song's artist, title and length.
+    /// </summary>
+    internal const string PickedAutomatically = "Picked automatically";
 
     private static string DescribeChoice(MusicVideoSyncSource sync, int offsetMs, string? youTubeId)
     {

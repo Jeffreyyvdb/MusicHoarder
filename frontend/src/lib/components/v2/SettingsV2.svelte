@@ -775,6 +775,35 @@
     autoSyncSaving -= 1;
   }
 
+  let videoAutoSaving = $state(0);
+  let videoAutoError = $state<string | null>(null);
+
+  async function toggleAutoDownloadVideos(value: boolean) {
+    if (!settings) return;
+    videoAutoError = null;
+    videoAutoSaving += 1;
+    const err = await commitSetting('autoDownloadMusicVideos', {
+      read: () => settings?.downloads.autoDownloadMusicVideos ?? false,
+      write: (v) => {
+        if (settings) {
+          settings = {
+            ...settings,
+            downloads: { ...settings.downloads, autoDownloadMusicVideos: v }
+          };
+        }
+      },
+      next: value,
+      save: async () => {
+        await inOrder(() => updateSettings({ downloads: { autoDownloadMusicVideos: value } }));
+      }
+    });
+    if (err) {
+      videoAutoError =
+        err instanceof Error ? err.message : 'Failed to save the music video setting.';
+    }
+    videoAutoSaving -= 1;
+  }
+
   async function toggleQualityGrading(value: boolean) {
     if (!qualityGrading) return;
     gradingError = null;
@@ -1538,6 +1567,35 @@
   <GroupedList.Section footer={outputFooter}>
     {@render pathRow('Destination', settings?.paths.destinationDirectory)}
   </GroupedList.Section>
+
+  <!-- An API too old to report the setting would ignore the switch, so it is not offered there. -->
+  {#if admin && settings?.downloads.autoDownloadMusicVideos !== undefined}
+    {#snippet musicVideosFooter()}
+      <div class="flex flex-col gap-2">
+        {#if videoAutoError}
+          <StatusLine tone="error">{videoAutoError}</StatusLine>
+        {/if}
+        <p>
+          A song's music video plays behind Now Playing. MusicHoarder looks for one for every song;
+          with this on, it also downloads it, but only when it is confident: the picture really
+          moves (no album cover, lyric card, slideshow or visualizer), the upload names the song's
+          own artist and title, and it is about as long as the song. A clip is around 60 MB.
+          Anything less certain waits for you under Choose video, and Manage → History says which
+          videos were picked automatically.
+        </p>
+      </div>
+    {/snippet}
+
+    <GroupedList.Section header="Music videos" footer={musicVideosFooter}>
+      <SwitchRow
+        label="Download music videos automatically"
+        sublabel="Real moving videos by the song's own artist, about 60 MB each. Off by default."
+        checked={settings.downloads.autoDownloadMusicVideos ?? false}
+        busy={videoAutoSaving > 0}
+        onCheckedChange={(v) => void toggleAutoDownloadVideos(v)}
+      />
+    </GroupedList.Section>
+  {/if}
 
   <MusicVideoAuditCard {admin} />
 
