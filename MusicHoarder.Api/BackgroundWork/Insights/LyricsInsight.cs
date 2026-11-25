@@ -48,32 +48,38 @@ public sealed class LyricsInsight(
         var now = time.GetUtcNow().UtcDateTime;
         var opts = options.CurrentValue;
 
-        var facts = await db.Songs.AsNoTracking()
+        var factGroups = await db.Songs.AsNoTracking()
             .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic && !s.IsDuplicate)
             .ExcludingDemoTenant()
-            .Select(s => new LyricsFacts(
+            .GroupBy(s => new
+            {
                 s.LyricsStatus,
                 s.LyricsOrigin,
                 s.IsInstrumental,
-                s.SyncedLyrics != null && s.SyncedLyrics != "",
-                s.PlainLyrics != null && s.PlainLyrics != "",
-                s.TranscribedSyncedLyrics != null && s.TranscribedSyncedLyrics != "",
-                s.TranscribedPlainLyrics != null && s.TranscribedPlainLyrics != "",
+                HasSynced = s.SyncedLyrics != null && s.SyncedLyrics != "",
+                HasPlain = s.PlainLyrics != null && s.PlainLyrics != "",
+                HasTranscribedSynced = s.TranscribedSyncedLyrics != null && s.TranscribedSyncedLyrics != "",
+                HasTranscribedPlain = s.TranscribedPlainLyrics != null && s.TranscribedPlainLyrics != "",
                 s.PreferredLyricsSource,
                 s.TranscriptionStatus,
                 s.TranscriptionAlignedToReference,
-                s.LyricsSyncOffsetMs != null,
-                !string.IsNullOrWhiteSpace(s.Title) && !string.IsNullOrWhiteSpace(s.Artist)))
+                HasOffset = s.LyricsSyncOffsetMs != null,
+                Searchable = !string.IsNullOrWhiteSpace(s.Title) && !string.IsNullOrWhiteSpace(s.Artist),
+            })
+            .Select(g => new { g.Key, Songs = g.Count() })
             .ToListAsync(ct);
 
         var outcomes = LyricsOutcomes.Segments.ToDictionary(s => s.Key, _ => 0);
         var synced = 0;
-        foreach (var fact in facts)
+        foreach (var (k, songs) in factGroups.Select(g => (g.Key, g.Songs)))
         {
-            var outcome = LyricsOutcomes.Classify(fact);
-            outcomes[outcome.Key]++;
+            var outcome = LyricsOutcomes.Classify(new LyricsFacts(
+                k.LyricsStatus, k.LyricsOrigin, k.IsInstrumental, k.HasSynced, k.HasPlain, k.HasTranscribedSynced,
+                k.HasTranscribedPlain, k.PreferredLyricsSource, k.TranscriptionStatus, k.TranscriptionAlignedToReference,
+                k.HasOffset, k.Searchable));
+            outcomes[outcome.Key] += songs;
             if (outcome.ShowsSyncedLyrics)
-                synced++;
+                synced += songs;
         }
 
         var queue = await AiDueQueue(opts)

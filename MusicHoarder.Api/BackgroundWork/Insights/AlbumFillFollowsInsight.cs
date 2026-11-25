@@ -25,31 +25,50 @@ public sealed class AlbumFillFollowsInsight(
 
     public string Id => BackgroundJobIds.AlbumFillAndFollows;
 
-    private sealed record Item(
-        WishlistItemOrigin Origin, WishlistItemStatus Status, DateTime? NextAttemptAtUtc, DateTime CreatedAtUtc, DateTime UpdatedAtUtc)
+    private sealed record Group(
+        WishlistItemOrigin Origin, WishlistItemStatus Status, bool RetryScheduled, int Count,
+        DateTime FirstCreatedAtUtc, DateTime LastCreatedAtUtc, DateTime LastUpdatedAtUtc, int UpdatedThisWeek)
     {
         public bool IsWaiting => Status is WishlistItemStatus.Pending or WishlistItemStatus.Downloading
-            || (Status == WishlistItemStatus.Failed && NextAttemptAtUtc is not null);
+            || (Status == WishlistItemStatus.Failed && RetryScheduled);
     }
 
-    private sealed record Data(DateTime Now, List<Item> Items, string? OffReason);
+    private sealed record Data(DateTime Now, List<Group> Groups, List<DateTime> DownloadedRecently, string? OffReason)
+    {
+        public int Total => Groups.Sum(g => g.Count);
+
+        public int Count(WishlistItemOrigin origin, Func<Group, bool> holds)
+            => Groups.Where(g => g.Origin == origin && holds(g)).Sum(g => g.Count);
+    }
+
+    private IQueryable<WishlistItem> Queued()
+        => db.WishlistItems.AsNoTracking()
+            .Where(w => w.Origin == WishlistItemOrigin.AlbumCompletion || w.Origin == WishlistItemOrigin.ArtistMonitor);
 
     private async Task<Data> LoadAsync(CancellationToken ct)
     {
         var now = time.GetUtcNow().UtcDateTime;
-        var items = (await db.WishlistItems.AsNoTracking()
-                .Where(w => w.Origin == WishlistItemOrigin.AlbumCompletion || w.Origin == WishlistItemOrigin.ArtistMonitor)
-                .Select(w => new { w.Origin, w.Status, w.NextAttemptAtUtc, w.CreatedAtUtc, w.UpdatedAtUtc })
-                .ToListAsync(ct))
-            .Select(w => new Item(w.Origin, w.Status, w.NextAttemptAtUtc, w.CreatedAtUtc, w.UpdatedAtUtc))
-            .ToList();
+        var weekAgo = now.AddDays(-RateWindowDays);
+        var groups = await Queued()
+            .GroupBy(w => new { w.Origin, w.Status, RetryScheduled = w.NextAttemptAtUtc != null })
+            .Select(g => new Group(
+                g.Key.Origin, g.Key.Status, g.Key.RetryScheduled, g.Count(),
+                g.Min(w => w.CreatedAtUtc), g.Max(w => w.CreatedAtUtc), g.Max(w => w.UpdatedAtUtc),
+                g.Count(w => w.UpdatedAtUtc > weekAgo)))
+            .ToListAsync(ct);
+
+        var since = TimeBuckets.Starts(now, hourly: false, TimeBuckets.TrendDays)[0];
+        var downloaded = await Queued()
+            .Where(w => w.Status == WishlistItemStatus.Downloaded && w.UpdatedAtUtc >= since)
+            .Select(w => w.UpdatedAtUtc)
+            .ToListAsync(ct);
 
         var opts = options.CurrentValue;
         var fillOn = opts.EnableWishlistDownloads && (await runtimeSettings.GetAsync(ct)).AlbumCompletionEnabled;
         var off = !fillOn && !opts.EnableArtistMonitor
             ? "Off: album completion and the artist monitor are both switched off."
             : null;
-        return new Data(now, items, off);
+        return new Data(now, groups, downloaded, off);
     }
 
     public async Task<BackgroundJobSummaryDto> SummarizeAsync(CancellationToken ct)
@@ -57,15 +76,14 @@ public sealed class AlbumFillFollowsInsight(
 
     private BackgroundJobSummaryDto Summarize(Data d)
     {
-        var downloaded = d.Items.Where(i => i.Status == WishlistItemStatus.Downloaded).ToList();
-        var waiting = d.Items.Count(i => i.IsWaiting);
-        var recent = downloaded.Where(i => i.UpdatedAtUtc > d.Now.AddDays(-RateWindowDays)).ToList();
+        var downloaded = d.Groups.Where(g => g.Status == WishlistItemStatus.Downloaded).ToList();
+        var waiting = d.Groups.Where(g => g.IsWaiting).Sum(g => g.Count);
         var rate = EtaEstimator.RatePerDay(
-            recent.Count, d.Items.Count == 0 ? null : d.Items.Min(i => i.CreatedAtUtc), d.Now, RateWindowDays);
+            downloaded.Sum(g => g.UpdatedThisWeek), d.Groups.Count == 0 ? null : d.Groups.Min(g => g.FirstCreatedAtUtc),
+            d.Now, RateWindowDays);
 
-        var lastWorked = d.Items
-            .SelectMany(i => i.Status == WishlistItemStatus.Downloaded ? [i.CreatedAtUtc, i.UpdatedAtUtc] : new[] { i.CreatedAtUtc })
-            .Select(t => (DateTime?)t)
+        var lastWorked = d.Groups.Select(g => (DateTime?)g.LastCreatedAtUtc)
+            .Concat(downloaded.Select(g => (DateTime?)g.LastUpdatedAtUtc))
             .Max();
 
         return BackgroundJobSummaries.Build(
@@ -74,11 +92,11 @@ public sealed class AlbumFillFollowsInsight(
             status.Get(Id),
             lastWorked,
             new BackgroundHeadlineDto(
-                waiting, d.Items.Count, BackgroundFormat.Count,
-                $"of {BackgroundText.Count(d.Items.Count)} queued tracks are still waiting",
+                waiting, d.Total, BackgroundFormat.Count,
+                $"of {BackgroundText.Count(d.Total)} queued tracks are still waiting",
                 EtaEstimator.Eta(waiting, rate, d.Now),
                 rate > 0 ? $"at the last {RateWindowDays} days' rate of {BackgroundText.Count(rate)} downloads a day" : null),
-            TimeBuckets.DailyCounts(d.Now, TimeBuckets.TrendDays, downloaded.Select(i => i.UpdatedAtUtc)),
+            TimeBuckets.DailyCounts(d.Now, TimeBuckets.TrendDays, d.DownloadedRecently),
             "queued tracks downloaded per day");
     }
 
@@ -90,15 +108,24 @@ public sealed class AlbumFillFollowsInsight(
         var segments = new List<BackgroundPanels.Segment>();
         foreach (var (origin, key, label) in Origins)
         {
-            var mine = d.Items.Where(i => i.Origin == origin).ToList();
-            segments.Add(new($"{key}-pending", $"{label} · waiting", mine.Count(i => i.Status is WishlistItemStatus.Pending or WishlistItemStatus.Downloading), BackgroundTone.Pending));
-            segments.Add(new($"{key}-retrying", $"{label} · failed, retrying", mine.Count(i => i.Status == WishlistItemStatus.Failed && i.NextAttemptAtUtc is not null), BackgroundTone.Warning));
-            segments.Add(new($"{key}-downloaded", $"{label} · downloaded", mine.Count(i => i.Status == WishlistItemStatus.Downloaded), BackgroundTone.Good));
-            segments.Add(new($"{key}-parked", $"{label} · failed for good", mine.Count(i => i.Status == WishlistItemStatus.Failed && i.NextAttemptAtUtc is null), BackgroundTone.Bad,
+            segments.Add(new($"{key}-pending", $"{label} · waiting", d.Count(origin, g => g.Status is WishlistItemStatus.Pending or WishlistItemStatus.Downloading), BackgroundTone.Pending));
+            segments.Add(new($"{key}-retrying", $"{label} · failed, retrying", d.Count(origin, g => g.Status == WishlistItemStatus.Failed && g.RetryScheduled), BackgroundTone.Warning));
+            segments.Add(new($"{key}-downloaded", $"{label} · downloaded", d.Count(origin, g => g.Status == WishlistItemStatus.Downloaded), BackgroundTone.Good));
+            segments.Add(new($"{key}-parked", $"{label} · failed for good", d.Count(origin, g => g.Status == WishlistItemStatus.Failed && !g.RetryScheduled), BackgroundTone.Bad,
                 "Out of attempts; it waits for a manual retry."));
-            segments.Add(new($"{key}-notfound", $"{label} · not found", mine.Count(i => i.Status == WishlistItemStatus.NotFound), BackgroundTone.Muted));
-            segments.Add(new($"{key}-owned", $"{label} · already owned", mine.Count(i => i.Status == WishlistItemStatus.SkippedOwned), BackgroundTone.Muted));
+            segments.Add(new($"{key}-notfound", $"{label} · not found", d.Count(origin, g => g.Status == WishlistItemStatus.NotFound), BackgroundTone.Muted));
+            segments.Add(new($"{key}-owned", $"{label} · already owned", d.Count(origin, g => g.Status == WishlistItemStatus.SkippedOwned), BackgroundTone.Muted));
         }
+
+        var firstDay = TimeBuckets.Starts(d.Now, hourly: false, DailyBuckets)[0];
+        var queuedThisMonth = await Queued()
+            .Where(w => w.CreatedAtUtc >= firstDay)
+            .Select(w => new { w.Origin, w.CreatedAtUtc })
+            .ToListAsync(ct);
+        var downloadedThisMonth = await Queued()
+            .Where(w => w.Status == WishlistItemStatus.Downloaded && w.UpdatedAtUtc >= firstDay)
+            .Select(w => new { w.Origin, w.UpdatedAtUtc })
+            .ToListAsync(ct);
 
         var seriesDefs = Origins.Select(o => new SeriesDefinitionDto(o.Key, o.Label, o.Key == "album-completion" ? BackgroundTone.Pending : BackgroundTone.Ai)).ToList();
         int OriginIndex(WishlistItemOrigin origin) => Array.FindIndex(Origins, o => o.Origin == origin);
@@ -115,14 +142,14 @@ public sealed class AlbumFillFollowsInsight(
             new SeriesPanelDto(
                 "Tracks queued per day, last 30 days", null, "day", BackgroundFormat.Count, true, seriesDefs,
                 TimeBuckets.Fill(d.Now, hourly: false, DailyBuckets, Origins.Length,
-                    d.Items.Select(i => (i.CreatedAtUtc, OriginIndex(i.Origin), 1.0))),
+                    queuedThisMonth.Select(i => (i.CreatedAtUtc, OriginIndex(i.Origin), 1.0))),
                 []),
             new SeriesPanelDto(
                 "Tracks downloaded per day, last 30 days",
                 "A downloaded track counts on the day its row last changed.",
                 "day", BackgroundFormat.Count, true, seriesDefs,
                 TimeBuckets.Fill(d.Now, hourly: false, DailyBuckets, Origins.Length,
-                    d.Items.Where(i => i.Status == WishlistItemStatus.Downloaded).Select(i => (i.UpdatedAtUtc, OriginIndex(i.Origin), 1.0))),
+                    downloadedThisMonth.Select(i => (i.UpdatedAtUtc, OriginIndex(i.Origin), 1.0))),
                 []),
             new FiguresPanelDto("Followed artists", null,
             [

@@ -22,39 +22,43 @@ public sealed class MusicVideosInsight(
 
     public string Id => BackgroundJobIds.MusicVideos;
 
+    /// <summary>Songs in scope whose last search fell on one UTC day, split at the start of the rate window.</summary>
+    private sealed record SearchDay(DateTime Day, bool InRateWindow, int Songs, DateTime First, DateTime Last);
+
     private sealed record Counts(
-        DateTime Now,
-        MusicEnricherOptions Options,
-        string? OffReason,
-        int InScope,
-        int Searched,
-        List<DateTime> RecentSearches,
-        DateTime? LastSearchedAtUtc)
+        DateTime Now, MusicEnricherOptions Options, string? OffReason, int InScope, List<SearchDay> Days)
     {
+        public int Searched => Days.Sum(d => d.Songs);
         public int NeverSearched => InScope - Searched;
+        public DateTime? LastSearchedAtUtc => Days.Count == 0 ? null : Days.Max(d => d.Last);
 
-        public List<DateTime> WithinRateWindow => [.. RecentSearches.Where(t => t > Now.AddDays(-RateWindowDays))];
-
-        public double RatePerDay => EtaEstimator.RatePerDay(
-            WithinRateWindow.Count, WithinRateWindow.Count == 0 ? null : WithinRateWindow.Min(), Now, RateWindowDays);
+        public double RatePerDay
+        {
+            get
+            {
+                var window = Days.Where(d => d.InRateWindow).ToList();
+                return EtaEstimator.RatePerDay(
+                    window.Sum(d => d.Songs), window.Count == 0 ? null : window.Min(d => d.First), Now, RateWindowDays);
+            }
+        }
     }
 
     private async Task<Counts> LoadAsync(CancellationToken ct)
     {
         var now = time.GetUtcNow().UtcDateTime;
         var opts = options.CurrentValue;
+        var rateWindowStart = now.AddDays(-RateWindowDays);
 
         var scope = MusicVideoPrefetchScope.InPrefetchScope(db);
-        var scopedSets = db.SongVideoCandidateSets.IgnoreQueryFilters().AsNoTracking()
-            .Where(c => scope.Select(s => s.Id).Contains(c.SongId));
-
         var inScope = await scope.CountAsync(ct);
-        var searched = await scopedSets.CountAsync(ct);
-        var since = now.AddDays(-TimeBuckets.TrendDays);
-        var recent = await scopedSets.Where(c => c.SearchedAtUtc > since).Select(c => c.SearchedAtUtc).ToListAsync(ct);
-        var last = await scopedSets.MaxAsync(c => (DateTime?)c.SearchedAtUtc, ct);
+        var days = await db.SongVideoCandidateSets.IgnoreQueryFilters().AsNoTracking()
+            .Where(c => scope.Select(s => s.Id).Contains(c.SongId))
+            .GroupBy(c => new { c.SearchedAtUtc.Date, InRateWindow = c.SearchedAtUtc > rateWindowStart })
+            .Select(g => new SearchDay(
+                g.Key.Date, g.Key.InRateWindow, g.Count(), g.Min(c => c.SearchedAtUtc), g.Max(c => c.SearchedAtUtc)))
+            .ToListAsync(ct);
 
-        return new Counts(now, opts, await OffReasonAsync(opts, ct), inScope, searched, recent, last);
+        return new Counts(now, opts, await OffReasonAsync(opts, ct), inScope, days);
     }
 
     private async Task<string?> OffReasonAsync(MusicEnricherOptions opts, CancellationToken ct)
@@ -92,7 +96,8 @@ public sealed class MusicVideosInsight(
             new BackgroundHeadlineDto(
                 d.Searched, d.InScope, BackgroundFormat.Count,
                 $"of {BackgroundText.Count(d.InScope)} songs have been searched for a music video", eta, etaLabel),
-            TimeBuckets.DailyCounts(d.Now, TimeBuckets.TrendDays, d.RecentSearches),
+            TimeBuckets.DailyTotals(
+                d.Now, TimeBuckets.TrendDays, d.Days.Select(x => (x.Day, (double)x.Songs))),
             "songs searched per day");
     }
 

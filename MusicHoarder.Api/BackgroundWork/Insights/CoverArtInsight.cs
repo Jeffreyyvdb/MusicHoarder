@@ -28,44 +28,45 @@ public sealed class CoverArtInsight(
         MissingFailed,
     }
 
-    private sealed record Data(
-        DateTime Now,
-        Dictionary<Folder, int> Folders,
-        int DueNow,
-        List<AlbumCoverFetchAttempt> Attempts,
-        List<DateTime> WrittenAt)
+    private sealed record Library(
+        DateTime Now, Dictionary<string, bool> HasCoverByFolder, List<DateTime> RecentWrites, DateTime? LastWriteAtUtc)
     {
-        public int Total => Folders.Values.Sum();
-        public int Covered => Folders.Where(f => f.Key <= Folder.UpgradeFailed).Sum(f => f.Value);
+        public int Total => HasCoverByFolder.Count;
+        public int Covered => HasCoverByFolder.Count(f => f.Value);
     }
 
-    private async Task<Data> LoadAsync(CancellationToken ct)
+    private sealed record Sweep(Dictionary<Folder, int> Folders, int DueNow, List<AlbumCoverFetchAttempt> Attempts);
+
+    private IQueryable<LibraryWriteEvent> CoverWrites()
+        => db.LibraryWriteEvents.AsNoTracking()
+            .Where(e => e.Kind == LibraryWriteEventKind.AlbumCoverWritten && e.AlbumFolder != null);
+
+    private async Task<Library> LoadLibraryAsync(CancellationToken ct)
     {
         var now = time.GetUtcNow().UtcDateTime;
-        var opts = options.Value;
-
         var rows = await db.Songs.AsNoTracking()
             .WhereBuiltForCoverSweep()
             .Select(s => new { s.DestinationPath, s.HasCoverArt })
             .ToListAsync(ct);
-        var covered = rows
+        var hasCover = rows
             .GroupBy(r => Path.GetDirectoryName(r.DestinationPath!) ?? string.Empty, StringComparer.Ordinal)
             .Where(g => g.Key.Length > 0)
             .ToDictionary(g => g.Key, g => g.Any(r => r.HasCoverArt), StringComparer.Ordinal);
 
-        var attempts = await db.AlbumCoverFetchAttempts.AsNoTracking().ToListAsync(ct);
+        var since = TimeBuckets.Starts(now, hourly: false, TimeBuckets.TrendDays)[0];
+        var recent = await CoverWrites().Where(e => e.WrittenAtUtc >= since).Select(e => e.WrittenAtUtc).ToListAsync(ct);
+        var last = await CoverWrites().MaxAsync(e => (DateTime?)e.WrittenAtUtc, ct);
+        return new Library(now, hasCover, recent, last);
+    }
+
+    private static Sweep Classify(
+        Library library, List<AlbumCoverFetchAttempt> attempts, IReadOnlySet<string> caaFolders)
+    {
         var attemptOf = attempts.ToDictionary(a => a.AlbumFolder, StringComparer.Ordinal);
-
-        var writes = await db.LibraryWriteEvents.AsNoTracking()
-            .Where(e => e.Kind == LibraryWriteEventKind.AlbumCoverWritten && e.AlbumFolder != null)
-            .Select(e => new CoverWriteRecord(e.Id, e.AlbumFolder!, e.WrittenAtUtc, e.NewValue))
-            .ToListAsync(ct);
-        var caaFolders = opts.EnableSpotifyCovers ? CoverArtSweepRules.CoverArtArchiveFolders(writes) : [];
-
         var counts = Enum.GetValues<Folder>().ToDictionary(f => f, _ => 0);
         var due = 0;
         var considered = new List<AlbumCoverFetchAttempt>();
-        foreach (var (folder, hasCover) in covered)
+        foreach (var (folder, hasCover) in library.HasCoverByFolder)
         {
             attemptOf.TryGetValue(folder, out var attempt);
             Folder kind;
@@ -73,7 +74,7 @@ public sealed class CoverArtInsight(
             {
                 if (!caaFolders.Contains(folder))
                     kind = Folder.HasCover;
-                else if (CoverArtSweepRules.IsUpgradeDue(attempt, now))
+                else if (CoverArtSweepRules.IsUpgradeDue(attempt, library.Now))
                 {
                     kind = Folder.UpgradeWaiting;
                     due++;
@@ -85,7 +86,7 @@ public sealed class CoverArtInsight(
             }
             else
             {
-                if (CoverArtSweepRules.IsMissingFolderDue(attempt, now))
+                if (CoverArtSweepRules.IsMissingFolderDue(attempt, library.Now))
                     due++;
                 kind = attempt?.Status switch
                 {
@@ -98,32 +99,37 @@ public sealed class CoverArtInsight(
             if (kind != Folder.HasCover && attempt is not null)
                 considered.Add(attempt);
         }
-
-        return new Data(now, counts, due, considered, [.. writes.Select(w => w.WrittenAtUtc)]);
+        return new Sweep(counts, due, considered);
     }
 
     public async Task<BackgroundJobSummaryDto> SummarizeAsync(CancellationToken ct)
-        => Summarize(await LoadAsync(ct));
+        => Summarize(await LoadLibraryAsync(ct));
 
-    private BackgroundJobSummaryDto Summarize(Data d)
+    private BackgroundJobSummaryDto Summarize(Library l)
         => BackgroundJobSummaries.Build(
             BackgroundJobDefinitions.CoverArt,
             options.Value.EnableExternalCoverArtFetch ? null : "Off: external cover art fetching is switched off.",
             status.Get(Id),
-            d.WrittenAt.Count == 0 ? null : d.WrittenAt.Max(),
+            l.LastWriteAtUtc,
             new BackgroundHeadlineDto(
-                d.Covered, d.Total, BackgroundFormat.Count,
-                $"of {BackgroundText.Count(d.Total)} album folders have a cover", null, null),
-            TimeBuckets.DailyCounts(d.Now, TimeBuckets.TrendDays, d.WrittenAt),
+                l.Covered, l.Total, BackgroundFormat.Count,
+                $"of {BackgroundText.Count(l.Total)} album folders have a cover", null, null),
+            TimeBuckets.DailyCounts(l.Now, TimeBuckets.TrendDays, l.RecentWrites),
             "covers written per day");
 
     public async Task<BackgroundJobDetailDto> DescribeAsync(CancellationToken ct)
     {
-        var d = await LoadAsync(ct);
+        var l = await LoadLibraryAsync(ct);
+        var attempts = await db.AlbumCoverFetchAttempts.AsNoTracking().ToListAsync(ct);
+        var writes = await CoverWrites()
+            .Select(e => new CoverWriteRecord(e.Id, e.AlbumFolder!, e.WrittenAtUtc, e.NewValue))
+            .ToListAsync(ct);
+        var caaFolders = options.Value.EnableSpotifyCovers ? CoverArtSweepRules.CoverArtArchiveFolders(writes) : [];
+        var d = Classify(l, attempts, caaFolders);
         var opts = options.Value;
         var f = d.Folders;
 
-        var samples = d.WrittenAt.Select(t => (t, 0, 1.0))
+        var samples = writes.Select(w => (w.WrittenAtUtc, 0, 1.0))
             .Concat(d.Attempts.Select(a => (a.LastAttemptAtUtc, a.Status switch
             {
                 AlbumCoverFetchStatus.NotFound => 1,
@@ -133,7 +139,7 @@ public sealed class CoverArtInsight(
             }, 1.0)));
 
         var nextRetry = d.Attempts
-            .Where(a => a.NextRetryAfterUtc > d.Now)
+            .Where(a => a.NextRetryAfterUtc > l.Now)
             .Select(a => a.NextRetryAfterUtc)
             .Min();
         var runtime = status.Get(Id);
@@ -166,7 +172,7 @@ public sealed class CoverArtInsight(
                     new("upgrade-not-found", "No better cover", BackgroundTone.Muted),
                     new("upgrade-failed", "Upgrade failed", BackgroundTone.Warning),
                 ],
-                TimeBuckets.Fill(d.Now, hourly: false, DailyBuckets, 5, samples), []),
+                TimeBuckets.Fill(l.Now, hourly: false, DailyBuckets, 5, samples), []),
             new FiguresPanelDto("The sweep", null,
             [
                 BackgroundPanels.Moment("Next sweep", runtime?.NextRunAtUtc, runtime is null ? "Nothing reported since the API started." : null),
@@ -178,6 +184,6 @@ public sealed class CoverArtInsight(
             ]),
         };
 
-        return new BackgroundJobDetailDto(Summarize(d), panels);
+        return new BackgroundJobDetailDto(Summarize(l), panels);
     }
 }

@@ -30,24 +30,25 @@ public sealed class EnrichmentRetriesInsight(
         IReadOnlyCollection<EnrichmentProvider> Enabled,
         int DueSongs,
         int DueAttempts,
-        List<(DateTime At, ProviderAttemptStatus Status)> Attempts);
+        List<(DateTime Day, int Count, DateTime Last)> AttemptsPerDay);
 
     private async Task<Data> LoadAsync(CancellationToken ct)
     {
         var now = time.GetUtcNow().UtcDateTime;
         var enabled = await orchestrator.GetEnabledProviderEnumsAsync(ct);
-        var due = await db.SongProviderAttempts.AsNoTracking()
-            .WhereRetryableProviderAttempts(now, enabled)
-            .Select(a => a.SongId)
-            .ToListAsync(ct);
-        var since = now.AddDays(-TimeBuckets.TrendDays);
-        var attempts = (await db.SongProviderAttempts.AsNoTracking()
-                .Where(a => a.AttemptedAtUtc > since)
-                .Select(a => new { a.AttemptedAtUtc, a.Status })
+        var due = db.SongProviderAttempts.AsNoTracking().WhereRetryableProviderAttempts(now, enabled);
+        var dueSongs = await due.Select(a => a.SongId).Distinct().CountAsync(ct);
+        var dueAttempts = await due.CountAsync(ct);
+
+        var since = TimeBuckets.Starts(now, hourly: false, TimeBuckets.TrendDays)[0];
+        var perDay = (await db.SongProviderAttempts.AsNoTracking()
+                .Where(a => a.AttemptedAtUtc >= since)
+                .GroupBy(a => a.AttemptedAtUtc.Date)
+                .Select(g => new { Day = g.Key, Count = g.Count(), Last = g.Max(a => a.AttemptedAtUtc) })
                 .ToListAsync(ct))
-            .Select(a => (a.AttemptedAtUtc, a.Status))
+            .Select(g => (g.Day, g.Count, g.Last))
             .ToList();
-        return new Data(now, enabled, due.Distinct().Count(), due.Count, attempts);
+        return new Data(now, enabled, dueSongs, dueAttempts, perDay);
     }
 
     public async Task<BackgroundJobSummaryDto> SummarizeAsync(CancellationToken ct)
@@ -58,14 +59,21 @@ public sealed class EnrichmentRetriesInsight(
             BackgroundJobDefinitions.EnrichmentRetries,
             d.Enabled.Count == 0 ? "Off: no enrichment provider is enabled." : null,
             status.Get(Id),
-            d.Attempts.Count == 0 ? null : d.Attempts.Max(a => a.At),
+            d.AttemptsPerDay.Count == 0 ? null : d.AttemptsPerDay.Max(a => a.Last),
             new BackgroundHeadlineDto(d.DueSongs, null, BackgroundFormat.Count, "songs have a provider retry due now", null, null),
-            TimeBuckets.DailyCounts(d.Now, TimeBuckets.TrendDays, d.Attempts.Select(a => a.At)),
+            TimeBuckets.DailyTotals(d.Now, TimeBuckets.TrendDays, d.AttemptsPerDay.Select(a => (a.Day, (double)a.Count))),
             "provider attempts per day");
 
     public async Task<BackgroundJobDetailDto> DescribeAsync(CancellationToken ct)
     {
         var d = await LoadAsync(ct);
+
+        var firstHour = TimeBuckets.Starts(d.Now, hourly: true, HourlyBuckets)[0];
+        var perHour = await db.SongProviderAttempts.AsNoTracking()
+            .Where(a => a.AttemptedAtUtc >= firstHour)
+            .GroupBy(a => new { a.AttemptedAtUtc.Date, a.AttemptedAtUtc.Hour, a.Status })
+            .Select(g => new { g.Key.Date, g.Key.Hour, g.Key.Status, Count = g.Count() })
+            .ToListAsync(ct);
 
         var byStatus = await db.Songs.AsNoTracking()
             .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic)
@@ -123,7 +131,10 @@ public sealed class EnrichmentRetriesInsight(
                 [.. Outcomes.Select(o => new SeriesDefinitionDto(o.Status.ToString(), o.Label, o.Tone))],
                 TimeBuckets.Fill(
                     d.Now, hourly: true, HourlyBuckets, Outcomes.Length,
-                    d.Attempts.Select(a => (a.At, Array.FindIndex(Outcomes, o => o.Status == a.Status), 1.0))),
+                    perHour.Select(a => (
+                        DateTime.SpecifyKind(a.Date.AddHours(a.Hour), DateTimeKind.Utc),
+                        Array.FindIndex(Outcomes, o => o.Status == a.Status),
+                        (double)a.Count))),
                 []),
             new FiguresPanelDto("Stuck loops", "A provider that keeps rate-limiting holds songs back for as long as it does.",
             [
