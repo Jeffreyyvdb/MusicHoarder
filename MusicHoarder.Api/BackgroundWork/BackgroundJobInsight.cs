@@ -2,12 +2,6 @@ using System.Globalization;
 
 namespace MusicHoarder.Api.BackgroundWork;
 
-/// <summary>
-/// One background job's side of the Background work page. Everything is derived when asked, from rows the job
-/// already writes; the job's service only says what it is doing this minute (<see cref="BackgroundWorkStatus"/>).
-/// To report on a new job: add its id to <see cref="BackgroundJobIds"/>, write one of these, register it in
-/// <see cref="BackgroundWorkServiceCollectionExtensions"/>. A test fails if an id has no insight.
-/// </summary>
 public interface IBackgroundJobInsight
 {
     string Id { get; }
@@ -15,7 +9,6 @@ public interface IBackgroundJobInsight
     /// <summary>The job's row: cheap enough to ask for every job on each poll.</summary>
     Task<BackgroundJobSummaryDto> SummarizeAsync(CancellationToken ct);
 
-    /// <summary>The row plus its charts.</summary>
     Task<BackgroundJobDetailDto> DescribeAsync(CancellationToken ct);
 }
 
@@ -97,12 +90,10 @@ public static class BackgroundJobSummaries
     }
 }
 
-/// <summary>Small formatters for the sentences the page shows; invariant culture, so a label reads the same everywhere.</summary>
 public static class BackgroundText
 {
     public static string Count(double n) => ((long)Math.Round(n)).ToString("N0", CultureInfo.InvariantCulture);
 
-    /// <summary>Bytes in binary units, as the rest of the app labels them: "812 MB", "2.5 GB".</summary>
     public static string Bytes(double bytes)
     {
         const double Kib = 1024;
@@ -119,7 +110,6 @@ public static class BackgroundText
         return $"{Math.Max(1, Math.Round(b / Kib)).ToString("0", CultureInfo.InvariantCulture)} KB";
     }
 
-    /// <summary>Seconds as "5h 33m", "12m" or "40s".</summary>
     public static string Duration(double seconds)
     {
         var s = (long)Math.Round(Math.Max(0, seconds));

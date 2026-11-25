@@ -211,7 +211,6 @@ public class MusicVideoDownloadsInsightTests
             var scores = new[] { 10, 34, 35, 54, 55, 60, 74, 80, 90 };
             for (var i = 0; i < scores.Length; i++)
                 db.SongVideoCandidateSets.Add(Found(Add(db, i + 1), at, null, Weak(scores[i])));
-            // A confident list is not a miss.
             db.SongVideoCandidateSets.Add(Found(Add(db, 20), at, null, Confident()));
         });
 

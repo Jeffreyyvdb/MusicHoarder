@@ -33,7 +33,6 @@
       isMobile.current ? 4 : 8
     )
   );
-  // Dense hourly columns have no room for a gap; a few days' worth do.
   const gap = $derived(count <= 48 ? 2 : count <= 100 ? 1 : 0);
   const columns = $derived(
     panel.points.map((point) => ({
@@ -181,8 +180,6 @@
         {/if}
 
         {#if readout}
-          <!-- One tooltip for every series, on the side of the plot the column is not on, so
-               it never covers what it describes. The slider's value text says the same aloud. -->
           <div
             aria-hidden="true"
             class="bg-popover text-popover-foreground ring-foreground/10 pointer-events-none absolute top-1 z-10 max-w-[78%] rounded-lg px-2 py-1 shadow-md ring-1 {(selected ??

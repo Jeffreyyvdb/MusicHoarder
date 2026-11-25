@@ -4,14 +4,8 @@ using MusicHoarder.Api.BackgroundWork.Charts;
 
 namespace MusicHoarder.Api.BackgroundWork;
 
-/// <summary>
-/// <c>GET /api/background-work</c> (one row per job) and <c>GET /api/background-work/{id}</c> (a row and its
-/// charts). Admin only: the transcription ledger, option values and runtime state are instance-wide, and the
-/// counts are the library owner's.
-/// </summary>
 public static class BackgroundWorkEndpoints
 {
-    /// <summary>The wire options: the web defaults, so property names are camelCase and panels carry their <c>kind</c>.</summary>
     public static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     public static IEndpointRouteBuilder MapBackgroundWorkEndpoints(this IEndpointRouteBuilder app)
@@ -38,7 +32,6 @@ public static class BackgroundWorkEndpoints
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                // One job's broken query must not blank the whole section.
                 logger.LogWarning(ex, "Background work: could not summarize job {JobId}", id);
                 jobs.Add(Unreadable(id));
             }

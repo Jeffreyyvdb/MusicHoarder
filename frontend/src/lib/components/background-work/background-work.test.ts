@@ -137,7 +137,6 @@ describe('BackgroundWorkSection', () => {
     expect(body).toContain('of 21,006 songs have synced lyrics');
     expect(body).toContain('role="meter"');
     expect(body).toMatch(/At this pace: about 33 days, around (28 Dec|Dec 28)/);
-    // How the estimate was made is the sheet's, not the row's.
     expect(body).not.toContain('rate of 64 songs a day');
     expect(body).toContain('Working');
     expect(body).toContain('Failing');

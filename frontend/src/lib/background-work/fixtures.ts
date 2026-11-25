@@ -7,10 +7,6 @@ import type {
   SeriesPanel
 } from './types.ts';
 
-// A summary and one detail per job, shaped like a real owner library (21,006 songs, 13,195 with
-// synced lyrics, an hourly audio allowance of 6,000 s against the provider's 7,200). The Pipeline
-// page's tests render it, and it is what a screenshot of the section is taken from.
-
 export const FIXTURE_NOW = '2026-11-25T10:30:00Z';
 const NOW = Date.parse(FIXTURE_NOW);
 const HOUR = 3_600_000;
@@ -20,7 +16,6 @@ const iso = (ms: number) => new Date(ms).toISOString();
 const startOfUtcDay = (ms: number) => Math.floor(ms / DAY) * DAY;
 const startOfUtcHour = (ms: number) => Math.floor(ms / HOUR) * HOUR;
 
-/** A repeatable wobble in 0 to 1, so a chart has a shape and a test sees the same one every run. */
 function wobble(seed: number): number {
   const x = Math.sin(seed * 12.9898 + 78.233) * 43_758.5453;
   return x - Math.floor(x);
@@ -68,17 +63,13 @@ function dailySeries(
   };
 }
 
-// ── lyrics ──────────────────────────────────────────────────────────────────────────────────────
-
 const LIBRARY_SONGS = 21_006;
 
 function lyricsMap(): LibraryMapPanel {
   const binCount = 60;
   const perBin = LIBRARY_SONGS / binCount;
-  // The library grows faster the later it goes, so the oldest bins span years and the newest weeks.
   const from = Date.parse('2009-02-01T00:00:00Z');
   const at = (i: number) => from + (NOW - from) * (1 - (1 - i / binCount) ** 1.7);
-  // The sweep works in from both ends: the oldest 19 slices and the newest 12 are done.
   const doneShare = (i: number) =>
     i < 19
       ? 0.96
@@ -255,8 +246,6 @@ const lyricsDetail: BackgroundJobDetail = {
   ]
 };
 
-// ── transcription allowance ─────────────────────────────────────────────────────────────────────
-
 const ALLOWANCE_SERIES: SeriesPanel['series'] = [
   { key: 'sync', label: 'Timing official words', tone: 'ai' },
   { key: 'write', label: 'Writing words', tone: 'ai' },
@@ -368,8 +357,6 @@ const allowanceDetail: BackgroundJobDetail = {
   ]
 };
 
-// ── cover art ───────────────────────────────────────────────────────────────────────────────────
-
 const coverSummary: BackgroundJobSummary = {
   id: 'cover-art',
   title: 'Cover art',
@@ -444,10 +431,6 @@ const coverDetail: BackgroundJobDetail = {
   ]
 };
 
-// ── music video search ──────────────────────────────────────────────────────────────────────────
-
-// Right after the search was widened to the whole library: 1,127 of 20,816 songs searched, so the
-// never-searched backlog dominates and the searched stretch is a sliver at the newest end.
 const VIDEO_SCOPE = 20_816;
 const VIDEO_SEARCHED = 1_127;
 const VIDEO_NEVER = VIDEO_SCOPE - VIDEO_SEARCHED;
@@ -459,11 +442,9 @@ const OUTCOME_SERIES: SeriesPanel['series'] = [
   { key: 'empty', label: 'Found nothing, or failed', tone: 'warning' }
 ];
 
-/** One point per day from `first`, each day's values as given. */
 const dayPoints = (first: number, rows: number[][]): SeriesPanel['points'] =>
   rows.map((values, i) => ({ startUtc: iso(first + i * DAY), values }));
 
-/** A day's total split over the outcomes in their stored proportions. */
 const byOutcome = (total: number): number[] => {
   const { clip, noClip } = VIDEO_OUTCOMES;
   const clips = Math.round((total * clip) / VIDEO_SEARCHED);
@@ -475,7 +456,6 @@ const SEARCHES_PER_DAY = [
   0, 1, 0, 2, 0, 0, 3, 1, 0, 2, 0, 0, 1, 0, 2, 0, 2, 0, 3, 1, 4, 0, 2, 5, 1, 3, 0, 2, 6, 1_052
 ];
 
-// Re-searches coming due, as [clip, no clip, empty] per day; what falls later is the rest of the searched songs.
 const COMING_DUE = [
   [0, 2, 3],
   [0, 0, 31],
@@ -498,7 +478,6 @@ function videoSearchMap(): LibraryMapPanel {
   const perBin = VIDEO_SCOPE / binCount;
   const from = Date.parse('2009-02-01T00:00:00Z');
   const at = (i: number) => from + (NOW - from) * (1 - (1 - i / binCount) ** 1.7);
-  // The pass takes the newest first, so the searched stretch grows from the right.
   const doneShare = (i: number) => (i >= 57 ? 1 : i === 56 ? 0.26 : 0);
   const bins = Array.from({ length: binCount }, (_, i) => {
     const excluded = Math.round(perBin * (0.0025 + wobble(i + 7) * 0.0065));
@@ -684,9 +663,6 @@ const videosDetail: BackgroundJobDetail = {
   ]
 };
 
-// ── music video downloads ───────────────────────────────────────────────────────────────────────
-
-// [downloaded automatically, picked by a person] per day, oldest first; the automatic ones start with the search.
 const FETCHED_PER_DAY: number[][] = [
   ...[0, 0, 1, 0, 0, 2, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0].map((requested) => [0, requested]),
   [0, 0],
@@ -825,8 +801,6 @@ const downloadsDetail: BackgroundJobDetail = {
   ]
 };
 
-// ── quality grading ─────────────────────────────────────────────────────────────────────────────
-
 const qualitySummary: BackgroundJobSummary = {
   id: 'quality-grading',
   title: 'AI quality grading',
@@ -891,8 +865,6 @@ const qualityDetail: BackgroundJobDetail = {
   ]
 };
 
-// ── enrichment retries ──────────────────────────────────────────────────────────────────────────
-
 const retriesSummary: BackgroundJobSummary = {
   id: 'enrichment-retries',
   title: 'Enrichment retries',
@@ -951,8 +923,6 @@ const retriesDetail: BackgroundJobDetail = {
   ]
 };
 
-// ── album fill and follows ──────────────────────────────────────────────────────────────────────
-
 const followsSummary: BackgroundJobSummary = {
   id: 'album-fill-follows',
   title: 'Album fill and follows',
@@ -1008,8 +978,6 @@ const followsDetail: BackgroundJobDetail = {
     }
   ]
 };
-
-// ── the whole fixture ───────────────────────────────────────────────────────────────────────────
 
 export const FIXTURE_DETAILS: Record<BackgroundJobId, BackgroundJobDetail> = {
   lyrics: lyricsDetail,

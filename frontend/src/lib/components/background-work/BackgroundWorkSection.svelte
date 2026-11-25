@@ -7,16 +7,10 @@
   import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
   import BackgroundJobItem from './BackgroundJobItem.svelte';
 
-  /**
-   * The Pipeline page's "Background work": one row per job on a phone (a grouped list), one card
-   * per job from md (a grid). It only draws what it is given; `BackgroundWork` fetches and routes.
-   */
   type Props = {
     summary: BackgroundWorkSummary | null;
-    /** A message when the first load failed; null otherwise (a failed refresh keeps the old data). */
     error?: string | null;
     onopen: (id: BackgroundJobId) => void;
-    /** The page's own section header, so the title and its styling are the page's. */
     header: Snippet;
     now?: number;
   };

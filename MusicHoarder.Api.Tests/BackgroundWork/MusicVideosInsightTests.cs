@@ -15,7 +15,6 @@ public class MusicVideosInsightTests
     private static SongMetadata Add(MusicHoarderDbContext db, int n, Action<SongMetadata>? configure = null)
         => BackgroundWorkTestData.AddSong(db, n, configure);
 
-    /// <summary>An admin, and one old song with a requested video, so the prefetch is not dormant (song 90).</summary>
     private static void SeedLibrary(BackgroundWorkHarness h, Action<MusicHoarderDbContext> more)
     {
         h.Seed(db =>
@@ -51,7 +50,6 @@ public class MusicVideosInsightTests
                 Video(Add(db, 6), MusicVideoStatus.Ready, MusicVideoPick.Automatic, h.Now.AddDays(-1)),
                 Video(Add(db, 7), MusicVideoStatus.Fetching, MusicVideoPick.Requested),
                 Video(failedVideo, MusicVideoStatus.Failed, MusicVideoPick.Automatic));
-            // Not the search's business: deleted, not yet enriched, untitled, another account's.
             Add(db, 11, s => s.DeletedAtUtc = h.Now);
             Add(db, 12, s => s.EnrichmentStatus = EnrichmentStatus.Pending);
             Add(db, 13, s => s.Title = "");
@@ -72,7 +70,6 @@ public class MusicVideosInsightTests
         Assert.Equal(2, breakdown.Segment("empty"));
         Assert.Equal(1, breakdown.Segment("never"));
 
-        // In scope: 1 to 5 and 8, whose failed video does not count; searched: all of those but 5.
         Assert.Equal(5, detail.Summary.Headline.Value);
         Assert.Equal(6, detail.Summary.Headline.Of);
     }
@@ -115,7 +112,6 @@ public class MusicVideosInsightTests
                 NullLogger<MusicVideoCandidatePrefetch>.Instance);
             await prefetch.RunAsync(CancellationToken.None);
 
-            // The pass searched exactly the songs the page calls in scope.
             Assert.Equal(
                 ["1.mp3", "2.mp3", "3.mp3"],
                 db.SongVideoCandidateSets.Select(c => c.Song.FileName).OrderBy(n => n).ToList());
@@ -129,7 +125,6 @@ public class MusicVideosInsightTests
         Assert.Equal(1, breakdown.Segment("empty"));
         Assert.Equal(0, breakdown.Segment("never"));
 
-        // A recent release: no clip is looked at again after 7 days, nothing found after 1, a clip after 30.
         var coming = Series(detail, "Searches coming due");
         Assert.Equal(1, Column(coming, 1)[7]);
         Assert.Equal(1, Column(coming, 2)[1]);
@@ -150,7 +145,6 @@ public class MusicVideosInsightTests
         using var h = new BackgroundWorkHarness();
         SeedLibrary(h, db =>
         {
-            // Added 1 to 6 days ago, newest first is 1: songs 1 and 2 are waiting, 3 to 5 searched, 6 has a video.
             foreach (var n in new[] { 1, 2 })
                 Add(db, n);
             foreach (var n in new[] { 3, 4, 5 })
@@ -166,7 +160,6 @@ public class MusicVideosInsightTests
         Assert.Equal(2, map.Bins.Sum(b => b.Waiting));
         Assert.Equal(2, map.Bins.Sum(b => b.Excluded));
         Assert.True(map.Bins.SequenceEqual(map.Bins.OrderBy(b => b.FromUtc)));
-        // Waiting songs 1 and 2 were indexed 1 and 2 days ago; the pass reaches the newer one first.
         Assert.Equal(h.Now.AddDays(-1), map.Markers.Single().AtUtc);
     }
 
@@ -214,7 +207,6 @@ public class MusicVideosInsightTests
             var untimed = Found(Add(db, 7), searched, null, Weak());
             untimed.NextSearchAtUtc = null;
             db.SongVideoCandidateSets.Add(untimed);
-            // Has a video: no longer searched, so not coming due.
             db.SongVideoCandidateSets.Add(Found(Add(db, 8), searched, h.Now.AddDays(4), Weak()));
             db.SongMusicVideos.Add(Video(db.Songs.Single(s => s.FileName == "8.mp3"), MusicVideoStatus.Ready, MusicVideoPick.Automatic, h.Now));
         });
@@ -225,7 +217,6 @@ public class MusicVideosInsightTests
         Assert.Equal(30, coming.Points.Count);
         Assert.Equal(h.Now.Date, coming.Points[0].StartUtc);
         Assert.Equal(h.Now.Date.AddDays(29), coming.Points[^1].StartUtc);
-        // Today: song 1 (overdue) as a clip, songs 2 (later today) and 7 (no date) as no clip.
         Assert.Equal([1.0, 2, 0], coming.Points[0].Values);
         Assert.Equal([0.0, 1, 0], coming.Points[3].Values);
         Assert.Equal([1.0, 0, 1], coming.Points[10].Values);
@@ -274,7 +265,6 @@ public class MusicVideosInsightTests
                 Nothing(Add(db, 4), at, 1, h.Now.AddDays(1)));
             Add(db, 5);
             Add(db, 6);
-            // Searched under another title: the pass searches it again whatever its schedule says.
             var renamed = Add(db, 7);
             var stale = Found(renamed, at, h.Now.AddDays(5), Weak());
             stale.QueryKey = "an older search";
@@ -303,13 +293,11 @@ public class MusicVideosInsightTests
 
         Assert.Equal(1, (await Breakdown(h)).Segment("clip"));
 
-        // A list rewritten without a new search is not read again: the memo still says what the search found.
         h.Seed(db => db.SongVideoCandidateSets.Single().CandidatesJson = Json(Weak()));
         var again = await Breakdown(h);
         Assert.Equal(1, again.Segment("clip"));
         Assert.Equal(0, again.Segment("no-clip"));
 
-        // A new search moves SearchedAtUtc, and the list is read again.
         h.Seed(db => db.SongVideoCandidateSets.Single().SearchedAtUtc = h.Now);
         var searchedAgain = await Breakdown(h);
         Assert.Equal(0, searchedAgain.Segment("clip"));
@@ -359,7 +347,6 @@ public class MusicVideosInsightTests
         using var h = new BackgroundWorkHarness();
         SeedLibrary(h, db =>
         {
-            // 4 searches over the last 2 days make 2 a day; 6 songs have never been searched.
             foreach (var (n, hours) in new[] { (1, 3), (2, 20), (3, 30), (4, 48) })
                 db.SongVideoCandidateSets.Add(Found(Add(db, n), h.Now.AddHours(-hours), null, Weak()));
             foreach (var n in Enumerable.Range(5, 6))

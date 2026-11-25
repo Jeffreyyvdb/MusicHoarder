@@ -2,10 +2,6 @@
   import { CircleAlert, TriangleAlert } from '@lucide/svelte';
   import type { BackgroundTone } from '#lib/background-work/types.ts';
 
-  /**
-   * The glyph that says a tone means trouble in words as well as colour: a circled mark for a
-   * failure, a triangle for something that needs a look. Nothing for any other tone.
-   */
   type Props = { tone: BackgroundTone; class?: string };
   let { tone, class: className = '' }: Props = $props();
 </script>

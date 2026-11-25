@@ -1,15 +1,9 @@
-// Inspecting a chart by finger, pointer or keyboard: one action for every chart that has "the
-// column under here" to read out. The node reports an index; the chart draws the readout.
-
 export interface ScrubOptions {
-  /** How many positions the node's width is divided into. */
   count: number;
-  /** The index now selected, for the arrow keys to move from. */
   index: number | null;
   onchange: (index: number | null) => void;
 }
 
-/** The position under a horizontal coordinate, or null when the box has no width. */
 export function indexAt(
   clientX: number,
   left: number,
@@ -20,7 +14,6 @@ export function indexAt(
   return Math.min(count - 1, Math.max(0, Math.floor(((clientX - left) / width) * count)));
 }
 
-/** The index a key moves to, or undefined for a key that is not ours. */
 export function indexAfterKey(
   key: string,
   current: number | null,
@@ -53,9 +46,6 @@ export function scrub(node: HTMLElement, initial: ScrubOptions) {
     return indexAt(event.clientX, box.left, box.width, options.count);
   }
 
-  // A mouse inspects on hover; a finger or pen on press and drag. Vertical scrolling stays with
-  // the page (`touch-action: pan-y` on the node), so a drag across a chart reads it and a drag
-  // up or down scrolls.
   function onpointermove(event: PointerEvent) {
     if (event.pointerType === 'mouse' || event.buttons > 0) options.onchange(at(event));
   }

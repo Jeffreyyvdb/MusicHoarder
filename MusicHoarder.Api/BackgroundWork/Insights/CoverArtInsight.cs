@@ -7,12 +7,6 @@ using MusicHoarder.Api.Persistence;
 
 namespace MusicHoarder.Api.BackgroundWork.Insights;
 
-/// <summary>
-/// Album folders and their covers. The folders are the sweep's own selection
-/// (<see cref="CoverArtSweepRules.WhereBuiltForCoverSweep"/>), grouped by destination directory; whether a
-/// folder has a cover is read from <see cref="SongMetadata.HasCoverArt"/>, the flag the sweep heals from the
-/// disk and the Stats page counts, because walking the disk per request is not something a poll can do.
-/// </summary>
 public sealed class CoverArtInsight(
     MusicHoarderDbContext db,
     IOptions<MusicEnricherOptions> options,

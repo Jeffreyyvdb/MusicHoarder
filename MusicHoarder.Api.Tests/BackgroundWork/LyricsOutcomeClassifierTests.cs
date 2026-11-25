@@ -29,17 +29,12 @@ public class LyricsOutcomeClassifierTests
     [
         [LyricsOutcomes.LrclibSynced, Facts(LyricsStatus.Fetched, synced: true, plain: true)],
         [LyricsOutcomes.GeniusSynced, Facts(LyricsStatus.Fetched, LyricsOrigin.Genius, synced: true)],
-        // A probe shifted the LRC by a measured offset: official words, AI timing.
         [LyricsOutcomes.AiTimedOfficial, Facts(LyricsStatus.Fetched, synced: true, offset: true)],
-        // The AI sync pass aligned a transcript to the official words and the player shows it.
         [LyricsOutcomes.AiTimedOfficial, Facts(LyricsStatus.Fetched, plain: true, tSynced: true, tPlain: true, preferred: PreferredLyricsSource.Transcribed, aligned: true)],
-        // Nothing official, so the AI's own words are all there is.
         [LyricsOutcomes.AiWritten, Facts(LyricsStatus.NotFound, tSynced: true, tPlain: true, transcription: TranscriptionStatus.Completed)],
         [LyricsOutcomes.PlainOnly, Facts(LyricsStatus.Fetched, plain: true)],
-        // The official words are plain only and the AI timed them, but nobody chose the AI version: the player shows plain.
         [LyricsOutcomes.PlainOnly, Facts(LyricsStatus.Fetched, plain: true, tSynced: true, aligned: true)],
         [LyricsOutcomes.InstrumentalLrclib, Facts(LyricsStatus.Instrumental, instrumental: true)],
-        // LRCLIB's verdict outranks an earlier transcript.
         [LyricsOutcomes.InstrumentalLrclib, Facts(LyricsStatus.Instrumental, tSynced: true, preferred: PreferredLyricsSource.Transcribed)],
         [LyricsOutcomes.NoSingingAi, Facts(LyricsStatus.NotFound, instrumental: true, transcription: TranscriptionStatus.Completed)],
         [LyricsOutcomes.AiFailed, Facts(LyricsStatus.NotFound, transcription: TranscriptionStatus.Failed)],
@@ -103,7 +98,6 @@ public class LyricsOutcomeClassifierTests
             var isAi = outcome.Key is LyricsOutcomes.AiTimedOfficial or LyricsOutcomes.AiWritten;
             if (outcome.ShowsSyncedLyrics)
             {
-                // The chart's "AI" segments are exactly the player's AI badge.
                 Assert.Equal(song.LyricsProvenance != LyricsProvenance.Human, isAi);
             }
 

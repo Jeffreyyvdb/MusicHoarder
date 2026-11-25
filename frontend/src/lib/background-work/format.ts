@@ -1,10 +1,6 @@
 import { formatBytesShort } from '#lib/formatters.ts';
 import type { BackgroundFormat } from './types.ts';
 
-// Every number and moment the Background work section prints, in one module so a row, a sheet and
-// a chart's readout say the same thing. Pure: `now`, the locale and the time zone come in as
-// options, so a test pins them.
-
 export interface MomentOptions {
   now?: number;
   locale?: string;
@@ -17,7 +13,6 @@ export function formatCount(value: number, locale?: string): string {
   return Math.round(value).toLocaleString(locale);
 }
 
-/** Seconds as the two largest units that matter: "40 s", "12 min", "5 h 33 min", "3 d 4 h". */
 export function formatSeconds(seconds: number): string {
   const total = Math.max(0, Math.round(seconds));
   if (total < 60) return `${total} s`;
@@ -44,7 +39,6 @@ export function formatSeconds(seconds: number): string {
   return hours > 0 ? `${days} d ${hours} h` : `${days} d`;
 }
 
-/** A 0 to 1 fraction: "73%", with a decimal below 10% so a small share does not read as zero. */
 export function formatFraction(fraction: number): string {
   const percent = fraction * 100;
   if (percent <= 0) return '0%';
@@ -53,7 +47,6 @@ export function formatFraction(fraction: number): string {
   return `${Math.round(percent)}%`;
 }
 
-/** A part's share of its whole, for legends: never "0%" for something that exists. */
 export function formatShare(part: number, whole: number): string {
   if (whole <= 0 || part <= 0) return '0%';
   const percent = (part / whole) * 100;
@@ -83,7 +76,6 @@ function dateParts(
 }
 
 function dayNumber(date: Date, timeZone: string | undefined, locale: string | undefined): number {
-  // The calendar day in the display zone, as a number that subtracts into whole days.
   const parts = new Intl.DateTimeFormat(locale ?? 'en-US', {
     timeZone,
     year: 'numeric',
@@ -94,7 +86,6 @@ function dayNumber(date: Date, timeZone: string | undefined, locale: string | un
   return Math.round(Date.UTC(pick('year'), pick('month') - 1, pick('day')) / DAY_MS);
 }
 
-/** A moment in the viewer's zone: "03:00" within a day either side of now's date, else "28 Dec, 03:00". */
 export function formatMoment(iso: string, options: MomentOptions = {}): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return '';
@@ -116,21 +107,18 @@ export function formatMoment(iso: string, options: MomentOptions = {}): string {
   return `${day}, ${time}`;
 }
 
-/** "Mar 2019": a position in the library, from a bin's date. */
 export function formatMonthYear(iso: string, options: MomentOptions = {}): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return '';
   return dateParts(date, { month: 'short', year: 'numeric' }, options);
 }
 
-/** "25 Nov": a UTC day bucket, read in the viewer's zone. */
 export function formatDayBucket(iso: string, options: MomentOptions = {}): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return '';
   return dateParts(date, { day: 'numeric', month: 'short' }, options);
 }
 
-/** "Tue 14:00": an hour bucket. */
 export function formatHourBucket(iso: string, options: MomentOptions = {}): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return '';
@@ -143,10 +131,6 @@ function plural(count: number, unit: string): string {
   return `${count} ${unit}${count === 1 ? '' : 's'}`;
 }
 
-/**
- * When a backlog runs out, as a person says it: "about 33 days, around 28 Dec". Past two years the
- * date means nothing, so it says so instead.
- */
 export function formatEta(etaUtc: string, options: MomentOptions = {}): string {
   const eta = new Date(etaUtc);
   if (Number.isNaN(eta.getTime())) return '';

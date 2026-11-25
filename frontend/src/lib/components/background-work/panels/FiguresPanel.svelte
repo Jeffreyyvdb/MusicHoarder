@@ -8,8 +8,6 @@
   type Props = { panel: FiguresPanel; now?: number };
   let { panel, now = Date.now() }: Props = $props();
 
-  // A figure is a number, a moment, or both ("0 left, resets at 11:00"); the value wears the text
-  // token for its tone and a coloured mark stands beside it.
   const shown = (item: FiguresPanel['items'][number]) => ({
     value: item.value == null ? null : formatValue(item.format, item.value),
     moment: item.atUtc ? formatMoment(item.atUtc, { now }) : null

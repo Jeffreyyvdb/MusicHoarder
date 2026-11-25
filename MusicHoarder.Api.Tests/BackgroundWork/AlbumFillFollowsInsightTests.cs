@@ -27,7 +27,6 @@ public class AlbumFillFollowsInsightTests
         Item(h, fill, WishlistItemStatus.Failed);
         Item(h, follow, WishlistItemStatus.Pending, createdAgo: TimeSpan.FromHours(1), updatedAgo: TimeSpan.FromHours(1));
         Item(h, follow, WishlistItemStatus.Downloaded, updatedAgo: TimeSpan.FromHours(1));
-        // A person asked for this one; it is not these jobs' queue.
         Item(h, WishlistItemOrigin.UserRequested, WishlistItemStatus.Pending);
         return h;
     }
@@ -39,7 +38,6 @@ public class AlbumFillFollowsInsightTests
 
         var summary = await h.SummarizeAsync(BackgroundJobIds.AlbumFillAndFollows);
 
-        // fill: pending, downloading, retrying; follow: pending.
         Assert.Equal(4, summary.Headline.Value);
         Assert.Equal(8, summary.Headline.Of);
     }
@@ -85,7 +83,6 @@ public class AlbumFillFollowsInsightTests
 
         var headline = (await h.SummarizeAsync(BackgroundJobIds.AlbumFillAndFollows)).Headline;
 
-        // 3 downloads in the 2 days since the oldest queued track: 1.5 a day against 4 waiting.
         Assert.Equal(h.Now.AddDays(4 / 1.5), headline.EtaUtc);
     }
 

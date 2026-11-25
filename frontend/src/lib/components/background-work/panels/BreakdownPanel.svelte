@@ -10,7 +10,6 @@
   type Props = { panel: BreakdownPanel };
   let { panel }: Props = $props();
 
-  // Hovering a part, or pressing its row, brings it forward and quiets the rest.
   let active = $state<string | null>(null);
 
   const fills = $derived(toneFills(panel.segments.map((s) => s.tone)));
@@ -34,8 +33,6 @@
 </script>
 
 <PanelFrame title={panel.title} caption={panel.caption} kind="breakdown">
-  <!-- One whole split into parts: widths are the counts, a part at zero draws nothing, and a 2px
-       surface gap (not a stroke) keeps neighbours apart. -->
   <div
     role="img"
     aria-label={summary}

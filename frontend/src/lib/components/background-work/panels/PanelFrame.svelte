@@ -1,10 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
 
-  /**
-   * The card every panel sits in: a title, a line of context, the chart, and the same numbers as a
-   * table that only assistive technology reads (a chart is never the only way to get its values).
-   */
   type Props = {
     title: string;
     caption?: string | null;

@@ -1,9 +1,5 @@
 namespace MusicHoarder.Api.BackgroundWork.Charts;
 
-/// <summary>
-/// Fixed UTC buckets for the series panels: contiguous, oldest first, ending with the bucket that holds
-/// "now", with every empty bucket present as zeros so a quiet hour is a gap in the data, not in the axis.
-/// </summary>
 public static class TimeBuckets
 {
     public const int TrendDays = 14;
@@ -15,7 +11,6 @@ public static class TimeBuckets
         return [.. Enumerable.Range(0, count).Select(i => current - step * (count - 1 - i))];
     }
 
-    /// <summary>One point per bucket; a sample outside every bucket is dropped, and so is one for an unknown series.</summary>
     public static IReadOnlyList<SeriesPointDto> Fill(
         DateTime nowUtc, bool hourly, int count, int seriesCount, IEnumerable<(DateTime At, int Series, double Value)> samples)
     {
@@ -36,11 +31,6 @@ public static class TimeBuckets
         return [.. starts.Select((start, i) => new SeriesPointDto(start, values[i]))];
     }
 
-    /// <summary>
-    /// The daily buckets from today forward: <paramref name="count"/> days starting with the one that holds
-    /// <paramref name="nowUtc"/>. A sample before today (overdue work) lands on today; one past the last
-    /// bucket is dropped, and so is one for an unknown series.
-    /// </summary>
     public static IReadOnlyList<SeriesPointDto> FillForward(
         DateTime nowUtc, int count, int seriesCount, IEnumerable<(DateTime At, int Series, double Value)> samples)
     {
@@ -59,7 +49,6 @@ public static class TimeBuckets
         return [.. values.Select((v, i) => new SeriesPointDto(first.AddDays(i), v))];
     }
 
-    /// <summary>Totals per UTC day for the last <paramref name="days"/> days, oldest first.</summary>
     public static IReadOnlyList<double> DailyTotals(DateTime nowUtc, int days, IEnumerable<(DateTime At, double Value)> samples)
         => [.. Fill(nowUtc, hourly: false, days, 1, samples.Select(s => (s.At, 0, s.Value))).Select(p => p.Values[0])];
 

@@ -27,8 +27,6 @@
   const waiting = toneColor('neutral');
   const excluded = toneColor('muted');
 
-  // Label widths are estimated (about 6.2px a character) against a typical plot width, so the
-  // lanes they are dealt are right without measuring anything.
   const LANE_HEIGHT = 18;
   const plotWidth = $derived(isMobile.current ? 290 : 560);
   const markers = $derived.by(() => {
@@ -160,9 +158,6 @@
       class="focus-visible:ring-ring relative h-20 touch-pan-y rounded-sm select-none focus-visible:ring-2 focus-visible:outline-hidden md:h-24"
       use:scrub={{ count, index: selected, onchange: (i) => (selected = i) }}
     >
-      <!-- Every slice holds the same number of songs, so each column fills the strip and the
-           proportions inside it are the story: done at the foot, still to do above it, the
-           songs this sweep leaves alone on top, faint. -->
       <div class="absolute inset-0 flex gap-px" aria-hidden="true">
         {#each panel.bins as bin, i (i)}
           <div

@@ -2,14 +2,8 @@ import { formatBytesShort, formatCompactCount } from '#lib/formatters.ts';
 import { formatDayBucket, formatMonthYear, type MomentOptions } from './format.ts';
 import type { BackgroundFormat, LibraryMapPanel, SeriesPanel } from './types.ts';
 
-// The geometry behind the charts, with no DOM in it: scales, ticks, stacks and the library map's
-// bins. A chart component only turns these numbers into percentages of its own box, which is why
-// none of them needs the pixel size of anything.
-
 export interface AxisScale {
-  /** The value at the top of the plot. */
   top: number;
-  /** Tick values from 0 to `top`. */
   ticks: number[];
 }
 
@@ -20,7 +14,6 @@ function niceStep(rough: number): number {
   return nice * magnitude;
 }
 
-/** Round ticks from 0 up past `max`: 0, 2,000, 4,000 for a max of 3,700. */
 export function niceTicks(max: number, target = 4): AxisScale {
   if (!Number.isFinite(max) || max <= 0) return { top: 1, ticks: [0, 1] };
   const step = niceStep(max / target);
@@ -36,7 +29,6 @@ function durationUnit(max: number): number {
   return 86_400;
 }
 
-/** The scale of a y axis in this format. A duration steps in whole minutes, hours or days, never in 1,000 s. */
 export function axisScale(format: BackgroundFormat, max: number): AxisScale {
   if (format === 'duration') {
     const unit = durationUnit(max);
@@ -50,7 +42,6 @@ export function axisScale(format: BackgroundFormat, max: number): AxisScale {
   return niceTicks(max);
 }
 
-/** A tick label: compact, one style per axis. */
 export function formatTick(format: BackgroundFormat, value: number): string {
   if (value === 0) return '0';
   switch (format) {
@@ -69,7 +60,6 @@ export function formatTick(format: BackgroundFormat, value: number): string {
   }
 }
 
-/** The largest a column reaches: the stack's total when stacked, else its tallest series; limits count too. */
 export function seriesMax(panel: Pick<SeriesPanel, 'points' | 'stacked' | 'limits'>): number {
   let max = 0;
   for (const point of panel.points) {
@@ -83,16 +73,12 @@ export function seriesMax(panel: Pick<SeriesPanel, 'points' | 'stacked' | 'limit
 }
 
 export interface StackSegment {
-  /** Index into the panel's `series`. */
   series: number;
   value: number;
-  /** Height as a percentage of the plot. */
   heightPct: number;
-  /** The last (highest) segment of its column: the one with a rounded cap. */
   top: boolean;
 }
 
-/** One column's segments from the baseline up, zeros left out. */
 export function stackSegments(values: readonly number[], top: number): StackSegment[] {
   const segments: StackSegment[] = [];
   values.forEach((value, series) => {
@@ -103,22 +89,15 @@ export function stackSegments(values: readonly number[], top: number): StackSegm
   return segments;
 }
 
-/** A value's height as a percentage of the plot, with a floor so a real value never vanishes. */
 export function heightPct(value: number, top: number, minPct = 0): number {
   if (value <= 0 || top <= 0) return 0;
   return Math.min(100, Math.max(minPct, (value / top) * 100));
 }
 
 export interface LimitLabelPlacement {
-  /** True when the label sits above its line, false when below. */
   above: boolean;
 }
 
-/**
- * Which side of its dashed line each limit label goes, so two limits close together do not print
- * their labels over each other. `positions` are percentages of the plot height; `labelPct` is a
- * label's height in the same unit. Answers in the order given.
- */
 export function placeLimitLabels(
   positions: readonly number[],
   labelPct = 11
@@ -141,8 +120,6 @@ export function placeLimitLabels(
   return result;
 }
 
-// ── time axis ───────────────────────────────────────────────────────────────────────────────────
-
 function localHour(date: Date, timeZone?: string): number {
   const parts = new Intl.DateTimeFormat('en-GB', {
     hour: 'numeric',
@@ -157,10 +134,6 @@ export interface TimeTick {
   label: string;
 }
 
-/**
- * Where an x axis of time buckets is labelled: each local midnight for hours (6-hourly when the
- * range is shorter than a day), each day for days, thinned to `maxLabels`.
- */
 function hourTicks(dates: readonly Date[], options: MomentOptions): TimeTick[] {
   const midnights = dates.flatMap((d, index) =>
     localHour(d, options.timeZone) === 0 ? [index] : []
@@ -208,8 +181,6 @@ export function timeTicks(
   return candidates.filter((_, i) => i % stride === 0);
 }
 
-// ── library map ─────────────────────────────────────────────────────────────────────────────────
-
 type Bin = LibraryMapPanel['bins'][number];
 
 export interface BinShares {
@@ -219,7 +190,6 @@ export interface BinShares {
   excluded: number;
 }
 
-/** A bin's three parts as fractions of its songs (bins hold equal counts, but the last can come up short). */
 export function binShares(bin: Bin): BinShares {
   const total = bin.done + bin.waiting + bin.excluded;
   if (total <= 0) return { total: 0, done: 0, waiting: 0, excluded: 0 };
@@ -231,7 +201,6 @@ export function binShares(bin: Bin): BinShares {
   };
 }
 
-/** Where a moment falls along the strip, 0 to 1: bins are equal in songs, not in time, so it is placed inside its own bin. */
 export function positionOnMap(bins: readonly Bin[], atMs: number): number {
   if (bins.length === 0) return 0;
   const first = new Date(bins[0].fromUtc).getTime();
@@ -249,12 +218,10 @@ export function positionOnMap(bins: readonly Bin[], atMs: number): number {
 }
 
 export interface MapTick {
-  /** 0 to 1 along the strip. */
   position: number;
   label: string;
 }
 
-/** Evenly spaced axis labels, each the date at that point of the library; the last is the newest bin's end. */
 export function mapTicks(
   bins: readonly Bin[],
   count: number,
@@ -278,7 +245,6 @@ export interface Stretch {
   to: number;
   fromUtc: string;
   toUtc: string;
-  /** Songs in the stretch, per the bins. */
   songs: number;
 }
 
@@ -288,7 +254,6 @@ function dominant(bin: Bin): MapState | null {
   return bin.waiting >= bin.excluded ? 'waiting' : 'excluded';
 }
 
-/** Runs of neighbouring bins whose largest part is the same: "done up to 2019, waiting from there". */
 export function stretches(bins: readonly Bin[]): Stretch[] {
   const runs: Stretch[] = [];
   bins.forEach((bin, i) => {
@@ -309,15 +274,10 @@ export function stretches(bins: readonly Bin[]): Stretch[] {
 
 export interface MarkerPlacement {
   position: number;
-  /** Which side of its tick the label hangs on, so it stays inside the strip. */
   align: 'start' | 'center' | 'end';
   lane: number;
 }
 
-/**
- * Rows for marker labels so none overlaps another. `labelWidths` and `position` share a unit
- * (fractions of the strip); a label near an edge hangs inward.
- */
 export function placeMarkers(
   markers: readonly { position: number; width: number }[],
   gap = 0.015
@@ -343,16 +303,12 @@ export function placeMarkers(
   return placed;
 }
 
-// ── sparkline ───────────────────────────────────────────────────────────────────────────────────
-
-/** Each value's column height as a percentage of the tallest; a day with work never rounds to nothing. */
 export function sparkHeights(values: readonly number[]): number[] {
   const max = Math.max(0, ...values);
   if (max <= 0) return values.map(() => 0);
   return values.map((v) => (v <= 0 ? 0 : Math.max(8, (v / max) * 100)));
 }
 
-/** A fraction of a whole, clamped to the bar's range. */
 export function coverage(value: number, of: number | null | undefined): number | null {
   if (of == null || of <= 0) return null;
   return Math.min(1, Math.max(0, value / of));

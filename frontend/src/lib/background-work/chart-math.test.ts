@@ -109,7 +109,6 @@ describe('timeTicks', () => {
 
   it('labels each local midnight on an hourly axis', () => {
     const ticks = timeTicks(hours, 'hour', 8, AMS);
-    // Amsterdam midnight is 23:00 UTC the day before: the 24th, 25th and 26th start at 23, 47, 71.
     expect(ticks.map((t) => t.index)).toEqual([23, 47, 71]);
     expect(ticks[0].label).toBe('Tue 24');
   });
@@ -249,7 +248,6 @@ describe('placeLimitLabels', () => {
   });
 
   it('moves the lower of two close limits under its line so the labels do not overlap', () => {
-    // The hourly chart: a provider limit at the top and our ceiling just under it.
     expect(placeLimitLabels([83, 100])).toEqual([{ above: false }, { above: false }]);
     expect(placeLimitLabels([30, 60])).toEqual([{ above: true }, { above: true }]);
   });

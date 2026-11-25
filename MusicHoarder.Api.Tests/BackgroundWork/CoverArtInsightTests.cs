@@ -52,7 +52,6 @@ public class CoverArtInsightTests
         Attempt(h, "/dest/F", AlbumCoverFetchStatus.Failed, h.Now.AddHours(10));
         Folder(h, "/dest/G", cover: false);
         Attempt(h, "/dest/G", AlbumCoverFetchStatus.NotFound, h.Now.AddHours(-1));
-        // Not the sweep's folders: unreleased, and the demo tenant's.
         Folder(h, "/dest/U", cover: false, s => s.IsUnreleased = true);
         Folder(h, "/dest/Demo", cover: false, s => s.OwnerUserId = WellKnownUsers.DemoId);
         return h;
@@ -84,7 +83,6 @@ public class CoverArtInsightTests
 
         var figures = (await h.DescribeAsync(BackgroundJobIds.CoverArt)).Panel<FiguresPanelDto>("The sweep");
 
-        // B waits for its first upgrade try, D was never tried, G's cooldown has passed.
         Assert.Equal(3, figures.Item("Folders due now").Value);
         Assert.Equal(h.Now.AddHours(10), figures.Item("Soonest retry").AtUtc);
         Assert.Equal(25, figures.Item("Folders per sweep").Value);

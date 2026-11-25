@@ -4,10 +4,6 @@
   import BackgroundJobItem from './BackgroundJobItem.svelte';
   import PanelView from './panels/PanelView.svelte';
 
-  /**
-   * What a job's sheet shows: its summary on top, then every panel in the order the API gave them.
-   * Until the detail arrives the row's summary stands in and the panels are placeholders.
-   */
   type Props = {
     summary: BackgroundJobSummary | null;
     detail: BackgroundJobDetail | null;

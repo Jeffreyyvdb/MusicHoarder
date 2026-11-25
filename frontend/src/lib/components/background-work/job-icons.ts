@@ -13,7 +13,6 @@ import type { BackgroundJobId } from '#lib/background-work/types.ts';
 
 type Icon = Component<{ class?: string; strokeWidth?: number }>;
 
-/** One glyph per job; a new id the API adds is a compile error here. */
 export const JOB_ICONS: Record<BackgroundJobId, Icon> = {
   lyrics: Captions,
   'transcription-allowance': AudioLines,

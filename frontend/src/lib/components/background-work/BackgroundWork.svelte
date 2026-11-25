@@ -9,11 +9,6 @@
   import BackgroundJobSheet from './BackgroundJobSheet.svelte';
   import BackgroundWorkSection from './BackgroundWorkSection.svelte';
 
-  /**
-   * The Pipeline page's Background work section: fetches the jobs, keeps them fresh, and owns the
-   * open sheet through the address (`/pipeline?job=lyrics`), so a job can be linked to and Back
-   * closes it.
-   */
   type Props = { header: Snippet };
   let { header }: Props = $props();
 
@@ -38,7 +33,6 @@
         now = Date.now();
       } catch {
         if (mine.signal.aborted) return;
-        // A failed refresh keeps the rows it has; only a first load has nothing to show.
         if (summary === null) error = "Couldn't load background work.";
       }
     };
@@ -49,13 +43,10 @@
     };
   });
 
-  // The sheet is the address: an unknown id in the link is no sheet at all.
   const requested = $derived(page.url.searchParams.get(JOB_PARAM));
   const jobId = $derived(summary?.jobs.find((job) => job.id === requested)?.id ?? null);
   const openJob = $derived(summary?.jobs.find((job) => job.id === jobId) ?? null);
 
-  // Opening is a push, so Back closes the sheet. A sheet reached by a link has no earlier entry
-  // of ours to go back to, so closing it rewrites the address instead.
   let pushed = false;
   $effect(() => {
     if (requested === null) pushed = false;

@@ -8,14 +8,6 @@ using MusicHoarder.Api.Settings;
 
 namespace MusicHoarder.Api.BackgroundWork.Insights;
 
-/// <summary>
-/// The music-video search: how far the candidate prefetch has got through the library, what its searches
-/// found, and when each song comes round again. The songs it considers are
-/// <see cref="MusicVideoPrefetchScope"/>'s and each search's outcome is <see cref="MusicVideoAutoPick"/>'s
-/// (through <see cref="MusicVideoBacklogLoader"/>), the pass's own, so the sheet cannot count a song the pass
-/// would not pick or call a list confident that the pass would not download. The row is counts only; the
-/// sheet reads the lists.
-/// </summary>
 public sealed class MusicVideosInsight(
     MusicHoarderDbContext db,
     MusicVideoBacklogLoader backlog,
@@ -70,7 +62,6 @@ public sealed class MusicVideosInsight(
         if (opts.MusicVideoCandidatePrefetchIntervalMinutes <= 0)
             return "Switched off in the configuration (MusicVideoCandidatePrefetchIntervalMinutes is 0).";
 
-        // The pass searches nothing on an instance that has never fetched a music video and does not download them automatically.
         var automatic = (await runtimeSettings.GetAsync(ct)).AutoDownloadMusicVideos;
         if (!automatic && !await db.SongMusicVideos.IgnoreQueryFilters().AnyAsync(ct))
             return "Not started: searches begin once a music video has been fetched or automatic downloads are turned on.";

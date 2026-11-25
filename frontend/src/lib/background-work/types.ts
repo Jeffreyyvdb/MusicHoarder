@@ -1,6 +1,3 @@
-// Mirrors MusicHoarder.Api/BackgroundWork/BackgroundWorkContracts.cs. A value the API adds and these
-// unions do not carry fails to compile where the client maps it, which is the point.
-
 export type BackgroundJobId =
   | 'lyrics'
   | 'transcription-allowance'

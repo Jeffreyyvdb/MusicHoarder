@@ -10,13 +10,8 @@
   import { poll } from '#lib/poll.ts';
   import BackgroundJobDetailBody from './BackgroundJobDetailBody.svelte';
 
-  /**
-   * A job's sheet: a bottom sheet on a phone, a dialog from md. Open whenever `jobId` is set; the
-   * detail is fetched when it opens and refreshed on the page's cadence while it stays open.
-   */
   type Props = {
     jobId: BackgroundJobId | null;
-    /** The job's row from the list, shown while its detail loads. */
     summary: BackgroundJobSummary | null;
     onclose: () => void;
   };
@@ -27,8 +22,6 @@
   let detail = $state<BackgroundJobDetail | null>(null);
   let error = $state<string | null>(null);
   let now = $state(Date.now());
-  // Closing clears `jobId` before the sheet has animated out; `detail` is kept, so it still has
-  // its title and charts until the next job replaces it.
 
   $effect(() => {
     const id = jobId;
@@ -51,7 +44,6 @@
         now = Date.now();
       } catch (err) {
         if (mine.signal.aborted) return;
-        // A failed refresh keeps the charts it already has.
         if (detail === null) {
           error = isPermissionError(err)
             ? 'Only administrators can see background work.'

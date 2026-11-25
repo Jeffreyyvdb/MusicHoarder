@@ -34,12 +34,9 @@ public class QualityGradingInsightTests
         songs = made;
         Grade(h, made[0], SongQualityVerdict.Excellent, 95, TimeSpan.FromDays(1));
         Grade(h, made[1], SongQualityVerdict.Wrong, 20, TimeSpan.FromDays(1));
-        // songs[2] was never graded. songs[3] was graded, then enriched again.
         Grade(h, made[3], SongQualityVerdict.Good, 80, TimeSpan.FromDays(3));
         h.Seed(db => db.Songs.Single(s => s.Id == made[3].Id).EnrichedAtUtc = h.Now.AddDays(-1));
-        // songs[4] has a blank grade: an empty reply stored as Ungradeable.
         Grade(h, made[4], SongQualityVerdict.Ungradeable, 0, TimeSpan.FromDays(1), summary: null, raw: "{}");
-        // songs[5] is genuinely ungradeable: the grader said so, with a reason.
         Grade(h, made[5], SongQualityVerdict.Ungradeable, 0, TimeSpan.FromDays(1), summary: "no data");
         return h;
     }
@@ -48,7 +45,6 @@ public class QualityGradingInsightTests
     public async Task Every_enriched_song_is_a_current_grade_or_waiting_for_one()
     {
         using var h = Graded(out _);
-        // The sweep never grades these.
         Song(h, 20, s => s.IsDuplicate = true);
         Song(h, 21, s => s.EnrichmentStatus = EnrichmentStatus.Pending);
 
@@ -71,7 +67,6 @@ public class QualityGradingInsightTests
 
         var headline = (await h.SummarizeAsync(BackgroundJobIds.QualityGrading)).Headline;
 
-        // Five grades since the oldest, three days ago, and three songs waiting.
         Assert.Equal(h.Now.AddDays(3 / (5 / 3.0)), headline.EtaUtc);
     }
 

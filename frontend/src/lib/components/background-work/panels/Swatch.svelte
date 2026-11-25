@@ -3,15 +3,10 @@
   import type { BackgroundTone } from '#lib/background-work/types.ts';
   import TroubleGlyph from './TroubleGlyph.svelte';
 
-  /**
-   * A legend key: the mark's own fill, drawn the shape the mark is. A tone that means trouble also
-   * carries a glyph, so a failure is never told by colour alone.
-   */
   type Props = {
     fill: string;
     tone: BackgroundTone;
     shape?: 'box' | 'dash';
-    /** False where the row prints the glyph itself, beside its label. */
     glyph?: boolean;
   };
   let { fill, tone, shape = 'box', glyph = true }: Props = $props();

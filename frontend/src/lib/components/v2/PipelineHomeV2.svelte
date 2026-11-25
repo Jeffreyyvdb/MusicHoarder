@@ -1032,7 +1032,6 @@
         {/each}
       </GroupedList.Section>
 
-      <!-- Background work — admin only: what the sweeps are doing and have done. -->
       {#if isAdmin(page.data.user)}
         <BackgroundWork>
           {#snippet header()}

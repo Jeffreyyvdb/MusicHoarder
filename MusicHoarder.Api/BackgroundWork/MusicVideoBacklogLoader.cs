@@ -13,12 +13,6 @@ public sealed record BacklogSet(
     int EmptySearches,
     bool SearchErrored);
 
-/// <param name="InScope">The prefetch would search it: it has no working or queued video.</param>
-/// <param name="HasVideoRow">Any <see cref="SongMusicVideo"/>, failed ones too: a song with a row is never downloaded automatically.</param>
-/// <param name="WorkingVideoPick">How the song's working or queued video came to be; null when it has none.</param>
-/// <param name="Verdict">What the stored list came to; null when the song has no set.</param>
-/// <param name="OutOfDate">The stored list answers a different search than the song's current one.</param>
-/// <param name="Due">The prefetch's own <see cref="MusicVideoPrefetchScope.IsDue"/>; only meaningful in scope.</param>
 public sealed record BacklogSong(
     int Id,
     DateTime AddedAt,
@@ -30,15 +24,8 @@ public sealed record BacklogSong(
     bool OutOfDate,
     bool Due);
 
-/// <param name="Songs">Every eligible song, oldest addition first: the prefetch's order, read backwards.</param>
 public sealed record MusicVideoBacklog(DateTime Now, MusicEnricherOptions Options, IReadOnlyList<BacklogSong> Songs);
 
-/// <summary>
-/// The music-video search backlog as the sheet draws it: each eligible song with its set, its video and the
-/// verdict on its list. The scope and the due test are <see cref="MusicVideoPrefetchScope"/>'s and the outcome
-/// is <see cref="MusicVideoAutoPick"/>'s, so the sheet cannot disagree with the pass. A list's JSON is read only
-/// for a set the memo has not seen at its current search, in chunks, never for the row on the page.
-/// </summary>
 public sealed class MusicVideoBacklogLoader(
     MusicHoarderDbContext db,
     MusicVideoOutcomeMemo memo,

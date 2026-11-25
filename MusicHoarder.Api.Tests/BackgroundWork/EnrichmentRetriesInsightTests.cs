@@ -24,16 +24,11 @@ public class EnrichmentRetriesInsightTests
                 };
 
             db.SongProviderAttempts.AddRange(
-                // Due: rate limited and past its retry time, for two days.
                 A(1, EnrichmentProvider.AcoustID, ProviderAttemptStatus.RateLimited, h.Now.AddMinutes(-5), since: h.Now.AddDays(-2)),
-                // Two due attempts on one song.
                 A(2, EnrichmentProvider.AcoustID, ProviderAttemptStatus.NoMatch, next: h.Now.AddHours(-1)),
                 A(2, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.Failed, next: h.Now.AddHours(-1)),
-                // Cooling down.
                 A(3, EnrichmentProvider.SpotifyAPI, ProviderAttemptStatus.NoMatch, next: h.Now.AddDays(2)),
-                // Rate limited, not due yet.
                 A(4, EnrichmentProvider.AcoustID, ProviderAttemptStatus.RateLimited, h.Now.AddMinutes(30), since: h.Now.AddHours(-1)),
-                // Never asked again: a provider that is off, a locked song, and a match.
                 A(5, EnrichmentProvider.Tracker, ProviderAttemptStatus.RateLimited, h.Now.AddMinutes(-5), since: h.Now.AddDays(-9)),
                 A(6, EnrichmentProvider.AcoustID, ProviderAttemptStatus.RateLimited, h.Now.AddMinutes(-5), since: h.Now.AddDays(-9)),
                 A(7, EnrichmentProvider.AcoustID, ProviderAttemptStatus.Matched));
@@ -85,7 +80,6 @@ public class EnrichmentRetriesInsightTests
         var series = (await h.DescribeAsync(BackgroundJobIds.EnrichmentRetries)).Panel<SeriesPanelDto>("Provider attempts per hour");
 
         Assert.Equal(48, series.Points.Count);
-        // Every seeded attempt was last tried at 11:30, in the hour before "now" (12:00), whatever its provider or song.
         var hour = series.Points[^2].Values;
         Assert.Equal(8, hour.Sum());
         Assert.Equal(1, hour[0]);

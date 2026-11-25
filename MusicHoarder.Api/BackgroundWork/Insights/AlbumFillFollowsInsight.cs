@@ -7,11 +7,6 @@ using MusicHoarder.Api.Settings;
 
 namespace MusicHoarder.Api.BackgroundWork.Insights;
 
-/// <summary>
-/// The tracks album completion and the artist monitor put on the wishlist, and the follows themselves. Both
-/// jobs end in <see cref="WishlistItem"/> rows, so what they queued and what became of it is read from those
-/// rows by <see cref="WishlistItem.Origin"/>.
-/// </summary>
 public sealed class AlbumFillFollowsInsight(
     MusicHoarderDbContext db,
     IOptionsMonitor<MusicEnricherOptions> options,
@@ -33,7 +28,6 @@ public sealed class AlbumFillFollowsInsight(
     private sealed record Item(
         WishlistItemOrigin Origin, WishlistItemStatus Status, DateTime? NextAttemptAtUtc, DateTime CreatedAtUtc, DateTime UpdatedAtUtc)
     {
-        /// <summary>A failed item with a retry on the calendar is still in flight; one without is parked.</summary>
         public bool IsWaiting => Status is WishlistItemStatus.Pending or WishlistItemStatus.Downloading
             || (Status == WishlistItemStatus.Failed && NextAttemptAtUtc is not null);
     }
@@ -69,7 +63,6 @@ public sealed class AlbumFillFollowsInsight(
         var rate = EtaEstimator.RatePerDay(
             recent.Count, d.Items.Count == 0 ? null : d.Items.Min(i => i.CreatedAtUtc), d.Now, RateWindowDays);
 
-        // A queued track or a finished download, whichever is newer.
         var lastWorked = d.Items
             .SelectMany(i => i.Status == WishlistItemStatus.Downloaded ? [i.CreatedAtUtc, i.UpdatedAtUtc] : new[] { i.CreatedAtUtc })
             .Select(t => (DateTime?)t)

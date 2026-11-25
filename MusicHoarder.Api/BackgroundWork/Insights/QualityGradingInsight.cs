@@ -8,12 +8,6 @@ using MusicHoarder.Api.Settings;
 
 namespace MusicHoarder.Api.BackgroundWork.Insights;
 
-/// <summary>
-/// AI quality grading of enriched songs. The songs are the sweep's own selection
-/// (<see cref="QualityGradingQueries.WhereGradeable"/>), the current grade is the latest per song
-/// (<see cref="LatestGradeQueries.LatestPerSong"/>), and whether a song is waiting is the sweep's own
-/// <see cref="GradeFreshness.NeedsGrading"/>.
-/// </summary>
 public sealed class QualityGradingInsight(
     MusicHoarderDbContext db,
     IOptionsMonitor<QualityGradingOptions> options,
@@ -67,7 +61,6 @@ public sealed class QualityGradingInsight(
             .GroupBy(g => g.SongId)
             .ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.GradedAtUtc).ThenByDescending(x => x.Id).First());
 
-        // Whether a maybe-blank grade really is one needs the stored reply, which only those rows are asked for.
         var maybeBlankIds = latest.Values.Where(g => g.MaybeBlank).Select(g => g.Id).ToList();
         var blank = maybeBlankIds.Count == 0
             ? []

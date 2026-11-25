@@ -5,12 +5,6 @@ using MusicHoarder.Api.Persistence;
 
 namespace MusicHoarder.Api.BackgroundWork.Insights;
 
-/// <summary>
-/// Provider attempts waiting to be asked again. The due attempts are
-/// <see cref="EnrichmentQueries.WhereRetryableProviderAttempts"/>, the sweep's own query. The sweep then drops a
-/// song whose provider can no longer handle it, a C# check no query can make, so the headline can run ahead
-/// of what the sweep enqueues; the figure says so.
-/// </summary>
 public sealed class EnrichmentRetriesInsight(
     MusicHoarderDbContext db,
     IEnrichmentOrchestrator orchestrator,

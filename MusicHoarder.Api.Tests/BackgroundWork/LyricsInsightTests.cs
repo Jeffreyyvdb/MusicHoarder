@@ -38,7 +38,6 @@ public class LyricsInsightTests
         Add(h, 8, s => s.LyricsStatus = LyricsStatus.Failed);
         Add(h, 9, s => s.LyricsStatus = LyricsStatus.NotFetched);
         Add(h, 10, s => { s.LyricsStatus = LyricsStatus.NotFetched; s.Title = ""; });
-        // Not the lyrics sweep's business: deleted, duplicate, synthetic, and the demo tenant's.
         Add(h, 11, s => s.DeletedAtUtc = h.Now);
         Add(h, 12, s => s.IsDuplicate = true);
         Add(h, 13, s => s.IsSynthetic = true);
@@ -54,7 +53,6 @@ public class LyricsInsightTests
             breakdown.Segments.Select(s => s.Key));
         Assert.All(breakdown.Segments, s => Assert.Equal(1, s.Count));
 
-        // Synced: the LRC and both AI versions. Of: everything but the two with no words to time.
         Assert.Equal(3, detail.Summary.Headline.Value);
         Assert.Equal(8, detail.Summary.Headline.Of);
     }
@@ -89,12 +87,10 @@ public class LyricsInsightTests
         using var h = new BackgroundWorkHarness();
         h.Lyrics.AudioSecondsPerHour = 1000;
         h.Lyrics.MaxProbeAttempts = 2;
-        // AI sync: one fits, one is longer than the ceiling, one already has an LRC, one is not looked up yet.
         Add(h, 1, s => { s.LyricsStatus = LyricsStatus.NotFound; s.DurationSeconds = 300; });
         Add(h, 2, s => { s.LyricsStatus = LyricsStatus.NotFound; s.DurationSeconds = 1500; });
         Add(h, 3, s => { s.LyricsStatus = LyricsStatus.Fetched; s.SyncedLyrics = Lrc; s.LyricsSyncStatus = LyricsSyncStatus.Ok; s.LyricsSyncProbeAttempts = 1; });
         Add(h, 4, s => s.LyricsStatus = LyricsStatus.NotFetched);
-        // Timing: a never-judged LRC, a flagged one, a given-up one, and an unconfirmed ok.
         Add(h, 5, s => { s.SyncedLyrics = Lrc; s.LyricsStatus = LyricsStatus.Fetched; });
         Add(h, 6, s => { s.SyncedLyrics = Lrc; s.LyricsStatus = LyricsStatus.Fetched; s.LyricsSyncStatus = LyricsSyncStatus.Suspect; });
         Add(h, 7, s => { s.SyncedLyrics = Lrc; s.LyricsStatus = LyricsStatus.Fetched; s.LyricsSyncStatus = LyricsSyncStatus.Suspect; s.LyricsSyncProbeAttempts = 2; });
@@ -170,7 +166,6 @@ public class LyricsInsightTests
 
         var headline = (await h.SummarizeAsync(BackgroundJobIds.Lyrics)).Headline;
 
-        // 3,600 s over the 2 days the ledger covers is 1,800 s a day; 1,200 s are left.
         Assert.Equal(h.Now.AddDays(1200.0 / 1800.0), headline.EtaUtc);
         Assert.Contains("rate of 30m a day", headline.EtaLabel);
     }

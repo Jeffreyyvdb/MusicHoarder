@@ -2,7 +2,6 @@ using MusicHoarder.Api.Persistence;
 
 namespace MusicHoarder.Api.BackgroundWork;
 
-/// <summary>What the classifier needs of a song; every field is a column or a test of one, so a query can project it.</summary>
 public readonly record struct LyricsFacts(
     LyricsStatus Status,
     LyricsOrigin Origin,
@@ -17,18 +16,10 @@ public readonly record struct LyricsFacts(
     bool HasTimingOffset,
     bool HasTitleAndArtist);
 
-/// <param name="Key">One of <see cref="LyricsOutcomes"/>.</param>
-/// <param name="ShowsSyncedLyrics">Whether the player shows time-synced lines for the song.</param>
 public readonly record struct LyricsOutcome(string Key, bool ShowsSyncedLyrics);
 
 public sealed record LyricsOutcomeSegment(string Key, string Label, string Tone, string Note);
 
-/// <summary>
-/// Sorts a song into exactly one of "where its lyrics come from", by what the player shows: the display
-/// rules are <see cref="SongMetadata.ComputeUseTranscribedForDisplay"/> and
-/// <see cref="SongMetadata.ComputeShowsAsInstrumental"/>, the entity's own, so the chart cannot say a song
-/// has AI words while the player shows LRCLIB's.
-/// </summary>
 public static class LyricsOutcomes
 {
     public const string LrclibSynced = "lrclib-synced";
@@ -44,7 +35,6 @@ public static class LyricsOutcomes
     public const string CantLookUp = "cant-look-up";
     public const string NotLookedUp = "not-looked-up";
 
-    /// <summary>In drawing order.</summary>
     public static readonly IReadOnlyList<LyricsOutcomeSegment> Segments =
     [
         new(LrclibSynced, "Synced lyrics from LRCLIB", BackgroundTone.Good, "A community-made LRC, timing as published."),
@@ -98,6 +88,5 @@ public static class LyricsOutcomes
         };
     }
 
-    /// <summary>Whether the song is one nobody could sing along to, so it does not count against lyrics coverage.</summary>
     public static bool NeedsNoWords(string key) => key is InstrumentalLrclib or NoSingingAi;
 }

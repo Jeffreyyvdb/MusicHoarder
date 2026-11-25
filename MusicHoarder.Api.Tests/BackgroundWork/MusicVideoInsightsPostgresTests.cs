@@ -5,7 +5,6 @@ using static MusicHoarder.Api.Tests.BackgroundWork.MusicVideoTestData;
 
 namespace MusicHoarder.Api.Tests.BackgroundWork;
 
-/// <summary>The two music-video insights' queries on a real server: the scope subqueries, the grouping and the memoised read of each list.</summary>
 public class MusicVideoInsightsPostgresTests
 {
     [PostgresFact]

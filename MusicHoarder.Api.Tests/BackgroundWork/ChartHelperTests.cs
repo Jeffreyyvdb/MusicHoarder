@@ -109,11 +109,8 @@ public class ChartHelperTests
     [Fact]
     public void Rate_is_spread_over_the_days_the_evidence_covers_when_it_is_younger_than_the_window()
     {
-        // 700 done, but the record only reaches back 2 days: 350 a day, not 100.
         Assert.Equal(350, EtaEstimator.RatePerDay(700, Now.AddDays(-2), Now, 7));
-        // Evidence older than the window: the window.
         Assert.Equal(100, EtaEstimator.RatePerDay(700, Now.AddDays(-30), Now, 7));
-        // A record of a few minutes is not extrapolated to a per-minute rate.
         Assert.Equal(700, EtaEstimator.RatePerDay(700, Now.AddMinutes(-5), Now, 7));
         Assert.Equal(0, EtaEstimator.RatePerDay(0, Now.AddDays(-2), Now, 7));
     }
@@ -166,7 +163,6 @@ public class ChartHelperTests
     [Fact]
     public void Frontier_is_where_the_first_and_last_waiting_songs_sit()
     {
-        // Two ends have been worked: done, done, waiting x4, done, done.
         var items = Items(8, i => i is >= 2 and <= 5 ? MapState.Waiting : MapState.Done);
 
         var frontier = LibraryMapBinner.WaitingFrontier(items);

@@ -68,7 +68,6 @@ describe('moments in the viewer zone', () => {
   });
 
   it('counts days by the local calendar, not by 24 hours', () => {
-    // 23:30 UTC on the 25th is already the 26th in Amsterdam, so "tomorrow" from a morning "now".
     expect(formatMoment('2026-11-25T23:30:00Z', { ...AMS, now: NOW })).toBe('tomorrow 00:30');
   });
 

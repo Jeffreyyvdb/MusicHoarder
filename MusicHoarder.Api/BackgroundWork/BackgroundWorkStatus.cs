@@ -1,6 +1,5 @@
 namespace MusicHoarder.Api.BackgroundWork;
 
-/// <summary>What one job, merged over its services, last reported. Never persisted: it is the API's own memory.</summary>
 public sealed record JobRuntime(
     string State,
     string? Reason,
@@ -9,17 +8,6 @@ public sealed record JobRuntime(
     DateTime ReportedAtUtc,
     DateTime? LastWorkedAtUtc);
 
-/// <summary>
-/// The one thing a job's rows cannot tell: what its service is doing this minute. Each background service
-/// reports here at the points where it starts a pass, ends one, is told "not now", or throws; everything else
-/// on the Background work page is read from the rows the jobs already write. A job nobody has reported on
-/// since the API started is <see cref="BackgroundJobState.Unknown"/>, never guessed. "Off" is not reported:
-/// it is read from options and runtime settings when the page is asked for.
-/// </summary>
-/// <remarks>
-/// A job may have several services (album fill and the artist monitor), each its own <c>source</c>; they
-/// merge by what matters most: failing, then working, then waiting, then idle.
-/// </remarks>
 public sealed class BackgroundWorkStatus(TimeProvider time)
 {
     private const int MaxReasonLength = 200;
@@ -30,15 +18,12 @@ public sealed class BackgroundWorkStatus(TimeProvider time)
     public void Working(string jobId, string source = "")
         => Set(jobId, source, now => (BackgroundJobState.Working, null, null, null));
 
-    /// <param name="worked">The pass that just ended did useful work; moves "last worked".</param>
     public void Idle(string jobId, DateTime? nextRunAtUtc, bool worked = false, string source = "")
         => Set(jobId, source, now => (BackgroundJobState.Idle, null, null, nextRunAtUtc), worked);
 
-    /// <param name="reason">A sentence without clock times; the moment goes in <paramref name="untilUtc"/>.</param>
     public void Waiting(string jobId, string reason, DateTime? untilUtc, string source = "")
         => Set(jobId, source, now => (BackgroundJobState.Waiting, Truncate(reason), untilUtc, untilUtc));
 
-    /// <summary>Takes the exception's type, never its message: a message can carry a URL or a path.</summary>
     public void Failing(string jobId, Exception error, DateTime? nextRunAtUtc, string source = "")
         => Set(jobId, source, now => (BackgroundJobState.Failing, error.GetType().Name, null, nextRunAtUtc));
 

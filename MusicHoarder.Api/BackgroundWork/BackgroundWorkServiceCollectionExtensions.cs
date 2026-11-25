@@ -11,7 +11,6 @@ public static class BackgroundWorkServiceCollectionExtensions
         services.TryAddSingleton<MusicVideoOutcomeMemo>();
         services.AddScoped<MusicVideoBacklogLoader>();
 
-        // One per id in BackgroundJobIds; a test fails if one is missing or doubled.
         services.AddScoped<IBackgroundJobInsight, LyricsInsight>();
         services.AddScoped<IBackgroundJobInsight, TranscriptionAllowanceInsight>();
         services.AddScoped<IBackgroundJobInsight, CoverArtInsight>();

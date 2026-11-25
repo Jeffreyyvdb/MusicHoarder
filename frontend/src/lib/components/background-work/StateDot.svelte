@@ -6,7 +6,6 @@
   type Props = { state: BackgroundJobState; class?: string };
   let { state, class: className = '' }: Props = $props();
 
-  // A job that is not running at all (off, no report yet) is a ring, not a dot.
   const hollow = $derived(state === 'off' || state === 'unknown');
   const color = $derived(toneColor(STATE_TONE[state]));
 </script>
@@ -14,7 +13,6 @@
 <span class="inline-flex items-center gap-2 {className}">
   <span class="relative inline-flex size-2 shrink-0" aria-hidden="true">
     {#if state === 'working'}
-      <!-- The halo pulses on opacity alone, which the compositor does without a frame callback. -->
       <span
         class="absolute -inset-[3px] rounded-full opacity-30 motion-safe:animate-pulse"
         style:background-color={color}

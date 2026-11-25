@@ -14,10 +14,6 @@ using MusicHoarder.Api.Tests.Download;
 
 namespace MusicHoarder.Api.Tests.BackgroundWork;
 
-/// <summary>
-/// The page's real registrations over an in-memory database, with the services a job depends on stubbed
-/// where the test cares: what is switched on, which providers are enabled, what the clock says.
-/// </summary>
 internal sealed class BackgroundWorkHarness : IDisposable
 {
     private readonly ServiceProvider _provider;
@@ -61,7 +57,6 @@ internal sealed class BackgroundWorkHarness : IDisposable
 
     public IServiceScope Scope() => _provider.CreateScope();
 
-    /// <summary>Seeds through a context of its own, the way the API's writers do.</summary>
     public void Seed(Action<MusicHoarderDbContext> seed)
     {
         using var scope = Scope();

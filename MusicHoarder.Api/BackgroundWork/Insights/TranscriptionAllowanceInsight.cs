@@ -7,11 +7,6 @@ using MusicHoarder.Api.Persistence;
 
 namespace MusicHoarder.Api.BackgroundWork.Insights;
 
-/// <summary>
-/// The transcription provider's audio-seconds meter, from <see cref="TranscriptionAudioSpend"/>, the rows
-/// <see cref="TranscriptionAudioBudget"/> keeps. The window arithmetic is the budget's own
-/// (<c>WaitForRoom</c>), so "refused until" is when the sweeps' next request would actually be let through.
-/// </summary>
 public sealed class TranscriptionAllowanceInsight(
     MusicHoarderDbContext db,
     IOptionsMonitor<LyricsTimingOptions> options,
@@ -23,7 +18,6 @@ public sealed class TranscriptionAllowanceInsight(
     private static readonly TimeSpan Hour = TimeSpan.FromHours(1);
     private static readonly TimeSpan Day = TimeSpan.FromDays(1);
 
-    /// <summary>The ledger's purposes as the page names them. Hand-made requests are one series.</summary>
     private static readonly (string Key, string Label, string Tone)[] Series =
     [
         ("ai-sync", "AI sync", BackgroundTone.Ai),
@@ -67,7 +61,6 @@ public sealed class TranscriptionAllowanceInsight(
             .ToListAsync(ct);
 
         var lastDay = spend.Where(e => e.AtUtc > now - Day).ToList();
-        // What a probe window, the smallest request a sweep makes, would be told right now.
         var probe = opts.ProbeWindowSeconds;
         return new Ledger(
             now, opts, spend,

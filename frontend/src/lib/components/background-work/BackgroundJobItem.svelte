@@ -9,16 +9,10 @@
   import Sparkline from './Sparkline.svelte';
   import StateDot from './StateDot.svelte';
 
-  /**
-   * One job as a row (a phone's grouped list), a card (md+ grid) or the top of its own sheet.
-   * Row and card are one button that opens the sheet; the sheet's copy is not a control and also
-   * carries the job's description.
-   */
   type Props = {
     job: BackgroundJobSummary;
     layout: 'row' | 'card' | 'sheet';
     onopen?: (id: BackgroundJobSummary['id']) => void;
-    /** Epoch ms the relative times are read against; a test passes a fixed one. */
     now?: number;
   };
   let { job, layout, onopen, now = Date.now() }: Props = $props();

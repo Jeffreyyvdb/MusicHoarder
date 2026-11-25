@@ -9,14 +9,6 @@ using MusicHoarder.Api.Storage;
 
 namespace MusicHoarder.Api.BackgroundWork.Insights;
 
-/// <summary>
-/// The music-video downloads: what is on disk, how it got there, and what the search has found that is
-/// still waiting for its download. "Waiting" is a stored list whose outcome is
-/// <see cref="MusicVideoSearchOutcome.Clip"/> on a song with no video row, which is exactly the song
-/// <see cref="MusicVideoFetchQueue.TryPickAsync"/> would queue. The free-space test is the prefetch's own:
-/// a pick needs the drive to hold it above the floor, so a drive already under the floor, or one that cannot
-/// be read, queues nothing.
-/// </summary>
 public sealed class MusicVideoDownloadsInsight(
     MusicHoarderDbContext db,
     MusicVideoBacklogLoader backlog,
@@ -167,10 +159,6 @@ public sealed class MusicVideoDownloadsInsight(
         return new BackgroundJobDetailDto(Summarize(d), [fetched, states, figures, MissBars(b)]);
     }
 
-    /// <summary>
-    /// Why lists without a confident pick missed: the best candidate's score against the bar. A list at or
-    /// above the bar failed one of the other checks.
-    /// </summary>
     private static BarsPanelDto MissBars(MusicVideoBacklog b)
     {
         var bar = b.Options.MusicVideoAutoDownloadMinScore;

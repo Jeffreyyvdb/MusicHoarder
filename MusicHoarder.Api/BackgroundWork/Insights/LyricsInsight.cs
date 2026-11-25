@@ -8,13 +8,6 @@ using MusicHoarder.Api.Settings;
 
 namespace MusicHoarder.Api.BackgroundWork.Insights;
 
-/// <summary>
-/// The lyrics sweep: where every song's lyrics come from, how well their timing fits, and what each of its
-/// four passes has left. Every queue is counted with the query the pass itself takes songs from
-/// (<see cref="LyricsTimingQueries"/>), and every song is sorted by <see cref="LyricsOutcomes.Classify"/>, which
-/// shares the player's display rules, so a chart cannot count a song the sweep would not pick or describe
-/// lyrics the player does not show.
-/// </summary>
 public sealed class LyricsInsight(
     MusicHoarderDbContext db,
     IOptionsMonitor<LyricsTimingOptions> options,
@@ -156,7 +149,6 @@ public sealed class LyricsInsight(
             IdleLabel(d));
     }
 
-    /// <summary>An idle sweep with songs still queued is idle because the passes that would take them cannot run.</summary>
     private string IdleLabel(Data d)
     {
         if (d.AiQueue.Count == 0)
@@ -184,7 +176,6 @@ public sealed class LyricsInsight(
         long Verdicts(LyricsSyncStatus status, bool? probed = null)
             => verdictGroups.Where(g => g.LyricsSyncStatus == status && (probed is null || g.Probed == probed)).Sum(g => g.Count);
 
-        // The queues, each with the pass's own query.
         var freeCheck = await db.Songs.AsNoTracking().WhereDueForFreeTimingCheck().CountAsync(ct);
         var suspectIds = await db.Songs.AsNoTracking()
             .WhereDueForSuspectProbe(opts.MaxProbeAttempts).Select(s => s.Id).ToListAsync(ct);
@@ -266,11 +257,6 @@ public sealed class LyricsInsight(
         return new BackgroundJobDetailDto(Summarize(d), panels);
     }
 
-    /// <summary>
-    /// The whole library in the order the AI sync pass works through it. A song is waiting when the pass's own
-    /// query would pick it, done when it has been transcribed and is no longer due, and otherwise not this
-    /// pass's business (it has an LRC, is a duplicate, has not had its lyrics looked up, is too long).
-    /// </summary>
     private async Task<LibraryMapPanelDto> AiSyncMapAsync(Data d, CancellationToken ct)
     {
         var waiting = d.AiQueue.Select(s => s.Id).ToHashSet();
@@ -308,10 +294,6 @@ public sealed class LyricsInsight(
             LibraryMapBinner.Bin(items), markers);
     }
 
-    /// <summary>
-    /// The songs with an LRC in id order, which is the order the probe pass takes them in, read backwards:
-    /// newest first. Waiting means the pass's own queries pick the song; done means a probe has heard it.
-    /// </summary>
     private async Task<LibraryMapPanelDto> ProbeMapAsync(
         List<int> suspectIds, List<int> unconfirmedIds, CancellationToken ct)
     {

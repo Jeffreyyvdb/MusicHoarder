@@ -55,7 +55,6 @@ public static class BackgroundTone
     public const string Muted = "muted";
 }
 
-/// <summary>How a number is formatted on the client.</summary>
 public static class BackgroundFormat
 {
     public const string Count = "count";

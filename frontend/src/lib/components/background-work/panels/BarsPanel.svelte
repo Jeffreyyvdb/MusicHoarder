@@ -8,14 +8,10 @@
   type Props = { panel: BarsPanel };
   let { panel }: Props = $props();
 
-  // Columns share one baseline and carry their own labels, so a repeated tone is not stepped:
-  // a lighter bar would read as a smaller value.
   const fills = $derived(panel.bars.map((b) => toneColor(b.tone)));
   const max = $derived(Math.max(0, ...panel.bars.map((b) => b.value)));
   const pct = (value: number) => (max > 0 && value > 0 ? Math.max(2, (value / max) * 100) : 0);
 
-  // A few short labels stand under their columns; many, or long ones, would collide at phone
-  // width, so they read as ranked rows instead.
   const columns = $derived(panel.bars.length <= 7 && panel.bars.every((b) => b.label.length <= 12));
 </script>
 

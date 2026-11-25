@@ -5426,12 +5426,10 @@ export async function fetchQualityProgress(): Promise<QualityProgress> {
   return requestJson<QualityProgress>('/api/quality/progress');
 }
 
-/** Every background job's row for the Pipeline page. Admin only: anyone else gets a 403. */
 export async function getBackgroundWork(signal?: AbortSignal): Promise<BackgroundWorkSummary> {
   return requestJson<BackgroundWorkSummary>('/api/background-work', { signal });
 }
 
-/** One job's row and the charts of its sheet. Admin only. */
 export async function getBackgroundJob(
   id: BackgroundJobId,
   signal?: AbortSignal
