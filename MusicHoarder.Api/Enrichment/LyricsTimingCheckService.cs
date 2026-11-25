@@ -139,7 +139,8 @@ public sealed partial class LyricsTimingCheckService(
                 (Pass: "Timing probes", Until: _probeDeferredUntilUtc),
             }
             .Where(d => d.Until > now)
-            .MinBy(d => d.Until);
+            .OrderBy(d => d.Until)
+            .FirstOrDefault();
 
         if (wait.Pass is not null)
             status.Waiting(BackgroundJobIds.Lyrics, $"{wait.Pass} waits for the transcription audio allowance.", wait.Until);
