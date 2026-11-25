@@ -40,6 +40,8 @@ export function indexAfterKey(
 
 export function scrub(node: HTMLElement, initial: ScrubOptions) {
   let options = initial;
+  const touchAction = node.style.touchAction;
+  node.style.touchAction = 'pan-y';
 
   function at(event: PointerEvent): number | null {
     const box = node.getBoundingClientRect();
@@ -78,6 +80,7 @@ export function scrub(node: HTMLElement, initial: ScrubOptions) {
       options = next;
     },
     destroy() {
+      node.style.touchAction = touchAction;
       node.removeEventListener('pointermove', onpointermove);
       node.removeEventListener('pointerdown', onpointerdown);
       node.removeEventListener('pointerleave', onpointerleave);

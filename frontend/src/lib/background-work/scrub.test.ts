@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { indexAfterKey, indexAt } from './scrub.ts';
+import { indexAfterKey, indexAt, scrub } from './scrub.ts';
 
 describe('indexAt', () => {
   it('divides the width into equal positions and clamps the edges', () => {
@@ -35,5 +35,21 @@ describe('indexAfterKey', () => {
   it('leaves other keys to the browser', () => {
     expect(indexAfterKey('Tab', 3, 10)).toBeUndefined();
     expect(indexAfterKey('ArrowLeft', null, 0)).toBeUndefined();
+  });
+});
+
+describe('scrub', () => {
+  it('claims horizontal drags for itself and gives the touch action back on destroy', () => {
+    const node = {
+      style: { touchAction: 'manipulation' },
+      addEventListener: () => {},
+      removeEventListener: () => {}
+    } as unknown as HTMLElement;
+
+    const action = scrub(node, { count: 3, index: null, onchange: () => {} });
+    expect(node.style.touchAction).toBe('pan-y');
+
+    action.destroy();
+    expect(node.style.touchAction).toBe('manipulation');
   });
 });

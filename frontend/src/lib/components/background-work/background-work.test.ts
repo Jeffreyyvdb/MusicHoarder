@@ -5,7 +5,6 @@ import { FIXTURE_DETAILS, FIXTURE_NOW, FIXTURE_SUMMARY } from '#lib/background-w
 import BackgroundJobDetailBody from './BackgroundJobDetailBody.svelte';
 import BackgroundWorkSection from './BackgroundWorkSection.svelte';
 import PanelView from './panels/PanelView.svelte';
-import { PANEL_VIEWS } from './panels/panel-registry.ts';
 
 const NOW = Date.parse(FIXTURE_NOW);
 const header = createRawSnippet(() => ({ render: () => '<span>Background work</span>' }));
@@ -15,7 +14,9 @@ const html = <P extends Record<string, unknown>>(component: Component<P>, props:
 
 describe('PanelView', () => {
   it('draws every kind of panel through its own view', () => {
-    const kinds = Object.keys(PANEL_VIEWS).sort();
+    const kinds = [
+      ...new Set(Object.values(FIXTURE_DETAILS).flatMap((d) => d.panels.map((p) => p.kind)))
+    ].sort();
     expect(kinds).toEqual(['bars', 'breakdown', 'figures', 'library-map', 'series']);
     for (const kind of kinds) {
       const panel = Object.values(FIXTURE_DETAILS)

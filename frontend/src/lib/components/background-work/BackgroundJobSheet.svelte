@@ -19,7 +19,7 @@
 
   const REFRESH_MS = 30_000;
 
-  let detail = $state<BackgroundJobDetail | null>(null);
+  let detailHeldWhileClosing = $state<BackgroundJobDetail | null>(null);
   let error = $state<string | null>(null);
   let now = $state(Date.now());
 
@@ -27,7 +27,7 @@
     const id = jobId;
     if (id === null) return;
     untrack(() => {
-      if (detail?.summary.id !== id) detail = null;
+      if (detailHeldWhileClosing?.summary.id !== id) detailHeldWhileClosing = null;
       error = null;
     });
 
@@ -39,12 +39,12 @@
       try {
         const next = await getBackgroundJob(id, mine.signal);
         if (mine.signal.aborted) return;
-        detail = next;
+        detailHeldWhileClosing = next;
         error = null;
         now = Date.now();
       } catch (err) {
         if (mine.signal.aborted) return;
-        if (detail === null) {
+        if (detailHeldWhileClosing === null) {
           error = isPermissionError(err)
             ? 'Only administrators can see background work.'
             : "Couldn't load this job. It will try again in a moment.";
@@ -58,7 +58,9 @@
     };
   });
 
-  const title = $derived(detail?.summary.title ?? summary?.title ?? 'Background work');
+  const title = $derived(
+    detailHeldWhileClosing?.summary.title ?? summary?.title ?? 'Background work'
+  );
 </script>
 
 <BottomSheet.Root
@@ -72,5 +74,5 @@
   {#snippet trailing()}
     <BottomSheet.Action prominent onclick={onclose}>Done</BottomSheet.Action>
   {/snippet}
-  <BackgroundJobDetailBody {summary} {detail} {error} {now} />
+  <BackgroundJobDetailBody {summary} detail={detailHeldWhileClosing} {error} {now} />
 </BottomSheet.Root>

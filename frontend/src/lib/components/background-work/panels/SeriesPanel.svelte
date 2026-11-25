@@ -100,7 +100,7 @@
         aria-valuemax={Math.max(0, count - 1)}
         aria-valuenow={selected ?? 0}
         aria-valuetext={readoutText}
-        class="focus-visible:ring-ring relative h-44 touch-pan-y rounded-sm select-none focus-visible:ring-2 focus-visible:outline-hidden"
+        class="focus-visible:ring-ring relative h-44 rounded-sm select-none focus-visible:ring-2 focus-visible:outline-hidden"
         use:scrub={{ count, index: selected, onchange: (i) => (selected = i) }}
       >
         {#each scale.ticks as tick, i (i)}

@@ -28,12 +28,16 @@
   const excluded = toneColor('muted');
 
   const LANE_HEIGHT = 18;
-  const plotWidth = $derived(isMobile.current ? 290 : 560);
+  const PLOT_WIDTH_COMPACT = 290;
+  const PLOT_WIDTH_WIDE = 560;
+  const MARKER_CHAR_WIDTH = 6.2;
+  const MARKER_PADDING = 8;
+  const plotWidth = $derived(isMobile.current ? PLOT_WIDTH_COMPACT : PLOT_WIDTH_WIDE);
   const markers = $derived.by(() => {
     const raw = panel.markers.map((m) => ({
       ...m,
       position: positionOnMap(panel.bins, new Date(m.atUtc).getTime()),
-      width: (m.label.length * 6.2 + 8) / plotWidth
+      width: (m.label.length * MARKER_CHAR_WIDTH + MARKER_PADDING) / plotWidth
     }));
     const placed = placeMarkers(raw);
     return raw.map((m, i) => ({ ...m, ...placed[i] }));
@@ -155,7 +159,7 @@
       aria-valuemax={Math.max(0, count - 1)}
       aria-valuenow={selected ?? 0}
       aria-valuetext={readoutText}
-      class="focus-visible:ring-ring relative h-20 touch-pan-y rounded-sm select-none focus-visible:ring-2 focus-visible:outline-hidden md:h-24"
+      class="focus-visible:ring-ring relative h-20 rounded-sm select-none focus-visible:ring-2 focus-visible:outline-hidden md:h-24"
       use:scrub={{ count, index: selected, onchange: (i) => (selected = i) }}
     >
       <div class="absolute inset-0 flex gap-px" aria-hidden="true">
