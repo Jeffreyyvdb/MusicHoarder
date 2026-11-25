@@ -23,7 +23,6 @@ public static class BackgroundWorkEndpoints
 
     internal static async Task<IResult> GetSummaries(
         IEnumerable<IBackgroundJobInsight> insights,
-        TimeProvider time,
         ILogger<IBackgroundJobInsight> logger,
         CancellationToken ct)
     {
@@ -45,7 +44,7 @@ public static class BackgroundWorkEndpoints
             }
         }
 
-        return Results.Json(new BackgroundWorkSummaryDto(time.GetUtcNow().UtcDateTime, jobs), Json);
+        return Results.Json(new BackgroundWorkSummaryDto(DateTime.UtcNow, jobs), Json);
     }
 
     internal static async Task<IResult> GetDetail(
