@@ -60,13 +60,15 @@ describe('seededOrder', () => {
   const hash = (s: string): number => {
     let h = 5381;
     for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
-    return h;
+    h = Math.imul(h ^ (h >>> 16), 0x85ebca6b) >>> 0;
+    h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35) >>> 0;
+    return (h ^ (h >>> 16)) >>> 0;
   };
 
   it('matches hashing the key from inside the comparator, the slow way this replaced', () => {
     const items = ['zeta', 'alpha', 'kappa', 'beta', 'gamma', 'delta', 'epsilon', 'alpha-2'];
-    const seed = 'mount-seed-1';
-    const old = [...items].sort((a, b) => hash(a + seed) - hash(b + seed));
+    const seed = 'user-1:2026-11-25';
+    const old = [...items].sort((a, b) => hash(`${seed}\0${a}`) - hash(`${seed}\0${b}`));
 
     expect(seededOrder(items, (s) => s, seed)).toEqual(old);
   });
@@ -77,21 +79,21 @@ describe('seededOrder', () => {
     expect(seededOrder(items, (s) => s, 'seed')).toEqual(items);
   });
 
-  it('is stable across calls with the same items and seed (what keeps a shelf put across a live refresh)', () => {
+  it('is stable across calls with the same items and seed (and independent of input order)', () => {
     const items = ['one', 'two', 'three', 'four', 'five'];
     const first = seededOrder(items, (s) => s, 'seed-a');
-    const second = seededOrder(items, (s) => s, 'seed-a');
-    expect(second).toEqual(first);
+    expect(seededOrder(items, (s) => s, 'seed-a')).toEqual(first);
+    expect(seededOrder([...items].reverse(), (s) => s, 'seed-a')).toEqual(first);
   });
 
-  it('a different seed can reorder the same items (what makes a shelf differ per visit)', () => {
-    // Enough items, and seeds different enough (not just a trailing character apart — the hash
-    // shifts every item's key by the same amount then, which preserves relative order) that two
-    // seeds landing on the exact same permutation by chance is astronomically unlikely.
-    const items = Array.from({ length: 40 }, (_, i) => `item-${i}`);
-    const a = seededOrder(items, (s) => s, 'p4x7-mount-seed');
-    const b = seededOrder(items, (s) => s, '9qz2-another-seed');
-    expect(b).not.toEqual(a);
+  it('reorders genuinely across consecutive calendar-day seeds and prefix-sharing keys', () => {
+    const items = Array.from({ length: 40 }, (_, i) => `/music/shared-artist/album-${i}`);
+    const dayOne = seededOrder(items, (s) => s, 'user-1:2026-11-25');
+    const dayTwo = seededOrder(items, (s) => s, 'user-1:2026-11-26');
+    expect(dayOne).not.toEqual(items);
+    expect(dayTwo).not.toEqual(dayOne);
+    // Not merely a 1-slot shift: the leading slice itself changes.
+    expect(dayTwo.slice(0, 12)).not.toEqual(dayOne.slice(0, 12));
   });
 });
 
