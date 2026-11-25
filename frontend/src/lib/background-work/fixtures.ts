@@ -2,7 +2,6 @@ import type {
   BackgroundJobDetail,
   BackgroundJobId,
   BackgroundJobSummary,
-  BackgroundPanel,
   BackgroundWorkSummary,
   LibraryMapPanel,
   SeriesPanel
@@ -713,7 +712,3 @@ export const FIXTURE_SUMMARY: BackgroundWorkSummary = {
   generatedAtUtc: FIXTURE_NOW,
   jobs: Object.values(FIXTURE_DETAILS).map((detail) => detail.summary)
 };
-
-export const FIXTURE_PANELS: BackgroundPanel[] = Object.values(FIXTURE_DETAILS).flatMap(
-  (d) => d.panels
-);
