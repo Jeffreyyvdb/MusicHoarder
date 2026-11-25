@@ -87,17 +87,8 @@ public static class AlbumDedupEndpoints
                 continue;
 
             song.CaptureOriginalMetadata();
-            db.SongMetadataChanges.Add(new SongMetadataChange
-            {
-                SongId = song.Id,
-                FieldName = nameof(SongMetadata.Album),
-                OldValue = song.Album,
-                NewValue = keepAlbum,
-                Source = "album-merge",
-                Confidence = 1.0,
-                CreatedAtUtc = now,
-                AppliedAtUtc = now,
-            });
+            SongChangeAudit.Record(
+                db, SongChangeAudit.AlbumMerge, now, song.Id, nameof(SongMetadata.Album), song.Album, keepAlbum);
             song.Album = keepAlbum;
 
             // Re-tag/relocate built files under the kept album (see ArtistCreditHealer for the

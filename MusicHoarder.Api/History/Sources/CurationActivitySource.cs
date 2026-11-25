@@ -43,17 +43,17 @@ public sealed class CurationActivitySource(MusicHoarderDbContext db, IDedupActio
 
     private static string DedupKind(string source) => source switch
     {
-        "artist-merge" => "artists-merged",
-        "album-merge" => "albums-merged",
-        "artist-credit-split" => "credit-split",
+        SongChangeAudit.ArtistMerge => "artists-merged",
+        SongChangeAudit.AlbumMerge => "albums-merged",
+        SongChangeAudit.ArtistCreditSplit => "credit-split",
         _ => "album-healed",
     };
 
     private static string DedupLabel(string source) => source switch
     {
-        "artist-merge" => "Merged two spellings of an artist",
-        "album-merge" => "Merged two versions of an album",
-        "artist-credit-split" => "Split a combined artist credit",
+        SongChangeAudit.ArtistMerge => "Merged two spellings of an artist",
+        SongChangeAudit.AlbumMerge => "Merged two versions of an album",
+        SongChangeAudit.ArtistCreditSplit => "Split a combined artist credit",
         _ => "Healed an album split across artist spellings",
     };
 

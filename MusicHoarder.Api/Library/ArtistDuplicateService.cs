@@ -79,9 +79,6 @@ public sealed class ArtistDuplicateService(
     DetectionCountMemo memo,
     ILogger<ArtistDuplicateService> logger) : IArtistDuplicateService
 {
-    private const string MergeChangeSource = "artist-merge";
-    private const string SplitChangeSource = "artist-credit-split";
-
     /// <summary>
     /// Every song column <see cref="Detect"/> reads: the three places a row names an artist and the
     /// MusicBrainz ids that travel with them. Nothing else is loaded for detection — so a property
@@ -447,17 +444,7 @@ public sealed class ArtistDuplicateService(
             song.CaptureOriginalMetadata();
             foreach (var (field, oldValue, newValue, apply) in changes)
             {
-                db.SongMetadataChanges.Add(new SongMetadataChange
-                {
-                    SongId = song.Id,
-                    FieldName = field,
-                    OldValue = oldValue,
-                    NewValue = newValue,
-                    Source = MergeChangeSource,
-                    Confidence = 1.0,
-                    CreatedAtUtc = now,
-                    AppliedAtUtc = now,
-                });
+                SongChangeAudit.Record(db, SongChangeAudit.ArtistMerge, now, song.Id, field, oldValue, newValue);
                 apply();
             }
 
@@ -546,17 +533,7 @@ public sealed class ArtistDuplicateService(
             song.CaptureOriginalMetadata();
             foreach (var (field, oldValue, newValue) in edit.Changes)
             {
-                db.SongMetadataChanges.Add(new SongMetadataChange
-                {
-                    SongId = song.Id,
-                    FieldName = field,
-                    OldValue = oldValue,
-                    NewValue = newValue,
-                    Source = SplitChangeSource,
-                    Confidence = 1.0,
-                    CreatedAtUtc = now,
-                    AppliedAtUtc = now,
-                });
+                SongChangeAudit.Record(db, SongChangeAudit.ArtistCreditSplit, now, song.Id, field, oldValue, newValue);
                 SongFieldReverter.Apply(song, field, newValue);
             }
 

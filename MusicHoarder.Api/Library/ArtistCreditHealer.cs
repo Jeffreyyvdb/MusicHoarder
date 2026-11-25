@@ -40,8 +40,6 @@ public sealed class ArtistCreditHealer(
     MusicHoarderDbContext db,
     ILogger<ArtistCreditHealer> logger) : IArtistCreditHealer
 {
-    private const string ChangeSource = "artist-credit-heal";
-
     public async Task<IReadOnlyList<ArtistCreditGap>> DetectAsync(CancellationToken ct = default)
     {
         var songs = await QueryEligible().AsNoTracking().ToListAsync(ct);
@@ -77,32 +75,17 @@ public sealed class ArtistCreditHealer(
 
             song.CaptureOriginalMetadata();
 
-            db.SongMetadataChanges.Add(new SongMetadataChange
-            {
-                SongId = song.Id,
-                FieldName = nameof(SongMetadata.Artists),
-                OldValue = song.Artists,
-                NewValue = donor.Value.Artists,
-                Source = ChangeSource,
-                Confidence = 1.0,
-                CreatedAtUtc = now,
-                AppliedAtUtc = now,
-            });
+            SongChangeAudit.Record(
+                db, SongChangeAudit.ArtistCreditHeal, now,
+                song.Id, nameof(SongMetadata.Artists), song.Artists, donor.Value.Artists);
             song.Artists = donor.Value.Artists;
 
             if (donor.Value.ArtistMusicBrainzIds is not null && string.IsNullOrWhiteSpace(song.ArtistMusicBrainzIds))
             {
-                db.SongMetadataChanges.Add(new SongMetadataChange
-                {
-                    SongId = song.Id,
-                    FieldName = nameof(SongMetadata.ArtistMusicBrainzIds),
-                    OldValue = song.ArtistMusicBrainzIds,
-                    NewValue = donor.Value.ArtistMusicBrainzIds,
-                    Source = ChangeSource,
-                    Confidence = 1.0,
-                    CreatedAtUtc = now,
-                    AppliedAtUtc = now,
-                });
+                SongChangeAudit.Record(
+                    db, SongChangeAudit.ArtistCreditHeal, now,
+                    song.Id, nameof(SongMetadata.ArtistMusicBrainzIds), song.ArtistMusicBrainzIds,
+                    donor.Value.ArtistMusicBrainzIds);
                 song.ArtistMusicBrainzIds = donor.Value.ArtistMusicBrainzIds;
             }
 
