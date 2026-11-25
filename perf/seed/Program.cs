@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Enrichment;
+using MusicHoarder.Api.Matching;
 using MusicHoarder.Api.Persistence;
 
 // Seeds a synthetic but realistically shaped library for the performance suite: rows that look
@@ -30,6 +31,7 @@ await using (var db = new MusicHoarderDbContext(dbOptions))
         .CountAsync(s => s.OwnerUserId == WellKnownUsers.OwnerId && s.DeletedAtUtc == null);
     if (existing >= options.Songs)
     {
+        await EnsureArtistImagesAsync(db, options.WebUrl);
         Console.WriteLine($"perf-seed: {existing} songs already present, nothing to do.");
         return 0;
     }
@@ -215,11 +217,85 @@ await using (var db = new MusicHoarderDbContext(dbOptions))
         db.Playlists.Add(playlist);
     }
     await db.SaveChangesAsync();
+    await EnsureArtistImagesAsync(db, options.WebUrl);
     await db.Database.ExecuteSqlRawAsync("ANALYZE");
 }
 
 Console.WriteLine($"perf-seed: done. {songs.Count} songs, {songs.Count(s => s.DestinationPath != null)} built.");
 return 0;
+
+// Seeds cached artist portraits pointing at the local frontend's static image with a distinct query
+// string per artist so the browser cannot collapse 350+ tiles into one cached request, while keeping
+// the perf stack completely offline (zero external Spotify/Deezer lookups). Safe to re-run when
+// reusing a seeded volume or changing PERF_WEB_PORT.
+static async Task EnsureArtistImagesAsync(MusicHoarderDbContext db, string webUrl)
+{
+    var baseUrl = webUrl.TrimEnd('/');
+    var rawArtists = await db.Songs.IgnoreQueryFilters()
+        .AsNoTracking()
+        .Where(s => s.OwnerUserId == WellKnownUsers.OwnerId && s.DeletedAtUtc == null)
+        .Select(s => new { s.AlbumArtist, s.Artist, s.Artists })
+        .ToListAsync();
+
+    var byNormalized = new Dictionary<string, string>(StringComparer.Ordinal);
+    void AddName(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return;
+        var trimmed = value.Trim();
+        var norm = TitleNormalizer.NormalizeForDedup(trimmed);
+        if (norm.Length > 0) byNormalized.TryAdd(norm, trimmed);
+    }
+
+    foreach (var row in rawArtists)
+    {
+        AddName(row.AlbumArtist);
+        AddName(row.Artist);
+        if (!string.IsNullOrWhiteSpace(row.Artists))
+        {
+            foreach (var part in row.Artists.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                AddName(part);
+        }
+    }
+
+    var existing = await db.ArtistImages.ToDictionaryAsync(a => a.NormalizedName, StringComparer.Ordinal);
+    var nowUtc = DateTime.UtcNow;
+    var index = 0;
+    var changed = 0;
+
+    foreach (var (normalized, displayName) in byNormalized.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+    {
+        var expectedUrl = $"{baseUrl}/placeholder-user.jpg?artist={index++}";
+        if (existing.TryGetValue(normalized, out var row))
+        {
+            if (row.ImageUrl != expectedUrl || row.Source != "spotify")
+            {
+                row.ImageUrl = expectedUrl;
+                row.Source = "spotify";
+                row.FetchedAtUtc = nowUtc;
+                changed++;
+            }
+        }
+        else
+        {
+            db.ArtistImages.Add(new ArtistImage
+            {
+                NormalizedName = normalized,
+                DisplayName = displayName,
+                ImageUrl = expectedUrl,
+                Source = "spotify",
+                FetchedAtUtc = nowUtc,
+            });
+            changed++;
+        }
+    }
+
+    if (changed > 0)
+    {
+        await db.SaveChangesAsync();
+        await db.Database.ExecuteSqlRawAsync("ANALYZE \"ArtistImages\"");
+        Console.WriteLine($"perf-seed: ensured {byNormalized.Count} artist portraits ({changed} written).");
+    }
+}
 
 // Skewed pick in [0, n): a few artists hold most of the tracks, a few songs most of the plays.
 static int Zipf(Random rng, int n) => (int)(n * Math.Pow(rng.NextDouble(), 2.2));
@@ -267,7 +343,7 @@ internal static partial class Native
     internal static extern int link(string oldpath, string newpath);
 }
 
-internal sealed record SeedOptions(string Connection, int Songs, string Source, string Destination, string Templates, int Seed)
+internal sealed record SeedOptions(string Connection, int Songs, string Source, string Destination, string Templates, string WebUrl, int Seed)
 {
     public static SeedOptions? Parse(string[] args)
     {
@@ -281,10 +357,11 @@ internal sealed record SeedOptions(string Connection, int Songs, string Source, 
             || !int.TryParse(Get("songs"), out var songs) || songs <= 0)
         {
             Console.Error.WriteLine(
-                "usage: perf-seed --connection <npgsql> --songs <n> --source <dir> --destination <dir> --templates <dir> [--seed <n>]");
+                "usage: perf-seed --connection <npgsql> --songs <n> --source <dir> --destination <dir> --templates <dir> [--web-url <url>] [--seed <n>]");
             return null;
         }
         return new SeedOptions(connection, songs, source, destination, templates,
+            Get("web-url") ?? "http://localhost:5598",
             int.TryParse(Get("seed"), out var seed) ? seed : 20_260_101);
     }
 }

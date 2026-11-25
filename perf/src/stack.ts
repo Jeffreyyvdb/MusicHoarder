@@ -240,7 +240,11 @@ function apiEnvironment(cfg: StackConfig): Record<string, string> {
     MusicEnricher__EnableYeTrackerProvider: 'false',
     MusicEnricher__EnableCanonicalAlbumFetch: 'false',
     MusicEnricher__EnableExternalCoverArtFetch: 'false',
-    MusicEnricher__EnableArtistImages: 'false',
+    // Artist portraits are pre-seeded in ArtistImages pointing at the local frontend so we can
+    // benchmark portrait loading offline; refresh/retry days are 0 so seeded rows never expire.
+    MusicEnricher__EnableArtistImages: 'true',
+    MusicEnricher__ArtistImageRefreshDays: '0',
+    MusicEnricher__ArtistImageNotFoundRetryDays: '0',
     MusicEnricher__EnableLyricsBackfillSweep: 'false',
     MusicEnricher__EnableLyricsRecheckSweep: 'false',
     MusicEnricher__EnableAlbumSplitSelfHeal: 'false',
@@ -326,6 +330,7 @@ export async function up(cfg: StackConfig, options: UpOptions): Promise<Target> 
     '--source', join(cfg.workDir, 'source'),
     '--destination', join(cfg.workDir, 'destination'),
     '--templates', join(cfg.workDir, 'templates'),
+    '--web-url', cfg.webUrl,
   ])
   psql(cfg, 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements')
 

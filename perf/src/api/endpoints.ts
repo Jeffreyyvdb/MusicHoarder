@@ -80,6 +80,7 @@ export const ENDPOINTS: Endpoint[] = [
   { name: 'Playlist', group: 'Browse', path: (s) => (s.playlistId ? `/api/playlists/${s.playlistId}` : null), budget: { p95Ms: 150 } },
   { name: 'Cover thumbnail (cold then cached)', group: 'Browse', path: (s) => `/songs/${s.songId}/cover?size=300`, binary: true, viaProxy: true, budget: { p95Ms: 60 } },
   { name: 'Cover, full size', group: 'Browse', path: (s) => `/songs/${s.songId}/cover`, binary: true, budget: { p95Ms: 100 } },
+  { name: 'Artist image (cached redirect)', group: 'Browse', path: (s) => `/api/artists/image?name=${q(s.artist)}&v=2`, binary: true, viaProxy: true, budget: { p95Ms: 30 } },
 
   { name: 'Stream, first 256 kB', group: 'Play a track', path: (s) => `/songs/${s.songId}/stream`, range: 'bytes=0-262143', binary: true, viaProxy: true, budget: { p95Ms: 80 } },
   { name: 'Stream decoded to WAV, first 256 kB', group: 'Play a track', path: (s) => `/songs/${s.nextSongId}/stream?format=wav`, range: 'bytes=0-262143', binary: true, budget: { p95Ms: 400 } },
