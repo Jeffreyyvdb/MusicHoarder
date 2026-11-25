@@ -259,14 +259,47 @@ public class SpotifyCatalogResponseParsingTests
             """,
             s => s.SearchArtistCandidatesAsync("cid", "sec", "Daft Punk", CancellationToken.None));
 
+        // No size info on the images: the first string url is both the grid and the hero portrait.
         Assert.Equal(
             [
-                new SpotifyArtistCandidate("Daft Punk", "https://img/big"),
+                new SpotifyArtistCandidate("Daft Punk", "https://img/big", "https://img/big"),
                 new SpotifyArtistCandidate(null, null),
                 new SpotifyArtistCandidate("No images", null)
             ],
             candidates);
         Assert.Equal("https://api.spotify.com/v1/search?q=artist%3ADaft Punk&type=artist&limit=5", handler.Requests[1].Url);
+    }
+
+    [Fact]
+    public async Task SearchArtistCandidates_PicksGridAndHeroSizesFromTheHeights()
+    {
+        // Spotify orders images largest-first; the smallest one that still clears a 2× grid tile
+        // (300px) is the grid portrait, the first is the hero one.
+        var (candidates, _) = await Lookup(
+            """
+            {"artists":{"items":[
+              {"name":"Daft Punk","images":[
+                {"url":"https://img/640","height":640,"width":640},
+                {"url":"https://img/300","height":300,"width":300},
+                {"url":"https://img/64","height":64,"width":64}
+              ]},
+              {"name":"OnlySmall","images":[
+                {"url":"https://img/64","height":64,"width":64}
+              ]},
+              {"name":"NoHeight","images":[
+                {"url":"https://img/a"},{"url":"https://img/b"}
+              ]}
+            ]}}
+            """,
+            s => s.SearchArtistCandidatesAsync("cid", "sec", "Daft Punk", CancellationToken.None));
+
+        Assert.Equal(
+            [
+                new SpotifyArtistCandidate("Daft Punk", "https://img/300", "https://img/640"),
+                new SpotifyArtistCandidate("OnlySmall", "https://img/64", "https://img/64"),
+                new SpotifyArtistCandidate("NoHeight", "https://img/a", "https://img/a")
+            ],
+            candidates);
     }
 
     [Theory]

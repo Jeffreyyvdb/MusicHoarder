@@ -43,13 +43,32 @@ async function proxy(
       headers,
       body: shouldForwardBody ? await request.arrayBuffer() : undefined,
       cache: 'no-store',
-      redirect: 'follow',
+      // 'manual' so a 3xx from the API (the artist-portrait redirect to the CDN, the Spotify
+      // connect hand-off) is passed to the browser as-is instead of Node following it, downloading
+      // the full-res image server-side and re-streaming it through this process — while also
+      // dropping the upstream Cache-Control that lets the browser cache the redirect.
+      redirect: 'manual',
       signal: controller.signal
     });
   } catch {
     return new Response(null, { status: 504 });
   } finally {
     clearTimeout(timeout);
+  }
+
+  // A redirect the API meant for the browser (e.g. /api/artists/image → CDN portrait): forward
+  // the status, Location and cache headers, with no body of our own.
+  if (response.status >= 300 && response.status < 400 && response.headers.has('location')) {
+    const redirectHeaders = new Headers();
+    for (const header of ['location', 'cache-control', 'etag', 'vary']) {
+      const value = response.headers.get(header);
+      if (value) redirectHeaders.set(header, value);
+    }
+    return new Response(null, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: redirectHeaders
+    });
   }
 
   const responseHeaders = new Headers(response.headers);

@@ -9,6 +9,7 @@ using MusicHoarder.Api.Endpoints;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Tests.Auth;
+using MusicHoarder.Api.Tests.Artwork;
 
 namespace MusicHoarder.Api.Tests.Endpoints;
 
@@ -161,7 +162,7 @@ public class FriendsEndpointsTests
         }
 
         await using var db = OwnerContext(options);
-        var result = await FriendsEndpoints.RemoveFriend(TestUsers.FriendId, db, OwnerAccessor(), CancellationToken.None);
+        var result = await FriendsEndpoints.RemoveFriend(TestUsers.FriendId, db, OwnerAccessor(), new NoOpAuthService(), CancellationToken.None);
         Assert.Equal(StatusCodes.Status204NoContent, ((IStatusCodeHttpResult)result).StatusCode);
 
         await using var verify = new MusicHoarderDbContext(options);
@@ -178,7 +179,7 @@ public class FriendsEndpointsTests
 
         foreach (var id in new[] { TestUsers.OwnerId, TestUsers.DemoId })
         {
-            var result = await FriendsEndpoints.RemoveFriend(id, db, OwnerAccessor(), CancellationToken.None);
+            var result = await FriendsEndpoints.RemoveFriend(id, db, OwnerAccessor(), new NoOpAuthService(), CancellationToken.None);
             Assert.Equal(StatusCodes.Status404NotFound, ((IStatusCodeHttpResult)result).StatusCode);
         }
 

@@ -89,6 +89,11 @@ services:
       - type: "volume"
         target: "/data/downloads"
         source: "musichoarder-downloads"
+      # Derived, regenerable cache of resized WebP cover thumbnails — persist it so a container
+      # rebuild doesn't throw away every generated thumbnail.
+      - type: "volume"
+        target: "/data/cover-thumbs"
+        source: "musichoarder-cover-thumbs"
       - type: "bind"
         target: "/data/cookies/youtube.txt"
         source: "${YTDLP_COOKIES_HOST_PATH:-/dev/null}"
@@ -187,6 +192,8 @@ volumes:
   musichoarder-dpkeys:
     driver: "local"
   musichoarder-downloads:
+    driver: "local"
+  musichoarder-cover-thumbs:
     driver: "local"
   musichoarder-synced-source:
     driver: "local"

@@ -119,12 +119,14 @@
 
   <!-- Top layer: fades in over the tinted tile so covers appear smoothly instead of snapping in. -->
   {#if resolvedCoverUrl}
+    <!-- No loading="lazy": the grids that show many covers are windowed (#lib/viewport-fill.ts), so
+         an <img> only exists near the viewport — and lazy loading on top of that made WebKit hold
+         the fetch until the tile was practically on screen, stalling covers while scrolling. -->
     <img
       src={resolvedCoverUrl}
       alt=""
       width={size}
       height={size}
-      loading="lazy"
       decoding="async"
       onload={() => {
         imgLoaded = true;

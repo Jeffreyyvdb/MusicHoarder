@@ -5,6 +5,7 @@ using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Endpoints;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Tests.Auth;
+using MusicHoarder.Api.Tests.Artwork;
 
 namespace MusicHoarder.Api.Tests.Endpoints;
 
@@ -286,6 +287,7 @@ public class CapabilityManagementTests
             new FriendsEndpoints.UpdateCapabilitiesRequest(capabilities),
             db,
             new TestCurrentUserAccessor(acting),
+            new NoOpAuthService(),
             default);
     }
 

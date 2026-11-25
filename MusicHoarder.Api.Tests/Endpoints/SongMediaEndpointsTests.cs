@@ -76,6 +76,10 @@ public class SongMediaEndpointsTests : IDisposable
             LastRequestedSize = size;
             return Task.FromResult(thumb);
         }
+
+        public string? GetCachedPath(string identityPath, long identityStamp, int requestedSize) => null;
+
+        public void Prewarm(ResolvedCover source, string identityPath, CancellationToken ct = default) { }
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -288,8 +292,9 @@ public class SongMediaEndpointsTests : IDisposable
         var resolver = new FakeCoverArtResolver(null);
         var thumbs = new FakeThumbnailService(null);
         var http = new DefaultHttpContext();
+        var cache = new CoverResolutionCache();
 
-        var result = await SongsEndpoints.GetSongCover(999, db, TestLibraryScope.For(TestUsers.OwnerId), resolver, thumbs, http, null, CancellationToken.None);
+        var result = await SongsEndpoints.GetSongCover(999, db, TestLibraryScope.For(TestUsers.OwnerId), resolver, thumbs, cache, http, null, null, CancellationToken.None);
 
         Assert.IsAssignableFrom<IStatusCodeHttpResult>(result);
         Assert.Equal(404, ((IStatusCodeHttpResult)result).StatusCode);
@@ -309,8 +314,9 @@ public class SongMediaEndpointsTests : IDisposable
         var resolver = new FakeCoverArtResolver(new ResolvedCover { FilePath = sourcePath, ContentType = "image/jpeg" });
         var thumbs = new FakeThumbnailService(null);
         var http = new DefaultHttpContext();
+        var cache = new CoverResolutionCache();
 
-        var result = await SongsEndpoints.GetSongCover(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), resolver, thumbs, http, null, CancellationToken.None);
+        var result = await SongsEndpoints.GetSongCover(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), resolver, thumbs, cache, http, null, null, CancellationToken.None);
 
         Assert.IsAssignableFrom<IStatusCodeHttpResult>(result);
         Assert.Equal(404, ((IStatusCodeHttpResult)result).StatusCode);
@@ -328,8 +334,9 @@ public class SongMediaEndpointsTests : IDisposable
         var resolver = new FakeCoverArtResolver(new ResolvedCover { FilePath = "/some/cover.jpg", ContentType = "image/jpeg" });
         var thumbs = new FakeThumbnailService(null);
         var http = new DefaultHttpContext();
+        var cache = new CoverResolutionCache();
 
-        var result = await SongsEndpoints.GetSongCover(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), resolver, thumbs, http, null, CancellationToken.None);
+        var result = await SongsEndpoints.GetSongCover(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), resolver, thumbs, cache, http, null, null, CancellationToken.None);
 
         Assert.IsAssignableFrom<IStatusCodeHttpResult>(result);
         Assert.Equal(404, ((IStatusCodeHttpResult)result).StatusCode);
@@ -349,8 +356,9 @@ public class SongMediaEndpointsTests : IDisposable
         var resolver = new FakeCoverArtResolver(null);
         var thumbs = new FakeThumbnailService(null);
         var http = new DefaultHttpContext();
+        var cache = new CoverResolutionCache();
 
-        var result = await SongsEndpoints.GetSongCover(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), resolver, thumbs, http, null, CancellationToken.None);
+        var result = await SongsEndpoints.GetSongCover(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), resolver, thumbs, cache, http, null, null, CancellationToken.None);
 
         Assert.IsAssignableFrom<IStatusCodeHttpResult>(result);
         Assert.Equal(404, ((IStatusCodeHttpResult)result).StatusCode);
@@ -380,8 +388,9 @@ public class SongMediaEndpointsTests : IDisposable
         var resolver = new FakeCoverArtResolver(null); // no folder/embedded art anywhere
         var thumbs = new FakeThumbnailService(null);
         var http = new DefaultHttpContext();
+        var cache = new CoverResolutionCache();
 
-        var result = await SongsEndpoints.GetSongCover(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), resolver, thumbs, http, null, CancellationToken.None);
+        var result = await SongsEndpoints.GetSongCover(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), resolver, thumbs, cache, http, null, null, CancellationToken.None);
 
         var file = Assert.IsType<PhysicalFileHttpResult>(result);
         Assert.Equal(thumbnailPath, file.FileName);
@@ -412,8 +421,9 @@ public class SongMediaEndpointsTests : IDisposable
         var resolver = new FakeCoverArtResolver(new ResolvedCover { FilePath = coverPath, ContentType = "image/jpeg" });
         var thumbs = new FakeThumbnailService(null);
         var http = new DefaultHttpContext();
+        var cache = new CoverResolutionCache();
 
-        var result = await SongsEndpoints.GetSongCover(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), resolver, thumbs, http, null, CancellationToken.None);
+        var result = await SongsEndpoints.GetSongCover(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), resolver, thumbs, cache, http, null, null, CancellationToken.None);
 
         var file = Assert.IsType<PhysicalFileHttpResult>(result);
         Assert.Equal(coverPath, file.FileName);
@@ -434,8 +444,9 @@ public class SongMediaEndpointsTests : IDisposable
         var resolver = new FakeCoverArtResolver(cover);
         var thumbs = new FakeThumbnailService(null);
         var http = new DefaultHttpContext();
+        var cache = new CoverResolutionCache();
 
-        var result = await SongsEndpoints.GetSongCover(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), resolver, thumbs, http, null, CancellationToken.None);
+        var result = await SongsEndpoints.GetSongCover(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), resolver, thumbs, cache, http, null, null, CancellationToken.None);
 
         var fileResult = Assert.IsType<PhysicalFileHttpResult>(result);
         Assert.Equal(coverPath, fileResult.FileName);
@@ -457,8 +468,9 @@ public class SongMediaEndpointsTests : IDisposable
         var resolver = new FakeCoverArtResolver(cover);
         var thumbs = new FakeThumbnailService(null);
         var http = new DefaultHttpContext();
+        var cache = new CoverResolutionCache();
 
-        var result = await SongsEndpoints.GetSongCover(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), resolver, thumbs, http, null, CancellationToken.None);
+        var result = await SongsEndpoints.GetSongCover(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), resolver, thumbs, cache, http, null, null, CancellationToken.None);
 
         var bytesResult = Assert.IsType<FileContentHttpResult>(result);
         Assert.Equal(coverBytes, bytesResult.FileContents.ToArray());
@@ -481,8 +493,9 @@ public class SongMediaEndpointsTests : IDisposable
         var resolver = new FakeCoverArtResolver(cover);
         var thumbs = new FakeThumbnailService(thumb);
         var http = new DefaultHttpContext();
+        var cache = new CoverResolutionCache();
 
-        var result = await SongsEndpoints.GetSongCover(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), resolver, thumbs, http, 256, CancellationToken.None);
+        var result = await SongsEndpoints.GetSongCover(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), resolver, thumbs, cache, http, 256, null, CancellationToken.None);
 
         var fileResult = Assert.IsType<PhysicalFileHttpResult>(result);
         Assert.Equal(thumbPath, fileResult.FileName);
@@ -505,8 +518,9 @@ public class SongMediaEndpointsTests : IDisposable
         var resolver = new FakeCoverArtResolver(cover);
         var thumbs = new FakeThumbnailService(null); // thumbnailing fails
         var http = new DefaultHttpContext();
+        var cache = new CoverResolutionCache();
 
-        var result = await SongsEndpoints.GetSongCover(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), resolver, thumbs, http, 256, CancellationToken.None);
+        var result = await SongsEndpoints.GetSongCover(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), resolver, thumbs, cache, http, 256, null, CancellationToken.None);
 
         var fileResult = Assert.IsType<PhysicalFileHttpResult>(result);
         Assert.Equal(coverPath, fileResult.FileName);

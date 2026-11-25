@@ -186,6 +186,9 @@ export interface ApiSong {
   /** True when the track has resolvable artwork (embedded, or a cover/folder/front.* image in
    * its directory). The image bytes are fetched lazily from {@link getSongCoverUrl}. */
   hasCoverArt?: boolean | null;
+  /** Content version of the track's cover (only when {@link hasCoverArt}): append as `v` on the
+   * cover URL so the response can be cached immutably. Changes whenever the cover can change. */
+  coverVersion?: string | null;
   /** When the user liked this song; null/undefined = not liked. Also the "recently liked" sort key. */
   likedAtUtc?: string | null;
   /** Times playback of this track was started (client-reported). */
@@ -696,7 +699,14 @@ export function hydrateAlbums(
 ): AlbumSummary[] {
   return albums.map((album) => ({
     ...album,
-    coverUrl: album.coverSongId != null ? getSongCoverUrl(album.coverSongId) : null,
+    coverUrl:
+      album.coverSongId != null
+        ? getSongCoverUrl(
+            album.coverSongId,
+            undefined,
+            songsById.get(album.coverSongId)?.coverVersion
+          )
+        : null,
     // A song can be missing when the two fetches straddle a library change; dropping it is the
     // honest answer, and the next refresh reconciles.
     songs: album.trackIds
@@ -2809,9 +2819,15 @@ export async function deleteSongVideo(songId: number): Promise<void> {
  * (CSS px) to get a small cached WebP thumbnail instead of the full-resolution original — the backend
  * clamps to its nearest size bucket. Omit `size` for the original (downloads / full-screen).
  */
-export function getSongCoverUrl(songId: number, size?: number): string {
+export function getSongCoverUrl(songId: number, size?: number, version?: string | null): string {
   const base = `${API_PREFIX}/songs/${songId}/cover`;
-  return size ? `${base}?size=${Math.round(size)}` : base;
+  const params = new URLSearchParams();
+  if (size) params.set('size', String(Math.round(size)));
+  // The cover's content version: when present, the API answers with an immutable Cache-Control,
+  // so a changed cover (new version) is a new URL and never a stale cached one.
+  if (version) params.set('v', version);
+  const qs = params.size > 0 ? `?${params.toString()}` : '';
+  return `${base}${qs}`;
 }
 
 /** Marks our cover-endpoint URLs so {@link coverThumbUrl} only appends a size to those. */
@@ -2825,6 +2841,50 @@ function isOwnCoverUrl(url: string): boolean {
  */
 export function getArtistImageUrl(name: string): string {
   return `${API_PREFIX}/api/artists/image?name=${encodeURIComponent(name)}&v=2`;
+}
+
+/** One artist's cached portrait, as the bulk map returns it: grid-sized `url` plus the hero `large`. */
+export interface ArtistPortrait {
+  url: string;
+  large: string;
+}
+
+/** Max names per bulk request (server-side cap); the client chunks larger lists. */
+const ARTIST_IMAGES_CHUNK = 120;
+
+/**
+ * Fetch cached portraits for many artists in a handful of requests instead of one redirect per
+ * tile. Names go newline-separated (commas occur inside artist names); each name is
+ * encodeURIComponent'd. Artists without a cached row are simply absent — the API enqueues them
+ * for background prefetch, and the caller keeps its per-name fallback for those.
+ */
+export async function fetchArtistImages(
+  names: readonly string[]
+): Promise<Map<string, ArtistPortrait>> {
+  const map = new Map<string, ArtistPortrait>();
+  const unique = [...new Set(names)];
+  const chunks: string[][] = [];
+  for (let i = 0; i < unique.length; i += ARTIST_IMAGES_CHUNK)
+    chunks.push(unique.slice(i, i + ARTIST_IMAGES_CHUNK));
+  await Promise.all(
+    chunks.map(async (chunk) => {
+      const query = chunk.map((n) => encodeURIComponent(n)).join('%0A');
+      try {
+        const res = await fetch(`${API_PREFIX}/api/artists/images?names=${query}`);
+        if (!res.ok) return;
+        const body = (await res.json()) as {
+          images?: Record<string, { url: string | null; large: string | null } | null>;
+        };
+        for (const name of chunk) {
+          const entry = body.images?.[name];
+          if (entry?.url) map.set(name, { url: entry.url, large: entry.large ?? entry.url });
+        }
+      } catch {
+        // Best-effort: missing portraits fall back to the per-name endpoint / album cover.
+      }
+    })
+  );
+  return map;
 }
 
 /**
@@ -2844,7 +2904,7 @@ export function coverThumbUrl(url: string | null | undefined, size: number): str
  */
 export function coverUrlForSong(song: ApiSong): string | null {
   if (song.albumArt) return song.albumArt;
-  return song.hasCoverArt ? getSongCoverUrl(song.id) : null;
+  return song.hasCoverArt ? getSongCoverUrl(song.id, undefined, coverVersionOf(song)) : null;
 }
 
 // ── One cover per album folder, for track rows ───────────────────────────────
@@ -2938,13 +2998,27 @@ export function electFolderCovers(songs: readonly ApiSong[]): Map<number, number
  */
 let folderCoverIds: ReadonlyMap<number, number> = new Map();
 
+/** Cover version token per song id, from the last songs list — used when a row borrows another track's cover URL. */
+let coverVersionById: ReadonlyMap<number, string> = new Map();
+
+/** The row's own cover version, falling back to the id-keyed map (shared rows carry the field; older lists may not). */
+function coverVersionOf(song: ApiSong): string | null | undefined {
+  return song.coverVersion ?? coverVersionById.get(song.id);
+}
+
 function rememberFolderCovers(songs: readonly ApiSong[]): void {
   folderCoverIds = electFolderCovers(songs);
+  const versions = new Map<number, string>();
+  for (const song of songs) {
+    if (song.coverVersion) versions.set(song.id, song.coverVersion);
+  }
+  coverVersionById = versions;
 }
 
 /** Forget the shared row covers. Called from sign-out alongside the other client-side resets. */
 export function resetFolderCovers(): void {
   folderCoverIds = new Map();
+  coverVersionById = new Map();
 }
 
 /**
@@ -2959,7 +3033,8 @@ export function resetFolderCovers(): void {
 export function rowCoverUrlForSong(song: ApiSong): string | null {
   if (song.albumArt) return song.albumArt;
   if (!song.hasCoverArt) return null;
-  return getSongCoverUrl(folderCoverIds.get(song.id) ?? song.id);
+  const standInId = folderCoverIds.get(song.id) ?? song.id;
+  return getSongCoverUrl(standInId, undefined, coverVersionById.get(standInId));
 }
 
 /**
@@ -2970,7 +3045,7 @@ export function rowCoverUrlForSong(song: ApiSong): string | null {
  */
 export function rowCoverFallbackForSong(song: ApiSong): string | null {
   if (song.albumArt || !song.hasCoverArt || !folderCoverIds.has(song.id)) return null;
-  return getSongCoverUrl(song.id);
+  return getSongCoverUrl(song.id, undefined, coverVersionOf(song));
 }
 
 /**

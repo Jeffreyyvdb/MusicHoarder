@@ -398,7 +398,7 @@ public static class SharesEndpoints
         if (song is null)
             return ShareNotFound();
 
-        return await SongsEndpoints.ServeCoverAsync(song, coverArtResolver, thumbnails, http, size);
+        return await SongsEndpoints.ServeCoverAsync(song, coverArtResolver, thumbnails, null, http, size, null, CancellationToken.None);
     }
 
     internal static async Task<IResult> GetSharedSongLyrics(string token, int id, MusicHoarderDbContext db, CancellationToken ct)

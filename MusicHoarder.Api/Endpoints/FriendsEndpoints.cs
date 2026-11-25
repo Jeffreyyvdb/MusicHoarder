@@ -84,6 +84,7 @@ public static class FriendsEndpoints
         UpdateCapabilitiesRequest body,
         MusicHoarderDbContext db,
         ICurrentUserAccessor currentUser,
+        IAuthService authService,
         CancellationToken ct)
     {
         // Self-demotion is refused rather than handled: an admin who clears their own Administer
@@ -151,6 +152,9 @@ public static class FriendsEndpoints
         user.Role = shouldBeAdmin ? UserRole.Admin : UserRole.Member;
         user.Capabilities = requested;
         await db.SaveChangesAsync(ct);
+
+        // The role/capabilities a cached session resolution carries must not outlive this change.
+        authService.InvalidateUser(userId);
 
         return CapabilitiesResponse(user);
     }
@@ -330,6 +334,7 @@ public static class FriendsEndpoints
         Guid userId,
         MusicHoarderDbContext db,
         ICurrentUserAccessor currentUser,
+        IAuthService authService,
         CancellationToken ct)
     {
         // Role check first: this endpoint must never be able to touch the Owner or Demo rows.
@@ -365,6 +370,9 @@ public static class FriendsEndpoints
         foreach (var i in invites) i.RevokedAtUtc = nowUtc;
 
         await db.SaveChangesAsync(ct);
+
+        // The disabled user's cached session resolutions must die with the rows above.
+        authService.InvalidateUser(userId);
         return Results.NoContent();
     }
 

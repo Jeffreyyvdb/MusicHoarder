@@ -1811,7 +1811,8 @@ public class LibraryBuilderServiceTests
         // exercised end-to-end; the embedded-picture reader (which would touch TagLib) is faked.
         var coverResolver = new CoverArtResolver(fileSystem, embeddedReader ?? new StubEmbeddedPictureReader());
         var coverWriter = new AlbumCoverWriter(
-            fileSystem, coverResolver, externalFetcher ?? new StubExternalCoverArtFetcher(), options,
+            fileSystem, coverResolver, externalFetcher ?? new StubExternalCoverArtFetcher(),
+            new CoverResolutionCache(), new StubCoverThumbnailService(), options,
             NullLogger<AlbumCoverWriter>.Instance);
 
         return new LibraryBuilderService(

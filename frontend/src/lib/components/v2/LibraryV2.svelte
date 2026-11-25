@@ -65,6 +65,7 @@
     ALBUM_SORT_OPTIONS,
     buildArtistGroups,
     fetchAlbumCanonicalStatuses,
+    fetchArtistImages,
     getArtistImageUrl,
     isAlbumSortKey,
     rowCoverFallbackForSong,
@@ -77,6 +78,7 @@
     type AlbumSummary,
     type AlbumSummaryDto,
     type ApiSong,
+    type ArtistPortrait,
     type GroupSummary
   } from '#lib/api-client.ts';
   import { isAnyUnreleasedSong, isUnreleasedSong } from '#lib/release-status.ts';
@@ -384,6 +386,42 @@
   const showArtistShelves = $derived(isAdmin(page.data.user) && query.trim() === '');
   let artistShelvesInView = $state(false);
   const filteredArtists = $derived.by(() => filterBySearch(artistSearchIndex, searchTerms(query)));
+
+  // Artist portraits: one bulk request per label set (cached rows come back at once and point
+  // straight at the CDN — no per-tile redirect through the proxy). Refetched when the group set
+  // changes; the ETag makes a repeat visit a 304 per chunk. Only the artists views need it.
+  let artistPortraits = $state<ReadonlyMap<string, ArtistPortrait>>(new Map());
+  const artistLabelsKey = $derived(artistGroups.map((g) => g.label).join('\u0001'));
+  $effect(() => {
+    if (tab !== 'artists' && !albumKey) {
+      artistPortraits = new Map();
+      return;
+    }
+    const key = artistLabelsKey;
+    if (key === '') {
+      artistPortraits = new Map();
+      return;
+    }
+    let cancelled = false;
+    void fetchArtistImages(key.split('\u0001'))
+      .then((map) => {
+        if (!cancelled) artistPortraits = map;
+      })
+      .catch(() => {
+        // Best-effort: tiles fall back to the per-name endpoint.
+      });
+    return () => {
+      cancelled = true;
+    };
+  });
+  /** Grid-sized portrait URL: the CDN URL when cached, else the per-name redirect endpoint. */
+  function portraitUrlFor(label: string): string {
+    return artistPortraits.get(label)?.url ?? getArtistImageUrl(label);
+  }
+  /** Hero-sized portrait URL (the provider's largest), same fallback. */
+  function portraitLargeUrlFor(label: string): string {
+    return artistPortraits.get(label)?.large ?? getArtistImageUrl(label);
+  }
 
   // Tracks tab: scope by browse filter only. Search and the chips are applied inside the view, so
   // that one place owns both the visible list and every per-chip count.
@@ -1258,7 +1296,7 @@
           <Cover
             artist={artistAlbums[0]?.artist ?? artistName}
             title={artistAlbums[0]?.title ?? artistName}
-            coverUrl={getArtistImageUrl(artistName)}
+            coverUrl={portraitLargeUrlFor(artistName)}
             fallbackUrl={artistPage.data?.catalog.pictureUrl ?? artistAlbums[0]?.coverUrl ?? null}
             size={compact ? 160 : 208}
             corner={compact ? 80 : 104}
@@ -1327,7 +1365,7 @@
                       <Cover
                         artist={artistName}
                         title={artistName}
-                        coverUrl={getArtistImageUrl(artistName)}
+                        coverUrl={portraitUrlFor(artistName)}
                         fallbackUrl={artistAlbums[0]?.coverUrl ?? null}
                         size={72}
                         corner={36}
@@ -1470,6 +1508,7 @@
           groups={filteredArtists}
           hrefFor={artistHref}
           {isLoading}
+          portraits={artistPortraits}
           indexSuppressed={showArtistShelves && artistShelvesInView}
           empty={artistsEmpty}
         />

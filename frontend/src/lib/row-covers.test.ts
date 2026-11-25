@@ -264,4 +264,32 @@ describe('track row covers after a library load', () => {
     const [hydrated] = hydrateAlbums([card], new Map(songs.map((s) => [s.id, s])));
     expect(hydrated.coverUrl).toBe('/api/mh/songs/13/cover');
   });
+
+  // A row's cover URL carries the cover's content version (?v=…) when the list sent one, so the
+  // API can answer it immutably — a changed cover is a new version, hence a new URL. A row that
+  // borrows its folder's stand-in track borrows that track's version, not its own.
+  it('versions cover URLs with the row’s coverVersion, or the stand-in’s when borrowed', async () => {
+    const songs = await load([
+      built(11, 'A/Album', { coverVersion: 'v11' }),
+      built(12, 'A/Album', { coverVersion: 'v12' }),
+      built(13, 'B/Other', { coverVersion: 'v13' })
+    ]);
+
+    expect(coverUrlForSong(songs[0])).toBe('/api/mh/songs/11/cover?v=v11');
+    // 11 stands in for the A/Album folder, so both its rows name 11's cover — and its version.
+    expect(rowCoverUrlForSong(songs[0])).toBe('/api/mh/songs/11/cover?v=v11');
+    expect(rowCoverUrlForSong(songs[1])).toBe('/api/mh/songs/11/cover?v=v11');
+    expect(rowCoverFallbackForSong(songs[1])).toBe('/api/mh/songs/12/cover?v=v12');
+    expect(rowCoverUrlForSong(songs[2])).toBe('/api/mh/songs/13/cover?v=v13');
+
+    // A list from before the field existed (no coverVersion anywhere, so the id map is empty
+    // too): plain URLs, which the server still accepts without v.
+    const [legacy] = await load([built(21, 'C/Legacy')]);
+    expect(coverUrlForSong(legacy)).toBe('/api/mh/songs/21/cover');
+
+    // Album cards version through the joined songs too.
+    const card = { key: 'k', coverSongId: 13, trackIds: [11, 12, 13] } as AlbumSummaryDto;
+    const [hydrated] = hydrateAlbums([card], new Map(songs.map((s) => [s.id, s])));
+    expect(hydrated.coverUrl).toBe('/api/mh/songs/13/cover?v=v13');
+  });
 });

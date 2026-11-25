@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -8,6 +9,17 @@ namespace MusicHoarder.Api.Auth;
 public sealed class AuthService : IAuthService
 {
     private static readonly TimeSpan SlidingExtensionThreshold = TimeSpan.FromDays(7);
+
+    /// <summary>
+    /// How long a resolved session is served from memory before it is re-read from Postgres. A
+    /// burst of cover/portrait requests during a scroll would otherwise run one Sessions+Users
+    /// query per image. Revocation and account changes invalidate explicitly, so this TTL only
+    /// bounds the residual lag of anything that changes a row without going through
+    /// <see cref="InvalidateSession"/>/<see cref="InvalidateUser"/>.
+    /// </summary>
+    private static readonly TimeSpan SessionCacheTtl = TimeSpan.FromSeconds(30);
+
+    private readonly ConcurrentDictionary<Guid, (Session Session, User User, DateTime CachedAtUtc)> _sessionCache = new();
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IMagicLinkSender _sender;
@@ -156,17 +168,28 @@ public sealed class AuthService : IAuthService
 
     public async Task<(Session Session, User User)?> ResolveSessionAsync(Guid sessionId, CancellationToken ct)
     {
+        var nowUtc = DateTime.UtcNow;
+        if (_sessionCache.TryGetValue(sessionId, out var cached) && nowUtc - cached.CachedAtUtc < SessionCacheTtl)
+            return (cached.Session, cached.User);
+
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
-        var nowUtc = DateTime.UtcNow;
 
         var session = await db.Sessions
             .Include(s => s.User)
             .FirstOrDefaultAsync(s => s.Id == sessionId, ct)
             .ConfigureAwait(false);
 
-        if (session is null || session.User is null || session.User.IsDisabled) return null;
-        if (!session.IsActive(nowUtc)) return null;
+        if (session is null || session.User is null || session.User.IsDisabled)
+        {
+            _sessionCache.TryRemove(sessionId, out _);
+            return null;
+        }
+        if (!session.IsActive(nowUtc))
+        {
+            _sessionCache.TryRemove(sessionId, out _);
+            return null;
+        }
 
         // Sliding lifetime: only write when the remaining lifetime is below the threshold to avoid
         // a write per request.
@@ -177,7 +200,21 @@ public sealed class AuthService : IAuthService
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
         }
 
+        // The entities outlive the scope that loaded them; nothing mutates them after this point
+        // (the sliding write above happened before caching).
+        _sessionCache[sessionId] = (session, session.User, nowUtc);
         return (session, session.User);
+    }
+
+    public void InvalidateSession(Guid sessionId) => _sessionCache.TryRemove(sessionId, out _);
+
+    public void InvalidateUser(Guid userId)
+    {
+        foreach (var pair in _sessionCache)
+        {
+            if (pair.Value.User.Id == userId)
+                _sessionCache.TryRemove(pair.Key, out _);
+        }
     }
 
     public async Task<IReadOnlyList<(Session Session, User User)>> ResolveSessionsAsync(
@@ -236,6 +273,11 @@ public sealed class AuthService : IAuthService
             session.RevokedAtUtc = nowUtc;
         }
         await db.SaveChangesAsync(ct).ConfigureAwait(false);
+
+        // A revoked session must stop working on its very next request, not after the cache TTL.
+        InvalidateSession(sessionId);
+        if (allForUser)
+            InvalidateUser(session.UserId);
     }
 
     public async Task<InviteMintResult?> CreateOrRotateInviteAsync(Guid ownerUserId, string email, CancellationToken ct)

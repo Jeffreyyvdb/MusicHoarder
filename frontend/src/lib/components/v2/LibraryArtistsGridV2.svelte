@@ -1,12 +1,13 @@
 <script lang="ts">
-  import type { Snippet } from 'svelte';
+  import { untrack, type Snippet } from 'svelte';
   import { Users } from '@lucide/svelte';
   import { EmptyState } from '#lib/components/ui/empty-state/index.ts';
   import Cover from '#lib/components/file-browser/Cover.svelte';
   import { Skeleton } from '#lib/components/ui/skeleton/index.ts';
   import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
   import { cn } from '#lib/utils.ts';
-  import { getArtistImageUrl, type GroupSummary } from '#lib/api-client.ts';
+  import { getArtistImageUrl, type ArtistPortrait, type GroupSummary } from '#lib/api-client.ts';
+  import { carryBuiltTiles, watchNearViewport } from '#lib/viewport-fill.ts';
 
   // Two presentations of one list. A phone gets the iOS indexed list (Contacts, Music's Artists):
   // round portraits, sticky letter headers, and a vertical A–Z index down the trailing edge that
@@ -23,6 +24,12 @@
     hrefFor: (group: GroupSummary) => string;
     isLoading?: boolean;
     /**
+     * Cached portraits from the bulk `GET /api/artists/images` map, keyed by display label. A
+     * cached artist points straight at the CDN URL (no per-tile redirect through the proxy);
+     * one without a row yet falls back to {@link getArtistImageUrl}.
+     */
+    portraits?: ReadonlyMap<string, ArtistPortrait>;
+    /**
      * What an empty list shows — the page knows why (a search miss) and what would undo it. An
      * empty desktop letter is told apart from it here: that one offers "Show all".
      */
@@ -34,7 +41,14 @@
      */
     indexSuppressed?: boolean;
   };
-  const { groups, hrefFor, isLoading = false, empty, indexSuppressed = false }: Props = $props();
+  const {
+    groups,
+    hrefFor,
+    isLoading = false,
+    portraits,
+    empty,
+    indexSuppressed = false
+  }: Props = $props();
 
   const isMobile = new IsMobile();
   const compact = $derived(isMobile.current);
@@ -108,6 +122,47 @@
   function onIndexUp() {
     scrubbing = false;
   }
+
+  // ── windowing ──────────────────────────────────────────────────────────────
+  // Every artist keeps its link in the DOM (full scroll height, working A–Z jump, find-in-page on
+  // the names), but the heavy inside — the portrait <Cover>/<img> — is built only for the first
+  // screenful and then as tiles come within reach of the viewport (`#lib/viewport-fill.ts`, which
+  // also holds tiles back while the list is flinging fast). With "Show featured artists" a large
+  // library lists thousands of rows; mounting a portrait per row queued hundreds of off-screen
+  // image requests that starved the tiles actually on screen.
+  const FIRST_FILL = $derived(compact ? 20 : 36);
+  let containerEl = $state<HTMLElement | null>(null);
+  /** The list the watcher is built over: the letter-filtered one on desktop, all groups on a phone. */
+  const watchList = $derived(compact ? groups : filtered);
+  let builtKeys = $state.raw<ReadonlySet<string>>(
+    carryBuiltTiles(
+      new Set(),
+      untrack(() => watchList),
+      untrack(() => FIRST_FILL)
+    )
+  );
+  $effect(() => {
+    const container = containerEl;
+    const list = watchList;
+    const firstFill = FIRST_FILL;
+    // Before the watcher check: a list that emptied has no container, and must still be forgotten.
+    untrack(() => (builtKeys = carryBuiltTiles(builtKeys, list, firstFill)));
+    if (!container) return;
+    // A new watcher per list: a changed list can hold links that did not exist a moment ago.
+    const watcher = watchNearViewport(container, {
+      attribute: 'data-artist-key',
+      onnear: (keys) =>
+        untrack(() => {
+          const fresh = keys.filter((key) => !builtKeys.has(key));
+          if (fresh.length > 0) builtKeys = new Set([...builtKeys, ...fresh]);
+        })
+    });
+    return () => watcher.destroy();
+  });
+
+  function portraitUrlFor(label: string): string {
+    return portraits?.get(label)?.url ?? getArtistImageUrl(label);
+  }
 </script>
 
 {#snippet emptyList()}
@@ -134,7 +189,7 @@
   {:else if groups.length === 0}
     {@render emptyList()}
   {:else}
-    <div class={cn(showIndex && 'pr-7')}>
+    <div class={cn(showIndex && 'pr-7')} bind:this={containerEl}>
       {#each sections as section (section.letter)}
         <section
           bind:this={() => sectionEls[section.letter], (el) => (sectionEls[section.letter] = el)}
@@ -150,11 +205,14 @@
           </h2>
           <ul>
             {#each section.groups as group, gi (group.key)}
-              <!-- Every row is rendered (there is no virtual window here), so rows off screen skip
-                   layout and paint: with "Show featured artists" a large library lists thousands. -->
+              {@const built = builtKeys.has(group.key)}
+              <!-- Every row keeps its link and text; only the portrait is deferred until the row
+                   is within reach (there is no per-row virtual window here, so rows off screen skip
+                   layout and paint: with "Show featured artists" a large library lists thousands). -->
               <li class="[contain-intrinsic-size:auto_56px] [content-visibility:auto]">
                 <a
                   href={hrefFor(group)}
+                  data-artist-key={group.key}
                   class={cn(
                     'focus-visible:ring-ring active:bg-accent relative flex min-h-14 items-center gap-3 px-4 py-1.5 transition-colors duration-100 focus-visible:ring-2 focus-visible:outline-hidden focus-visible:ring-inset',
                     // Inset hairline from the name (16 + 44 portrait + 12), none after a section's last.
@@ -162,17 +220,21 @@
                       "after:bg-separator after:absolute after:right-0 after:bottom-0 after:left-[72px] after:h-(--hairline) after:content-['']"
                   )}
                 >
-                  <Cover
-                    artist={group.coverArtist}
-                    title={group.coverTitle}
-                    coverUrl={getArtistImageUrl(group.label)}
-                    fallbackUrl={group.coverUrl}
-                    size={44}
-                    corner={22}
-                    caption={false}
-                    dprCap={3}
-                    class="shrink-0"
-                  />
+                  {#if built}
+                    <Cover
+                      artist={group.coverArtist}
+                      title={group.coverTitle}
+                      coverUrl={portraitUrlFor(group.label)}
+                      fallbackUrl={group.coverUrl}
+                      size={44}
+                      corner={22}
+                      caption={false}
+                      dprCap={3}
+                      class="shrink-0"
+                    />
+                  {:else}
+                    <div class="bg-muted size-11 shrink-0 rounded-full" aria-hidden="true"></div>
+                  {/if}
                   <span class="flex min-w-0 flex-1 flex-col">
                     <span class="text-body truncate">{group.label}</span>
                     <span class="text-subheadline text-muted-foreground truncate tabular-nums">
@@ -282,24 +344,35 @@
       action={{ label: 'Show all letters', onclick: () => (letter = 'all') }}
     />
   {:else}
-    <div class="grid grid-cols-4 gap-x-4 gap-y-6 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7">
+    <div
+      class="grid grid-cols-4 gap-x-4 gap-y-6 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7"
+      bind:this={containerEl}
+    >
       {#each filtered as group (group.key)}
+        {@const built = builtKeys.has(group.key)}
         <a
           href={hrefFor(group)}
+          data-artist-key={group.key}
           class="group focus-visible:ring-ring flex flex-col items-center gap-2 rounded-lg p-1 transition-transform [contain-intrinsic-size:auto_11rem] [content-visibility:auto] hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-hidden"
           aria-label={`Browse ${group.label}`}
         >
-          <Cover
-            artist={group.coverArtist}
-            title={group.coverTitle}
-            coverUrl={getArtistImageUrl(group.label)}
-            fallbackUrl={group.coverUrl}
-            size={160}
-            corner={80}
-            caption={false}
-            interactive
-            class="aspect-square !h-auto !w-full !rounded-full shadow-[0_2px_10px_rgba(0,0,0,0.12)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.18)] dark:shadow-[0_4px_14px_rgba(0,0,0,0.5)] dark:hover:shadow-[0_10px_28px_rgba(0,0,0,0.6)]"
-          />
+          {#if built}
+            <Cover
+              artist={group.coverArtist}
+              title={group.coverTitle}
+              coverUrl={portraitUrlFor(group.label)}
+              fallbackUrl={group.coverUrl}
+              size={160}
+              corner={80}
+              caption={false}
+              interactive
+              class="aspect-square !h-auto !w-full !rounded-full shadow-[0_2px_10px_rgba(0,0,0,0.12)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.18)] dark:shadow-[0_4px_14px_rgba(0,0,0,0.5)] dark:hover:shadow-[0_10px_28px_rgba(0,0,0,0.6)]"
+            />
+          {:else}
+            <!-- Not built yet (see `builtKeys`): the link is already a working tile of the right
+                 size, with the name kept for find-in-page. -->
+            <div class="bg-muted aspect-square w-full rounded-full" aria-hidden="true"></div>
+          {/if}
           <div class="w-full min-w-0 px-0.5 text-center">
             <p class="truncate text-[12.5px] font-medium">{group.label}</p>
             <!-- No `truncate` here on purpose (vis-10): the album count alone reads as the whole

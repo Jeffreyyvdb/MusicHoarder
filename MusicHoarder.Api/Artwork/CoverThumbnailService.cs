@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using SkiaSharp;
@@ -13,13 +14,30 @@ public interface ICoverThumbnailService
     int ClampToBucket(int requestedSize);
 
     /// <summary>
+    /// The cache file a thumbnail for <paramref name="identityPath"/> at <paramref name="size"/>
+    /// would live in, when it already exists — without touching the source image. Null when the
+    /// thumbnail isn't cached yet (the caller then goes through
+    /// <see cref="GetThumbnailAsync"/>, which generates it).
+    /// </summary>
+    string? GetCachedPath(string identityPath, long identityStamp, int requestedSize);
+
+    /// <summary>
     /// Returns a cached WebP thumbnail of <paramref name="source"/> at <paramref name="size"/> (max
-    /// edge, no upscaling), generating + caching it on first request. <paramref name="identityPath"/>
-    /// is the on-disk file the cover derives from (the folder image, or the audio file for embedded
+    /// edge, no upscaling), generating + caching it on first request. Concurrent misses for the
+    /// same source/size share one generation (single-flight). <paramref name="identityPath"/> is
+    /// the on-disk file the cover derives from (the folder image, or the audio file for embedded
     /// art) — its last-write time keys the cache so an edited cover regenerates. Null if the source
     /// can't be decoded.
     /// </summary>
     Task<ResolvedCover?> GetThumbnailAsync(ResolvedCover source, string identityPath, int size, CancellationToken ct = default);
+
+    /// <summary>
+    /// Generates the grid sizes (128/400) for a cover in the background when nothing is asking for
+    /// them yet — called when a cover is written or a song is built, so scrolling never pays the
+    /// first-generation cost. Fire-and-forget; bounded concurrency, no queue growth beyond one
+    /// pending pass per source.
+    /// </summary>
+    void Prewarm(ResolvedCover source, string identityPath, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -31,6 +49,18 @@ public sealed class CoverThumbnailService(string cacheDirectory, ILogger<CoverTh
 {
     private static readonly int[] BucketSizes = [128, 256, 400, 640];
 
+    /// <summary>The sizes grids actually ask for; prewarmed when a cover lands.</summary>
+    internal static readonly int[] PrewarmSizes = [128, 400];
+
+    // Single-flight: concurrent misses for the same identity+size share one generation instead of
+    // N requests each decoding the same multi-MB original. Entries leave the map once the file is
+    // on disk (its existence is the source of truth), or when generation failed.
+    private readonly ConcurrentDictionary<string, Lazy<Task<ResolvedCover?>>> _inFlight = new(StringComparer.Ordinal);
+
+    // Prewarm passes, deduped the same way so a build storm doesn't queue one pass per song.
+    private readonly ConcurrentDictionary<string, byte> _prewarming = new(StringComparer.Ordinal);
+    private readonly SemaphoreSlim _prewarmSlots = new(2);
+
     public string CacheDirectory => cacheDirectory;
 
     public int ClampToBucket(int requestedSize)
@@ -41,17 +71,83 @@ public sealed class CoverThumbnailService(string cacheDirectory, ILogger<CoverTh
         return BucketSizes[^1];
     }
 
-    public async Task<ResolvedCover?> GetThumbnailAsync(ResolvedCover source, string identityPath, int size, CancellationToken ct = default)
+    public string? GetCachedPath(string identityPath, long identityStamp, int requestedSize)
     {
-        size = ClampToBucket(size);
+        var cacheFile = CacheFileFor(identityPath, identityStamp, requestedSize);
+        return File.Exists(cacheFile) ? cacheFile : null;
+    }
 
+    public Task<ResolvedCover?> GetThumbnailAsync(ResolvedCover source, string identityPath, int size, CancellationToken ct = default)
+    {
         var stamp = SafeLastWriteTicks(identityPath);
-        var hash = Hash($"{identityPath}|{stamp}|{size}");
-        var cacheFile = Path.Combine(cacheDirectory, hash[..2], $"{hash}.webp");
+        var key = ThumbnailKey(identityPath, stamp, size);
+        var cacheFile = CacheFileFor(identityPath, stamp, size);
 
         if (File.Exists(cacheFile))
-            return Webp(cacheFile);
+            return Task.FromResult<ResolvedCover?>(Webp(cacheFile));
 
+        var lazy = _inFlight.GetOrAdd(key, _ => new Lazy<Task<ResolvedCover?>>(
+            () => GenerateAsync(source, identityPath, stamp, size, cacheFile, ct),
+            LazyThreadSafetyMode.ExecutionAndPublication));
+        return AwaitSingleFlightAsync(key, lazy);
+    }
+
+    private async Task<ResolvedCover?> AwaitSingleFlightAsync(string key, Lazy<Task<ResolvedCover?>> lazy)
+    {
+        try
+        {
+            return await lazy.Value.ConfigureAwait(false);
+        }
+        finally
+        {
+            // Once the pass is over the cache file's existence decides; drop the entry so the next
+            // (possibly failed) miss retries instead of replaying a stale result forever.
+            _inFlight.TryRemove(key, out _);
+        }
+    }
+
+    public void Prewarm(ResolvedCover source, string identityPath, CancellationToken ct = default)
+    {
+        var stamp = SafeLastWriteTicks(identityPath);
+        var key = $"{ThumbnailKey(identityPath, stamp, 0)}|prewarm";
+        if (!_prewarming.TryAdd(key, 0))
+            return;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await _prewarmSlots.WaitAsync(ct).ConfigureAwait(false);
+                try
+                {
+                    foreach (var size in PrewarmSizes)
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        if (GetCachedPath(identityPath, stamp, size) is not null)
+                            continue;
+                        await GenerateAsync(source, identityPath, stamp, size, CacheFileFor(identityPath, stamp, size), ct)
+                            .ConfigureAwait(false);
+                    }
+                }
+                finally
+                {
+                    _prewarmSlots.Release();
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogDebug(ex, "Cover prewarm failed for {Path}", identityPath);
+            }
+            finally
+            {
+                _prewarming.TryRemove(key, out _);
+            }
+        }, ct);
+    }
+
+    private async Task<ResolvedCover?> GenerateAsync(
+        ResolvedCover source, string identityPath, long stamp, int size, string cacheFile, CancellationToken ct)
+    {
         try
         {
             var bytes = source.FilePath is not null
@@ -64,7 +160,7 @@ public sealed class CoverThumbnailService(string cacheDirectory, ILogger<CoverTh
                 return null; // undecodable image
 
             // Fit within the box, preserving aspect; never enlarge a smaller original.
-            using var resized = ResizeToFit(original, size);
+            using var resized = ResizeToFit(original, ClampToBucket(size));
 
             Directory.CreateDirectory(Path.GetDirectoryName(cacheFile)!);
             var tmp = $"{cacheFile}.{Guid.NewGuid():N}.tmp";
@@ -81,6 +177,23 @@ public sealed class CoverThumbnailService(string cacheDirectory, ILogger<CoverTh
             logger.LogWarning(ex, "Cover thumbnail generation failed for {Path} @ {Size}", identityPath, size);
             return null;
         }
+    }
+
+    private string CacheFileFor(string identityPath, long stamp, int requestedSize)
+    {
+        var hash = Hash(ThumbnailKey(identityPath, stamp, requestedSize));
+        return Path.Combine(cacheDirectory, hash[..2], $"{hash}.webp");
+    }
+
+    private static string ThumbnailKey(string identityPath, long stamp, int requestedSize) =>
+        $"{identityPath}|{stamp}|{ClampToBucketStatic(requestedSize)}";
+
+    private static int ClampToBucketStatic(int requestedSize)
+    {
+        foreach (var b in BucketSizes)
+            if (requestedSize <= b)
+                return b;
+        return BucketSizes[^1];
     }
 
     /// <summary>

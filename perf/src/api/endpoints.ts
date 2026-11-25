@@ -81,6 +81,9 @@ export const ENDPOINTS: Endpoint[] = [
   { name: 'Cover thumbnail (cold then cached)', group: 'Browse', path: (s) => `/songs/${s.songId}/cover?size=300`, binary: true, viaProxy: true, budget: { p95Ms: 60 } },
   { name: 'Cover, full size', group: 'Browse', path: (s) => `/songs/${s.songId}/cover`, binary: true, budget: { p95Ms: 100 } },
   { name: 'Artist image (cached redirect)', group: 'Browse', path: (s) => `/api/artists/image?name=${q(s.artist)}&v=2`, binary: true, viaProxy: true, budget: { p95Ms: 30 } },
+  // The bulk map the artists grid fetches instead of one redirect per tile: a screenful of names,
+  // newline-separated (commas occur inside artist names), answered from the cache in one query.
+  { name: 'Artist images map (120 names, cached)', group: 'Browse', path: (s) => `/api/artists/images?names=${[s.artist, ...Array.from({ length: 119 }, (_, i) => `${s.artist} ${i}`)].map(encodeURIComponent).join('%0A')}`, viaProxy: true, budget: { p95Ms: 60 } },
 
   { name: 'Stream, first 256 kB', group: 'Play a track', path: (s) => `/songs/${s.songId}/stream`, range: 'bytes=0-262143', binary: true, viaProxy: true, budget: { p95Ms: 80 } },
   { name: 'Stream decoded to WAV, first 256 kB', group: 'Play a track', path: (s) => `/songs/${s.nextSongId}/stream?format=wav`, range: 'bytes=0-262143', binary: true, budget: { p95Ms: 400 } },

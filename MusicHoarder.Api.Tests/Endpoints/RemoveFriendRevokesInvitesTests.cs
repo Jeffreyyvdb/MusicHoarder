@@ -8,6 +8,7 @@ using MusicHoarder.Api.Endpoints;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Tests.Auth;
+using MusicHoarder.Api.Tests.Artwork;
 
 namespace MusicHoarder.Api.Tests.Endpoints;
 
@@ -27,7 +28,7 @@ public class RemoveFriendRevokesInvitesTests
         await using (var db = new MusicHoarderDbContext(options, new TestCurrentUserAccessor(TestCurrentUserAccessor.OwnerUser)))
         {
             await FriendsEndpoints.RemoveFriend(
-                TestUsers.FriendId, db, new TestCurrentUserAccessor(TestCurrentUserAccessor.OwnerUser), CancellationToken.None);
+                TestUsers.FriendId, db, new TestCurrentUserAccessor(TestCurrentUserAccessor.OwnerUser), new NoOpAuthService(), CancellationToken.None);
         }
 
         var session = await auth.AcceptInviteAsync(minted!.RawToken, null, null, CancellationToken.None);
@@ -44,7 +45,7 @@ public class RemoveFriendRevokesInvitesTests
         await using (var db = new MusicHoarderDbContext(options, new TestCurrentUserAccessor(TestCurrentUserAccessor.OwnerUser)))
         {
             await FriendsEndpoints.RemoveFriend(
-                TestUsers.FriendId, db, new TestCurrentUserAccessor(TestCurrentUserAccessor.OwnerUser), CancellationToken.None);
+                TestUsers.FriendId, db, new TestCurrentUserAccessor(TestCurrentUserAccessor.OwnerUser), new NoOpAuthService(), CancellationToken.None);
         }
 
         var minted = await auth.CreateOrRotateInviteAsync(TestUsers.OwnerId, "friend@test.local", CancellationToken.None);

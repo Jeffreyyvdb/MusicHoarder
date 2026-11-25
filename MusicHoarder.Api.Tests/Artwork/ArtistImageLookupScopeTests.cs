@@ -1,29 +1,38 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using MusicHoarder.Api.Artwork;
-using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Deezer;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Spotify;
 using MusicHoarder.Api.Tests.Auth;
-using MusicHoarder.Api.Tests.Sharing;
 
 namespace MusicHoarder.Api.Tests.Artwork;
 
+/// <summary>
+/// Which names may trigger a provider lookup at all: the in-memory <see cref="IKnownArtistIndex"/>
+/// the prefetch worker reloads — every artist in any library on the instance (the portrait cache
+/// is catalog data with no tenant scope, so a name is either "someone's artist here" or not) plus
+/// every followed artist. Anything else gets a 404 and is never enqueued nor fetched.
+/// </summary>
 public class ArtistImageLookupScopeTests
 {
     [Fact]
     public async Task NamesOutsideTheLibraryGetNoProviderLookupAndNoRow()
     {
         using var db = CreateDbContext();
-        var deezer = new CountingDeezer();
-        var spotify = new CountingSpotify();
-        var service = CreateService(db, deezer, spotify);
+        var (service, prefetcher, deezer, spotify) = CreateService(db);
 
         for (var i = 0; i < 5; i++)
             Assert.Null(await service.GetImageUrlAsync($"zz made up artist {i:000}"));
 
+        Assert.Equal(0, prefetcher.PendingCount);
+        Assert.Equal(0, deezer.Calls);
+        Assert.Equal(0, spotify.Calls);
+        Assert.Empty(db.ArtistImages);
+
+        // Even a direct worker pass refuses them.
+        await service.RefreshAsync("zz made up artist 000");
         Assert.Equal(0, deezer.Calls);
         Assert.Equal(0, spotify.Calls);
         Assert.Empty(db.ArtistImages);
@@ -35,100 +44,86 @@ public class ArtistImageLookupScopeTests
         using var db = CreateDbContext();
         var longName = new string('a', 500);
         SeedArtist(db, longName);
-        var deezer = new CountingDeezer();
-        var service = CreateService(db, deezer, new CountingSpotify());
+        var (service, prefetcher, deezer, _) = CreateService(db);
 
         Assert.Null(await service.GetImageUrlAsync(longName));
 
+        Assert.Equal(0, prefetcher.PendingCount);
         Assert.Equal(0, deezer.Calls);
         Assert.Empty(db.ArtistImages);
     }
 
     [Fact]
-    public async Task LibraryArtistsStillGetALookupAndARow()
+    public async Task LibraryArtistsGetALookupAndARow_IncludingEachDiscreteCredit()
     {
         using var db = CreateDbContext();
         SeedArtist(db, "Daft Punk", artists: "Daft Punk; Some Guest");
-        var deezer = new CountingDeezer();
-        var service = CreateService(db, deezer, new CountingSpotify());
+        var (service, prefetcher, deezer, _) = CreateService(db);
 
         await service.GetImageUrlAsync("daft punk");
         await service.GetImageUrlAsync("Some Guest");
-        await service.GetImageUrlAsync("Some");
+        await service.GetImageUrlAsync("Some"); // a prefix of a credited artist is NOT the artist
+
+        Assert.Equal(2, prefetcher.PendingCount);
+
+        await service.RefreshAsync("daft punk");
+        await service.RefreshAsync("Some Guest");
+        await service.RefreshAsync("Some");
 
         Assert.Equal(2, deezer.Calls);
         Assert.Equal(2, db.ArtistImages.Count());
     }
 
     [Fact]
-    public async Task ArtistsInALibrarySharedWithTheCallerGetALookup()
+    public async Task TheKnownSetIsInstanceWide_BecauseThePortraitCacheIsCatalogData()
     {
-        var options = new DbContextOptionsBuilder<MusicHoarderDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
-            .Options;
-        using (var seed = new MusicHoarderDbContext(options))
-        {
-            SeedArtist(seed, "Daft Punk", ownerId: TestUsers.OwnerId);
-            SeedArtist(seed, "Not Shared", ownerId: TestUsers.SecondFriendId);
-            seed.LibraryShareGrants.Add(new LibraryShareGrant
-            {
-                OwnerUserId = TestUsers.OwnerId,
-                GranteeUserId = TestUsers.FriendId,
-                Scope = ShareGrantScope.Library,
-                CreatedAtUtc = DateTime.UtcNow,
-            });
-            seed.SaveChanges();
-        }
+        // The portrait cache has no per-user rows: one row serves every tenant. So the gate is
+        // "is this name an artist in some library here (or followed)", not "in the caller's" —
+        // a member can only ever trigger lookups for names already on the instance, never for
+        // arbitrary ones.
+        using var db = CreateDbContext();
+        SeedArtist(db, "Daft Punk", ownerId: TestUsers.OwnerId);
+        SeedArtist(db, "Someone Else's Band", ownerId: TestUsers.SecondFriendId);
+        var (service, _, deezer, _) = CreateService(db);
 
-        var member = TestCurrentUserAccessor.FriendUser;
-        using var db = new MusicHoarderDbContext(options, new TestCurrentUserAccessor(member));
-        var deezer = new CountingDeezer();
-        var service = CreateService(db, deezer, new CountingSpotify(), member);
+        await service.RefreshAsync("Daft Punk");
+        await service.RefreshAsync("Someone Else's Band");
 
-        await service.GetImageUrlAsync("Daft Punk");
-        await service.GetImageUrlAsync("Not Shared");
-
-        Assert.Equal(1, deezer.Calls);
-        Assert.Equal("daft punk", Assert.Single(db.ArtistImages).NormalizedName);
+        Assert.Equal(2, deezer.Calls);
+        Assert.Equal(2, db.ArtistImages.Count());
     }
 
     [Fact]
     public async Task FollowedArtistsGetALookupEvenWithoutOwnedSongs()
     {
-        var options = new DbContextOptionsBuilder<MusicHoarderDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
-            .Options;
-        using (var seed = new MusicHoarderDbContext(options))
+        using var db = CreateDbContext();
+        db.FollowedArtists.Add(new FollowedArtist
         {
-            seed.FollowedArtists.Add(new FollowedArtist
-            {
-                OwnerUserId = TestUsers.OwnerId,
-                DeezerArtistId = "27",
-                Name = "Daft Punk",
-                ArtistKey = "daft punk",
-                FollowedAtUtc = DateTime.UtcNow,
-            });
-            seed.FollowedArtists.Add(new FollowedArtist
-            {
-                OwnerUserId = TestUsers.FriendId,
-                DeezerArtistId = "99",
-                Name = "Someone Else",
-                ArtistKey = "someone else",
-                FollowedAtUtc = DateTime.UtcNow,
-            });
-            seed.SaveChanges();
-        }
-
-        var owner = TestCurrentUserAccessor.OwnerUser;
-        using var db = new MusicHoarderDbContext(options, new TestCurrentUserAccessor(owner));
-        var spotify = new CountingSpotify();
-        var service = CreateService(db, new CountingDeezer(), spotify, owner);
+            OwnerUserId = TestUsers.OwnerId,
+            DeezerArtistId = "27",
+            Name = "Daft Punk",
+            ArtistKey = "daft punk",
+            FollowedAtUtc = DateTime.UtcNow,
+        });
+        db.FollowedArtists.Add(new FollowedArtist
+        {
+            OwnerUserId = TestUsers.FriendId,
+            DeezerArtistId = "99",
+            Name = "Someone Else",
+            ArtistKey = "someone else",
+            FollowedAtUtc = DateTime.UtcNow,
+        });
+        db.SaveChanges();
+        var (service, _, _, spotify) = CreateService(db);
 
         await service.GetImageUrlAsync("Daft Punk");
         await service.GetImageUrlAsync("Someone Else");
 
-        Assert.Equal(1, spotify.Calls);
-        Assert.Equal("daft punk", Assert.Single(db.ArtistImages).NormalizedName);
+        await service.RefreshAsync("Daft Punk");
+        await service.RefreshAsync("Someone Else");
+
+        Assert.Equal(2, spotify.Calls);
+        Assert.Equal(2, db.ArtistImages.Count());
     }
 
     private static void SeedArtist(MusicHoarderDbContext db, string artist, string? artists = null, Guid? ownerId = null)
@@ -149,20 +144,30 @@ public class ArtistImageLookupScopeTests
         db.SaveChanges();
     }
 
-    private static ArtistImageService CreateService(
-        MusicHoarderDbContext db, IDeezerCatalogService deezer, ISpotifyCatalogSearchService spotify, CurrentUser? caller = null) =>
-        new(
+    private static (ArtistImageService Service, ArtistImagePrefetcher Prefetcher, CountingDeezer Deezer, CountingSpotify Spotify) CreateService(
+        MusicHoarderDbContext db)
+    {
+        var prefetcher = new ArtistImagePrefetcher();
+        var known = new KnownArtistIndex();
+        known.RefreshAsync(db, CancellationToken.None).GetAwaiter().GetResult();
+
+        var deezer = new CountingDeezer();
+        var spotify = new CountingSpotify();
+        var service = new ArtistImageService(
             db,
             deezer,
             spotify,
             new Creds(),
-            TestLibraryScope.For(caller),
+            known,
+            prefetcher,
             Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
             {
                 SourceDirectory = "/source",
                 DestinationDirectory = "/dest",
             }),
             NullLogger<ArtistImageService>.Instance);
+        return (service, prefetcher, deezer, spotify);
+    }
 
     private static MusicHoarderDbContext CreateDbContext() =>
         new(new DbContextOptionsBuilder<MusicHoarderDbContext>()

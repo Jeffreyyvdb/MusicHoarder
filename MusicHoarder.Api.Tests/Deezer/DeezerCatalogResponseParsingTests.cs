@@ -218,12 +218,13 @@ public class DeezerCatalogResponseParsingTests
 
         var artists = await CreateService(stub).SearchArtistCandidatesAsync("whoever");
 
+        // Grid tiles get picture_big (500px) when present, the hero gets picture_xl (1000px).
         Assert.Equal(
             [
-                new DeezerArtistCandidate("Xl", "xl"),
-                new DeezerArtistCandidate("Big", "big"),
-                new DeezerArtistCandidate("Medium", "medium"),
-                new DeezerArtistCandidate("EmptyXl", ""),
+                new DeezerArtistCandidate("Xl", "big", null, 0, 0, "xl"),
+                new DeezerArtistCandidate("Big", "big", null, 0, 0, "big"),
+                new DeezerArtistCandidate("Medium", "medium", null, 0, 0, "medium"),
+                new DeezerArtistCandidate("EmptyXl", "big", null, 0, 0, ""),
                 new DeezerArtistCandidate(null, null),
             ],
             artists);

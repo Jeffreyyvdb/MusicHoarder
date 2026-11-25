@@ -60,6 +60,8 @@ public class AlbumCoverWriter(
     IFileSystem fileSystem,
     ICoverArtResolver coverArtResolver,
     IExternalCoverArtFetcher externalFetcher,
+    ICoverResolutionCache coverCache,
+    ICoverThumbnailService thumbnails,
     IOptions<MusicEnricherOptions> options,
     ILogger<AlbumCoverWriter> logger) : IAlbumCoverWriter
 {
@@ -200,6 +202,13 @@ public class AlbumCoverWriter(
             $"cover{CoverArtResolver.ExtensionForContentType(contentType)}");
         fileSystem.File.WriteAllBytes(coverPath, bytes);
         logger.LogInformation("Wrote album cover {CoverPath}", coverPath);
+
+        // A new cover in this folder changes what every song in it resolves to: drop their cached
+        // resolutions and prewarm the grid thumbnails of the fresh file.
+        coverCache.InvalidatePath(destinationDirectory);
+        thumbnails.Prewarm(
+            new ResolvedCover { FilePath = coverPath, ContentType = contentType },
+            coverPath);
         return coverPath;
     }
 
