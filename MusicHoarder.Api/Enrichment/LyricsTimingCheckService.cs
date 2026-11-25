@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
+using MusicHoarder.Api.BackgroundWork;
 using MusicHoarder.Api.Endpoints;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
@@ -38,7 +39,8 @@ public sealed partial class LyricsTimingCheckService(
     TranscriptionAudioBudget budget,
     Settings.IRuntimeSettingsService runtimeSettings,
     IOptionsMonitor<LyricsTimingOptions> options,
-    ILogger<LyricsTimingCheckService> logger) : BackgroundService
+    ILogger<LyricsTimingCheckService> logger,
+    BackgroundWorkStatus? status = null) : BackgroundService
 {
     /// <summary>
     /// When the probe pass may next spend quota. A probe that comes back empty-handed means the provider is
@@ -73,6 +75,7 @@ public sealed partial class LyricsTimingCheckService(
         while (!stoppingToken.IsCancellationRequested)
         {
             var worked = false;
+            status?.Working(BackgroundJobIds.Lyrics);
             try
             {
                 worked = await RunFreePassAsync(stoppingToken);
@@ -90,20 +93,58 @@ public sealed partial class LyricsTimingCheckService(
             catch (Exception ex)
             {
                 logger.LogError(ex, "Lyrics timing check sweep failed.");
+                status?.Failing(
+                    BackgroundJobIds.Lyrics, ex, DateTime.UtcNow.AddSeconds(options.CurrentValue.SweepIdleSeconds));
+                await DelayAsync(stoppingToken);
+                continue;
             }
 
             if (worked)
                 continue;
 
-            try
-            {
-                await Task.Delay(TimeSpan.FromSeconds(options.CurrentValue.SweepIdleSeconds), stoppingToken);
-            }
-            catch (OperationCanceledException)
-            {
+            ReportIdle();
+
+            if (!await DelayAsync(stoppingToken))
                 break;
-            }
         }
+    }
+
+    private async Task<bool> DelayAsync(CancellationToken ct)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(options.CurrentValue.SweepIdleSeconds), ct);
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// A sweep with nothing left to do is idle, unless a pass has been told "not now" and is sitting out its
+    /// deferral, which is what the audio allowance and the provider's limits look like from here.
+    /// </summary>
+    private void ReportIdle()
+    {
+        if (status is null)
+            return;
+
+        var now = DateTime.UtcNow;
+        var wait = new[]
+            {
+                (Pass: "AI sync", Until: _autoSyncDeferredUntilUtc),
+                (Pass: "Re-sync", Until: _resyncDeferredUntilUtc),
+                (Pass: "Timing probes", Until: _probeDeferredUntilUtc),
+            }
+            .Where(d => d.Until > now)
+            .MinBy(d => d.Until);
+
+        if (wait.Pass is not null)
+            status.Waiting(BackgroundJobIds.Lyrics, $"{wait.Pass} waits for the transcription audio allowance.", wait.Until);
+        else
+            status.Idle(BackgroundJobIds.Lyrics, now.AddSeconds(options.CurrentValue.SweepIdleSeconds));
     }
 
     /// <summary>
@@ -118,8 +159,7 @@ public sealed partial class LyricsTimingCheckService(
         // A generous batch: this pass is pure arithmetic over text we already hold.
         var songs = await db.Songs
             .IgnoreQueryFilters()
-            .WhereEligibleForLyricsTimingCheck()
-            .Where(s => s.LyricsSyncStatus == LyricsSyncStatus.NotChecked)
+            .WhereDueForFreeTimingCheck()
             .OrderByDescending(s => s.Id)
             .Take(500)
             .ToListAsync(ct);
@@ -173,9 +213,7 @@ public sealed partial class LyricsTimingCheckService(
             db,
             db.Songs
                 .IgnoreQueryFilters()
-                .WhereEligibleForLyricsTimingProbe()
-                .Where(s => s.LyricsSyncStatus == LyricsSyncStatus.Suspect)
-                .Where(s => s.LyricsSyncProbeAttempts < opts.MaxProbeAttempts)
+                .WhereDueForSuspectProbe(opts.MaxProbeAttempts)
                 .OrderBy(s => s.LyricsSyncProbeAttempts)
                 .ThenByDescending(s => s.Id),
             batchSize,
@@ -190,9 +228,7 @@ public sealed partial class LyricsTimingCheckService(
                 db,
                 db.Songs
                     .IgnoreQueryFilters()
-                    .WhereEligibleForLyricsTimingProbe()
-                    .Where(s => s.LyricsSyncStatus == LyricsSyncStatus.Ok)
-                    .Where(s => s.LyricsSyncProbeAttempts == 0)
+                    .WhereDueForUnconfirmedProbe()
                     .OrderByDescending(s => s.Id),
                 batchSize - songs.Count,
                 ct));
@@ -360,12 +396,12 @@ public sealed partial class LyricsTimingCheckService(
                 .WhereFitsBackgroundAudioCeiling(opts.BackgroundAudioCeilingSeconds);
             var newest = await TakeAudibleAsync(
                 db,
-                due.OrderByDescending(s => s.AcquiredAtUtc ?? s.IndexedAtUtc).ThenByDescending(s => s.Id),
+                due.OrderByDescending(LyricsTimingQueries.AddedAt).ThenByDescending(s => s.Id),
                 AutoSyncSongsPerPass / 2,
                 ct);
             var oldest = await TakeAudibleAsync(
                 db,
-                due.OrderBy(s => s.AcquiredAtUtc ?? s.IndexedAtUtc).ThenBy(s => s.Id),
+                due.OrderBy(LyricsTimingQueries.AddedAt).ThenBy(s => s.Id),
                 AutoSyncSongsPerPass / 2,
                 ct);
             picked = newest.Zip(oldest, (n, o) => new[] { n, o })
@@ -590,6 +626,33 @@ public static class LyricsTimingQueries
         => query
             .WhereEligibleForLyricsTimingCheck()
             .Where(s => s.PreferredLyricsSource == PreferredLyricsSource.Lrclib);
+
+    /// <summary>Songs the free pass has not judged yet.</summary>
+    public static IQueryable<SongMetadata> WhereDueForFreeTimingCheck(this IQueryable<SongMetadata> query)
+        => query
+            .WhereEligibleForLyricsTimingCheck()
+            .Where(s => s.LyricsSyncStatus == LyricsSyncStatus.NotChecked);
+
+    /// <summary>The probe pass's first call: songs the free checks flagged, until they have used up their attempts.</summary>
+    public static IQueryable<SongMetadata> WhereDueForSuspectProbe(this IQueryable<SongMetadata> query, int maxAttempts)
+        => query
+            .WhereEligibleForLyricsTimingProbe()
+            .Where(s => s.LyricsSyncStatus == LyricsSyncStatus.Suspect)
+            .Where(s => s.LyricsSyncProbeAttempts < maxAttempts);
+
+    /// <summary>
+    /// The probe pass's second call, behind every suspect: songs the free checks passed and no probe has heard.
+    /// Only taken while <see cref="LyricsTimingOptions.ProbeUnconfirmedSongs"/> is on.
+    /// </summary>
+    public static IQueryable<SongMetadata> WhereDueForUnconfirmedProbe(this IQueryable<SongMetadata> query)
+        => query
+            .WhereEligibleForLyricsTimingProbe()
+            .Where(s => s.LyricsSyncStatus == LyricsSyncStatus.Ok)
+            .Where(s => s.LyricsSyncProbeAttempts == 0);
+
+    /// <summary>When a song was added to the library; the order the AI sync pass takes songs in, from both ends.</summary>
+    public static readonly System.Linq.Expressions.Expression<Func<SongMetadata, DateTime>> AddedAt =
+        s => s.AcquiredAtUtc ?? s.IndexedAtUtc;
 
     /// <summary>
     /// Songs the re-sync pass should transcribe: a probe heard the timing drift (a probe only leaves a song

@@ -25,6 +25,17 @@ public sealed class TranscriptionAudioBudget(
     /// <summary>A song with no known length is metered as this long, so it cannot slip past the meter.</summary>
     public const int UnknownDurationSeconds = 300;
 
+    /// <summary>What the provider's free whisper tier allows, in audio-seconds. Our ceilings sit below these.</summary>
+    public const int ProviderAudioSecondsPerHour = 7200;
+
+    public const int ProviderAudioSecondsPerDay = 28800;
+
+    /// <summary>
+    /// How long a spend row is kept. The meter itself only reads the last day; the rest is the history the
+    /// Background work page charts, so the rows are not deleted the moment they stop counting.
+    /// </summary>
+    public const int RetentionDays = 35;
+
     private static readonly TimeSpan Day = TimeSpan.FromDays(1);
     private static readonly TimeSpan Hour = TimeSpan.FromHours(1);
 
@@ -198,17 +209,18 @@ public sealed class TranscriptionAudioBudget(
         }
     }
 
-    /// <summary>Reads the last day's spend on first use, deleting rows too old to count again.</summary>
+    /// <summary>Reads the last day's spend on first use, deleting rows older than the retention.</summary>
     private async Task<List<TranscriptionAudioSpend>> LoadAsync(CancellationToken ct)
     {
         if (_spend is not null)
             return _spend;
 
         var cutoff = DateTime.UtcNow - Day;
+        var forgetBefore = DateTime.UtcNow.AddDays(-RetentionDays);
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
 
-        var expired = await db.TranscriptionAudioSpends.Where(e => e.AtUtc <= cutoff).ToListAsync(ct);
+        var expired = await db.TranscriptionAudioSpends.Where(e => e.AtUtc <= forgetBefore).ToListAsync(ct);
         if (expired.Count > 0)
         {
             db.TranscriptionAudioSpends.RemoveRange(expired);
@@ -230,7 +242,7 @@ public sealed class TranscriptionAudioBudget(
     /// How long until <paramref name="audioSeconds"/> more fits under <paramref name="limit"/> in a rolling
     /// <paramref name="window"/>: zero when it fits now, else the moment enough of the oldest spend ages out.
     /// </summary>
-    private static TimeSpan WaitForRoom(
+    internal static TimeSpan WaitForRoom(
         List<TranscriptionAudioSpend> spend, DateTime now, TimeSpan window, double limit, double audioSeconds)
     {
         var inWindow = spend.Where(e => e.AtUtc > now - window).ToList();

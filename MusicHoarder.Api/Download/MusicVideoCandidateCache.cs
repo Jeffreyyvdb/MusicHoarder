@@ -81,6 +81,15 @@ public class MusicVideoCandidateCache(
         return new VideoCandidateList(Read(row), row.SearchedAtUtc);
     }
 
+    /// <summary>How long a failed search waits before the prefetch tries that song again.</summary>
+    public static readonly TimeSpan RetryFailedAfter = TimeSpan.FromDays(1);
+
+    /// <summary>Whether the prefetch should search again: the last search failed long enough ago, or its list is not servable.</summary>
+    public bool NeedsSearch(SongVideoCandidateSet set, string queryKey, DateTime now)
+        => set.Error is not null
+            ? now - set.SearchedAtUtc >= RetryFailedAfter
+            : !IsServable(set, queryKey);
+
     /// <summary>Whether a stored set still answers the song's current search.</summary>
     public bool IsServable(SongVideoCandidateSet row, string queryKey) =>
         row.Error is null

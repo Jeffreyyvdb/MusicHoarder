@@ -20,6 +20,16 @@ public static class GradeFreshness
         promptVersion != AlbumGradingPrompt.Version
         || !string.Equals(model, currentModel, StringComparison.Ordinal);
 
+    /// <summary>
+    /// Whether the auto-grade sweep should grade a song again: never graded, re-enriched since its grade, or
+    /// its grade is a blank. A prompt or model change is deliberately not a reason (see
+    /// <see cref="IsSongGradeOutdated"/>).
+    /// </summary>
+    public static bool NeedsGrading(DateTime? gradedAtUtc, DateTime? enrichedAtUtc, bool isBlank)
+        => gradedAtUtc is not { } graded
+            || (enrichedAtUtc is { } enriched && graded < enriched)
+            || isBlank;
+
     /// <summary>Query form of <see cref="IsSongGradeOutdated"/>, kept as a translatable expression.</summary>
     public static IQueryable<SongQualityGrade> WhereOutdated(this IQueryable<SongQualityGrade> grades, string currentModel) =>
         grades.Where(g => g.PromptVersion != QualityGradingPrompt.Version || g.Model != currentModel);
@@ -27,4 +37,17 @@ public static class GradeFreshness
     /// <summary>Query form of <see cref="IsAlbumGradeOutdated"/>, kept as a translatable expression.</summary>
     public static IQueryable<CanonicalAlbumQualityGrade> WhereOutdated(this IQueryable<CanonicalAlbumQualityGrade> grades, string currentModel) =>
         grades.Where(g => g.PromptVersion != AlbumGradingPrompt.Version || g.Model != currentModel);
+}
+
+public static class QualityGradingQueries
+{
+    private static readonly EnrichmentStatus[] GradeableStatuses =
+        [EnrichmentStatus.Matched, EnrichmentStatus.NeedsReview];
+
+    /// <summary>Songs the auto-grade sweep may grade. The demo library is read-only and never graded.</summary>
+    public static IQueryable<SongMetadata> WhereGradeable(this IQueryable<SongMetadata> songs)
+        => songs
+            .ExcludingDemoTenant()
+            .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic && !s.IsDuplicate)
+            .Where(s => GradeableStatuses.Contains(s.EnrichmentStatus));
 }
