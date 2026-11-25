@@ -216,11 +216,11 @@ public sealed partial class LyricsTimingCheckService(
                 .IgnoreQueryFilters()
                 .WhereDueForSuspectProbe(opts.MaxProbeAttempts)
                 .OrderBy(s => s.LyricsSyncProbeAttempts)
-                .ThenByDescending(s => s.Id),
+                .ThenByDescending(LyricsTimingQueries.ProbeSequence),
             batchSize,
             ct);
 
-        if (songs.Count < batchSize && opts.ProbeUnconfirmedSongs)
+        if (songs.Count < batchSize)
         {
             // "Ok" with no probe attempt means only the arithmetic has looked at it: nothing provably wrong,
             // which a uniformly shifted or carelessly timed LRC also satisfies. Newest first, so what was
@@ -229,8 +229,8 @@ public sealed partial class LyricsTimingCheckService(
                 db,
                 db.Songs
                     .IgnoreQueryFilters()
-                    .WhereDueForUnconfirmedProbe()
-                    .OrderByDescending(s => s.Id),
+                    .WhereDueForUnconfirmedProbe(opts.ProbeUnconfirmedSongs)
+                    .OrderByDescending(LyricsTimingQueries.ProbeSequence),
                 batchSize - songs.Count,
                 ct));
         }
@@ -643,13 +643,17 @@ public static class LyricsTimingQueries
 
     /// <summary>
     /// The probe pass's second call, behind every suspect: songs the free checks passed and no probe has heard.
-    /// Only taken while <see cref="LyricsTimingOptions.ProbeUnconfirmedSongs"/> is on.
+    /// None while <see cref="LyricsTimingOptions.ProbeUnconfirmedSongs"/> is off.
     /// </summary>
-    public static IQueryable<SongMetadata> WhereDueForUnconfirmedProbe(this IQueryable<SongMetadata> query)
-        => query
+    public static IQueryable<SongMetadata> WhereDueForUnconfirmedProbe(
+        this IQueryable<SongMetadata> query, bool probeUnconfirmedSongs)
+        => (probeUnconfirmedSongs ? query : query.Where(_ => false))
             .WhereEligibleForLyricsTimingProbe()
             .Where(s => s.LyricsSyncStatus == LyricsSyncStatus.Ok)
             .Where(s => s.LyricsSyncProbeAttempts == 0);
+
+    /// <summary>Where a song stands in the probe pass: it takes the highest first, so the newest additions are heard before the back catalogue.</summary>
+    public static readonly System.Linq.Expressions.Expression<Func<SongMetadata, int>> ProbeSequence = s => s.Id;
 
     /// <summary>When a song was added to the library; the order the AI sync pass takes songs in, from both ends.</summary>
     public static readonly System.Linq.Expressions.Expression<Func<SongMetadata, DateTime>> AddedAt =

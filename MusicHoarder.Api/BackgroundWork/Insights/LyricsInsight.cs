@@ -179,9 +179,8 @@ public sealed class LyricsInsight(
         var freeCheck = await db.Songs.AsNoTracking().WhereDueForFreeTimingCheck().CountAsync(ct);
         var suspectIds = await db.Songs.AsNoTracking()
             .WhereDueForSuspectProbe(opts.MaxProbeAttempts).Select(s => s.Id).ToListAsync(ct);
-        var unconfirmedIds = opts.ProbeUnconfirmedSongs
-            ? await db.Songs.AsNoTracking().WhereDueForUnconfirmedProbe().Select(s => s.Id).ToListAsync(ct)
-            : [];
+        var unconfirmedIds = await db.Songs.AsNoTracking()
+            .WhereDueForUnconfirmedProbe(opts.ProbeUnconfirmedSongs).Select(s => s.Id).ToListAsync(ct);
         var givenUp = await db.Songs.AsNoTracking()
             .WhereEligibleForLyricsTimingProbe()
             .CountAsync(s => s.LyricsSyncStatus == LyricsSyncStatus.Suspect && s.LyricsSyncProbeAttempts >= opts.MaxProbeAttempts, ct);
@@ -300,7 +299,7 @@ public sealed class LyricsInsight(
         var waiting = suspectIds.Concat(unconfirmedIds).ToHashSet();
         var songs = await db.Songs.AsNoTracking()
             .WhereEligibleForLyricsTimingCheck()
-            .OrderBy(s => s.Id)
+            .OrderBy(LyricsTimingQueries.ProbeSequence)
             .Select(s => new { s.Id, Added = s.AcquiredAtUtc ?? s.IndexedAtUtc, s.LyricsSyncProbeAttempts })
             .ToListAsync(ct);
 
