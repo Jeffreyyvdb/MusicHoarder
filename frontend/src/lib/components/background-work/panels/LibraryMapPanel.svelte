@@ -136,13 +136,8 @@
           ></span>
           <span
             class="text-caption-2 text-foreground bg-card absolute z-10 rounded-[3px] px-1 font-medium whitespace-nowrap"
-            style:left="{marker.position * 100}%"
+            style:left="{marker.labelStart * 100}%"
             style:bottom="{marker.lane * LANE_HEIGHT + 4}px"
-            style:transform={marker.align === 'start'
-              ? 'translateX(-4px)'
-              : marker.align === 'end'
-                ? 'translateX(calc(-100% + 4px))'
-                : 'translateX(-50%)'}
           >
             {marker.label}
           </span>

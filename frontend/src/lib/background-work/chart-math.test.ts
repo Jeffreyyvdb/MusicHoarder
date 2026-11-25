@@ -215,11 +215,22 @@ describe('placeMarkers', () => {
       { position: 0.5, width: 0.2 },
       { position: 0.98, width: 0.25 }
     ]);
-    expect(placed.map((p) => p.align)).toEqual(['start', 'start', 'center', 'end']);
+    for (const [i, start] of [0.02, 0.1, 0.4, 0.73].entries())
+      expect(placed[i].labelStart).toBeCloseTo(start);
     expect(placed[0].lane).toBe(0);
     expect(placed[1].lane).toBe(1);
     expect(placed[2].lane).toBe(0);
     expect(placed[3].lane).toBe(0);
+  });
+
+  it('keeps a long label inside the plot wherever its marker sits', () => {
+    const placed = placeMarkers([
+      { position: 0.3, width: 0.7 },
+      { position: 0.7, width: 0.8 },
+      { position: 0.5, width: 0.2 }
+    ]);
+    for (const [i, start] of [0, 0.2, 0.4].entries())
+      expect(placed[i].labelStart).toBeCloseTo(start);
   });
 
   it('answers in the order it was given', () => {

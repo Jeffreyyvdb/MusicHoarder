@@ -274,7 +274,8 @@ export function stretches(bins: readonly Bin[]): Stretch[] {
 
 export interface MarkerPlacement {
   position: number;
-  align: 'start' | 'center' | 'end';
+  /** Where the label's left edge sits, as a share of the plot's width. */
+  labelStart: number;
   lane: number;
 }
 
@@ -286,19 +287,19 @@ export function placeMarkers(
   const laneEnds: number[] = [];
   const placed = Array.from({ length: markers.length }, (): MarkerPlacement => ({
     position: 0,
-    align: 'center',
+    labelStart: 0,
     lane: 0
   }));
   for (const i of order) {
     const { position, width } = markers[i];
-    const align = position < 0.25 ? 'start' : position > 0.75 ? 'end' : 'center';
-    const start =
-      align === 'start' ? position : align === 'end' ? position - width : position - width / 2;
+    const wanted =
+      position < 0.25 ? position : position > 0.75 ? position - width : position - width / 2;
+    const start = Math.min(Math.max(0, wanted), Math.max(0, 1 - width));
     const end = start + width;
     let lane = laneEnds.findIndex((laneEnd) => laneEnd + gap <= start);
     if (lane === -1) lane = laneEnds.length;
     laneEnds[lane] = end;
-    placed[i] = { position, align, lane };
+    placed[i] = { position, labelStart: start, lane };
   }
   return placed;
 }
