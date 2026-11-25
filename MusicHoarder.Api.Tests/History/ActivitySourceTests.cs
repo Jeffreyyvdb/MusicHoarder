@@ -332,6 +332,32 @@ public class ActivitySourceTests
     }
 
     [Fact]
+    public async Task MusicVideo_SaysWhenNobodyChoseTheClip()
+    {
+        using var db = NewContext();
+        var picked = AddSong(db, 1, "Picked for you");
+        var chosen = AddSong(db, 2, "Chosen by hand");
+        db.SongMusicVideos.AddRange(
+            new SongMusicVideo
+            {
+                SongId = picked.Id, Status = MusicVideoStatus.Ready, FetchedAtUtc = Now.AddHours(-2),
+                SyncSource = MusicVideoSyncSource.AutoAligned, SyncOffsetMs = 1000, YouTubeVideoId = "abc123",
+                Pick = MusicVideoPick.Automatic,
+            },
+            new SongMusicVideo
+            {
+                SongId = chosen.Id, Status = MusicVideoStatus.Ready, FetchedAtUtc = Now.AddHours(-1),
+                SyncSource = MusicVideoSyncSource.AutoAligned, SyncOffsetMs = 1000, YouTubeVideoId = "def456",
+            });
+        db.SaveChanges();
+
+        var entries = await new MusicVideoActivitySource(db).CollectAsync(Window, default);
+
+        Assert.StartsWith(MusicVideoActivitySource.PickedAutomatically, entries.Single(e => e.SongId == picked.Id).Detail);
+        Assert.DoesNotContain(MusicVideoActivitySource.PickedAutomatically, entries.Single(e => e.SongId == chosen.Id).Detail);
+    }
+
+    [Fact]
     public async Task MusicVideo_IgnoresAFetchStillInFlight()
     {
         using var db = NewContext();

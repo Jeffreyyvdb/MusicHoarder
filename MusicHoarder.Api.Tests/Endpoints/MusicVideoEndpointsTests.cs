@@ -212,6 +212,26 @@ public class MusicVideoEndpointsTests
     }
 
     [Fact]
+    public async Task FetchVideo_MakesTheVideoARequestedOneEvenOverAnAutomaticPick()
+    {
+        await using var db = NewContext();
+        db.Songs.Add(Song(1));
+        db.SongMusicVideos.Add(new SongMusicVideo
+        {
+            SongId = 1, Status = MusicVideoStatus.Failed, Pick = MusicVideoPick.Automatic, YouTubeVideoId = "vid-zzzzz",
+        });
+        await db.SaveChangesAsync();
+
+        await MusicVideoEndpoints.FetchVideo(
+            1, new MusicVideoEndpoints.FetchVideoRequest("https://youtu.be/dQw4w9WgXcQ"), db, new MusicVideoChannel(), default);
+
+        var row = await db.SongMusicVideos.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal(MusicVideoPick.Requested, row.Pick);
+        Assert.Equal(MusicVideoStatus.Fetching, row.Status);
+        Assert.Equal("dQw4w9WgXcQ", row.YouTubeVideoId);
+    }
+
+    [Fact]
     public async Task SetVideoOffset_ClampsAndMarksManual()
     {
         await using var db = NewContext();

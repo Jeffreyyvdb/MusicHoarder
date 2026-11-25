@@ -4733,6 +4733,11 @@ export interface SettingsDownloadsView {
    * stop being stored twice. Only means anything when {@link enabled} is true.
    */
   releaseStagedSources: boolean;
+  /**
+   * Runtime toggle: download a song's music video by itself when it is confident it is the song's own
+   * moving clip (right artist, title and length). Absent from a server that predates the setting.
+   */
+  autoDownloadMusicVideos?: boolean;
 }
 
 export interface SettingsResponse {
@@ -4749,7 +4754,12 @@ export interface SettingsResponse {
 export interface SettingsUpdateRequest {
   providers?: Partial<SettingsProvidersView>;
   qualityGrading?: { enabled?: boolean };
-  downloads?: { autoDownload?: boolean; albumCompletion?: boolean; releaseStagedSources?: boolean };
+  downloads?: {
+    autoDownload?: boolean;
+    albumCompletion?: boolean;
+    releaseStagedSources?: boolean;
+    autoDownloadMusicVideos?: boolean;
+  };
   lyricsTranscription?: { autoSync?: boolean };
 }
 

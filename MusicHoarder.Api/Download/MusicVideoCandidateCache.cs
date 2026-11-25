@@ -57,9 +57,13 @@ public class MusicVideoCandidateCache(
     /// the song, and the <see cref="RankingVersion"/> that ranked it. Re-enrichment that renames a song
     /// changes it, and the old list is then not served.
     /// </summary>
-    public static string QueryKeyFor(SongMetadata song)
+    public static string QueryKeyFor(SongMetadata song) =>
+        QueryKeyFor(song.Artist, song.Title, song.DurationMs, song.DurationSeconds);
+
+    /// <summary>The same key from just the fields it reads, for a pass over the whole library that loads no more.</summary>
+    internal static string QueryKeyFor(string? artist, string? title, int? durationMs, int? durationSeconds)
     {
-        var text = $"{song.Artist}\n{song.Title}\n{song.DurationMs ?? song.DurationSeconds * 1000}\nranking {RankingVersion}";
+        var text = $"{artist}\n{title}\n{durationMs ?? durationSeconds * 1000}\nranking {RankingVersion}";
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
     }
 
@@ -113,6 +117,12 @@ public class MusicVideoCandidateCache(
         {
             if (row is null || !IsServable(row, QueryKeyFor(song)))
                 await RecordFailureAsync(db, song, NoCandidatesError, ct);
+            else
+            {
+                // The good list stays; the schedule still learns that the search came back empty.
+                Schedule(row, song, MusicVideoSearchOutcome.Empty, time.GetUtcNow().UtcDateTime);
+                await TrySaveAsync(db, song.Id, ct);
+            }
             return new VideoCandidateList([], time.GetUtcNow().UtcDateTime);
         }
 
@@ -149,12 +159,15 @@ public class MusicVideoCandidateCache(
         stored.SearchedAtUtc = now;
         stored.CandidatesJson = JsonSerializer.Serialize(candidates, Json);
         stored.Error = null;
+        Schedule(stored, song, MusicVideoAutoPick.Choose(candidates, song, options.Value) is null
+            ? MusicVideoSearchOutcome.NoClip
+            : MusicVideoSearchOutcome.Clip, now);
         await SaveAsync(db, stored, isNew: row is null, ct);
 
         return new VideoCandidateList(candidates, now);
     }
 
-    /// <summary>Records that searching for the song failed, so the prefetch does not retry it every pass.</summary>
+    /// <summary>Records that searching for the song failed, so the prefetch waits before it tries again.</summary>
     public async Task RecordFailureAsync(MusicHoarderDbContext db, SongMetadata song, string error, CancellationToken ct)
     {
         var row = await SetOf(db, song.Id).FirstOrDefaultAsync(ct);
@@ -162,6 +175,7 @@ public class MusicVideoCandidateCache(
         stored.QueryKey = QueryKeyFor(song);
         stored.SearchedAtUtc = time.GetUtcNow().UtcDateTime;
         stored.Error = error.Length > 1024 ? error[..1024] : error;
+        Schedule(stored, song, MusicVideoSearchOutcome.Empty, stored.SearchedAtUtc);
         await SaveAsync(db, stored, isNew: row is null, ct);
     }
 
@@ -186,6 +200,17 @@ public class MusicVideoCandidateCache(
         candidates[index] = Merge(candidates[index], result);
         row.CandidatesJson = JsonSerializer.Serialize(candidates, Json);
         await TrySaveAsync(db, songId, ct);
+    }
+
+    /// <summary>Sets when the song is searched again, and the run of empty searches that decides it.</summary>
+    private static void Schedule(SongVideoCandidateSet row, SongMetadata song, MusicVideoSearchOutcome outcome, DateTime now)
+    {
+        row.EmptySearches = outcome == MusicVideoSearchOutcome.Empty ? row.EmptySearches + 1 : 0;
+        row.NextSearchAtUtc = MusicVideoSearchSchedule.NextSearchAt(
+            outcome,
+            MusicVideoSearchSchedule.IsRecentRelease(song.ReleaseDate, song.Year, song.AcquiredAtUtc, now),
+            row.EmptySearches,
+            now);
     }
 
     private static IQueryable<SongVideoCandidateSet> SetOf(MusicHoarderDbContext db, int songId) =>
@@ -244,8 +269,10 @@ public class MusicVideoCandidateCache(
         try
         {
             var inserted = await db.Database.ExecuteSqlAsync($"""
-                INSERT INTO "SongVideoCandidateSets" ("SongId", "QueryKey", "SearchedAtUtc", "CandidatesJson", "Error")
-                VALUES ({row.SongId}, {row.QueryKey}, {row.SearchedAtUtc}, {row.CandidatesJson}, {row.Error})
+                INSERT INTO "SongVideoCandidateSets"
+                    ("SongId", "QueryKey", "SearchedAtUtc", "CandidatesJson", "Error", "NextSearchAtUtc", "EmptySearches")
+                VALUES ({row.SongId}, {row.QueryKey}, {row.SearchedAtUtc}, {row.CandidatesJson}, {row.Error},
+                    {row.NextSearchAtUtc}, {row.EmptySearches})
                 ON CONFLICT ("SongId") DO NOTHING
                 """, ct);
             if (inserted == 0)

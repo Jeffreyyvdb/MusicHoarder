@@ -419,37 +419,15 @@ public static class MusicVideoEndpoints
         if (song is null)
             return Results.NotFound(new { message = $"Song with id {id} not found." });
 
-        string? pinnedUrl = null;
         string? pinnedVideoId = null;
         if (!string.IsNullOrWhiteSpace(request?.Url))
         {
             if (!ImportUrlParser.TryParse(request.Url, out var kind, out var videoId) || kind != ImportUrlKind.YouTube)
                 return Results.BadRequest(new { message = "Not a recognizable YouTube URL." });
-            pinnedUrl = ImportUrlParser.YouTubeWatchUrl(videoId);
             pinnedVideoId = videoId;
         }
 
-        var video = await db.SongMusicVideos
-            .FirstOrDefaultAsync(v => v.SongId == id, ct);
-        if (video is null)
-        {
-            video = new SongMusicVideo { SongId = id };
-            db.SongMusicVideos.Add(video);
-        }
-        else if (video.Status == MusicVideoStatus.Fetching)
-        {
-            // Already queued/in-flight — don't stack a second fetch.
-            return Results.Accepted(value: ToDto(video, includeDiagnostics: true));
-        }
-
-        video.Status = MusicVideoStatus.Fetching;
-        video.LastError = null;
-        // Stamp the pinned id so a restart's re-enqueue (which only has the row) retries the same video.
-        if (pinnedVideoId is not null)
-            video.YouTubeVideoId = pinnedVideoId;
-        await db.SaveChangesAsync(ct);
-
-        channel.Enqueue(new MusicVideoWorkItem(id, MusicVideoWorkKind.Fetch, pinnedUrl));
+        var video = await MusicVideoFetchQueue.RequestAsync(db, channel, id, pinnedVideoId, ct);
         return Results.Accepted(value: ToDto(video, includeDiagnostics: true));
     }
 

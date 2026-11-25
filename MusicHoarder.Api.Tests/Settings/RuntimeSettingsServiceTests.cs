@@ -50,6 +50,34 @@ public class RuntimeSettingsServiceTests
     }
 
     [Fact]
+    public async Task AutoDownloadMusicVideos_DefaultsOff_AndRowOverridesIt()
+    {
+        var db = CreateDb();
+        var service = CreateService(db, qualityEnabledDefault: true);
+
+        Assert.False((await service.GetAsync()).AutoDownloadMusicVideos);
+
+        var effective = await service.UpdateAsync(new RuntimeSettingsUpdate { AutoDownloadMusicVideos = true });
+
+        Assert.True(effective.AutoDownloadMusicVideos);
+        Assert.True((await service.GetAsync()).AutoDownloadMusicVideos);
+        Assert.True(await db.RuntimeSettings.Select(r => r.AutoDownloadMusicVideos).SingleAsync());
+
+        Assert.False((await service.UpdateAsync(new RuntimeSettingsUpdate { AutoDownloadMusicVideos = false }))
+            .AutoDownloadMusicVideos);
+    }
+
+    [Fact]
+    public async Task AutoDownloadMusicVideos_FollowsTheConfiguredValueUntilTheRowSaysOtherwise()
+    {
+        var service = CreateService(CreateDb(), qualityEnabledDefault: true, autoDownloadMusicVideosConfigured: true);
+
+        Assert.True((await service.GetAsync()).AutoDownloadMusicVideos);
+        Assert.False((await service.UpdateAsync(new RuntimeSettingsUpdate { AutoDownloadMusicVideos = false }))
+            .AutoDownloadMusicVideos);
+    }
+
+    [Fact]
     public async Task LyricsAutoSync_IsOffAndUnchosen_UntilConfiguredOrAnswered()
     {
         var db = CreateDb();
@@ -75,12 +103,14 @@ public class RuntimeSettingsServiceTests
             .UseInMemoryDatabase(Guid.NewGuid().ToString("N")).Options);
 
     private static RuntimeSettingsService CreateService(
-        MusicHoarderDbContext db, bool qualityEnabledDefault, bool? autoSyncConfigured = null) =>
+        MusicHoarderDbContext db, bool qualityEnabledDefault, bool? autoSyncConfigured = null,
+        bool autoDownloadMusicVideosConfigured = false) =>
         new(new SimpleScopeFactory(db),
             new TestOptionsMonitor<MusicEnricherOptions>(new MusicEnricherOptions
             {
                 SourceDirectory = "/src",
                 DestinationDirectory = "/dst",
+                AutoDownloadMusicVideos = autoDownloadMusicVideosConfigured,
             }),
             new TestOptionsMonitor<QualityGradingOptions>(new QualityGradingOptions { Enabled = qualityEnabledDefault }),
             new TestOptionsMonitor<LyricsTimingOptions>(new LyricsTimingOptions { EnableAutoSync = autoSyncConfigured }));

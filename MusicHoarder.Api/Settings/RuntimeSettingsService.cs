@@ -75,6 +75,7 @@ public sealed class RuntimeSettingsService : IRuntimeSettingsService
             if (update.AlbumCompletionEnabled.HasValue) row.AlbumCompletionEnabled = update.AlbumCompletionEnabled;
             if (update.ReleaseStagedSourcesEnabled.HasValue) row.ReleaseStagedSourcesEnabled = update.ReleaseStagedSourcesEnabled;
             if (update.LyricsAutoSyncEnabled.HasValue) row.LyricsAutoSyncEnabled = update.LyricsAutoSyncEnabled;
+            if (update.AutoDownloadMusicVideos.HasValue) row.AutoDownloadMusicVideos = update.AutoDownloadMusicVideos;
 
             row.UpdatedAtUtc = DateTime.UtcNow;
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
@@ -106,6 +107,7 @@ public sealed class RuntimeSettingsService : IRuntimeSettingsService
             ReleaseStagedSourcesEnabled: row?.ReleaseStagedSourcesEnabled ?? defaults.ReleaseStagedSourcesAfterBuild,
             LyricsAutoSyncEnabled: autoSync ?? false,
             LyricsAutoSyncChosen: autoSync is not null,
+            AutoDownloadMusicVideos: row?.AutoDownloadMusicVideos ?? defaults.AutoDownloadMusicVideos,
             UpdatedAtUtc: row?.UpdatedAtUtc);
     }
 }

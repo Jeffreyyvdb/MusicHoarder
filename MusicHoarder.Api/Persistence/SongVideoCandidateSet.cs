@@ -5,7 +5,7 @@ namespace MusicHoarder.Api.Persistence;
 /// <summary>
 /// The music-video candidates last found for one song — the list "Choose video…" shows — kept so the
 /// picker opens on an answer instead of a YouTube search. Written by the background prefetch for
-/// newly added songs (<c>MusicVideoCandidatePrefetchService</c>) and by every live search the picker
+/// every song without a video (<c>MusicVideoCandidatePrefetchService</c>) and by every live search the picker
 /// makes; each probe the picker runs writes its verdict back into the row, so a candidate is measured
 /// once. Nothing here is downloaded: it is a cache of search results and their probes.
 ///
@@ -38,4 +38,13 @@ public class SongVideoCandidateSet
     /// </summary>
     [MaxLength(1024)]
     public string? Error { get; set; }
+
+    /// <summary>
+    /// When the prefetch searches this song again (<c>MusicVideoSearchSchedule</c>); null means now,
+    /// which is what a set stored before the schedule existed holds. Set by every write the cache makes.
+    /// </summary>
+    public DateTime? NextSearchAtUtc { get; set; }
+
+    /// <summary>Consecutive searches that failed or found nothing; a search that found candidates resets it to 0.</summary>
+    public int EmptySearches { get; set; }
 }
