@@ -1007,23 +1007,16 @@ public class MusicEnricherOptions
     public int MusicVideoProbeTimeoutSeconds { get; set; } = 25;
 
     /// <summary>
-    /// Minutes between passes of the music-video candidate prefetch, which searches YouTube (and
-    /// probes the top <see cref="MusicVideoProbeCandidates"/>) for newly added songs without a video,
-    /// so "Choose video…" opens on a list instead of a search. Nothing is downloaded, and nothing runs
-    /// until the instance has fetched at least one music video. Each song costs one search plus up to
+    /// Minutes between the starts of two passes of the music-video candidate prefetch, which searches
+    /// YouTube (and probes the top <see cref="MusicVideoProbeCandidates"/>) for every song without a
+    /// video, newest first, so "Choose video…" opens on a list instead of a search. A song is searched
+    /// again when <see cref="MusicVideoSearchSchedule"/> says so. Nothing runs until the instance has
+    /// fetched at least one music video. Each song costs one search plus up to
     /// <see cref="MusicVideoProbeCandidates"/> metadata calls. 0 disables it; the picker then
     /// searches when it is opened, as before.
     /// </summary>
     [Range(0, 1440)]
-    public int MusicVideoCandidatePrefetchIntervalMinutes { get; set; } = 15;
-
-    /// <summary>
-    /// How recently a song must have entered the library (<c>AcquiredAtUtc</c>) for the prefetch to
-    /// look for its candidates. Bounds the YouTube traffic to the songs someone is likely to open next,
-    /// instead of searching the whole back catalogue.
-    /// </summary>
-    [Range(1, 365)]
-    public int MusicVideoCandidatePrefetchDays { get; set; } = 14;
+    public int MusicVideoCandidatePrefetchIntervalMinutes { get; set; } = 5;
 
     /// <summary>Songs the prefetch handles per pass, one at a time.</summary>
     [Range(1, 500)]

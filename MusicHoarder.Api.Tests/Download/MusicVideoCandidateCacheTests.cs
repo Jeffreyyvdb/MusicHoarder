@@ -125,12 +125,12 @@ public class MusicVideoCandidateCacheTests
     }
 
     [Fact]
-    public async Task Prefetch_skips_songs_that_are_old_unenriched_a_members_or_already_have_a_video()
+    public async Task Prefetch_skips_songs_that_are_unenriched_a_members_or_already_have_a_video()
     {
         await using var db = NewContext();
         await SeedUsersAsync(db);
         db.Songs.AddRange(
-            Song(1, acquired: Now.AddDays(-40)),          // outside the window
+            Song(1, acquired: Now.AddDays(-400)),         // old: still wanted
             Song(2, status: EnrichmentStatus.Pending),    // its title may still change
             Song(3, owner: Member),                       // the picker is admin-only
             Song(4),                                      // has a video
@@ -140,12 +140,95 @@ public class MusicVideoCandidateCacheTests
             new SongMusicVideo { SongId = 5, Status = MusicVideoStatus.Failed });
         await db.SaveChangesAsync();
 
-        Assert.Equal(1, await Prefetch(db).RunAsync(default));
-        Assert.Equal([5], await db.SongVideoCandidateSets.Select(c => c.SongId).ToListAsync());
+        Assert.Equal(2, await Prefetch(db).RunAsync(default));
+        Assert.Equal([1, 5], (await db.SongVideoCandidateSets.Select(c => c.SongId).ToListAsync()).Order());
 
         // Nothing left to do on the next pass.
         Assert.Equal(0, await Prefetch(db).RunAsync(default));
+        Assert.Equal(2, _downloader.SuggestCalls.Count);
+    }
+
+    [Fact]
+    public async Task Prefetch_covers_the_whole_library_newest_first_and_not_only_what_was_just_added()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+        db.Songs.AddRange(
+            Song(1, acquired: Now.AddDays(-400)),
+            Song(2, acquired: Now.AddDays(-2)),
+            Song(3, acquired: Now.AddDays(-30)),
+            Song(4, acquired: Now.AddYears(-5)));
+        var unstamped = Song(5);
+        unstamped.AcquiredAtUtc = null; // falls back to when it was indexed (Now)
+        db.Songs.Add(unstamped);
+        await db.SaveChangesAsync();
+        _options.MusicVideoCandidatePrefetchBatchSize = 3;
+
+        Assert.Equal(3, await Prefetch(db).RunAsync(default));
+        Assert.Equal(["Title 5", "Title 2", "Title 3"], _downloader.SuggestCalls.Select(c => c.Title));
+
+        Assert.Equal(2, await Prefetch(db).RunAsync(default));
+        Assert.Equal(["Title 1", "Title 4"], _downloader.SuggestCalls.Skip(3).Select(c => c.Title));
+    }
+
+    [Fact]
+    public async Task A_song_is_searched_again_only_once_its_schedule_has_come_round()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+        db.Songs.Add(Song(1, acquired: Now.AddYears(-3)));
+        await db.SaveChangesAsync();
+
+        Assert.Equal(1, await Prefetch(db).RunAsync(default));
+        var next = (await db.SongVideoCandidateSets.SingleAsync()).NextSearchAtUtc;
+        Assert.Equal(Now.AddDays(180), next); // an older song with a confident pick
+
+        _clock.Now = Now.AddDays(179);
+        Assert.Equal(0, await Prefetch(db).RunAsync(default));
         Assert.Single(_downloader.SuggestCalls);
+
+        _clock.Now = Now.AddDays(180);
+        Assert.Equal(1, await Prefetch(db).RunAsync(default));
+        Assert.Equal(2, _downloader.SuggestCalls.Count);
+    }
+
+    [Fact]
+    public async Task A_list_stored_before_the_schedule_existed_is_due()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+        var song = Song(1);
+        db.Songs.Add(song);
+        db.SongVideoCandidateSets.Add(new SongVideoCandidateSet
+        {
+            SongId = 1,
+            QueryKey = MusicVideoCandidateCache.QueryKeyFor(song),
+            SearchedAtUtc = Now.AddDays(-1),
+            CandidatesJson = "[]",
+            NextSearchAtUtc = null,
+        });
+        await db.SaveChangesAsync();
+
+        Assert.Equal(1, await Prefetch(db).RunAsync(default));
+        Assert.NotNull((await db.SongVideoCandidateSets.AsNoTracking().SingleAsync()).NextSearchAtUtc);
+    }
+
+    [Fact]
+    public async Task A_list_whose_search_changed_is_due_before_its_schedule_says_so()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+        db.Songs.Add(Song(1, acquired: Now.AddYears(-3)));
+        await db.SaveChangesAsync();
+        await Prefetch(db).RunAsync(default);
+
+        // Re-enrichment fixed the song's length: the old search no longer answers it.
+        var song = await db.Songs.SingleAsync(s => s.Id == 1);
+        song.DurationSeconds = 241;
+        await db.SaveChangesAsync();
+
+        Assert.Equal(1, await Prefetch(db).RunAsync(default));
+        Assert.Equal(241_000, _downloader.SuggestCalls[^1].DurationMs);
     }
 
     [Fact]

@@ -57,9 +57,13 @@ public class MusicVideoCandidateCache(
     /// the song, and the <see cref="RankingVersion"/> that ranked it. Re-enrichment that renames a song
     /// changes it, and the old list is then not served.
     /// </summary>
-    public static string QueryKeyFor(SongMetadata song)
+    public static string QueryKeyFor(SongMetadata song) =>
+        QueryKeyFor(song.Artist, song.Title, song.DurationMs, song.DurationSeconds);
+
+    /// <summary>The same key from just the fields it reads, for a pass over the whole library that loads no more.</summary>
+    internal static string QueryKeyFor(string? artist, string? title, int? durationMs, int? durationSeconds)
     {
-        var text = $"{song.Artist}\n{song.Title}\n{song.DurationMs ?? song.DurationSeconds * 1000}\nranking {RankingVersion}";
+        var text = $"{artist}\n{title}\n{durationMs ?? durationSeconds * 1000}\nranking {RankingVersion}";
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
     }
 
