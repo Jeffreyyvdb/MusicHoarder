@@ -804,7 +804,7 @@
       {/if}
 
       <!-- Summary. Below lg it reads as a list of values; from lg it is the six-figure strip. -->
-      <GroupedList.Section headingLevel={2} header="Summary">
+      <GroupedList.Section headingLevel={2} header="Summary" data-mh-screen="">
         <!-- lg+: the strip -->
         <div class="divide-separator hidden divide-x lg:flex">
           {@render kpi(

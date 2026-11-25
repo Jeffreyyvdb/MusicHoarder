@@ -470,7 +470,7 @@
              a list view's, with the hairline that separates it from the rows. -->
         <div
           data-mh-list-head=""
-          data-mh-lcd-head={visibleChildren.length > 0 ? '' : undefined}
+          data-mh-tray-head={visibleChildren.length > 0 ? '' : undefined}
           class="bg-background border-separator text-muted-foreground sticky top-(--mh-navbar-h,0px) z-10 flex items-center gap-2 border-b px-6 pt-1 pb-1.5 text-[11px] font-medium"
           aria-hidden="true"
         >
@@ -485,7 +485,7 @@
     {/if}
 
     <div
-      data-mh-lcd-list={tree && visibleChildren.length > 0 ? '' : undefined}
+      data-mh-tray-list={tree && visibleChildren.length > 0 ? '' : undefined}
       class="px-2 py-2 md:px-4"
     >
       {#if isLoading}

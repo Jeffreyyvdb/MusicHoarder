@@ -14,8 +14,10 @@
  *
  *   desk     the paper the devices sit on (body background), never a surface you read from
  *   body     molded off-white plastic: the sidebar, the page, menus, sheets, the mini player
- *   LCD      a grey reflective well set into the body, for anything that is data: every list, the
- *            tracks table, settings rows, banners, fields; in dark it is a black screen
+ *   tray     a light plate set into the body, for lists: the tracks table, settings rows, fields
+ *            (the kit's item-list); in dark it is a black screen
+ *   LCD      a grey reflective well, for readouts only: banners, the mini player's and Now
+ *            Playing's titles, the album's status lines, a section marked `data-mh-screen`
  *   keys     buttons are keycaps on a lip: white for most, red for the one primary action, black
  *            for the transport; they travel down when pressed
  *   labels   small spaced capitals in grey, printed on the body: titles, headings, column heads
@@ -32,6 +34,7 @@
  * `data-mh-desk` / `-tv-on` (Now Playing), `data-mh-np` (TrackPanel's parts: body, screen, readout,
  * keys, modes, volume), `data-mh-rocker` (SongTransport's buttons, TrackPanel's mode row),
  * `--np-volume` / `data-muted` (VolumeControl), `data-mh-crt` (VideoBackdrop), `data-mh-lcd`,
+ * `data-mh-readout`, `data-mh-screen`, `data-mh-tray-list` / `-tray-head`,
  * `data-mh-decor` (decoration, wherever a component marks it), plus `data-lyric-state` on Now
  * Playing's lyric lines (LyricsPanel).
  */
@@ -109,6 +112,19 @@
   --mh-lcd-warn: #7a3600;
   --mh-lcd-bad: #8f1a02;
   --mh-lcd-rule: rgb(27 27 25 / 0.32);
+  /* A tray: lists, tables and fields, a light plate set into the body (the kit's item-list), so
+     a page of data is not a slab of grey glass. The LCD above is kept for readouts. On #fbfaf8:
+     ink 16.5:1, dim 5.61, red 5.47, warning 6.78, destructive 6.95. */
+  --mh-tray: #fbfaf8;
+  --mh-tray-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.07), 0 1px 0 #fff, 0 1px 2px rgb(0 0 0 / 0.04);
+  --mh-tray-ink: #1b1b19;
+  --mh-tray-dim: #66655f;
+  --mh-tray-red: #c42a08;
+  --mh-tray-warn: #8f4300;
+  --mh-tray-bad: #a8220a;
+  --mh-tray-rule: rgb(27 27 25 / 0.14);
+  --mh-tray-hover: rgb(0 0 0 / 0.035);
+  --mh-field-shadow: inset 0 1px 2px rgb(0 0 0 / 0.07), inset 0 0 0 1px rgb(0 0 0 / 0.12);
   /* A key's red legend and its printed counts. */
   --mh-key-red-ink: var(--primary);
   --mh-key-dim: var(--muted-foreground);
@@ -197,6 +213,17 @@
   --mh-lcd-warn: #ffad33;
   --mh-lcd-bad: #ff7b6b;
   --mh-lcd-rule: rgb(236 235 229 / 0.25);
+  /* In the dark a tray is the same black screen. */
+  --mh-tray: var(--mh-lcd);
+  --mh-tray-shadow: var(--mh-lcd-shadow);
+  --mh-tray-ink: var(--mh-lcd-ink);
+  --mh-tray-dim: var(--mh-lcd-dim);
+  --mh-tray-red: var(--mh-lcd-red);
+  --mh-tray-warn: var(--mh-lcd-warn);
+  --mh-tray-bad: var(--mh-lcd-bad);
+  --mh-tray-rule: var(--mh-lcd-rule);
+  --mh-tray-hover: rgb(0 0 0 / 0.045);
+  --mh-field-shadow: inset 0 2px 4px rgb(0 0 0 / 0.2), inset 0 0 0 1px rgb(0 0 0 / 0.13);
   /* On a graphite key: red 5.26:1, counts 6.17. */
   --mh-key-red-ink: #ff9a75;
   --mh-key-dim: #c4c3bc;
@@ -230,6 +257,7 @@
     --muted-foreground: #3a3a36;
     --muted-foreground-dim: #3a3a36;
     --mh-lcd-dim: #1b1b19;
+    --mh-tray-dim: #3a3a36;
     --separator: rgb(27 27 25 / 0.4);
     --border: #8a8a84;
     --mh-tick: #5c5c54;
@@ -239,6 +267,7 @@
     --muted-foreground: #d4d3cc;
     --muted-foreground-dim: #d4d3cc;
     --mh-lcd-dim: #ecebe5;
+    --mh-tray-dim: #ecebe5;
     --separator: rgb(236 235 229 / 0.4);
     --border: #6a6a64;
     --mh-tick: #c4c3bc;
@@ -609,18 +638,43 @@
     0 1px 0 #b9b8b1;
 }
 
-/* ── LCDs: every list is data on a screen ───────────────────────────────────────────────────── */
+/* ── Trays and screens: lists sit on a light tray, readouts on an LCD ───────────────────────── */
 
+/* Lists and tables are a tray (in the dark, a black screen). A readout is an LCD in either theme:
+   the album's status lines, Now Playing's title, and a grouped section that marks itself
+   `data-mh-screen` (Pipeline's summary), which swaps the tray's tokens for the LCD's. */
+:root[data-mh-skin='hardware'] [data-mh-screen] {
+  --mh-tray: var(--mh-lcd);
+  --mh-tray-shadow: var(--mh-lcd-shadow);
+  --mh-tray-ink: var(--mh-lcd-ink);
+  --mh-tray-dim: var(--mh-lcd-dim);
+  --mh-tray-red: var(--mh-lcd-red);
+  --mh-tray-warn: var(--mh-lcd-warn);
+  --mh-tray-bad: var(--mh-lcd-bad);
+  --mh-tray-rule: var(--mh-lcd-rule);
+  --mh-tray-hover: rgb(0 0 0 / 0.045);
+}
 :root[data-mh-skin='hardware']
   :is(
     [data-slot='grouped-list-content'],
     [data-mh-tracks],
     [data-mh-tracks-head],
-    [data-mh-lcd-list],
-    [data-mh-lcd-head],
-    [data-mh-readout],
-    [data-mh-np='readout']
+    [data-mh-tray-list],
+    [data-mh-tray-head]
   ) {
+  --foreground: var(--mh-tray-ink);
+  --card-foreground: var(--mh-tray-ink);
+  --muted-foreground: var(--mh-tray-dim);
+  --muted-foreground-dim: var(--mh-tray-dim);
+  --primary: var(--mh-tray-red);
+  --warning-text: var(--mh-tray-warn);
+  --destructive-text: var(--mh-tray-bad);
+  --separator: var(--mh-tray-rule);
+  --accent: rgb(0 0 0 / 0.05);
+  --secondary: rgb(0 0 0 / 0.07);
+  color: var(--mh-tray-ink);
+}
+:root[data-mh-skin='hardware'] :is([data-mh-readout], [data-mh-np='readout']) {
   --foreground: var(--mh-lcd-ink);
   --card-foreground: var(--mh-lcd-ink);
   --muted-foreground: var(--mh-lcd-dim);
@@ -636,35 +690,35 @@
 :root[data-mh-skin='hardware'] [data-slot='grouped-list-content'] {
   border: 0;
   border-radius: 14px;
-  background: var(--mh-lcd);
-  box-shadow: var(--mh-lcd-shadow);
+  background: var(--mh-tray);
+  box-shadow: var(--mh-tray-shadow);
 }
 :root[data-mh-skin='hardware'] [data-slot='grouped-list-section'] {
   margin-bottom: 6px;
 }
-/* An LCD row has no hairline but the dashed rule a screen draws. */
+/* A list row has no hairline but a dashed rule, as the kit's screens and trays draw it. */
 :root[data-mh-skin='hardware'] [data-slot='grouped-list-row']::after {
   background: none;
-  border-top: 1px dashed var(--mh-lcd-rule);
+  border-top: 1px dashed var(--mh-tray-rule);
 }
 
-/* The tracks table: a screen with a header line, a dashed rule, and rows with no lines at all. On
-   md+ the header and the rows sit in one LCD, 16px in from the body's edge. */
+/* The tracks table: a tray with a header line, a dashed rule, and rows with no lines at all. On
+   md+ the header and the rows sit in one tray, 16px in from the body's edge. */
 :root[data-mh-skin='hardware'] [data-mh-tracks='wide'] {
   margin: 0 16px 24px;
   border-radius: 0 0 16px 16px;
-  background: var(--mh-lcd);
-  box-shadow: var(--mh-lcd-shadow);
+  background: var(--mh-tray);
+  box-shadow: var(--mh-tray-shadow);
   clip-path: inset(0 -8px -8px -8px);
 }
 :root[data-mh-skin='hardware'] [data-mh-tracks-head] {
   margin: 10px 16px 0;
   border-radius: 16px 16px 0 0;
-  border-bottom: 1px dashed var(--mh-lcd-rule);
-  background: var(--mh-lcd);
-  box-shadow: var(--mh-lcd-shadow);
+  border-bottom: 1px dashed var(--mh-tray-rule);
+  background: var(--mh-tray);
+  box-shadow: var(--mh-tray-shadow);
   clip-path: inset(-8px -8px 0 -8px);
-  color: var(--mh-lcd-dim);
+  color: var(--mh-tray-dim);
 }
 :root[data-mh-skin='hardware'] [data-mh-tracks-head] :is(button, span) {
   font-size: inherit;
@@ -675,14 +729,14 @@
   border-bottom: 0;
 }
 :root[data-mh-skin='hardware'] [data-mh-tracks='wide'] > [role='button']:hover {
-  background: rgb(0 0 0 / 0.045);
+  background: var(--mh-tray-hover);
 }
 /* The loaded track: the whole line in red, bold. */
 :root[data-mh-skin='hardware'] [data-mh-tracks] > [aria-current='true'],
 :root[data-mh-skin='hardware'] [data-mh-tracks] > [role='listitem']:has([aria-current='true']) {
-  --foreground: var(--mh-lcd-red);
-  --muted-foreground: var(--mh-lcd-red);
-  color: var(--mh-lcd-red);
+  --foreground: var(--mh-tray-red);
+  --muted-foreground: var(--mh-tray-red);
+  color: var(--mh-tray-red);
   font-weight: 700;
 }
 /* The loaded track: red, with a dash at each end of the line, as the kit marks a selection. */
@@ -692,7 +746,7 @@
   position: absolute;
   top: 50%;
   translate: 0 -50%;
-  color: var(--mh-lcd-red);
+  color: var(--mh-tray-red);
   font-weight: 700;
 }
 :root[data-mh-skin='hardware'] [data-mh-tracks='wide'] > [aria-current='true']::before {
@@ -708,16 +762,16 @@
   margin-top: 0;
   line-height: 1.3;
 }
-/* On a phone the list is one LCD under the header, the art kept small in its bezel. */
+/* On a phone the list is one tray under the header. */
 :root[data-mh-skin='hardware'] [data-mh-tracks='compact'] {
   margin: 8px 14px 24px;
   border-radius: 16px;
-  background: var(--mh-lcd);
-  box-shadow: var(--mh-lcd-shadow);
+  background: var(--mh-tray);
+  box-shadow: var(--mh-tray-shadow);
 }
 :root[data-mh-skin='hardware'] [data-mh-tracks='compact'] > [role='listitem']::after {
   background: none;
-  border-top: 1px dashed var(--mh-lcd-rule);
+  border-top: 1px dashed var(--mh-tray-rule);
 }
 
 /* ── Panels: menus, sheets, dialogs and cards are molded bodies ─────────────────────────────── */
@@ -775,7 +829,7 @@
     0 1px 0 rgb(255 255 255 / 0.04);
 }
 
-/* ── Fields: a small LCD you type into ──────────────────────────────────────────────────────── */
+/* ── Fields: a small tray you type into ─────────────────────────────────────────────────────── */
 
 :root[data-mh-skin='hardware']
   :is(
@@ -784,17 +838,15 @@
     [data-slot='input-group'],
     [data-slot='search-field']
   ) {
-  --muted-foreground: var(--mh-lcd-dim);
+  --muted-foreground: var(--mh-tray-dim);
   border: 0;
   border-radius: 10px;
-  background: var(--mh-lcd);
-  box-shadow:
-    inset 0 2px 4px rgb(0 0 0 / 0.2),
-    inset 0 0 0 1px rgb(0 0 0 / 0.13);
-  color: var(--mh-lcd-ink);
+  background: var(--mh-tray);
+  box-shadow: var(--mh-field-shadow);
+  color: var(--mh-tray-ink);
 }
 :root[data-mh-skin='hardware'] :is(input, textarea)::placeholder {
-  color: var(--mh-lcd-dim);
+  color: var(--mh-tray-dim);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   font-size: 0.85em;
@@ -1892,7 +1944,7 @@
   color: var(--primary);
 }
 
-/* ── The album page: the cover on its screen, the name printed, the tracks on an LCD ───────────── */
+/* ── The album page: the cover on its screen, the name printed, the tracks on a tray ───────────── */
 
 /* No wash of the cover's colours behind the hero: the body is the body. */
 :root[data-mh-skin='hardware'] [data-mh-decor='wash'] {
@@ -1918,70 +1970,70 @@
   background: var(--mh-lcd);
   filter: brightness(1.03);
 }
-:root[data-mh-skin='hardware'] [data-mh-lcd-list] {
+:root[data-mh-skin='hardware'] [data-mh-tray-list] {
   margin: 20px 22px 24px;
   padding: 6px 10px 10px;
   border-radius: 16px;
-  background: var(--mh-lcd);
-  box-shadow: var(--mh-lcd-shadow);
+  background: var(--mh-tray);
+  box-shadow: var(--mh-tray-shadow);
 }
-:root[data-mh-skin='hardware'] ol[data-mh-lcd-list] {
+:root[data-mh-skin='hardware'] ol[data-mh-tray-list] {
   margin: 18px 14px 24px;
   padding: 4px 0;
 }
 :root[data-mh-skin='hardware'] [data-mh-list-head] {
-  border-bottom: 1px dashed var(--mh-lcd-rule);
+  border-bottom: 1px dashed var(--mh-tray-rule);
 }
-/* A list with a column header of its own (By folder): the header is the screen's top line. */
-:root[data-mh-skin='hardware'] [data-mh-lcd-head] {
+/* A list with a column header of its own (By folder): the header is the tray's top line. */
+:root[data-mh-skin='hardware'] [data-mh-tray-head] {
   margin: 10px 22px 0;
   border-radius: 16px 16px 0 0;
-  border-bottom: 1px dashed var(--mh-lcd-rule);
-  background: var(--mh-lcd);
-  box-shadow: var(--mh-lcd-shadow);
+  border-bottom: 1px dashed var(--mh-tray-rule);
+  background: var(--mh-tray);
+  box-shadow: var(--mh-tray-shadow);
   clip-path: inset(-8px -8px 0 -8px);
-  color: var(--mh-lcd-dim);
+  color: var(--mh-tray-dim);
 }
-:root[data-mh-skin='hardware'] [data-mh-lcd-head] + [data-mh-lcd-list] {
+:root[data-mh-skin='hardware'] [data-mh-tray-head] + [data-mh-tray-list] {
   margin-top: 0;
   border-radius: 0 0 16px 16px;
   clip-path: inset(0 -8px -8px -8px);
 }
-:root[data-mh-skin='hardware'] ul[data-mh-lcd-list] {
+:root[data-mh-skin='hardware'] ul[data-mh-tray-list] {
   margin: 8px 14px 16px;
   padding: 2px 0;
 }
-:root[data-mh-skin='hardware'] [data-mh-lcd-list] > li > a::after,
-:root[data-mh-skin='hardware'] [data-mh-lcd-list] > li::after {
+:root[data-mh-skin='hardware'] [data-mh-tray-list] > li > a::after,
+:root[data-mh-skin='hardware'] [data-mh-tray-list] > li::after {
   background: none;
-  border-top: 1px dashed var(--mh-lcd-rule);
+  border-top: 1px dashed var(--mh-tray-rule);
 }
-:root[data-mh-skin='hardware'] [data-mh-lcd-list] :is([role='button'], li) {
+:root[data-mh-skin='hardware'] [data-mh-tray-list] :is([role='button'], li) {
   position: relative;
 }
 :root[data-mh-skin='hardware']
-  [data-mh-lcd-list]
+  [data-mh-tray-list]
   :is([role='button'][aria-current='true'], li:has(> [aria-current='true'])) {
-  --foreground: var(--mh-lcd-red);
-  --muted-foreground: var(--mh-lcd-red);
-  color: var(--mh-lcd-red);
+  --foreground: var(--mh-tray-red);
+  --muted-foreground: var(--mh-tray-red);
+  color: var(--mh-tray-red);
   font-weight: 700;
 }
-:root[data-mh-skin='hardware'] [data-mh-lcd-list] [role='button']:hover {
-  background: rgb(0 0 0 / 0.045);
+:root[data-mh-skin='hardware'] [data-mh-tray-list] [role='button']:hover {
+  background: var(--mh-tray-hover);
 }
-:root[data-mh-skin='hardware'] [data-mh-lcd-list] [role='button'][aria-current='true']::before,
-:root[data-mh-skin='hardware'] [data-mh-lcd-list] [role='button'][aria-current='true']::after {
+:root[data-mh-skin='hardware'] [data-mh-tray-list] [role='button'][aria-current='true']::before,
+:root[data-mh-skin='hardware'] [data-mh-tray-list] [role='button'][aria-current='true']::after {
   content: '—';
   position: absolute;
   top: 50%;
   translate: 0 -50%;
-  color: var(--mh-lcd-red);
+  color: var(--mh-tray-red);
 }
-:root[data-mh-skin='hardware'] [data-mh-lcd-list] [role='button'][aria-current='true']::before {
+:root[data-mh-skin='hardware'] [data-mh-tray-list] [role='button'][aria-current='true']::before {
   left: -8px;
 }
-:root[data-mh-skin='hardware'] [data-mh-lcd-list] [role='button'][aria-current='true']::after {
+:root[data-mh-skin='hardware'] [data-mh-tray-list] [role='button'][aria-current='true']::after {
   right: -8px;
 }
 
@@ -2001,8 +2053,8 @@
     [data-mh-tabbar-search],
     [data-mh-tracks] [role='button'],
     [data-mh-tracks] [data-row-main],
-    [data-mh-lcd-list] [role='button'],
-    [data-mh-lcd-list] a,
+    [data-mh-tray-list] [role='button'],
+    [data-mh-tray-list] a,
     [data-mh-np] :is(a, button, [role='slider']),
     .mh-chrome a,
     .mh-chrome button
@@ -2020,8 +2072,8 @@
 :root[data-mh-skin='hardware'] [data-slot='search-field']:has(:focus-visible) {
   outline-offset: -2px;
 }
-/* Rows sit inside a clipped LCD: their ring goes inside the row, or the first row's top is cut. */
+/* Rows sit inside a clipped tray: their ring goes inside the row, or the first row's top is cut. */
 :root[data-mh-skin='hardware'] [data-mh-tracks] :is([role='button'], [data-row-main]):focus-visible,
-:root[data-mh-skin='hardware'] [data-mh-lcd-list] [role='button']:focus-visible {
+:root[data-mh-skin='hardware'] [data-mh-tray-list] [role='button']:focus-visible {
   outline-offset: -2px;
 }

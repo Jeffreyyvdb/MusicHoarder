@@ -5,7 +5,8 @@ control the app offers without the skin is there with it. The skin may restyle a
 take anything away.
 
 The look is a [SPEC-01](https://github.com/shuding/spec-01) / Teenage Engineering style instrument:
-the sidebar and the page are two molded devices on a paper desk, every list is data on a grey LCD (a
+the sidebar and the page are two molded devices on a paper desk, every list sits on a light tray
+set into the body, readouts (banners, titles, the Pipeline summary) are on a grey LCD (both are a
 black screen in dark mode), buttons are keycaps on a lip (white, one red primary, black for the
 transport), names are printed in small spaced capitals with a red LED, and the selection is red
 between two dashes. Now Playing is the MH-1, the app's own player dressed as a device, and its
@@ -79,7 +80,7 @@ with its dim. Everything else is restyled, never hidden.
   stylesheet, requested only while the skin is on (`skin-stylesheet.ts`) — by `app.html`'s
   first-paint script as a render-blocking `<link>` on a reload (the server fills in its hashed URL,
   `hooks.server.ts`), and by `hardware-mode.svelte.ts` when the skin is switched on. Its header lists the
-  vocabulary (desk, body, LCD, keys, labels, LED) and every hook it styles: the primitives by
+  vocabulary (desk, body, tray, LCD, keys, labels, LED) and every hook it styles: the primitives by
   `data-slot` (plus `filter-chip`), Button's `data-variant`, `.mh-chrome`, `.mh-cover` / `.mh-cover-img`, and a few
   `data-mh-*` attributes in the shell, TrackList, AlbumPage, By folder, the mini player, the tab
   bar and Now Playing. Those attributes style nothing without the skin; renaming one means

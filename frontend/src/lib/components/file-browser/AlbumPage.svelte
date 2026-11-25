@@ -983,7 +983,7 @@
 
     <!-- Track list -->
     {#if compact}
-      <ol data-mh-lcd-list="" class="mt-4" aria-label="Tracks">
+      <ol data-mh-tray-list="" class="mt-4" aria-label="Tracks">
         {#each visibleRows as row, ri (row.key)}
           {@const numLabel = multiDisc ? `${row.disc}.${row.n}` : String(row.n)}
           {@const separated = ri < visibleRows.length - 1}
@@ -1122,7 +1122,7 @@
         {/each}
       </ol>
     {:else}
-      <div data-mh-lcd-list="" class="@container px-4 pt-5 pb-2">
+      <div data-mh-tray-list="" class="@container px-4 pt-5 pb-2">
         <div
           data-mh-list-head=""
           class={cn(
