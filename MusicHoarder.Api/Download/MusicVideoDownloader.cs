@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Import;
 using MusicHoarder.Api.Logging;
@@ -82,7 +83,7 @@ public interface IMusicVideoDownloader
 /// provider's cookies/throttle/extra-args handling and degrades gracefully when the binary is
 /// missing.
 /// </summary>
-public class MusicVideoDownloader(
+public partial class MusicVideoDownloader(
     IOptions<MusicEnricherOptions> options,
     IMusicVideoProbe probe,
     ILogger<MusicVideoDownloader> logger) : IMusicVideoDownloader
@@ -238,25 +239,25 @@ public class MusicVideoDownloader(
         {
             var target = SongTarget.For(request.Artist, request.Title);
             var candidates = await SearchCandidatesAsync(request.Artist, request.Title, cookiesPath, ct);
-            var ranked = RankCandidates(candidates, request.DurationMs, target);
+            var ranked = RankCandidatesWithScores(candidates, request.DurationMs, target);
 
             // A pinned video is the audio's own source: offer it alongside the search hits (first,
             // since it is the only one guaranteed to be in sync) rather than hiding it. The search
             // gave us no row for it, so it carries no title until it is probed.
             var pinned = CanonicalizePin(request.PinnedIdOrUrl);
             if (pinned is not null && ImportUrlParser.TryParse(pinned, out _, out var pinnedId)
-                && !ranked.Any(c => c.Id == pinnedId))
+                && !ranked.Any(x => x.Candidate.Id == pinnedId))
             {
-                ranked.Insert(0, new SearchCandidate(pinnedId, "", "", null));
+                ranked.Insert(0, (new SearchCandidate(pinnedId, "", "", null), 0));
             }
 
-            return [.. ranked.Select(c => new MusicVideoCandidate(
-                c.Id,
-                c.Title,
-                c.Channel,
-                c.DurationSeconds is > 0 ? (int)c.DurationSeconds.Value : null,
-                ScoreCandidate(c, request.DurationMs, target),
-                c.ThumbnailUrl))];
+            return [.. ranked.Select(x => new MusicVideoCandidate(
+                x.Candidate.Id,
+                x.Candidate.Title,
+                x.Candidate.Channel,
+                x.Candidate.DurationSeconds is > 0 ? (int)x.Candidate.DurationSeconds.Value : null,
+                x.Score,
+                x.Candidate.ThumbnailUrl))];
         }
         finally
         {
@@ -490,32 +491,74 @@ public class MusicVideoDownloader(
             t = t[(dashIdx + 3)..];
         }
 
-        var artistTokens = Tokenize(artist);
-        return Tokenize(t)
-            .Where(token => !artistTokens.Contains(token) && !GenericTokens.Contains(token))
+        var nonGeneric = Tokenize(t)
+            .Where(token => !GenericTokens.Contains(token))
             .ToHashSet(StringComparer.Ordinal);
+        if (nonGeneric.Count == 0)
+            return nonGeneric;
+
+        var artistTokens = Tokenize(artist);
+        var distinctive = nonGeneric
+            .Where(token => !artistTokens.Contains(token))
+            .ToHashSet(StringComparer.Ordinal);
+        // Self-titled or artist-overlapping tracks ("Black Sabbath", "Lil Nas X - X", "T-Pain - Pain"):
+        // keep the title words rather than disabling the title check altogether.
+        return distinctive.Count > 0 ? distinctive : nonGeneric;
     }
 
     private static readonly HashSet<string> GenericTokens =
         ["official", "video", "audio", "music", "feat", "featuring", "ft", "prod", "the", "and", "with"];
 
     /// <summary>
-    /// Whole normalized word tokens (letters and digits of any length). Folds case and diacritics,
-    /// reads "$" inside a word as "s" ("$ave" = "save"), collapses intra-word apostrophes
-    /// ("Don't" = "dont"), and collapses dotted initialisms ("G.O.M.D." = "gomd", "R.I.P." = "rip").
+    /// Glue words kept in <see cref="TitleTokens"/> so missing them still lowers the title ratio
+    /// ("She on GO" vs "She Be Puttin' On"), while matching ONLY glue words on a title that has
+    /// content words does not count as the same song ("In My Feelings" vs "In The Bible").
     /// </summary>
-    private static HashSet<string> Tokenize(string text)
+    private static readonly HashSet<string> WeakTitleTokens =
+        ["a", "an", "at", "by", "for", "from", "in", "is", "my", "of", "on", "or", "to"];
+
+    /// <summary>
+    /// Whole normalized word tokens (letters and digits of any length). Folds case and diacritics,
+    /// reads "$" runs beside a letter as "s" ("$ave" = "save", "BO$$" = "boss"), collapses intra-word
+    /// apostrophes ("Don't" = "dont"), collapses dotted initialisms ("G.O.M.D." = "gomd", "R.I.P." = "rip"),
+    /// and splits on all remaining punctuation (including "_" and CJK brackets).
+    /// </summary>
+    private static List<string> NormalizeWords(string? text)
     {
-        var folded = TitleNormalizer.FoldDiacritics(text.ToLowerInvariant());
-        folded = System.Text.RegularExpressions.Regex.Replace(folded, @"(?<=\p{L})\$|\$(?=\p{L})", "s");
-        folded = System.Text.RegularExpressions.Regex.Replace(folded, @"(?<=[\p{L}\p{N}])['’](?=[\p{L}\p{N}])", "");
-        folded = System.Text.RegularExpressions.Regex.Replace(
-            folded,
-            @"\b[\p{L}](?:\.[\p{L}])+\.?(?=$|[^\p{L}\p{N}])",
-            m => m.Value.Replace(".", "", StringComparison.Ordinal));
-        return System.Text.RegularExpressions.Regex.Matches(folded, @"[\p{L}\p{N}]+")
-            .Select(m => m.Value)
-            .ToHashSet(StringComparer.Ordinal);
+        if (string.IsNullOrWhiteSpace(text))
+            return [];
+        // Collapse intra-word apostrophes BEFORE FoldDiacritics: NFKD decomposes U+00B4 ("´")
+        // into space + combining acute, which would otherwise split "Don´t" into "don" and "t".
+        var folded = IntraWordApostropheRegex().Replace(text.ToLowerInvariant(), "");
+        folded = TitleNormalizer.FoldDiacritics(folded);
+        folded = WordDollarRegex().Replace(folded, m => new string('s', m.Length));
+        folded = DottedInitialismRegex().Replace(folded, m => m.Value.Replace(".", "", StringComparison.Ordinal));
+        return WordTokenRegex().Matches(folded).Select(m => m.Value).ToList();
+    }
+
+    private static HashSet<string> Tokenize(string text) =>
+        NormalizeWords(text).ToHashSet(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Candidate title words used for title-token matching: strips bracketed upload noise ("[4K]",
+    /// "(Official Video)") and any leading "Artist - " credit prefix so a short song title like "X"
+    /// or "4K" cannot match a collab joiner ("21 Savage x Metro Boomin - ...") or a quality tag.
+    /// </summary>
+    private static HashSet<string> CandidateTitleTokens(string candidateTitle, IReadOnlyCollection<string> artistKeys)
+    {
+        var t = StripNoiseSegments(candidateTitle);
+        if (artistKeys.Count > 0)
+        {
+            var dash = SpacedDashRegex().Match(t);
+            if (dash.Success && dash.Index > 0)
+            {
+                var prefix = t[..dash.Index];
+                if (MatchesArtistInText(NameKey(prefix), artistKeys))
+                    t = t[(dash.Index + dash.Length)..];
+            }
+        }
+        var tokens = Tokenize(t);
+        return tokens.Count > 0 ? tokens : Tokenize(candidateTitle);
     }
 
     /// <summary>
@@ -576,54 +619,95 @@ public class MusicVideoDownloader(
     }
 
     /// <summary>
-    /// Whether the candidate's title or channel names one of the song's artists, as a run of whole
-    /// words ("NAV" never matches "navigate"). Null when the song has no artist to look for, which
-    /// is no evidence either way.
+    /// Whether the candidate's title or channel names one of the song's artists, as whole words
+    /// ("NAV" never matches "navigate"; "Future" never matches channel "Future Beats"). Null when
+    /// the song has no artist to look for, which is no evidence either way.
     /// </summary>
     internal static bool? NamesAnArtist(SearchCandidate candidate, IReadOnlyCollection<string> artistKeys)
     {
         if (artistKeys.Count == 0)
             return null;
 
-        var title = $" {NameKey(candidate.Title)} ";
-        var channel = ChannelKey(candidate.Channel);
-        var paddedChannel = $" {channel} ";
-        var squashedChannel = channel.Replace(" ", "", StringComparison.Ordinal);
+        return MatchesArtistInText(NameKey(candidate.Title), artistKeys)
+            || MatchesArtistInChannel(candidate.Channel, artistKeys);
+    }
+
+    private static bool MatchesArtistInText(string textKey, IReadOnlyCollection<string> artistKeys)
+    {
+        if (textKey.Length == 0)
+            return false;
+
+        var padded = $" {textKey} ";
         return artistKeys.Any(key =>
-            title.Contains($" {key} ", StringComparison.Ordinal)
-            || paddedChannel.Contains($" {key} ", StringComparison.Ordinal)
-            // "PoohShiestyVEVO", "JuiceWRLD": a channel name often runs the words together.
-            || (squashedChannel.Length > 0
-                && squashedChannel == key.Replace(" ", "", StringComparison.Ordinal)));
+        {
+            if (padded.Contains($" {key} ", StringComparison.Ordinal))
+                return true;
+            // Multi-word / punctuated names written run-together in a title ("JuiceWRLD", "TayK", "ACDC").
+            if (key.Contains(' ', StringComparison.Ordinal))
+            {
+                var squashed = key.Replace(" ", "", StringComparison.Ordinal);
+                if (squashed.Length >= 3 && padded.Contains($" {squashed} ", StringComparison.Ordinal))
+                    return true;
+            }
+            return false;
+        });
     }
 
     /// <summary>
-    /// A name folded the way artist identities are compared (<see cref="TitleNormalizer.NormalizeArtistKey"/>:
-    /// case, diacritics, punctuation), with a "$" inside a word read as the "s" it stands in for
-    /// ("A$AP" = "ASAP", "$ign" = "Sign"). A "$" beside no letter is a symbol, and goes with the rest
-    /// of the punctuation: "¥$" has no name to look for.
+    /// A channel matches only when its own normalized name (raw, without " - Topic"/VEVO/Official, or
+    /// run-together) — or one artist of a multi-artist channel credit ("Clipse, Pusha T &amp; Malice") —
+    /// equals one of the song's artist keys, never a stray word inside an unrelated channel
+    /// ("Future Beats", "Navigation Records", "Futures Market").
     /// </summary>
-    private static string NameKey(string? name) =>
-        TitleNormalizer.NormalizeArtistKey(
-            name is null ? null : System.Text.RegularExpressions.Regex.Replace(name, @"(?<=\p{L})\$|\$(?=\p{L})", "s"));
-
-    /// <summary>
-    /// A channel's name key without the words a channel adds to the artist's name: YouTube's
-    /// " - Topic", and a leading or trailing "Official" or "VEVO" ("DrakeVEVO", "Gucci Mane Official").
-    /// </summary>
-    private static string ChannelKey(string? channel)
+    private static bool MatchesArtistInChannel(string? channel, IReadOnlyCollection<string> artistKeys)
     {
-        var raw = channel?.Trim() ?? "";
+        if (string.IsNullOrWhiteSpace(channel))
+            return false;
+
+        var raw = channel.Trim();
         if (raw.EndsWith(" - Topic", StringComparison.OrdinalIgnoreCase))
             raw = raw[..^" - Topic".Length];
-        var key = NameKey(raw);
+
+        var channelNames = new HashSet<string>(StringComparer.Ordinal);
+        var rawKey = NameKey(raw);
+        if (rawKey.Length > 0) channelNames.Add(rawKey);
+        var strippedKey = StripChannelAffixes(rawKey);
+        if (strippedKey.Length > 0) channelNames.Add(strippedKey);
+        foreach (var part in ArtistKeys(raw))
+        {
+            channelNames.Add(part);
+            var strippedPart = StripChannelAffixes(part);
+            if (strippedPart.Length > 0) channelNames.Add(strippedPart);
+        }
+
+        var squashedNames = channelNames
+            .Select(n => n.Replace(" ", "", StringComparison.Ordinal))
+            .Where(s => s.Length > 0)
+            .ToHashSet(StringComparer.Ordinal);
+
+        return artistKeys.Any(key =>
+            channelNames.Contains(key)
+            || squashedNames.Contains(key.Replace(" ", "", StringComparison.Ordinal)));
+    }
+
+    /// <summary>
+    /// Normalized space-joined word key for artist matching. Uses <see cref="NormalizeWords"/> so
+    /// punctuation separates words instead of gluing them ("Drake-Hotline", "Pooh Shiesty(Official)",
+    /// "YOASOBI「アイドル」", "Drake_Official", "Tay-K" ↔ "Tay K", "J.Cole" ↔ "J. Cole").
+    /// </summary>
+    private static string NameKey(string? name) => string.Join(' ', NormalizeWords(name));
+
+    /// <summary>Strips a leading or trailing "vevo" or "official" from a normalized channel key, leaving "unofficial" intact.</summary>
+    private static string StripChannelAffixes(string key)
+    {
         string previous;
         do
         {
             previous = key;
             foreach (var affix in ChannelAffixes)
             {
-                if (key.EndsWith(affix, StringComparison.Ordinal) && key.Length > affix.Length)
+                if (key.EndsWith(affix, StringComparison.Ordinal) && key.Length > affix.Length
+                    && !(affix == "official" && key.EndsWith("unofficial", StringComparison.Ordinal)))
                     key = key[..^affix.Length].TrimEnd();
                 if (key.StartsWith(affix, StringComparison.Ordinal) && key.Length > affix.Length)
                     key = key[affix.Length..].TrimStart();
@@ -633,6 +717,21 @@ public class MusicVideoDownloader(
     }
 
     private static readonly string[] ChannelAffixes = ["vevo", "official"];
+
+    [GeneratedRegex(@"(?<=\p{L})\$+|\$+(?=\p{L})")]
+    private static partial Regex WordDollarRegex();
+
+    [GeneratedRegex(@"(?<=[\p{L}\p{N}\p{Mn}])['’ʼ´`](?=[\p{L}\p{N}])")]
+    private static partial Regex IntraWordApostropheRegex();
+
+    [GeneratedRegex(@"\b[\p{L}](?:\.[\p{L}])+\.?(?=$|[^\p{L}\p{N}])")]
+    private static partial Regex DottedInitialismRegex();
+
+    [GeneratedRegex(@"[\p{L}\p{N}]+")]
+    private static partial Regex WordTokenRegex();
+
+    [GeneratedRegex(@"(?:\s+[-–—]\s*|\s*[-–—]\s+)")]
+    private static partial Regex SpacedDashRegex();
 
     /// <summary>
     /// Scores a search candidate as "how likely is this the actual music video for THIS song".
@@ -653,9 +752,20 @@ public class MusicVideoDownloader(
         var titleTokens = target.TitleTokens;
         if (titleTokens.Count > 0)
         {
-            var candidateTokens = Tokenize(candidate.Title);
-            var matched = titleTokens.Count(token => MatchesTitleToken(token, candidateTokens));
-            if (matched == 0) score -= 80; // wrong song
+            var candidateTokens = CandidateTitleTokens(candidate.Title, target.ArtistKeys);
+            var matched = 0;
+            var hasContentToken = false;
+            var matchedContentToken = false;
+            foreach (var token in titleTokens)
+            {
+                var isContent = !WeakTitleTokens.Contains(token);
+                if (isContent) hasContentToken = true;
+                if (!MatchesTitleToken(token, candidateTokens))
+                    continue;
+                matched++;
+                if (isContent) matchedContentToken = true;
+            }
+            if (matched == 0 || (hasContentToken && !matchedContentToken)) score -= 80; // wrong song
             else score += 30 * matched / titleTokens.Count;
         }
 
@@ -693,12 +803,16 @@ public class MusicVideoDownloader(
     /// </summary>
     internal static List<SearchCandidate> RankCandidates(
         List<SearchCandidate> candidates, int? songDurationMs, SongTarget target) =>
+        RankCandidatesWithScores(candidates, songDurationMs, target).Select(x => x.Candidate).ToList();
+
+    private static List<(SearchCandidate Candidate, int Score)> RankCandidatesWithScores(
+        List<SearchCandidate> candidates, int? songDurationMs, SongTarget target) =>
         candidates
             .Select((c, i) => (Candidate: c, Score: ScoreCandidate(c, songDurationMs, target), Index: i))
             .Where(x => x.Score >= 0) // negative = wrong song / wrong artist / audio-only / degraded — not worth 100MB
             .OrderByDescending(x => x.Score)
             .ThenBy(x => x.Index) // ties → YouTube's own relevance order
-            .Select(x => x.Candidate)
+            .Select(x => (x.Candidate, x.Score))
             .ToList();
 
     /// <summary>

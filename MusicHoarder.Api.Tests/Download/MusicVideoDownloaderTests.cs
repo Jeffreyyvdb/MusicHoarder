@@ -219,6 +219,13 @@ public class MusicVideoDownloaderTests
         "Praise The Lord (Da Shine) (Official Video)", "AsapRockyVEVO")]
     [InlineData("Yeat", "Gët Busy", "Yëat - Gët Busy (Official Video)", "Lyrical Lemonade")]
     [InlineData("Tay-K", "The Race", "Tay-K - The Race (Official Video)", "Tay-K")]
+    [InlineData("Tay-K", "The Race", "Tay K - The Race (Official Video)", "WORLDSTARHIPHOP")]
+    [InlineData("J. Cole", "Middle Child", "J.Cole - Middle Child (Official Video)", "Dreamville")]
+    [InlineData("Drake", "Hotline Bling", "Drake-Hotline Bling (Official Video)", "OVO Sound")]
+    [InlineData("Pooh Shiesty", "Last Man Breathin", "Last Man Breathing - Pooh Shiesty(Official Video)", "308XMC")]
+    [InlineData("YOASOBI", "アイドル", "YOASOBI「アイドル」 Official Music Video", "Sony Music (Japan)")]
+    [InlineData("Drake", "Hotline Bling", "Hotline Bling (Official Video)", "Drake_Official")]
+    [InlineData("Official Hige Dandism", "Pretender", "Pretender (Official Video)", "Official Hige Dandism")]
     [InlineData("NAV", "Myself", "Myself (Official Music Video)", "NAV - Official")]
     [InlineData("Juice WRLD", "Lucid Dreams", "Lucid Dreams (Official Music Video)", "JuiceWRLDVEVO")]
     public void ScoreCandidate_TheArtistsOwnVideo_KeepsItsFullScore(
@@ -232,6 +239,8 @@ public class MusicVideoDownloaderTests
     [Theory]
     [InlineData("NAV", "Navigate The Night (Official Video)", "Navigation Records")] // a word, not a substring
     [InlineData("Future", "Song (Official Video)", "Futures Market")]
+    [InlineData("Future", "Other Rapper - Mask Off (Official Video)", "Future Beats")] // stray word in unrelated channel
+    [InlineData("UN", "Other - Song (Official Video)", "Unofficial")] // "unofficial" must not strip to "un"
     [InlineData("Gucci Mane", "Natasha - Song (Official Video)", "Gucci")] // part of a name is not the name
     public void NamesAnArtist_MatchesWholeWordsOnly(string artist, string videoTitle, string channel)
     {
@@ -282,7 +291,12 @@ public class MusicVideoDownloaderTests
     [InlineData("Jay-Z", "4:44", new[] { "4", "44" })]
     [InlineData("J. Cole", "G.O.M.D.", new[] { "gomd" })]
     [InlineData("Clipse", "The Birds Don't Sing", new[] { "birds", "dont", "sing" })]
+    [InlineData("Clipse", "The Birds Don´t Sing", new[] { "birds", "dont", "sing" })]
     [InlineData("Yeat", "Gët Busy", new[] { "busy", "get" })]
+    [InlineData("Lil Dicky", "$ave Dat Money", new[] { "dat", "money", "save" })]
+    [InlineData("Fifth Harmony", "BO$$", new[] { "boss" })]
+    [InlineData("Lil Nas X", "X", new[] { "x" })]
+    [InlineData("Black Sabbath", "Black Sabbath", new[] { "black", "sabbath" })]
     [InlineData("Artist", "Song ft. Guest", new[] { "guest", "song" })]
     public void TitleTokens_KeepShortWordsAndDigitsAndFoldPunctuation(string artist, string title, string[] expected)
     {
@@ -310,8 +324,18 @@ public class MusicVideoDownloaderTests
     [InlineData("Kendrick Lamar", "u", "Kendrick Lamar - HUMBLE. (Official Video)", "KendrickLamarVEVO")]
     [InlineData("Drake", "9", "Drake - 2019 Freestyle (Official Video)", "DrakeVEVO")]
     [InlineData("21 Savage", "X", "21 Savage - Bank Account Remix (Official Video)", "21 Savage")]
+    [InlineData("21 Savage", "X", "21 Savage x Metro Boomin - Glock in My Lap (Official Music Video)", "21 Savage")]
+    [InlineData("Drake", "4K", "Drake - Hotline Bling (Official Video) [4K]", "Drake")]
     [InlineData("Gucci Mane", "She on GO", "Gucci Mane - Gonna Be Good (Official Video)", "Gucci Mane")]
+    [InlineData("Gucci Mane", "She on GO", "Gucci Mane - Put On (Official Video)", "Gucci Mane")]
+    [InlineData("Drake", "In My Feelings", "Drake - In The Bible (Official Video)", "Drake")]
+    [InlineData("Drake", "To the Max", "Drake - Back To Back (Official Video)", "Drake")]
+    [InlineData("Juice WRLD", "By Myself", "Juice WRLD - Lucid Dreams (Directed by Cole Bennett) (Official Music Video)", "Lyrical Lemonade")]
+    [InlineData("Lil Nas X", "X", "Lil Nas X - Old Town Road (Official Video)", "Lil Nas X")]
+    [InlineData("Black Sabbath", "Black Sabbath", "Black Sabbath - Paranoid (Official Video)", "Black Sabbath")]
     [InlineData("Offset", "5 Star", "Offset - 50 Bars (Official Video)", "OffsetVEVO")]
+    [InlineData("Artist", "Thin", "Artist - Thing (Official Video)", "Artist")]
+    [InlineData("Artist", "Sin", "Artist - Sing (Official Video)", "Artist")]
     public void ScoreCandidate_ShortTitleTokensMatchWholeWordsOnly(
         string artist, string title, string wrongVideoTitle, string channel)
     {
@@ -325,10 +349,14 @@ public class MusicVideoDownloaderTests
     [InlineData("Kendrick Lamar", "u", "Kendrick Lamar - u (Official Video)", "KendrickLamarVEVO")]
     [InlineData("Drake", "9", "Drake - 9 (Official Video)", "DrakeVEVO")]
     [InlineData("21 Savage", "X", "21 Savage - X ft. Future (Official Music Video)", "21 Savage")]
+    [InlineData("Lil Nas X", "X", "Lil Nas X - X (Official Video)", "Lil Nas X")]
+    [InlineData("Black Sabbath", "Black Sabbath", "Black Sabbath - Black Sabbath (Official Video)", "Black Sabbath")]
     [InlineData("Offset", "5 Star", "Offset - 5 Star (Official Music Video)", "OffsetVEVO")]
     [InlineData("J. Cole", "G.O.M.D.", "J. Cole - GOMD (Official Music Video)", "JColeVEVO")]
     [InlineData("Yeat", "Gët Busy", "Yeat - Get Busy (Official Video)", "Lyrical Lemonade")]
     [InlineData("Clipse", "The Birds Don't Sing", "Clipse - The Birds Dont Sing (Official Video)", "Clipse")]
+    [InlineData("Fifth Harmony", "BO$$", "Fifth Harmony - Boss (Official Video)", "FifthHarmonyVEVO")]
+    [InlineData("Pooh Shiesty", "Last Man Breathing", "Pooh Shiesty - Last Man Breathin (Official Video)", "308XMC")]
     public void ScoreCandidate_ShortTitlesAndNormalizedVariantsKeepFullScore(
         string artist, string title, string videoTitle, string channel)
     {
