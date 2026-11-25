@@ -186,6 +186,26 @@ public class ArtistCreditHealerTests
         Assert.Equal(LibraryBuildStatus.Done, untouched.LibraryBuildStatus);
     }
 
+    [Fact]
+    public async Task HealAsync_AuditsEveryBackfillAsOneAppliedBatch()
+    {
+        await using var db = NewContext();
+        var first = Song("/a.flac", musicBrainzId: "rec-1");
+        AddAttempt(first, EnrichmentProvider.MusicBrainzWeb,
+            Candidate(mbid: "rec-1", artists: "Alice; Bob", artistMbids: "mbid-a; mbid-b"));
+        var second = Song("/b.flac", spotifyId: "spot-1");
+        AddAttempt(second, EnrichmentProvider.SpotifyAPI, Candidate(spotifyId: "spot-1", artists: "Alice; Bob"));
+        db.Songs.AddRange(first, second);
+        await db.SaveChangesAsync();
+
+        await Healer(db).HealAsync();
+
+        var changes = await db.SongMetadataChanges.ToListAsync();
+        Assert.Equal(3, changes.Count);
+        Assert.All(changes, c => Assert.Equal("artist-credit-heal", c.Source));
+        AuditBatchAssert.OneAppliedBatch(changes, await db.Songs.ToListAsync());
+    }
+
     private static MusicHoarderDbContext NewContext()
     {
         var options = new DbContextOptionsBuilder<MusicHoarderDbContext>()

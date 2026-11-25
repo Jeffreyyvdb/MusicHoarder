@@ -187,6 +187,7 @@ public class ArtistCreditRepairHealerTests
     [InlineData("album-identity-heal")]
     [InlineData("canonical-album")]
     [InlineData("artist-merge")]
+    [InlineData("album-merge")]
     public async Task HealAsync_AlbumLevelWriterChoseTheCollab_Deferred(string source)
     {
         // The split heal's election, the canonical consolidation or a user's merge put the collab
@@ -647,6 +648,24 @@ public class ArtistCreditRepairHealerTests
         Assert.Equal("Hef met Jayh", untouched.AlbumArtist);
         Assert.Equal(LibraryBuildStatus.Done, untouched.LibraryBuildStatus);
         Assert.Empty(await db.SongMetadataChanges.ToListAsync());
+    }
+
+    [Fact]
+    public async Task HealAsync_AuditsEveryRepairAsOneAppliedBatch()
+    {
+        await using var db = NewContext();
+        SeedOneOfEach(db);
+        await db.SaveChangesAsync();
+        var seeded = (await db.SongMetadataChanges.ToListAsync()).Select(c => c.Id).ToHashSet();
+
+        await Healer(db).HealAsync();
+
+        var repairs = (await db.SongMetadataChanges.ToListAsync()).Where(c => !seeded.Contains(c.Id)).ToList();
+        // The persisted spellings: rows already in the database carry them.
+        Assert.Equal(
+            ["album-artist-repair", "artist-alias-repair", "artist-merge-repair", "credit-split-repair"],
+            repairs.Select(c => c.Source).Distinct().Order(StringComparer.Ordinal));
+        AuditBatchAssert.OneAppliedBatch(repairs, await db.Songs.ToListAsync());
     }
 
     // One damaged row per repair kind (the collab album artist, the featuring album artist, a merge,

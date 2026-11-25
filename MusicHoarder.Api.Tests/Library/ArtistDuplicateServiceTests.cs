@@ -780,6 +780,48 @@ public class ArtistDuplicateServiceTests
     }
 
     [Fact]
+    public async Task SplitCredit_AuditsEveryRowAsOneAppliedBatch()
+    {
+        await using var db = NewContext();
+        db.Songs.AddRange(
+            Song("/a/1.mp3", artist: "JAY-Z & Kanye West"),
+            Song("/a/2.mp3", artist: "JAY-Z & Kanye West"));
+        db.Songs.AddRange(HefShape(collabBuilt: true));
+        await db.SaveChangesAsync();
+
+        await Service(db).SplitCreditAsync(Owner, "JAY-Z & Kanye West");
+
+        var changes = await db.SongMetadataChanges.ToListAsync();
+        Assert.Equal(2, changes.Count);
+        Assert.All(changes, c => Assert.Equal("artist-credit-split", c.Source));
+        AuditBatchAssert.OneAppliedBatch(changes, await db.Songs.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Merge_AuditsEveryRewriteAsOneAppliedBatch_ThatTheHistoryListsAndReverts()
+    {
+        await using var db = NewContext();
+        db.Songs.AddRange(
+            Song("/a/1.mp3", artist: "JAYZ", albumArtist: "JAYZ", artists: "JAYZ",
+                buildStatus: LibraryBuildStatus.Done, destinationPath: "/dest/JAYZ/x.mp3"),
+            Song("/a/2.mp3", artist: "Jaÿ-z", albumArtist: "Jaÿ-z"));
+        await db.SaveChangesAsync();
+
+        await Service(db).MergeAsync(Owner, "JAY-Z", ["JAYZ", "Jaÿ-z"]);
+
+        var changes = await db.SongMetadataChanges.ToListAsync();
+        Assert.All(changes, c => Assert.Equal("artist-merge", c.Source));
+        AuditBatchAssert.OneAppliedBatch(changes, await db.Songs.ToListAsync());
+
+        var history = new DedupActionHistoryService(db, NullLogger<DedupActionHistoryService>.Instance);
+        var action = Assert.Single(await history.ListAsync());
+        Assert.Equal(("artist-merge", changes.Count, true), (action.Source, action.ChangeCount, action.Revertible));
+        var revert = await history.RevertAsync(Owner, action.Source, action.BatchTicks);
+        Assert.Equal(changes.Count, revert.ChangesReverted);
+        Assert.Equal(["JAYZ", "Jaÿ-z"], (await db.Songs.OrderBy(s => s.Id).ToListAsync()).Select(s => s.Artist));
+    }
+
+    [Fact]
     public async Task SplitCredit_RejectsSingleArtistName()
     {
         await using var db = NewContext();
