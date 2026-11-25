@@ -42,6 +42,30 @@ public class ExplicitVersionMatcherTests
     }
 
     [Theory]
+    [InlineData("Money Trees (Album Version Edited)")]
+    [InlineData("Money Trees (Clean Album Version)")]
+    [InlineData("Money Trees (Original Clean)")]
+    public void AnyCleanEditLabel_OnTheTitle_StillMatches(string cleanTitle)
+    {
+        var clean = Track("clean", isExplicit: false, title: cleanTitle);
+
+        Assert.Equal("explicit", ExplicitVersionMatcher.FindExplicitEdition(clean, [Track("explicit", isExplicit: true)])?.Id);
+        Assert.Equal("track:Money Trees artist:Kendrick Lamar", ExplicitVersionMatcher.SearchQuery(clean));
+    }
+
+    [Fact]
+    public void ALabelledTitleWithParentheses_IsMatchedAndSearchedWithoutTheLabel()
+    {
+        var clean = Track("clean", isExplicit: false, title: "Heart Of A Lion (Kid Cudi Theme Music) (Album Version Edited)");
+        var explicitEdition = Track("explicit", isExplicit: true, title: "Heart Of A Lion (Kid Cudi Theme Music)");
+
+        Assert.Equal("explicit", ExplicitVersionMatcher.FindExplicitEdition(clean, [explicitEdition])?.Id);
+        Assert.Equal(
+            "track:Heart Of A Lion (Kid Cudi Theme Music) artist:Kendrick Lamar",
+            ExplicitVersionMatcher.SearchQuery(clean));
+    }
+
+    [Theory]
     [InlineData("Money Trees - Live", "Kendrick Lamar, Jay Rock", 386_000)] // a different recording
     [InlineData("Money Trees (Live)", "Kendrick Lamar, Jay Rock", 386_000)]
     [InlineData("Swimming Pools", "Kendrick Lamar, Jay Rock", 386_000)] // a different song

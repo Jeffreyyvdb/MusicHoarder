@@ -42,7 +42,7 @@ public record DownloadRequest(
 /// </list>
 /// <para>
 /// <paramref name="SourceId"/> is the provider-specific id of the media the audio actually came from
-/// (yt-dlp: the YouTube video id, including for <c>ytsearch1:</c> results). The companion
+/// (yt-dlp: the YouTube video id, including for a search result). The companion
 /// music-video download uses it to fetch the clip from the <em>same</em> video, making the
 /// audio/video sync offset 0 by construction. Null for providers without such an id.
 /// </para>

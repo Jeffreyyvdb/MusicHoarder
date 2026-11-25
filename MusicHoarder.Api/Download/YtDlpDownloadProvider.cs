@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Import;
 using MusicHoarder.Api.Logging;
+using MusicHoarder.Api.Metadata;
 using MusicHoarder.Api.Options;
 
 namespace MusicHoarder.Api.Download;
@@ -15,6 +17,11 @@ namespace MusicHoarder.Api.Download;
 /// <see cref="DownloadTagWriter"/> instead, and embeds the item's own cover art via
 /// <see cref="IDownloadArtworkEmbedder"/> (the destination cover-fetch pipeline can still replace it
 /// once enrichment knows the release).
+/// </para>
+/// <para>
+/// A search request is resolved before it is downloaded: YouTube's first hit is often the clean edit,
+/// and the library always wants the original, so the first result that is not an unrequested clean
+/// edit is the one downloaded (see <see cref="CleanEditLabel"/>).
 /// </para>
 /// Degrades gracefully (returns a failure result) when the yt-dlp binary is missing, mirroring the
 /// fpcalc-absent handling.
@@ -53,10 +60,17 @@ public class YtDlpDownloadProvider(
         {
             Directory.CreateDirectory(req.DestinationDirectory);
 
-            var target = BuildTarget(req);
-
             if (cookiesPath is null && !string.IsNullOrWhiteSpace(opts.YtDlpCookiesPath))
                 logger.LogWarning("YtDlpCookiesPath is set but the file does not exist: {Path}", LogSanitizer.ForLog(opts.YtDlpCookiesPath));
+
+            var target = DirectUrl(req);
+            if (target is null)
+            {
+                var (picked, nothingToDownload) = await ResolveSearchAsync(opts, req, cookiesPath, ct);
+                if (picked is null)
+                    return nothingToDownload!;
+                target = ImportUrlParser.YouTubeWatchUrl(picked.Id);
+            }
 
             var attempt = await RunAsync(opts, req, format, target, cookiesPath, ct);
 
@@ -129,7 +143,7 @@ public class YtDlpDownloadProvider(
         };
         psi.ArgumentList.Add("--no-playlist");
         psi.ArgumentList.Add("--no-progress");
-        // Print the resolved video id (works for ytsearch1: targets too) so the caller knows which
+        // Print the video id so the caller knows which
         // exact video the audio came from — the companion music-video download reuses it to fetch
         // the same video, making the sync offset 0 by construction. --print alone implies
         // --simulate; --no-simulate keeps the download running.
@@ -194,19 +208,83 @@ public class YtDlpDownloadProvider(
     }
 
     /// <summary>
-    /// The yt-dlp target argument: a single-track URL import (<see cref="DownloadRequest.SourceUrl"/>,
-    /// e.g. a pasted YouTube video) downloads that exact URL; everything else searches YouTube by
-    /// artist/title. <c>--no-playlist</c> keeps a "watch?v=…&amp;list=…" link to just the one video.
+    /// A single-track URL import (<see cref="DownloadRequest.SourceUrl"/>, e.g. a pasted YouTube video)
+    /// downloads that exact URL, trimmed; null means the request is a search by artist and title.
+    /// <c>--no-playlist</c> keeps a "watch?v=…&amp;list=…" link to just the one video.
     /// </summary>
-    internal static string BuildTarget(DownloadRequest req) =>
-        string.IsNullOrWhiteSpace(req.SourceUrl) ? BuildSearchQuery(req) : req.SourceUrl.Trim();
+    internal static string? DirectUrl(DownloadRequest req) =>
+        string.IsNullOrWhiteSpace(req.SourceUrl) ? null : req.SourceUrl.Trim();
 
+    /// <summary>How many YouTube results are considered before giving up on finding a non-clean one.</summary>
+    internal const int SearchResultCount = 5;
+
+    /// <summary>
+    /// The yt-dlp search argument: artist and title with the title's clean-edit label dropped, since
+    /// asking for the label would steer YouTube toward the very edit we are avoiding. The
+    /// <c>ytsearchN:</c> prefix means the value never starts with '-', so it cannot be read as a flag.
+    /// </summary>
     internal static string BuildSearchQuery(DownloadRequest req)
     {
-        var terms = string.IsNullOrWhiteSpace(req.Artist)
-            ? req.Title
-            : $"{req.Artist} {req.Title}";
-        return $"ytsearch1:{terms.Trim()}";
+        var title = CleanEditLabel.Strip(req.Title);
+        if (title.Length == 0)
+            title = req.Title.Trim();
+        var terms = string.IsNullOrWhiteSpace(req.Artist) ? title : $"{req.Artist} {title}";
+        return $"ytsearch{SearchResultCount}:{terms.Trim()}";
+    }
+
+    /// <summary>
+    /// The first of <paramref name="candidates"/>, in YouTube's order, that is not an unrequested clean
+    /// edit of <paramref name="req"/>, plus the ones skipped on the way. Null when every hit is a clean edit.
+    /// </summary>
+    internal static (MusicVideoDownloader.SearchCandidate? Picked, List<MusicVideoDownloader.SearchCandidate> Skipped) PickCandidate(
+        IEnumerable<MusicVideoDownloader.SearchCandidate> candidates, DownloadRequest req)
+    {
+        var skipped = new List<MusicVideoDownloader.SearchCandidate>();
+        foreach (var candidate in candidates)
+        {
+            if (!CleanEditLabel.IsUnrequestedCleanEdit(candidate.Title, req.Artist, req.Title))
+                return (candidate, skipped);
+            skipped.Add(candidate);
+        }
+        return (null, skipped);
+    }
+
+    /// <summary>
+    /// Searches YouTube (flat, no per-video fetch) and picks the video to download. Returns the pick, or
+    /// the result to hand back when there is nothing to download: Missing lets the next provider try.
+    /// </summary>
+    private async Task<(MusicVideoDownloader.SearchCandidate? Picked, DownloadResult? NothingToDownload)> ResolveSearchAsync(
+        MusicEnricherOptions opts, DownloadRequest req, string? cookiesPath, CancellationToken ct)
+    {
+        var query = BuildSearchQuery(req);
+        var psi = YtDlpProcess.Create(opts, cookiesPath, includeThrottle: false);
+        psi.ArgumentList.Add("--flat-playlist");
+        psi.ArgumentList.Add("-J");
+        psi.ArgumentList.Add(query);
+
+        var (exitCode, stdout, stderr) = await YtDlpProcess.RunAsync(psi, ct);
+        var candidates = MusicVideoDownloader.ParseFlatSearch(stdout);
+
+        if (candidates.Count == 0)
+        {
+            if (exitCode == 0 || LooksLikeNoResults(stderr))
+            {
+                logger.LogInformation("yt-dlp found no result for '{Query}': {Error}", LogSanitizer.ForLog(query), LogSanitizer.ForLog(YtDlpErrors.Tail(stderr)));
+                return (null, DownloadResult.Missing(stderr.Length == 0 ? "no results" : YtDlpErrors.Tail(stderr)));
+            }
+            logger.LogWarning("yt-dlp search exited {Code} for '{Query}': {Error}", exitCode, LogSanitizer.ForLog(query), LogSanitizer.ForLog(YtDlpErrors.Tail(stderr)));
+            return (null, DownloadResult.Failed(YtDlpErrors.Describe(exitCode, stderr)));
+        }
+
+        var (picked, skipped) = PickCandidate(candidates, req);
+        foreach (var clean in skipped)
+            logger.LogInformation(
+                "Skipping clean edit {VideoId} '{VideoTitle}' for '{Artist} - {Title}'",
+                clean.Id, LogSanitizer.ForLog(clean.Title), LogSanitizer.ForLog(req.Artist), LogSanitizer.ForLog(req.Title));
+
+        return picked is null
+            ? (null, DownloadResult.Missing("YouTube only has clean edits of this track"))
+            : (picked, null);
     }
 
     /// <summary>
