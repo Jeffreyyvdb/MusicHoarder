@@ -22,6 +22,7 @@ namespace MusicHoarder.Api.Download;
 public class QualityUpgradeService(
     MusicHoarderDbContext db,
     IEnumerable<IUpgradeProvider> upgradeProviders,
+    IEnumerable<IDownloadProvider> downloadProviders,
     JobManager jobManager,
     IOwnerLookupService ownerLookup,
     IOptions<MusicEnricherOptions> enricherOptions,
@@ -64,14 +65,28 @@ public class QualityUpgradeService(
             AudioQuality.TierFor(song.Extension), AudioQuality.Score(song), song.DurationMs);
 
         // Providers in configured order that could actually beat the target (e.g. the lossless sidecar
-        // opts out once the target is already lossless; yt-dlp isn't an IUpgradeProvider at all).
-        var providers = DownloadProviderChain
-            .Resolve(DownloadProviderChain.Names(enricherOptions.Value), upgradeProviders, p => p.Name, logger)
+        // opts out once the target is already lossless or lacks a released streaming identity; yt-dlp
+        // isn't an IUpgradeProvider at all, so passing all registered IDownloadProvider names
+        // suppresses false "unknown provider" warnings).
+        var hasStreamingIdentity = UpgradeEligibility.HasStreamingIdentity(song);
+        var capableProviders = DownloadProviderChain
+            .Resolve(
+                DownloadProviderChain.Names(enricherOptions.Value),
+                upgradeProviders,
+                p => p.Name,
+                logger,
+                ignoreNames: downloadProviders.Select(p => p.Name))
             .Where(p => p.CanUpgrade(floor))
+            .ToList();
+        var providers = capableProviders
+            .Where(p => !p.RequiresStreamingIdentity || hasStreamingIdentity)
             .ToList();
         if (providers.Count == 0)
         {
-            request.MarkTerminal(UpgradeRequestStatus.NotFound, "no upgrade-capable provider can beat the current quality");
+            var reason = capableProviders.Count > 0 && !hasStreamingIdentity
+                ? "song has no released streaming identity for the configured upgrade providers"
+                : "no upgrade-capable provider can beat the current quality";
+            request.MarkTerminal(UpgradeRequestStatus.NotFound, reason);
             await db.SaveChangesAsync(ct);
             return;
         }

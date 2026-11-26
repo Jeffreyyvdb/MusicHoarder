@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Audio;
@@ -125,9 +126,76 @@ public class QualityUpgradeServiceTests : IDisposable
         Assert.Equal(UpgradeRequestStatus.NotFound, (await db.UpgradeRequests.SingleAsync()).Status);
     }
 
+    [Fact]
+    public async Task Process_SkipsDownloadOnlyProvidersWithoutWarning_StillWarnsOnUnknown()
+    {
+        await using var db = CreateDbContext();
+        await SeedSongWithQueuedRequest(db);
+        var downloaded = WriteStagingFile("better.flac");
+        var spotiflac = new FakeUpgradeProvider("spotiflac", DownloadResult.Ok(downloaded));
+        var ytdlp = new FakeDownloadOnlyProvider("yt-dlp");
+        var logger = new RecordingLogger<QualityUpgradeService>();
+
+        var service = CreateService(
+            db, ["spotiflac", "yt-dlp", "bogus"], [spotiflac], [ytdlp], logger);
+        await service.ProcessRequestAsync(1, default);
+
+        Assert.Equal(UpgradeRequestStatus.AwaitingIngest, (await db.UpgradeRequests.SingleAsync()).Status);
+        var warnings = logger.Messages.Where(m => m.Level == LogLevel.Warning).Select(m => m.Message).ToList();
+        Assert.DoesNotContain(warnings, w => w.Contains("yt-dlp", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(warnings, w => w.Contains("bogus", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Theory]
+    [InlineData(null, null, false)]
+    [InlineData("   ", "   ", false)]
+    [InlineData("sp-stale", null, true)]
+    public async Task Process_SkipsStreamingOnlyProviderWithoutCalling_FallsThroughToNonStreamingProvider(
+        string? spotifyId, string? isrc, bool isUnreleased)
+    {
+        await using var db = CreateDbContext();
+        await SeedSongWithQueuedRequest(db, spotifyId: spotifyId, isrc: isrc, isUnreleased: isUnreleased);
+        var downloaded = WriteStagingFile("soulseek.flac");
+        var spotiflac = new FakeUpgradeProvider("spotiflac", DownloadResult.Ok(WriteStagingFile("wrong.flac")))
+        {
+            RequiresStreamingIdentity = true,
+        };
+        var slskd = new FakeUpgradeProvider("slskd", DownloadResult.Ok(downloaded));
+
+        await CreateService(db, ["spotiflac", "slskd"], spotiflac, slskd).ProcessRequestAsync(1, default);
+
+        Assert.Equal(0, spotiflac.Calls);
+        Assert.Equal(1, slskd.Calls);
+        var request = await db.UpgradeRequests.SingleAsync();
+        Assert.Equal(UpgradeRequestStatus.AwaitingIngest, request.Status);
+        Assert.Contains("\"provider\":\"slskd\"", request.CandidateInfoJson);
+    }
+
+    [Fact]
+    public async Task Process_StreamingOnlyProviderAloneOnIdentitylessSong_MarksNotFoundWithoutCalling()
+    {
+        await using var db = CreateDbContext();
+        await SeedSongWithQueuedRequest(db, spotifyId: null, isrc: null, isUnreleased: false);
+        var spotiflac = new FakeUpgradeProvider("spotiflac", DownloadResult.Ok(WriteStagingFile("x.flac")))
+        {
+            RequiresStreamingIdentity = true,
+        };
+
+        await CreateService(db, ["spotiflac"], spotiflac).ProcessRequestAsync(1, default);
+
+        Assert.Equal(0, spotiflac.Calls);
+        var request = await db.UpgradeRequests.SingleAsync();
+        Assert.Equal(UpgradeRequestStatus.NotFound, request.Status);
+        Assert.Contains("streaming identity", request.Error, StringComparison.OrdinalIgnoreCase);
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────────
 
-    private async Task SeedSongWithQueuedRequest(MusicHoarderDbContext db)
+    private async Task SeedSongWithQueuedRequest(
+        MusicHoarderDbContext db,
+        string? spotifyId = null,
+        string? isrc = null,
+        bool isUnreleased = false)
     {
         db.Songs.Add(new SongMetadata
         {
@@ -143,6 +211,9 @@ public class QualityUpgradeServiceTests : IDisposable
             IndexedAtUtc = DateTime.UtcNow,
             Artist = "Artist",
             Title = "Song",
+            SpotifyId = spotifyId,
+            Isrc = isrc,
+            IsUnreleased = isUnreleased,
             EnrichmentStatus = EnrichmentStatus.Matched,
         });
         db.UpgradeRequests.Add(new UpgradeRequest
@@ -158,7 +229,15 @@ public class QualityUpgradeServiceTests : IDisposable
     }
 
     private QualityUpgradeService CreateService(
-        MusicHoarderDbContext db, string[] chain, params IUpgradeProvider[] providers)
+        MusicHoarderDbContext db, string[] chain, params IUpgradeProvider[] providers) =>
+        CreateService(db, chain, providers, [], NullLogger<QualityUpgradeService>.Instance);
+
+    private QualityUpgradeService CreateService(
+        MusicHoarderDbContext db,
+        string[] chain,
+        IUpgradeProvider[] providers,
+        IDownloadProvider[] downloadProviders,
+        ILogger<QualityUpgradeService> logger)
     {
         var options = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
         {
@@ -168,8 +247,7 @@ public class QualityUpgradeServiceTests : IDisposable
             DownloadProviders = chain,
         });
         return new QualityUpgradeService(
-            db, providers, new JobManager(), new OwnerLookupService(), options,
-            NullLogger<QualityUpgradeService>.Instance);
+            db, providers, downloadProviders, new JobManager(), new OwnerLookupService(), options, logger);
     }
 
     private string WriteStagingFile(string name)
@@ -186,6 +264,7 @@ public class QualityUpgradeServiceTests : IDisposable
     private sealed class FakeUpgradeProvider(string name, DownloadResult result) : IUpgradeProvider
     {
         public string Name => name;
+        public bool RequiresStreamingIdentity { get; init; }
         public bool CanUpgradeResult { get; init; } = true;
         public int Calls { get; private set; }
         public bool CanUpgrade(UpgradeFloor floor) => CanUpgradeResult;

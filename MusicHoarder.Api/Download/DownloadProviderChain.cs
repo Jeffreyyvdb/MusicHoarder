@@ -17,14 +17,23 @@ public static class DownloadProviderChain
 
     /// <summary>
     /// Maps <paramref name="names"/> to matching providers in order, skipping blank slots (optional
-    /// trailing compose entries) and de-duplicating. Unknown names are logged and skipped. The result
-    /// may be empty — callers decide what an empty chain means (the wishlist downloader falls back to
-    /// its first registered provider; the upgrade chain simply no-ops).
+    /// trailing compose entries) and de-duplicating. Unknown names are logged and skipped, except
+    /// those in <paramref name="ignoreNames"/> (used by upgrade resolution so valid download-only
+    /// providers such as <c>yt-dlp</c> don't trigger false warnings). The result may be empty —
+    /// callers decide what an empty chain means (the wishlist downloader falls back to its first
+    /// registered provider; the upgrade chain simply no-ops).
     /// </summary>
     public static List<T> Resolve<T>(
-        IEnumerable<string> names, IEnumerable<T> providers, Func<T, string> nameOf, ILogger logger)
+        IEnumerable<string> names,
+        IEnumerable<T> providers,
+        Func<T, string> nameOf,
+        ILogger logger,
+        IEnumerable<string>? ignoreNames = null)
     {
         var available = providers.ToList();
+        var ignored = ignoreNames is null
+            ? null
+            : new HashSet<string>(ignoreNames, StringComparer.OrdinalIgnoreCase);
         var resolved = new List<T>();
         foreach (var name in names)
         {
@@ -33,9 +42,14 @@ public static class DownloadProviderChain
             var provider = available.FirstOrDefault(
                 p => string.Equals(nameOf(p), name, StringComparison.OrdinalIgnoreCase));
             if (provider is null)
-                logger.LogWarning("Unknown download provider '{Name}' in chain — skipping", name);
+            {
+                if (ignored is null || !ignored.Contains(name))
+                    logger.LogWarning("Unknown download provider '{Name}' in chain — skipping", name);
+            }
             else if (!resolved.Contains(provider))
+            {
                 resolved.Add(provider);
+            }
         }
         return resolved;
     }

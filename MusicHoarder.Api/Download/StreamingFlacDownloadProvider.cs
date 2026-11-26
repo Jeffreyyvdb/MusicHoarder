@@ -39,6 +39,10 @@ public sealed class StreamingFlacDownloadProvider(
 {
     public string Name => "spotiflac";
 
+    /// <summary>The sidecar resolves tracks from a Spotify URL (via <see cref="DownloadRequest.SpotifyTrackId"/>
+    /// or ISRC lookup), so it can never acquire unreleased or identity-less tracks.</summary>
+    public bool RequiresStreamingIdentity => true;
+
     /// <summary>The sidecar only ever produces lossless FLAC, so it can upgrade a lossy target but can't
     /// improve on one that's already lossless — skip those rather than download a same-tier file the
     /// merge would reject.</summary>

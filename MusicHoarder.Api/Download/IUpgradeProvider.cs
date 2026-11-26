@@ -1,4 +1,6 @@
+using System.Linq.Expressions;
 using MusicHoarder.Api.Audio;
+using MusicHoarder.Api.Persistence;
 
 namespace MusicHoarder.Api.Download;
 
@@ -8,6 +10,30 @@ namespace MusicHoarder.Api.Download;
 /// = unknown) so a provider can sanity-check that a candidate is the same-length recording.
 /// </summary>
 public readonly record struct UpgradeFloor(AudioCodecTier Tier, int Score, int? DurationMs);
+
+/// <summary>
+/// Shared eligibility predicate for streaming-catalog upgrade providers (<see cref="IUpgradeProvider.RequiresStreamingIdentity"/>).
+/// Kept in one place so the EF Core sweep query in <see cref="AutomaticUpgradeSweep"/> and the
+/// per-request filter in <see cref="QualityUpgradeService"/> never drift apart.
+/// </summary>
+public static class UpgradeEligibility
+{
+    /// <summary>
+    /// EF-translatable predicate for songs a streaming-catalog provider (e.g. <c>spotiflac</c>) can
+    /// plausibly resolve: officially released — an unreleased leak carrying a stale Spotify id is a
+    /// wrong match and must not be sent to a streaming catalog — and carrying a non-blank Spotify id
+    /// or ISRC.
+    /// </summary>
+    public static readonly Expression<Func<SongMetadata, bool>> HasStreamingIdentityExpression = s =>
+        !s.IsUnreleased
+        && ((s.SpotifyId != null && s.SpotifyId.Trim() != "")
+            || (s.Isrc != null && s.Isrc.Trim() != ""));
+
+    private static readonly Func<SongMetadata, bool> HasStreamingIdentityCompiled =
+        HasStreamingIdentityExpression.Compile();
+
+    public static bool HasStreamingIdentity(SongMetadata song) => HasStreamingIdentityCompiled(song);
+}
 
 /// <summary>
 /// A download backend that can acquire a strictly-better copy of a song already in the library. This
@@ -22,6 +48,16 @@ public interface IUpgradeProvider
     /// <summary>Stable identifier, matched against <c>MusicEnricher:DownloadProviders</c> for chain ordering.
     /// Mirrors <see cref="IDownloadProvider.Name"/> so a class implementing both shares one name.</summary>
     string Name { get; }
+
+    /// <summary>
+    /// True when this provider can only acquire officially-released tracks that carry a streaming
+    /// catalog identity (a Spotify track id or an ISRC), e.g. <c>spotiflac</c>. Used both per-song in
+    /// <see cref="QualityUpgradeService"/> and in <see cref="AutomaticUpgradeSweep"/> when every active
+    /// upgrade provider sets this, so unreleased tracks and identity-less tracks don't burn batch slots
+    /// or log pointless misses. Note that an ISRC-only track still requires Spotify credentials at
+    /// acquisition time to resolve its track id.
+    /// </summary>
+    bool RequiresStreamingIdentity => false;
 
     /// <summary>
     /// Could this provider plausibly beat <paramref name="floor"/>? A cheap pre-filter that skips
