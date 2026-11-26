@@ -94,13 +94,15 @@ function bookkeepingWrites(cfg: StackConfig, songIds: number[]) {
   )
   psql(cfg, `UPDATE "Songs" SET "LibraryBuildLastAttemptedAtUtc" = now(), "LastWrittenAtUtc" = now() WHERE "Id" IN (${ids})`)
   psql(cfg, `UPDATE "Songs" SET "EnrichedAtUtc" = now(), "EnrichmentLastAttemptedAtUtc" = now() WHERE "Id" IN (${ids})`)
+  psql(cfg, `UPDATE "SongMusicVideos" SET "LetterboxFraction" = random() * 0.2, "LastError" = 'perf fixture: measured again'`)
 }
 
 function timeSongUpdates(cfg: StackConfig, set: string, rowsPerRepeat: number): number {
-  // psql prints a line for the CREATE as well; the timing is the last one.
-  const micros = psql(
+  // Rolled back, so the library reads as it did; the dead row versions are vacuumed by the caller.
+  const lines = psql(
     cfg,
-    `CREATE FUNCTION pg_temp.mh_time_updates(ids int[]) RETURNS double precision LANGUAGE plpgsql AS $$
+    `BEGIN;
+     CREATE FUNCTION pg_temp.mh_time_updates(ids int[]) RETURNS double precision LANGUAGE plpgsql AS $$
      DECLARE started timestamptz := clock_timestamp(); id int;
      BEGIN
        FOREACH id IN ARRAY ids LOOP
@@ -108,9 +110,13 @@ function timeSongUpdates(cfg: StackConfig, set: string, rowsPerRepeat: number): 
        END LOOP;
        RETURN extract(epoch FROM clock_timestamp() - started) * 1000000 / array_length(ids, 1);
      END $$;
-     SELECT pg_temp.mh_time_updates(ARRAY(SELECT "Id" FROM "Songs" ORDER BY "Id" LIMIT ${rowsPerRepeat}))`,
-  ).at(-1)?.[0]
-  return Number(micros)
+     SELECT pg_temp.mh_time_updates(ARRAY(SELECT "Id" FROM "Songs" ORDER BY "Id" LIMIT ${rowsPerRepeat}));
+     ROLLBACK`,
+  )
+  // psql prints a line per statement; the timing is the only number among them.
+  const micros = lines.map(([value]) => Number(value)).find((value) => Number.isFinite(value))
+  if (micros === undefined) throw new Error(`Timing the song updates printed no number: ${JSON.stringify(lines)}`)
+  return micros
 }
 
 export async function runWritesScenario(target: Target, runs: number): Promise<WritesReport> {
@@ -173,19 +179,27 @@ export async function runWritesScenario(target: Target, runs: number): Promise<W
     await learn()
     const title = `Renamed by the writes scenario ${run}-${Date.now()}`
     const [[originalTitle = ''] = []] = psql(cfg, `SELECT "Title" FROM "Songs" WHERE "Id" = ${renamedId}`)
-    psql(cfg, `UPDATE "Songs" SET "Title" = '${title}' WHERE "Id" = ${renamedId}`)
-    const afterTitle = await revalidate('After a title change')
-    for (const list of LISTS)
-      if (afterTitle.get(list.name)!.status !== 200) stale.add(`${list.name} answered ${afterTitle.get(list.name)!.status} after a song was renamed`)
-    if (songIn(afterTitle.get('Song list')!.body, renamedId)?.title !== title) stale.add('Song list was sent without the new title')
-    psql(cfg, `UPDATE "Songs" SET "Title" = '${originalTitle.replaceAll("'", "''")}' WHERE "Id" = ${renamedId}`)
+    try {
+      psql(cfg, `UPDATE "Songs" SET "Title" = '${title}' WHERE "Id" = ${renamedId}`)
+      const afterTitle = await revalidate('After a title change')
+      for (const list of LISTS)
+        if (afterTitle.get(list.name)!.status !== 200) stale.add(`${list.name} answered ${afterTitle.get(list.name)!.status} after a song was renamed`)
+      if (songIn(afterTitle.get('Song list')!.body, renamedId)?.title !== title) stale.add('Song list was sent without the new title')
+    } finally {
+      psql(cfg, `UPDATE "Songs" SET "Title" = '${originalTitle.replaceAll("'", "''")}' WHERE "Id" = ${renamedId}`)
+    }
 
     await learn()
-    psql(cfg, `UPDATE "SongMusicVideos" SET "Status" = 1, "FilePath" = '/perf/video.mp4' WHERE "Id" = ${videoId}`)
-    const afterVideo = await revalidate('After a video became ready')
-    if (afterVideo.get('Song list')!.status !== 200) stale.add(`Song list answered ${afterVideo.get('Song list')!.status} after a video became ready`)
-    if (songIn(afterVideo.get('Song list')!.body, Number(videoSongId))?.hasMusicVideo !== true) stale.add('Song list was sent without the new music video')
-    psql(cfg, `UPDATE "SongMusicVideos" SET "Status" = 2, "FilePath" = NULL WHERE "Id" = ${videoId}`)
+    // Kept in the database itself, so the row goes back to exactly what it was.
+    psql(cfg, `CREATE TABLE IF NOT EXISTS perf_writes_video AS SELECT "Id", "Status", "FilePath" FROM "SongMusicVideos" WHERE "Id" = ${videoId}`)
+    try {
+      psql(cfg, `UPDATE "SongMusicVideos" SET "Status" = 1, "FilePath" = '/perf/video.mp4' WHERE "Id" = ${videoId}`)
+      const afterVideo = await revalidate('After a video became ready')
+      if (afterVideo.get('Song list')!.status !== 200) stale.add(`Song list answered ${afterVideo.get('Song list')!.status} after a video became ready`)
+      if (songIn(afterVideo.get('Song list')!.body, Number(videoSongId))?.hasMusicVideo !== true) stale.add('Song list was sent without the new music video')
+    } finally {
+      psql(cfg, `UPDATE "SongMusicVideos" v SET "Status" = k."Status", "FilePath" = k."FilePath" FROM perf_writes_video k WHERE v."Id" = k."Id"; DROP TABLE perf_writes_video`)
+    }
     console.log('done')
   }
 

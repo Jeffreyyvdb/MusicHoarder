@@ -150,8 +150,12 @@ public class RowVersionTests
         async Task<string> Lists(CurrentUser caller)
         {
             await using var db = database.NewContextFor(caller, caller == Owner ? [statements] : []);
+            // The default requests, and the ones that widen what each handler reads.
             return await Written(await ListSongsCaller.Invoke(db, caller: caller))
-                + await Written(await AlbumsEndpoints.ListAlbums(db, TestLibraryScope.For(caller), CancellationToken.None));
+                + await Written(await ListSongsCaller.Invoke(db, includeDeleted: true, enrichmentStatus: "Matched", caller: caller))
+                + await Written(await AlbumsEndpoints.ListAlbums(db, TestLibraryScope.For(caller), CancellationToken.None))
+                + await Written(await AlbumsEndpoints.ListAlbums(
+                    db, TestLibraryScope.For(caller), CancellationToken.None, builtOnly: false, unreleased: true));
         }
 
         var asOwner = await Lists(Owner);
@@ -321,6 +325,16 @@ public class RowVersionTests
             CreatedAtUtc = DateTime.UtcNow,
         });
         await db.SaveChangesAsync();
+        // The first song came from the playlist, so its origin is read off the source's row.
+        db.WishlistItems.Add(new WishlistItem
+        {
+            OwnerUserId = Owner.Id,
+            WishlistSource = await db.WishlistSources.SingleAsync(),
+            Title = songs[0].Title!,
+            Artist = songs[0].Artist!,
+            Status = WishlistItemStatus.Downloaded,
+            DownloadedSongId = songs[0].Id,
+        });
         db.SongMusicVideos.Add(new SongMusicVideo
         {
             SongId = songs[0].Id,
