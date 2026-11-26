@@ -71,7 +71,7 @@ interface Timed {
   body: Uint8Array | null
 }
 
-async function timed(url: string, headers: Record<string, string>, keepBody: boolean): Promise<Timed> {
+export async function timed(url: string, headers: Record<string, string>, keepBody: boolean): Promise<Timed> {
   const started = performance.now()
   // decompress: false keeps the body as it crossed the wire, so the byte count is the real one.
   const response = await fetch(url, { headers, decompress: false, redirect: 'manual', signal: AbortSignal.timeout(120_000) } as RequestInit)
@@ -112,7 +112,7 @@ function decode(body: Uint8Array, encoding: string | null): Uint8Array {
 }
 
 /** The list a JSON payload is mostly made of: itself, or its largest array property. */
-function mainRows(json: unknown): unknown[] | null {
+export function mainRows(json: unknown): unknown[] | null {
   if (Array.isArray(json)) return json
   if (json && typeof json === 'object') {
     const arrays = Object.values(json).filter(Array.isArray) as unknown[][]
