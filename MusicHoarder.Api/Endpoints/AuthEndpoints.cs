@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.RateLimiting;
 
 namespace MusicHoarder.Api.Endpoints;
 
@@ -83,8 +84,17 @@ public static class AuthEndpoints
                 HttpContext ctx,
                 IAuthService authService,
                 IAccountSwitchService accountSwitch,
+                DemoLoginRateGate rateGate,
                 CancellationToken ct) =>
             {
+                // Instance-wide cap (see DemoLoginRateGate): the endpoint is anonymous, so an
+                // uncapped run would let one script fill the sessions table.
+                if (!rateGate.TryAcquire(out var retryAfter))
+                {
+                    ctx.Response.Headers["Retry-After"] = ((int)Math.Ceiling(retryAfter.TotalSeconds)).ToString();
+                    return Results.Json(new { error = "rate_limited" }, statusCode: StatusCodes.Status429TooManyRequests);
+                }
+
                 var session = await authService.StartDemoSessionAsync(
                     ctx.Connection.RemoteIpAddress?.ToString(),
                     ctx.Request.Headers.UserAgent.ToString(),

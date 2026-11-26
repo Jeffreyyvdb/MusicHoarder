@@ -29,6 +29,7 @@ using MusicHoarder.Api.Chat;
 using MusicHoarder.Api.Notifications;
 using MusicHoarder.Api.Quality;
 using MusicHoarder.Api.Quality.Jev;
+using MusicHoarder.Api.RateLimiting;
 using MusicHoarder.Api.Scanner;
 using MusicHoarder.Api.Settings;
 using MusicHoarder.Api.Snapshots;
@@ -122,6 +123,8 @@ public static class ServiceCollectionExtensions
             .BindConfiguration(AuthOptions.SectionName)
             .ValidateDataAnnotations()
             .ValidateOnStart();
+        services.AddSingleton(sp => new DemoLoginRateGate(
+            sp.GetRequiredService<IOptions<AuthOptions>>().Value.DemoLoginLimitPerMinute));
 
         services
             .AddOptions<ResendOptions>()

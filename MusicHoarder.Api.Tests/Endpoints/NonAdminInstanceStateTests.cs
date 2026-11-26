@@ -6,8 +6,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
+using MusicHoarder.Api.Download;
 using MusicHoarder.Api.Endpoints;
 using MusicHoarder.Api.Enrichment;
+using MusicHoarder.Api.Jobs;
+using MusicHoarder.Api.Library;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Pipeline;
@@ -28,6 +31,12 @@ public class NonAdminInstanceStateTests
     private const string DestDir = "/srv/dummy/built-library";
     private const string ProviderText = "DUMMY-PROVIDER-TEXT";
 
+    /// <summary>Run-state endpoints the admin-only gate rejects with 403 for non-admins.</summary>
+    private static readonly HashSet<string> AdminOnlyPaths = new(StringComparer.Ordinal)
+    {
+        "/api/quality/progress", "/api/enrichment/status", "/api/enrichment/progress",
+    };
+
     public static TheoryData<string> NonAdmins => new() { "demo", "member" };
 
     private static CurrentUser Caller(string who) => who switch
@@ -45,6 +54,7 @@ public class NonAdminInstanceStateTests
                  {
                      "/api/enrichment/library-availability", "/overview",
                      "/library/directory-tree", "/api/quality/progress",
+                     "/api/enrichment/status", "/api/enrichment/progress",
                  })
         {
             var (status, body) = await Get(Caller(who), path);
@@ -52,10 +62,10 @@ public class NonAdminInstanceStateTests
             Assert.DoesNotContain(DestDir, body);
             Assert.DoesNotContain(ProviderText, body);
             Assert.DoesNotContain("7654", body);
-            if (path != "/api/quality/progress")
-                Assert.Equal(StatusCodes.Status200OK, status);
-            else
+            if (AdminOnlyPaths.Contains(path))
                 Assert.Equal(StatusCodes.Status403Forbidden, status);
+            else
+                Assert.Equal(StatusCodes.Status200OK, status);
         }
     }
 
@@ -101,6 +111,9 @@ public class NonAdminInstanceStateTests
         builder.Services.AddSingleton(scan);
         builder.Services.AddSingleton(new FingerprintProgressTracker());
         builder.Services.AddSingleton(new EnrichmentProgressTracker());
+        builder.Services.AddSingleton(new LibraryBuilderProgressTracker());
+        builder.Services.AddSingleton(new DownloadProgressTracker());
+        builder.Services.AddSingleton(new JobManager());
         builder.Services.AddSingleton(grading);
         builder.Services.AddSingleton<IDirectoryAvailability>(new FixedAvailability());
         builder.Services.AddSingleton<IRuntimeSettingsService>(new StubRuntimeSettings());

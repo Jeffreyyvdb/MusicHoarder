@@ -433,7 +433,8 @@ public static class EnrichmentEndpoints
                 return Results.Ok(new { Progress = snapshot });
             })
             .WithName("GetEnrichmentStatus")
-            .WithSummary("Get the current job status and a progress snapshot.");
+            .WithSummary("Get the current job status and a progress snapshot.")
+            .RequireAdmin();
 
         group.MapGet("/library-availability", (IDirectoryAvailability availability, ICurrentUserAccessor currentUser) =>
             {
@@ -447,7 +448,8 @@ public static class EnrichmentEndpoints
 
         group.MapGet("/progress", StreamProgress)
             .WithName("StreamEnrichmentProgress")
-            .WithSummary("SSE stream that emits a ProgressSnapshot every second while a job is running.");
+            .WithSummary("SSE stream that emits a ProgressSnapshot every second while a job is running.")
+            .RequireAdmin();
 
         group.MapPost("/scrape-trackers", () =>
                 Results.Json(new { message = "Tracker scraping is not yet implemented." }, statusCode: 501))

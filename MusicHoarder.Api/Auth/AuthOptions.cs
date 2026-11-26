@@ -48,6 +48,17 @@ public class AuthOptions
     public int MagicLinkLimitWindowMinutes { get; set; } = 15;
 
     /// <summary>
+    /// How many demo sessions the whole instance mints per rolling minute. The demo login is
+    /// anonymous, so no account window can cap it (magic links are counted per account in the
+    /// database for exactly that reason), and without a cap a script can fill the sessions table.
+    /// Counted per instance, not per IP: every request reaches the API through the frontend
+    /// proxy, so the API has no client address it can trust. Read at startup; a restart applies
+    /// a changed value.
+    /// </summary>
+    [Range(1, 1000)]
+    public int DemoLoginLimitPerMinute { get; set; } = 10;
+
+    /// <summary>
     /// How long a friend-invite link stays redeemable. Much longer than a magic link (the owner
     /// hands it over out-of-band and the recipient may not open it for days), still bounded so a
     /// forgotten link doesn't stay live forever. Default 7 days.
