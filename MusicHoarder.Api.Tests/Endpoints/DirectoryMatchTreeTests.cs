@@ -176,4 +176,28 @@ public class DirectoryMatchTreeTests
     {
         Assert.Equal(expected, DashboardEndpoints.IsDirectChild(sourcePath, prefix));
     }
+
+    [Fact]
+    public void BuildMatchTree_DoesNotRelativizeASiblingDirectoryThatSharesTheRootAsAPrefix()
+    {
+        // "/root/music-demo" starts with "/root/music" as a string; relativizing it would strip a
+        // non-boundary prefix, show the sibling as "-demo/…", and hand a non-admin the owner's
+        // configured source directory by arithmetic. It must render as its own full path.
+        var rows = new[]
+        {
+            Row("/root/music/Kanye West/Donda/01.mp3", EnrichmentStatus.Matched),
+            Row("/root/music-demo/Frank Ocean/channel ORANGE/Bad Religion.flac", EnrichmentStatus.NeedsReview),
+        };
+
+        var root = DashboardEndpoints.BuildMatchTree(rows, "/root/music");
+
+        var kanye = root.Children.Single(c => c.Name == "Kanye West");
+        Assert.Equal("Kanye West", kanye.Path);
+
+        var demoRoot = root.Children.Single(c => c.Name == "root");
+        var demo = demoRoot.Children.Single(c => c.Name == "music-demo");
+        var frank = demo.Children.Single(c => c.Name == "Frank Ocean");
+        Assert.Equal("root/music-demo/Frank Ocean", frank.Path);
+        Assert.Equal(1, frank.Total);
+    }
 }

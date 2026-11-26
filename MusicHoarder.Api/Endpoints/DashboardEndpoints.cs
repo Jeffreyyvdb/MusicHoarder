@@ -218,7 +218,13 @@ public static class DashboardEndpoints
     {
         var lastSlash = fullPath.LastIndexOf('/');
         var directory = lastSlash >= 0 ? fullPath[..lastSlash] : string.Empty;
-        if (sourceRoot.Length > 0 && directory.StartsWith(sourceRoot, StringComparison.OrdinalIgnoreCase))
+        // Strip only on a path boundary: "/root/music-demo" starts with "/root/music" as a string,
+        // and stripping that non-boundary prefix would relativize a sibling directory against the
+        // configured source root, showing the tree as "-demo/…" and handing a non-admin the
+        // owner's source directory by arithmetic.
+        if (sourceRoot.Length > 0
+            && (directory.Equals(sourceRoot, StringComparison.OrdinalIgnoreCase)
+                || directory.StartsWith(sourceRoot + "/", StringComparison.OrdinalIgnoreCase)))
         {
             directory = directory[sourceRoot.Length..];
         }
