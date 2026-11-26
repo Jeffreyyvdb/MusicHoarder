@@ -104,6 +104,12 @@ const PLAY_SHOWN_AFTER_MS = 1000;
 let isLoading = $state(false);
 let error = $state<string | null>(null);
 let hasLoaded = false;
+/**
+ * {@link hasLoaded} for a reader that waits on it. Kept apart because `revalidate` and
+ * `ensureLoaded` run inside page effects, and reading a reactive flag there would run those
+ * effects again on every load and on sign-out.
+ */
+let loadedSignal = $state(false);
 /** When the last successful load landed (epoch ms) — what {@link revalidate} measures against. */
 let loadedAt = 0;
 /** Loads in flight, silent ones included, so a page opening mid-load does not start another. */
@@ -162,6 +168,7 @@ async function loadSongs(opts?: { silent?: boolean }): Promise<void> {
     }
     if (detailAlbumsRequested) void loadDetailAlbums();
     hasLoaded = true;
+    loadedSignal = true;
     loadedAt = Date.now();
     error = null;
   } catch (err) {
@@ -425,6 +432,7 @@ function reset(): void {
   isLoading = false;
   error = null;
   hasLoaded = false;
+  loadedSignal = false;
   loadedAt = 0;
   liveRefCount = 0;
   lastBuilt = -1;
@@ -609,6 +617,10 @@ export const songsStore = {
   /** True once a load has landed, so the rows are the library rather than "not asked yet". */
   get hasLoaded() {
     return hasLoaded;
+  },
+  /** {@link hasLoaded}, reactive: for a page that shows placeholders until the library is in. */
+  get loaded() {
+    return loadedSignal;
   },
   get error() {
     return error;

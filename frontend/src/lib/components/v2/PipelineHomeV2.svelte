@@ -24,26 +24,20 @@
   import * as AlertDialog from '#lib/components/ui/alert-dialog/index.ts';
   import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
   import {
-    fetchAlbums,
-    hydrateAlbums,
     fetchDuplicates,
     fetchQualityOverview,
     fetchQualityProgress,
-    fetchSongs,
     fetchStats,
-    mapEnrichmentStatus,
     sortAlbumsByRecency,
     triggerEnrichmentScan,
     type AlbumSummary,
-    type AlbumSummaryDto,
     type ApiOverviewActivity,
-    type ApiSong,
     type ApiStats,
     type DuplicatesResponse,
     type QualityOverview,
     type QualityProgress
   } from '#lib/api-client.ts';
-  import { isBuiltSong } from '#lib/album-sections.ts';
+  import { songsStore } from '#lib/stores/songs.svelte.ts';
   import { activityDot } from '#lib/activity-tone.ts';
   import { activityLabel, activitySubline } from '#lib/pipeline/recent-activity.ts';
   import {
@@ -71,68 +65,78 @@
   // callers are unaffected.
   let { isDemo = false }: { isDemo?: boolean } = $props();
 
-  // ── data layer (reuses the existing api-client + album-sections) ───────────
+  // ── data layer ────────────────────────────────────────────────────────────
+  // The library itself (songs and album cards) is the shell's copy in songsStore: this page used
+  // to download both lists again on every tick, a few megabytes and about a second of server time
+  // every 8 seconds for as long as the tab stayed open.
   let stats = $state<ApiStats | null>(null);
-  let songs = $state<ApiSong[]>([]);
-  let albumDtos = $state<AlbumSummaryDto[]>([]);
   let quality = $state<QualityOverview | null>(null);
   let qualityProgress = $state<QualityProgress | null>(null);
   let duplicates = $state<DuplicatesResponse | null>(null);
-  let loaded = $state(false);
-  let loadError = $state(false);
+  let countsLoaded = $state(false);
+  let statsFailed = $state(false);
+  let dupesFailed = $state(false);
   let rescanning = $state(false);
+  const loaded = $derived(countsLoaded && songsStore.loaded);
+  const loadError = $derived(statsFailed || dupesFailed || songsStore.error != null);
 
-  // Guard against overlapping polls: during an active scan the API is busy and a
-  // full refresh (which includes the entire song list) can take longer than the
-  // poll interval. Without this, ticks stack up faster than they drain, saturating
-  // the same-origin proxy — whose 10s header-timeout then aborts the in-flight
-  // requests (surfacing as the misleading "access control checks" console error)
-  // and bogs down the page. Skipping a tick while one is in flight makes the
-  // cadence adaptively back off under load.
-  let loadInFlight = false;
-  async function loadAll() {
-    if (loadInFlight) return;
-    loadInFlight = true;
-    try {
-      const [stRes, songsRes, albumsRes, qRes, qpRes, dupRes] = await Promise.allSettled([
-        fetchStats(),
-        fetchSongs(),
-        fetchAlbums(),
-        fetchQualityOverview(),
-        // Admin only on the server; anyone else would poll a 403.
-        isAdmin(page.data.user) ? fetchQualityProgress() : null,
-        fetchDuplicates()
-      ]);
-      if (stRes.status === 'fulfilled') stats = stRes.value;
-      if (songsRes.status === 'fulfilled') songs = songsRes.value;
-      if (albumsRes.status === 'fulfilled') albumDtos = albumsRes.value;
-      // Quality grading may be unconfigured — failure just leaves the KPI as "—".
-      if (qRes.status === 'fulfilled') quality = qRes.value;
-      if (qpRes.status === 'fulfilled') qualityProgress = qpRes.value;
-      if (dupRes.status === 'fulfilled') duplicates = dupRes.value;
-      // This page already holds the two responses the Inbox badge counts from, and polls them
-      // more often than the badge refreshes; handing them over keeps the badge, the Inbox hub and
-      // this page's "Awaiting you" on the same, freshest figures.
-      if (dupRes.status === 'fulfilled')
-        publishInboxQueueCount('dupes', (dupRes.value.duplicateGroups ?? []).length);
-      if (qRes.status === 'fulfilled') publishInboxQueueCount('ai', qRes.value.aiFlaggedCount);
-      // Quality failures stay silent (may be legitimately unconfigured); the core
-      // fetches failing means the KPIs below are stale/missing, so say so.
-      loadError =
-        stRes.status === 'rejected' ||
-        songsRes.status === 'rejected' ||
-        dupRes.status === 'rejected';
-      loaded = true;
-    } finally {
-      loadInFlight = false;
-    }
+  // Each poll skips a tick while its last one is still out: during a scan the API is busy, and
+  // ticks stacking up faster than they drain saturate the same-origin proxy, whose 10s
+  // header-timeout then aborts the requests in flight.
+  function skipWhileBusy(load: () => Promise<void>): () => void {
+    let busy = false;
+    return () => {
+      if (busy) return;
+      busy = true;
+      void load().finally(() => (busy = false));
+    };
   }
 
-  // Re-poll on the same cadence as the rest of the app so counts stay fresh
-  // while a job runs (paused while the page is hidden). The SSE-backed conveyor
-  // updates independently, and the in-flight guard above keeps a slow refresh
-  // from stacking up.
-  $effect(() => poll(() => void loadAll(), 8_000, { immediate: true }));
+  // What moves while a job runs: two small reads.
+  const loadLive = skipWhileBusy(async () => {
+    // Asks for the library again once the copy held is over 30s old; "unchanged" costs a 304.
+    songsStore.revalidate();
+    const [stRes, qpRes] = await Promise.allSettled([
+      fetchStats(),
+      // Admin only on the server; anyone else would poll a 403.
+      isAdmin(page.data.user) ? fetchQualityProgress() : null
+    ]);
+    if (stRes.status === 'fulfilled') stats = stRes.value;
+    if (qpRes.status === 'fulfilled') qualityProgress = qpRes.value;
+    statsFailed = stRes.status === 'rejected';
+  });
+
+  // The two that walk the library on the server. Their figures move when a person decides
+  // something or a grading pass lands, not from second to second.
+  const loadCounts = skipWhileBusy(async () => {
+    const [qRes, dupRes] = await Promise.allSettled([fetchQualityOverview(), fetchDuplicates()]);
+    // Quality grading may be unconfigured — failure just leaves the KPI as "—".
+    if (qRes.status === 'fulfilled') quality = qRes.value;
+    if (dupRes.status === 'fulfilled') duplicates = dupRes.value;
+    // This page already holds the two responses the Inbox badge counts from; handing them over
+    // keeps the badge, the Inbox hub and this page's "Awaiting you" on the same figures.
+    if (dupRes.status === 'fulfilled')
+      publishInboxQueueCount('dupes', (dupRes.value.duplicateGroups ?? []).length);
+    if (qRes.status === 'fulfilled') publishInboxQueueCount('ai', qRes.value.aiFlaggedCount);
+    dupesFailed = dupRes.status === 'rejected';
+    countsLoaded = true;
+  });
+
+  function retryAll() {
+    if (songsStore.error != null) void songsStore.loadSongs({ silent: true });
+    loadLive();
+    loadCounts();
+  }
+
+  // A build landing refreshes the library a few seconds later, as on the Listen pages.
+  $effect(() => {
+    songsStore.startLive();
+    return () => songsStore.stopLive();
+  });
+
+  // Both pause while the page is hidden. The SSE-backed conveyor updates independently.
+  $effect(() => poll(loadLive, 8_000, { immediate: true }));
+  $effect(() => poll(loadCounts, 30_000, { immediate: true }));
 
   // ── live pipeline (SSE) ────────────────────────────────────────────────────
   const snap = $derived(pipelineOverlay.snapshot);
@@ -150,12 +154,12 @@
 
   const inLibrary = $derived.by(() => {
     if (!loaded) return null;
-    return songs.filter(isBuiltSong).length;
+    return songsStore.builtSongs.length;
   });
 
   const matchedCount = $derived.by(() => {
     if (!loaded) return null;
-    return songs.filter((s) => mapEnrichmentStatus(s.enrichmentStatus) === 'complete').length;
+    return songsStore.enrichmentStatusCounts.complete;
   });
 
   const enrichedPct = $derived.by(() => {
@@ -201,7 +205,7 @@
   // Errors — failed enrichment in the current dataset (not a fabricated 24h window).
   const errorCount = $derived.by(() => {
     if (!loaded) return null;
-    return songs.filter((s) => mapEnrichmentStatus(s.enrichmentStatus) === 'failed').length;
+    return songsStore.enrichmentStatusCounts.failed;
   });
 
   // ── conveyor stages ─────────────────────────────────────────────────────────
@@ -388,9 +392,8 @@
 
   // ── just landed (the newest albums the server grouped) ──────────────────────
   const justLanded = $derived.by<AlbumSummary[]>(() => {
-    if (!loaded || albumDtos.length === 0) return [];
-    const byId = new Map(songs.map((song) => [song.id, song]));
-    return sortAlbumsByRecency(hydrateAlbums(albumDtos, byId)).slice(0, 6);
+    if (!loaded) return [];
+    return sortAlbumsByRecency(songsStore.albums).slice(0, 6);
   });
 
   function albumInitials(title: string): string {
@@ -729,7 +732,7 @@
               <Button
                 variant="ghost"
                 class="text-primary hover:text-primary h-11 md:h-8"
-                onclick={() => void loadAll()}
+                onclick={retryAll}
               >
                 Retry
               </Button>
