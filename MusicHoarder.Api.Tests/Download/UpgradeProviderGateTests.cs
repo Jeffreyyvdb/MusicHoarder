@@ -20,6 +20,7 @@ public class UpgradeProviderGateTests
             options: Monitor(new StreamingFlacOptions { Enabled = true, SidecarUrl = "http://sidecar:8080" }),
             logger: NullLogger<StreamingFlacDownloadProvider>.Instance);
 
+        Assert.True(provider.RequiresStreamingIdentity);
         Assert.True(provider.CanUpgrade(Floor(AudioCodecTier.Lossy)));
         Assert.False(provider.CanUpgrade(Floor(AudioCodecTier.Lossless))); // can't beat an existing FLAC
     }
@@ -43,6 +44,7 @@ public class UpgradeProviderGateTests
             fetcher: null!,
             Monitor(new SlskdOptions { BaseUrl = "http://slskd:5030", ApiKey = "k", DownloadsDirectory = "/dl" }),
             NullLogger<SlskdDownloadProvider>.Instance);
+        Assert.False(((IUpgradeProvider)configured).RequiresStreamingIdentity);
         Assert.True(configured.CanUpgrade(Floor(AudioCodecTier.Lossy)));
         Assert.True(configured.CanUpgrade(Floor(AudioCodecTier.Lossless))); // may find higher-bitrate FLAC
 

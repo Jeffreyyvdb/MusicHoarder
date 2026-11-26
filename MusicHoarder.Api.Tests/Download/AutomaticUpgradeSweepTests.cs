@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Audio;
@@ -132,31 +133,109 @@ public class AutomaticUpgradeSweepTests
         Assert.Empty(await db.UpgradeRequests.ToListAsync());
     }
 
+    [Fact]
+    public async Task Sweep_StreamingOnlyProvider_SkipsUnreleasedAndIdentitylessSongs()
+    {
+        await using var db = CreateDbContext();
+        db.Songs.AddRange(
+            Song(1, ".opus", spotifyId: "sp-1"),                              // eligible: has SpotifyId
+            Song(2, ".opus", isrc: "USRC17607839"),                           // eligible: has ISRC
+            Song(3, ".opus"),                                                 // skipped: neither SpotifyId nor ISRC
+            Song(4, ".opus", spotifyId: "   ", isrc: "  "),                   // skipped: whitespace-only ids
+            Song(5, ".opus", spotifyId: "sp-5", isUnreleased: true));         // skipped: unreleased
+        await db.SaveChangesAsync();
+
+        var spotiflac = new FakeUpgradeProvider("spotiflac", configured: true, requiresStreamingIdentity: true);
+        // Unconfigured slskd in the chain must not disable the streaming-only filter.
+        var unconfiguredSlskd = new FakeUpgradeProvider("slskd", configured: false, requiresStreamingIdentity: false);
+        var sweep = CreateSweep(db, new QualityUpgradeChannel(), chain: ["spotiflac", "slskd", "yt-dlp"],
+            providers: [spotiflac, unconfiguredSlskd], downloadProviders: [new FakeDownloadOnlyProvider("yt-dlp")]);
+
+        var queued = await sweep.SweepAsync(default);
+
+        Assert.Equal(2, queued);
+        var queuedIds = await db.UpgradeRequests.OrderBy(r => r.SongId).Select(r => r.SongId).ToListAsync();
+        Assert.Equal([1, 2], queuedIds);
+    }
+
+    [Fact]
+    public async Task Sweep_WithNonStreamingProviderAlsoActive_QueuesIdentitylessSongs()
+    {
+        await using var db = CreateDbContext();
+        db.Songs.AddRange(
+            Song(1, ".opus", spotifyId: "sp-1"),
+            Song(2, ".opus"),                                                 // slskd can still search by artist+title
+            Song(3, ".opus", isUnreleased: true));                            // slskd can still search leaks
+        await db.SaveChangesAsync();
+
+        var spotiflac = new FakeUpgradeProvider("spotiflac", configured: true, requiresStreamingIdentity: true);
+        var slskd = new FakeUpgradeProvider("slskd", configured: true, requiresStreamingIdentity: false);
+        var sweep = CreateSweep(db, new QualityUpgradeChannel(), chain: ["spotiflac", "slskd", "yt-dlp"],
+            providers: [spotiflac, slskd], downloadProviders: [new FakeDownloadOnlyProvider("yt-dlp")]);
+
+        var queued = await sweep.SweepAsync(default);
+
+        Assert.Equal(3, queued);
+    }
+
+    [Fact]
+    public async Task Sweep_SkipsDownloadOnlyProvidersWithoutWarning()
+    {
+        await using var db = CreateDbContext();
+        db.Songs.Add(Song(1, ".opus", spotifyId: "sp-1"));
+        await db.SaveChangesAsync();
+
+        var logger = new RecordingLogger<AutomaticUpgradeSweep>();
+        var spotiflac = new FakeUpgradeProvider("spotiflac", configured: true, requiresStreamingIdentity: true);
+        var sweep = CreateSweep(db, new QualityUpgradeChannel(), chain: ["spotiflac", "yt-dlp"],
+            providers: [spotiflac], downloadProviders: [new FakeDownloadOnlyProvider("yt-dlp")], logger: logger);
+
+        var queued = await sweep.SweepAsync(default);
+
+        Assert.Equal(1, queued);
+        Assert.DoesNotContain(logger.Messages, m => m.Level == LogLevel.Warning);
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────────
 
     private static AutomaticUpgradeSweep CreateSweep(
         MusicHoarderDbContext db, QualityUpgradeChannel channel,
-        bool enabled = true, bool providerConfigured = true, int batchSize = 50)
+        bool enabled = true, bool providerConfigured = true, int batchSize = 50) =>
+        CreateSweep(
+            db, channel, chain: ["fake"],
+            providers: [new FakeUpgradeProvider("fake", providerConfigured)],
+            downloadProviders: [],
+            enabled: enabled, batchSize: batchSize);
+
+    private static AutomaticUpgradeSweep CreateSweep(
+        MusicHoarderDbContext db,
+        QualityUpgradeChannel channel,
+        string[] chain,
+        IUpgradeProvider[] providers,
+        IDownloadProvider[] downloadProviders,
+        bool enabled = true,
+        int batchSize = 50,
+        ILogger<AutomaticUpgradeSweep>? logger = null)
     {
         var options = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
         {
             SourceDirectory = "/src",
             DestinationDirectory = "/dest",
-            DownloadProviders = ["fake"],
+            DownloadProviders = chain,
             EnableAutomaticQualityUpgrades = enabled,
             QualityUpgradeCooldownDays = 30,
             QualityUpgradeDeferredRetryHours = 6,
             QualityUpgradeBatchSize = batchSize,
         });
-        var providers = new IUpgradeProvider[] { new FakeUpgradeProvider("fake", providerConfigured) };
         return new AutomaticUpgradeSweep(
-            db, providers, channel, new OwnerLookupService(), options,
-            NullLogger<AutomaticUpgradeSweep>.Instance);
+            db, providers, downloadProviders, channel, new OwnerLookupService(), options,
+            logger ?? NullLogger<AutomaticUpgradeSweep>.Instance);
     }
 
     private static SongMetadata Song(
         int id, string extension, LibraryBuildStatus build = LibraryBuildStatus.Done,
-        bool synthetic = false, bool duplicate = false, Guid? owner = null, string artist = "Artist") => new()
+        bool synthetic = false, bool duplicate = false, Guid? owner = null, string artist = "Artist",
+        string? spotifyId = null, string? isrc = null, bool isUnreleased = false) => new()
     {
         Id = id,
         OwnerUserId = owner ?? Owner,
@@ -169,6 +248,9 @@ public class AutomaticUpgradeSweepTests
         LibraryBuildStatus = build,
         IsSynthetic = synthetic,
         IsDuplicate = duplicate,
+        IsUnreleased = isUnreleased,
+        SpotifyId = spotifyId,
+        Isrc = isrc,
         Artist = artist,
         Title = "Song",
     };
@@ -192,9 +274,11 @@ public class AutomaticUpgradeSweepTests
         new(new DbContextOptionsBuilder<MusicHoarderDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString("N")).Options);
 
-    private sealed class FakeUpgradeProvider(string name, bool configured) : IUpgradeProvider
+    private sealed class FakeUpgradeProvider(
+        string name, bool configured, bool requiresStreamingIdentity = false) : IUpgradeProvider
     {
         public string Name => name;
+        public bool RequiresStreamingIdentity => requiresStreamingIdentity;
         public bool CanUpgrade(UpgradeFloor floor) => configured && floor.Tier < AudioCodecTier.Lossless;
         public Task<DownloadResult> DownloadBetterAsync(DownloadRequest req, UpgradeFloor floor, CancellationToken ct) =>
             Task.FromResult(DownloadResult.Missing("test"));

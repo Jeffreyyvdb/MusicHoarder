@@ -18,6 +18,7 @@ namespace MusicHoarder.Api.Download;
 public class AutomaticUpgradeSweep(
     MusicHoarderDbContext db,
     IEnumerable<IUpgradeProvider> upgradeProviders,
+    IEnumerable<IDownloadProvider> downloadProviders,
     QualityUpgradeChannel channel,
     IOwnerLookupService ownerLookup,
     IOptions<MusicEnricherOptions> options,
@@ -34,9 +35,16 @@ public class AutomaticUpgradeSweep(
         // Is any configured provider able to upgrade a lossy file? Probe with a lossy floor — the only
         // scope we target — so an all-lossy library on an instance with no slskd/spotiflac is a no-op.
         var lossyProbe = new UpgradeFloor(AudioCodecTier.Lossy, AudioQuality.Score(".mp3", 0), null);
-        var providers = DownloadProviderChain.Resolve(
-            DownloadProviderChain.Names(opts), upgradeProviders, p => p.Name, logger);
-        if (!providers.Any(p => p.CanUpgrade(lossyProbe)))
+        var activeProviders = DownloadProviderChain
+            .Resolve(
+                DownloadProviderChain.Names(opts),
+                upgradeProviders,
+                p => p.Name,
+                logger,
+                ignoreNames: downloadProviders.Select(p => p.Name))
+            .Where(p => p.CanUpgrade(lossyProbe))
+            .ToList();
+        if (activeProviders.Count == 0)
             return 0;
 
         var ownerId = ownerLookup.OwnerUserId;
@@ -74,7 +82,7 @@ public class AutomaticUpgradeSweep(
             .Distinct()
             .ToListAsync(ct);
 
-        var candidateIds = await db.Songs
+        var query = db.Songs
             .IgnoreQueryFilters()
             .Where(s => s.OwnerUserId == ownerId)
             .ExcludingDemoTenant()
@@ -83,7 +91,16 @@ public class AutomaticUpgradeSweep(
                 && s.Artist != null && s.Artist != ""
                 && s.Title != null && s.Title != ""
                 && s.Extension != null && lossyExtensions.Contains(s.Extension.ToLower())
-                && !blockedSongIds.Contains(s.Id))
+                && !blockedSongIds.Contains(s.Id));
+
+        // When every active upgrade provider needs a streaming catalog identity (e.g. spotiflac alone,
+        // without slskd), skip unreleased tracks and tracks lacking a non-blank SpotifyId or ISRC —
+        // otherwise they immediately fail with "no resolvable Spotify id" (or risk matching the wrong
+        // track on a stale SpotifyId) and burn batch slots that released tracks could use.
+        if (activeProviders.All(p => p.RequiresStreamingIdentity))
+            query = query.Where(UpgradeEligibility.HasStreamingIdentityExpression);
+
+        var candidateIds = await query
             .OrderByDescending(s => prioritySongIds.Contains(s.Id))
             .ThenBy(s => s.Id)
             .Select(s => s.Id)
