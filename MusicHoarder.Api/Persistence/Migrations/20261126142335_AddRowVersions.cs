@@ -49,7 +49,8 @@ public partial class _20261126142335_AddRowVersions : Migration
         // that have already run it. To change an ignore list, add a migration with the new text.
 
         migrationBuilder.Sql("""
-            CREATE OR REPLACE FUNCTION "Songs_RowVersions"() RETURNS trigger LANGUAGE plpgsql AS $rowversions$
+            CREATE OR REPLACE FUNCTION "Songs_RowVersions"() RETURNS trigger LANGUAGE plpgsql
+              SET search_path FROM CURRENT AS $rowversions$
             DECLARE
               was jsonb;
               becomes jsonb;
@@ -80,7 +81,8 @@ public partial class _20261126142335_AddRowVersions : Migration
             """);
 
         migrationBuilder.Sql("""
-            CREATE OR REPLACE FUNCTION "SongMusicVideos_RowVersions"() RETURNS trigger LANGUAGE plpgsql AS $rowversions$
+            CREATE OR REPLACE FUNCTION "SongMusicVideos_RowVersions"() RETURNS trigger LANGUAGE plpgsql
+              SET search_path FROM CURRENT AS $rowversions$
             DECLARE
               was jsonb;
               becomes jsonb;
@@ -105,7 +107,8 @@ public partial class _20261126142335_AddRowVersions : Migration
             """);
 
         migrationBuilder.Sql("""
-            CREATE OR REPLACE FUNCTION "WishlistSources_RowVersions"() RETURNS trigger LANGUAGE plpgsql AS $rowversions$
+            CREATE OR REPLACE FUNCTION "WishlistSources_RowVersions"() RETURNS trigger LANGUAGE plpgsql
+              SET search_path FROM CURRENT AS $rowversions$
             DECLARE
               was jsonb;
               becomes jsonb;

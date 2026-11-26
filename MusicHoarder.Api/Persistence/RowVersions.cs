@@ -26,7 +26,8 @@ namespace MusicHoarder.Api.Persistence;
 /// <para>
 /// The comparison is over <c>to_jsonb</c> of the old and new row with the ignored keys removed, so
 /// the function never names a column outside its lists: a column that is renamed or dropped later
-/// stops being ignored instead of breaking every write to the table. A value never comes back,
+/// stops being ignored instead of breaking every write to the table. JSON numbers have one zero, so a
+/// column going from <c>0</c> to <c>-0</c> is the one change of value it does not see. A value never comes back,
 /// because it is a sequence's: a change that is later undone still leaves a new version behind.
 /// </para>
 /// <para>
@@ -226,10 +227,15 @@ public sealed class RowVersionTable(Type entity, string table, params RowVersion
         return body.ToString();
     }
 
-    /// <summary>Creates or replaces the function and its trigger. Safe to run again.</summary>
+    /// <summary>
+    /// Creates or replaces the function and its trigger. Safe to run again. The function keeps the
+    /// search path it was created under: <c>pg_restore</c> loads data with an empty one, and the
+    /// trigger could not find its sequence then.
+    /// </summary>
     public string InstallSql() =>
         $"""
-        CREATE OR REPLACE FUNCTION "{TriggerName}"() RETURNS trigger LANGUAGE plpgsql AS $rowversions${FunctionBody()}$rowversions$;
+        CREATE OR REPLACE FUNCTION "{TriggerName}"() RETURNS trigger LANGUAGE plpgsql
+          SET search_path FROM CURRENT AS $rowversions${FunctionBody()}$rowversions$;
         DROP TRIGGER IF EXISTS "{TriggerName}" ON "{Table}";
         CREATE TRIGGER "{TriggerName}" BEFORE INSERT OR UPDATE ON "{Table}"
           FOR EACH ROW EXECUTE FUNCTION "{TriggerName}"();

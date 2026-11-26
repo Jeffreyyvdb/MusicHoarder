@@ -82,6 +82,9 @@ public class RowVersionTests
                 $"SELECT prosrc FROM pg_proc WHERE proname = '{table.TriggerName}'");
             Assert.True(table.FunctionBody() == installed,
                 $"{table.TriggerName} is not what RowVersions generates. Add a migration that runs:\n{table.InstallSql()}");
+            // pg_restore loads data with an empty search path; the function must carry its own.
+            Assert.True(await Scalar<bool>(db,
+                $"SELECT coalesce(array_to_string(proconfig, ',') LIKE 'search_path=%', false) FROM pg_proc WHERE proname = '{table.TriggerName}'"));
             Assert.Equal('O', await Scalar<char>(db,
                 $"SELECT tgenabled FROM pg_trigger WHERE tgname = '{table.TriggerName}' AND tgrelid = '\"{table.Table}\"'::regclass"));
         }
@@ -166,6 +169,13 @@ public class RowVersionTests
             .Select(sql => $"{i.Table}.{i.Column} in: {sql[..Math.Min(sql.Length, 120)].ReplaceLineEndings(" ")}")));
 
         await using var writer = database.NewContext();
+        // One row rewritten on its own, in a table nothing has been deleted from yet, lands after
+        // every other row. Rows the lists cannot tell apart by their sort keys must still come out
+        // in the same order.
+        await Execute(writer, "UPDATE \"Songs\" SET \"LyricsSyncProbeAttempts\" = \"LyricsSyncProbeAttempts\" + 1 WHERE \"SourcePath\" = '/a/tied.flac'");
+        Assert.True(asOwner == await Lists(Owner), "The owner's lists changed when one of two tied rows was rewritten.");
+        Assert.True(asFriend == await Lists(Friend), "A grantee's lists changed when one of two tied rows was rewritten.");
+
         foreach (var (table, column, entity) in ignored)
         {
             var type = writer.Model.FindEntityType(entity)!.FindProperty(column)!.GetColumnType();
@@ -290,6 +300,10 @@ public class RowVersionTests
             Song("/g/1.flac", "Good Morning", "Graduation", "Kanye West"),
             Song("/g/2.flac", "Champion", "Graduation", "Kanye West"),
             Song("/y/1.flac", "On Sight", "Yeezus", "Kanye Wst"),
+            // Two rows that tie on every key the lists sort by and differ in what a card elects from
+            // "whichever comes first": their order must not hang on where Postgres keeps them.
+            Song("/a/tied.flac", "Tied", "Ties", "Kanye West", genre: "Jazz"),
+            Song("/b/tied.flac", "Tied", "Ties", "Kanye West", genre: "Blues"),
         };
         // Lyrics in three states, so a column that only shows beside one of them is exercised.
         songs[0].SyncedLyrics = "[00:01.00]Good morning";
@@ -317,8 +331,9 @@ public class RowVersionTests
         await db.SaveChangesAsync();
     }
 
-    private static SongMetadata Song(string sourcePath, string title, string album, string artist) => new()
+    private static SongMetadata Song(string sourcePath, string title, string album, string artist, string? genre = null) => new()
     {
+        Genre = genre,
         OwnerUserId = Owner.Id,
         SourcePath = sourcePath,
         FileName = Path.GetFileName(sourcePath),
@@ -334,7 +349,7 @@ public class RowVersionTests
         Title = title,
         Year = 2010,
         LibraryBuildStatus = LibraryBuildStatus.Done,
-        DestinationPath = $"/dest/{artist}/{album}/{title}.flac",
+        DestinationPath = $"/dest/{artist}/{album}/{Path.GetFileName(Path.GetDirectoryName(sourcePath))}/{title}.flac",
     };
 
     private static async Task<string> Written(IResult result)
