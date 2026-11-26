@@ -118,7 +118,9 @@ public sealed class CoverThumbnailService(string cacheDirectory, ILogger<CoverTh
             if (!_inFlight.TryAdd(key, done.Task))
                 continue;
 
-            _ = RunAsync();
+            // On the thread pool, never inline: each caller only ever waits on the generation, so
+            // the one that started it can stop waiting like any other.
+            _ = Task.Run(RunAsync);
             return done.Task;
 
             async Task RunAsync()
