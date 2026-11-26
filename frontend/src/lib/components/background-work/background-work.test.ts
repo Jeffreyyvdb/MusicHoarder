@@ -90,7 +90,7 @@ describe('BackgroundJobDetailBody', () => {
   it('shows the summary and then every panel in order', () => {
     const detail = FIXTURE_DETAILS['transcription-allowance'];
     const body = html(BackgroundJobDetailBody, { summary: null, detail, now: NOW });
-    expect(body).toContain('Transcription allowance');
+    expect(body).toContain(detail.summary.description);
     expect(body).toContain('Audio the transcription service may hear');
     const at = detail.panels.map((p) => body.indexOf(p.title));
     expect(at.every((i) => i >= 0)).toBe(true);
@@ -106,10 +106,25 @@ describe('BackgroundJobDetailBody', () => {
     expect(body).toContain('rate of 64 songs a day');
   });
 
+  it('shows the 14-day trend only for a job whose panels chart no days of their own', () => {
+    const daily = Object.values(FIXTURE_DETAILS).find((d) =>
+      d.panels.some((p) => p.kind === 'series' && p.bucket === 'day')
+    )!;
+    const hourly = structuredClone(daily);
+    hourly.panels = hourly.panels.filter((p) => !(p.kind === 'series' && p.bucket === 'day'));
+    const trend = `aria-label="${daily.summary.trendLabel}, last 14 days`;
+    expect(html(BackgroundJobDetailBody, { summary: null, detail: daily, now: NOW })).not.toContain(
+      trend
+    );
+    expect(html(BackgroundJobDetailBody, { summary: null, detail: hourly, now: NOW })).toContain(
+      trend
+    );
+  });
+
   it('holds the row in place while the detail loads, and says so when it cannot', () => {
     const summary = FIXTURE_SUMMARY.jobs[0];
     const loading = html(BackgroundJobDetailBody, { summary, detail: null, now: NOW });
-    expect(loading).toContain(summary.title);
+    expect(loading).toContain(summary.description);
     expect(loading).toContain('aria-busy="true"');
     const failed = html(BackgroundJobDetailBody, {
       summary,
@@ -137,7 +152,8 @@ describe('BackgroundWorkSection', () => {
     expect(body).toContain('13,195');
     expect(body).toContain('of 21,006 songs have synced lyrics');
     expect(body).toContain('role="meter"');
-    expect(body).toMatch(/At this pace: about 33 days, around (28 Dec|Dec 28)/);
+    const words = body.replaceAll(/<[^>]+>/g, ' ').replaceAll(/\s+/g, ' ');
+    expect(words).toMatch(/At this pace : about 33 days, around (28 Dec|Dec 28)/);
     expect(body).not.toContain('rate of 64 songs a day');
     expect(body).toContain('Working');
     expect(body).toContain('Failing');
@@ -158,6 +174,34 @@ describe('BackgroundWorkSection', () => {
   it('reads the trend aloud with its numbers', () => {
     const body = html(BackgroundWorkSection, props());
     expect(body).toMatch(/aria-label="songs synced per day, last 14 days, oldest first: [\d, ]+"/);
+  });
+
+  it('leaves out the figure and chart of a job whose figures could not be read', () => {
+    const unreadable = {
+      ...FIXTURE_SUMMARY.jobs[0],
+      state: 'unknown' as const,
+      stateLabel: "This job's figures could not be read.",
+      headline: {
+        value: 0,
+        of: null,
+        format: 'count' as const,
+        caption: '',
+        etaUtc: null,
+        etaLabel: null
+      },
+      trend: Array.from({ length: 14 }, () => 0),
+      trendLabel: '',
+      lastWorkedAtUtc: null,
+      nextRunAtUtc: null
+    };
+    const body = html(
+      BackgroundWorkSection,
+      props({ summary: { ...FIXTURE_SUMMARY, jobs: [unreadable] } })
+    );
+    expect(body).toContain("This job's figures could not be read.");
+    expect(body).not.toContain('role="img"');
+    expect(body).not.toContain(', last 14 days');
+    expect(body).not.toContain('text-title-1');
   });
 
   it('shows a placeholder before the first answer and a message after a failed one', () => {

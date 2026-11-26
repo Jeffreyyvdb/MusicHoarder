@@ -14,7 +14,7 @@
   <span class="relative inline-flex size-2 shrink-0" aria-hidden="true">
     {#if state === 'working'}
       <span
-        class="absolute -inset-[3px] rounded-full opacity-30 motion-safe:animate-pulse"
+        class="absolute -inset-[2px] rounded-full opacity-25 motion-safe:animate-pulse"
         style:background-color={color}
       ></span>
     {/if}

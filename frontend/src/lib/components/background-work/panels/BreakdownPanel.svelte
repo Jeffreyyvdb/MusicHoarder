@@ -68,7 +68,7 @@
           aria-pressed={active === segment.key}
           onclick={() => toggle(segment.key)}
           class={cn(
-            'focus-visible:ring-ring -mx-2 grid min-h-11 w-[calc(100%+1rem)] grid-cols-[1.75rem_minmax(0,1fr)_auto_2.75rem] items-start gap-x-2.5 rounded-lg px-2 py-2 text-left focus-visible:ring-2 focus-visible:outline-hidden',
+            'focus-visible:ring-ring -mx-2 grid min-h-11 w-[calc(100%+1rem)] grid-cols-[1.75rem_minmax(0,1fr)_auto_calc(2.75rem*var(--mh-dt,1))] items-start gap-x-2.5 rounded-lg px-2 py-2 text-left focus-visible:ring-2 focus-visible:outline-hidden',
             active === segment.key && 'bg-accent'
           )}
         >
@@ -87,7 +87,7 @@
           <span class="text-subheadline text-right font-medium tabular-nums md:text-sm">
             {formatCount(segment.count)}
           </span>
-          <span class="text-footnote text-muted-foreground text-right tabular-nums md:text-xs">
+          <span class="text-subheadline text-muted-foreground text-right tabular-nums md:text-sm">
             {formatShare(segment.count, panel.total)}
           </span>
         </button>
