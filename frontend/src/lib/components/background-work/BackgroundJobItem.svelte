@@ -14,8 +14,9 @@
     layout: 'row' | 'card' | 'sheet';
     onopen?: (id: BackgroundJobSummary['id']) => void;
     now?: number;
+    trendInSheet?: boolean;
   };
-  let { job, layout, onopen, now = Date.now() }: Props = $props();
+  let { job, layout, onopen, now = Date.now(), trendInSheet = false }: Props = $props();
 
   const Icon = $derived(JOB_ICONS[job.id]);
   const headline = $derived(job.headline);
@@ -39,17 +40,30 @@
     if (all.length > 0) return all.map((fact) => ({ ...fact, note: null }));
     if (nextRun) return [{ label: 'Next look', value: nextRun }];
     if (lastWorked) return [{ label: 'Last worked', value: lastWorked }];
-    return [];
+    return job.trendLabel ? [{ label: 'Last worked', value: 'not yet' }] : [];
   });
 </script>
 
-{#snippet metric()}
-  <span class="flex flex-col gap-0.5">
-    <span class="text-title-1 leading-none font-bold tracking-tight tabular-nums">
-      {formatValue(headline.format, headline.value)}
+{#snippet trendChart()}
+  {#if job.trendLabel}
+    <span class="flex flex-col gap-1.5">
+      <Sparkline values={job.trend} label={job.trendLabel} class="h-10 w-full" />
+      <span class="text-caption-2 text-muted-foreground block first-letter:uppercase md:text-xs">
+        {job.trendLabel}, last {job.trend.length} days
+      </span>
     </span>
-    <span class="text-subheadline text-muted-foreground mt-1 md:text-sm">{headline.caption}</span>
-  </span>
+  {/if}
+{/snippet}
+
+{#snippet metric()}
+  {#if headline.caption}
+    <span class="flex flex-col gap-0.5">
+      <span class="text-title-1 leading-none font-bold tracking-tight tabular-nums">
+        {formatValue(headline.format, headline.value)}
+      </span>
+      <span class="text-subheadline text-muted-foreground mt-1 md:text-sm">{headline.caption}</span>
+    </span>
+  {/if}
   {#if share !== null && headline.of != null}
     <span
       role="meter"
@@ -126,12 +140,7 @@
   <span class="flex flex-col gap-3">{@render metric()}</span>
 
   <span class="mt-auto flex flex-col gap-3 pt-1">
-    <span class="flex flex-col gap-1.5">
-      <Sparkline values={job.trend} label={job.trendLabel} class="h-10 w-full" />
-      <span class="text-caption-2 text-muted-foreground block first-letter:uppercase md:text-xs">
-        {job.trendLabel}, last {job.trend.length} days
-      </span>
-    </span>
+    {@render trendChart()}
     {@render factList(facts)}
   </span>
 {/snippet}
@@ -146,6 +155,7 @@
       <span class="text-footnote text-muted-foreground md:text-xs">{job.stateLabel}</span>
     </span>
     <span class="flex flex-col gap-3">{@render metric()}</span>
+    {#if trendInSheet}{@render trendChart()}{/if}
     {@render factList(facts)}
   </span>
 {/snippet}

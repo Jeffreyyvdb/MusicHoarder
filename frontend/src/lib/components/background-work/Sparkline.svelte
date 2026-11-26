@@ -22,7 +22,6 @@
         class="w-full rounded-t-[3px]"
         style:height={height === 0 ? '2px' : `${height}%`}
         style:background-color={height === 0 ? 'var(--viz-muted)' : 'var(--viz-neutral)'}
-        style:opacity={i === heights.length - 1 || height === 0 ? 1 : 0.4}
       ></span>
     </span>
   {/each}

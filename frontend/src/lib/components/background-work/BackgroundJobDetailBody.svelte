@@ -13,11 +13,14 @@
   let { summary, detail, error = null, now = Date.now() }: Props = $props();
 
   const top = $derived(detail?.summary ?? summary);
+  const trendInSheet = $derived(
+    detail !== null && !detail.panels.some((p) => p.kind === 'series' && p.bucket === 'day')
+  );
 </script>
 
 <div class="flex flex-col gap-4 pt-1 pb-2">
   {#if top}
-    <BackgroundJobItem job={top} layout="sheet" {now} />
+    <BackgroundJobItem job={top} layout="sheet" {now} {trendInSheet} />
   {/if}
 
   {#if detail}
