@@ -48,7 +48,7 @@
   {#if job.trendLabel}
     <span class="flex flex-col gap-1.5">
       <Sparkline values={job.trend} label={job.trendLabel} class="h-10 w-full" />
-      <span class="text-caption-2 text-muted-foreground block first-letter:uppercase md:text-xs">
+      <span class="text-footnote text-muted-foreground block first-letter:uppercase md:text-xs">
         {job.trendLabel}, last {job.trend.length} days
       </span>
     </span>
@@ -100,8 +100,8 @@
             layout === 'sheet' && 'text-subheadline py-2.5 first:pt-0 last:pb-0 md:text-sm'
           )}
         >
-          <span class="text-muted-foreground">{fact.label}</span>
-          <span class="flex min-w-0 flex-col items-end text-right">
+          <span class="text-muted-foreground">{fact.label}<span class="sr-only">:</span></span>
+          <span class="ml-auto flex min-w-0 flex-col items-end text-right">
             <span class="text-foreground first-letter:uppercase">{fact.value}</span>
             {#if fact.note}
               <span class="text-footnote text-muted-foreground md:text-xs">{fact.note}</span>
@@ -124,7 +124,7 @@
     <span class="text-body flex min-h-[29px] items-center font-semibold md:text-sm"
       >{job.title}</span
     >
-    <span class="flex h-[29px] items-center gap-1.5">
+    <span class="flex min-h-[29px] items-center gap-1.5">
       <StateDot state={job.state} />
       <ChevronRight
         aria-hidden="true"
@@ -150,7 +150,6 @@
   >
   <span class="bg-card mx-4 flex flex-col gap-4 rounded-xl p-4">
     <span class="flex flex-col gap-0.5">
-      <span class="sr-only">{job.title}</span>
       <StateDot state={job.state} />
       <span class="text-footnote text-muted-foreground md:text-xs">{job.stateLabel}</span>
     </span>
@@ -170,7 +169,7 @@
       'text-foreground focus-visible:ring-ring flex w-full cursor-pointer flex-col gap-4 text-left transition-[background-color,scale] duration-100 focus-visible:ring-2 focus-visible:outline-hidden focus-visible:ring-inset',
       layout === 'row'
         ? 'after:bg-separator hover:bg-accent active:bg-accent relative px-4 py-4 after:absolute after:inset-x-4 after:bottom-0 after:h-(--hairline) last:after:hidden'
-        : 'bg-card hover:ring-separator h-full rounded-xl p-4 hover:ring-1 active:scale-[0.99]'
+        : 'bg-card hover:ring-separator h-full rounded-xl p-4 hover:ring-1 motion-safe:active:scale-[0.99]'
     )}
   >
     {@render body()}

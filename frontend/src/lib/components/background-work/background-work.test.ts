@@ -90,7 +90,7 @@ describe('BackgroundJobDetailBody', () => {
   it('shows the summary and then every panel in order', () => {
     const detail = FIXTURE_DETAILS['transcription-allowance'];
     const body = html(BackgroundJobDetailBody, { summary: null, detail, now: NOW });
-    expect(body).toContain('Transcription allowance');
+    expect(body).toContain(detail.summary.description);
     expect(body).toContain('Audio the transcription service may hear');
     const at = detail.panels.map((p) => body.indexOf(p.title));
     expect(at.every((i) => i >= 0)).toBe(true);
@@ -124,7 +124,7 @@ describe('BackgroundJobDetailBody', () => {
   it('holds the row in place while the detail loads, and says so when it cannot', () => {
     const summary = FIXTURE_SUMMARY.jobs[0];
     const loading = html(BackgroundJobDetailBody, { summary, detail: null, now: NOW });
-    expect(loading).toContain(summary.title);
+    expect(loading).toContain(summary.description);
     expect(loading).toContain('aria-busy="true"');
     const failed = html(BackgroundJobDetailBody, {
       summary,
@@ -153,7 +153,7 @@ describe('BackgroundWorkSection', () => {
     expect(body).toContain('of 21,006 songs have synced lyrics');
     expect(body).toContain('role="meter"');
     const words = body.replaceAll(/<[^>]+>/g, ' ').replaceAll(/\s+/g, ' ');
-    expect(words).toMatch(/At this pace about 33 days, around (28 Dec|Dec 28)/);
+    expect(words).toMatch(/At this pace : about 33 days, around (28 Dec|Dec 28)/);
     expect(body).not.toContain('rate of 64 songs a day');
     expect(body).toContain('Working');
     expect(body).toContain('Failing');
