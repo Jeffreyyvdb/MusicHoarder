@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using MusicHoarder.Api.Auth;
+using MusicHoarder.Api.BackgroundWork;
 using MusicHoarder.Api.Download;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
@@ -77,7 +78,7 @@ public class MusicVideoCandidatePrefetchPostgresTests
         {
             await using var db = database.NewContext();
             var cache = new MusicVideoCandidateCache(
-                downloader, new InstantProbe(), Microsoft.Extensions.Options.Options.Create(options), clock,
+                downloader, new InstantProbe(), Microsoft.Extensions.Options.Options.Create(options), clock, new MusicVideoOutcomeMemo(),
                 NullLogger<MusicVideoCandidateCache>.Instance);
             return await new MusicVideoCandidatePrefetch(
                 db, cache, channel, downloader, new FakeFreeDiskSpace(),

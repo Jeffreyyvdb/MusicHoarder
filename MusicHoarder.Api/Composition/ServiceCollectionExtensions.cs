@@ -8,6 +8,7 @@ using MusicHoarder.Api.Artwork;
 using MusicHoarder.Api.Audio;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
+using MusicHoarder.Api.BackgroundWork;
 using MusicHoarder.Api.CoverArtArchive;
 using MusicHoarder.Api.Deezer;
 using MusicHoarder.Api.Discover;
@@ -133,6 +134,7 @@ public static class ServiceCollectionExtensions
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUserAccessor, HttpContextCurrentUserAccessor>();
         services.AddSingleton<IOwnerLookupService, OwnerLookupService>();
+        services.AddBackgroundWork();
         services.AddSingleton<ISessionCookieService, SessionCookieService>();
         services.AddSingleton<IAuthService, AuthService>();
         services.AddSingleton<IAccountSwitchService, AccountSwitchService>();

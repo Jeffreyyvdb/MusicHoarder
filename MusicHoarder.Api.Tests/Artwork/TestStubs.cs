@@ -12,6 +12,8 @@ internal sealed class StubCoverThumbnailService : ICoverThumbnailService
     public Task<ResolvedCover?> GetThumbnailAsync(ResolvedCover source, string identityPath, int size, CancellationToken ct = default)
         => Task.FromResult<ResolvedCover?>(null);
     public void Prewarm(ResolvedCover source, string identityPath) { }
+
+    public ResolvedCover? TryGetCachedThumbnail(string identityPath, int size) => null;
 }
 
 /// <summary>

@@ -43,12 +43,26 @@ public interface ILibraryScope
     IQueryable<SongMetadata> SongsFor(MusicHoarderDbContext db, LibrarySlice slice);
 }
 
+/// <summary>Minimal projection for stream/cover point lookups — avoids reading 100+ columns.</summary>
+/// <summary>
+/// What serving a song's media needs: its files, and the columns its cover URL version is made
+/// from (<see cref="Artwork.CoverVersionStamp"/>). Only the cover endpoint's lookups fill the latter.
+/// </summary>
+public sealed record SongMediaRef(
+    int Id,
+    bool IsSynthetic,
+    string SourcePath,
+    string? DestinationPath,
+    DateTime LastModifiedUtc = default,
+    DateTime? LibraryBuiltAtUtc = null,
+    bool HasCoverArt = false,
+    DateTime? CoverUpdatedAtUtc = null);
+
 public interface ILibraryScopeResolver
 {
     /// <summary>
-    /// Resolve what the caller may read. Grants are re-read on every call and never cached — a
-    /// revoked grant has to stop working immediately, and a cache (or a predicate baked into the
-    /// compiled EF model) would keep serving it.
+    /// Resolve what the caller may read. Grants are re-read on every request and never cached across
+    /// requests — a revoked grant has to stop working immediately.
     /// </summary>
     Task<ILibraryScope> ResolveAsync(MusicHoarderDbContext db, CancellationToken ct);
 
@@ -59,15 +73,38 @@ public interface ILibraryScopeResolver
     /// </summary>
     Task<(SongMetadata Song, LibrarySlice Slice)?> ResolveSongAsync(
         MusicHoarderDbContext db, int songId, CancellationToken ct);
+
+    /// <summary>
+    /// Lightweight point lookup for cover/stream endpoints that only need the file paths and
+    /// synthetic flag — avoids fetching fingerprints, lyrics, and 100+ metadata columns.
+    /// </summary>
+    async Task<(SongMediaRef Song, LibrarySlice Slice)?> ResolveSongMediaAsync(
+        MusicHoarderDbContext db, int songId, CancellationToken ct)
+    {
+        var found = await ResolveSongAsync(db, songId, ct);
+        return found is null
+            ? null
+            : (new SongMediaRef(found.Value.Song.Id, found.Value.Song.IsSynthetic, found.Value.Song.SourcePath, found.Value.Song.DestinationPath,
+                    found.Value.Song.LastModifiedUtc, found.Value.Song.LibraryBuiltAtUtc, found.Value.Song.HasCoverArt, found.Value.Song.CoverUpdatedAtUtc),
+                found.Value.Slice);
+    }
 }
 
 public sealed class LibraryScopeResolver(
     ICurrentUserAccessor currentUser,
     ISharedLibraryGrantResolver grants) : ILibraryScopeResolver
 {
+    // Request-scoped cache: LibraryConditionalGetFilter and the handler behind it both resolve
+    // the caller's scope in the same HTTP request; reusing it avoids a duplicate DB round-trip
+    // while still re-reading grants on every new request.
+    private (MusicHoarderDbContext Db, Guid CallerId, ILibraryScope Scope)? _cachedScope;
+
     public async Task<ILibraryScope> ResolveAsync(MusicHoarderDbContext db, CancellationToken ct)
     {
         var callerId = currentUser.UserId;
+        if (_cachedScope is { } cached && ReferenceEquals(cached.Db, db) && cached.CallerId == callerId)
+            return cached.Scope;
+
         var self = new LibrarySlice(callerId, IsSelf: true, GrantorDisplayName: null);
 
         if (callerId == Guid.Empty)
@@ -78,7 +115,11 @@ public sealed class LibraryScopeResolver(
         // caller may read, or to how a grantor is shown, has to be added there too.
         var sets = await grants.ResolveAsync(db, callerId, ct);
         if (sets.Count == 0)
-            return new LibraryScope([self], grants);
+        {
+            var selfOnly = new LibraryScope([self], grants);
+            _cachedScope = (db, callerId, selfOnly);
+            return selfOnly;
+        }
 
         var names = await LoadGrantorNamesAsync(db, sets.Select(s => s.OwnerUserId).ToList(), ct);
 
@@ -91,7 +132,51 @@ public sealed class LibraryScopeResolver(
                 GrantorDisplayName: names.GetValueOrDefault(set.OwnerUserId)));
         }
 
-        return new LibraryScope(slices, grants, sets);
+        var resolved = new LibraryScope(slices, grants, sets);
+        _cachedScope = (db, callerId, resolved);
+        return resolved;
+    }
+
+    public async Task<(SongMediaRef Song, LibrarySlice Slice)?> ResolveSongMediaAsync(
+        MusicHoarderDbContext db, int songId, CancellationToken ct)
+    {
+        var callerId = currentUser.UserId;
+        if (callerId == Guid.Empty)
+            return null;
+
+        var own = await db.Songs.AsNoTracking()
+            .Where(s => s.Id == songId && s.DeletedAtUtc == null)
+            .Select(s => new SongMediaRef(s.Id, s.IsSynthetic, s.SourcePath, s.DestinationPath,
+                s.LastModifiedUtc, s.LibraryBuiltAtUtc, s.HasCoverArt, s.CoverUpdatedAtUtc))
+            .FirstOrDefaultAsync(ct);
+        if (own is not null)
+            return (own, new LibrarySlice(callerId, IsSelf: true, GrantorDisplayName: null));
+
+        var sets = await grants.ResolveAsync(db, callerId, ct);
+        if (sets.Count == 0)
+            return null;
+
+        var row = await db.Songs.IgnoreQueryFilters().AsNoTracking()
+            .Where(s => s.Id == songId && s.DeletedAtUtc == null && !s.IsDuplicate && !s.IsSynthetic)
+            .Select(s => new
+            {
+                s.Id, s.OwnerUserId, s.IsSynthetic, s.SourcePath, s.DestinationPath,
+                s.LibraryBuildStatus, s.AlbumArtist, s.Artist, s.Album,
+                s.LastModifiedUtc, s.LibraryBuiltAtUtc, s.HasCoverArt, s.CoverUpdatedAtUtc,
+            })
+            .FirstOrDefaultAsync(ct);
+        if (row is null)
+            return null;
+
+        var set = sets.FirstOrDefault(x => x.OwnerUserId == row.OwnerUserId);
+        if (set is null || !SharedLibraryGrantResolver.Matches(set, row.LibraryBuildStatus, row.AlbumArtist, row.Artist, row.Album))
+            return null;
+
+        var names = await LoadGrantorNamesAsync(db, [row.OwnerUserId], ct);
+        return (
+            new SongMediaRef(row.Id, row.IsSynthetic, row.SourcePath, row.DestinationPath,
+                row.LastModifiedUtc, row.LibraryBuiltAtUtc, row.HasCoverArt, row.CoverUpdatedAtUtc),
+            new LibrarySlice(row.OwnerUserId, IsSelf: false, GrantorDisplayName: names.GetValueOrDefault(row.OwnerUserId)));
     }
 
     public async Task<(SongMetadata Song, LibrarySlice Slice)?> ResolveSongAsync(

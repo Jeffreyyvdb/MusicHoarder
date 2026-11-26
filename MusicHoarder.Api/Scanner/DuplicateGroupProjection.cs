@@ -86,6 +86,16 @@ public static class DuplicateGroupProjection
             unionFind.Union(link.SongIdLow, link.SongIdHigh);
 
         var linksByCluster = links.ToLookup(l => unionFind.Find(l.SongIdLow));
+        var linksBySong = new Dictionary<int, List<SongDuplicateLink>>(songsById.Count);
+        foreach (var link in links)
+        {
+            if (!linksBySong.TryGetValue(link.SongIdLow, out var lowList))
+                linksBySong[link.SongIdLow] = lowList = [];
+            lowList.Add(link);
+            if (!linksBySong.TryGetValue(link.SongIdHigh, out var highList))
+                linksBySong[link.SongIdHigh] = highList = [];
+            highList.Add(link);
+        }
 
         var groups = new List<DuplicateGroupDto>();
         var totalDuplicates = 0;
@@ -111,7 +121,7 @@ public static class DuplicateGroupProjection
             totalDuplicates += members.Count(m => m.IsDuplicate);
 
             var memberDtos = ranked
-                .Select(m => DescribeMember(m, keeper, clusterLinks, confirmedIds))
+                .Select(m => DescribeMember(m, keeper, linksBySong[m.Id], confirmedIds))
                 .ToList();
 
             groups.Add(new DuplicateGroupDto(
@@ -127,12 +137,9 @@ public static class DuplicateGroupProjection
     private static DuplicateMemberDto DescribeMember(
         SongMetadata m,
         SongMetadata keeper,
-        IReadOnlyList<SongDuplicateLink> clusterLinks,
+        IReadOnlyList<SongDuplicateLink> memberLinks,
         IReadOnlySet<int> confirmedIds)
     {
-        var memberLinks = clusterLinks
-            .Where(l => l.SongIdLow == m.Id || l.SongIdHigh == m.Id)
-            .ToList();
         var reasons = memberLinks.Aggregate(DuplicateMatchReason.None, (acc, l) => acc | l.Reasons);
         var similarity = memberLinks.Max(l => l.Similarity);
 

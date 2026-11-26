@@ -72,7 +72,7 @@ public class AlbumGradingBackgroundService(
 
         var fetched = db.CanonicalAlbums
             .AsNoTracking()
-            .Where(a => a.Status == CanonicalAlbumStatus.Fetched);
+            .WhereGradeable();
 
         var candidates = await fetched
             .OrderByDescending(a => a.FetchedAtUtc)

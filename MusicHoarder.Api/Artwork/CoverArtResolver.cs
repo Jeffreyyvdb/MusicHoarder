@@ -22,6 +22,12 @@ public interface ICoverArtResolver
     /// </summary>
     ResolvedCover? Resolve(string audioFilePath);
 
+    /// <summary>
+    /// Resolves only a sibling <c>cover/folder/front.*</c> image without opening the audio file
+    /// via TagLib. Used to check the thumbnail cache before paying for embedded-art extraction.
+    /// </summary>
+    ResolvedCover? ResolveFolderCover(string audioFilePath) => null;
+
     /// <summary>True when <paramref name="directory"/> contains a <c>cover/folder/front.*</c> image.</summary>
     bool DirectoryHasCoverImage(string? directory);
 }
@@ -34,17 +40,26 @@ public class CoverArtResolver(IFileSystem fileSystem, IEmbeddedPictureReader emb
     // Internal so the storage breakdown classifies covers by the same set.
     internal static readonly string[] ImageExtensions = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"];
 
-    public ResolvedCover? Resolve(string audioFilePath)
+    public ResolvedCover? ResolveFolderCover(string audioFilePath)
     {
         var directory = fileSystem.Path.GetDirectoryName(audioFilePath);
         var folderImage = FindCoverImage(directory);
-        if (folderImage is not null)
+        if (folderImage is null)
+            return null;
+
+        return new ResolvedCover
         {
-            return new ResolvedCover
-            {
-                FilePath = folderImage,
-                ContentType = ContentTypeForExtension(fileSystem.Path.GetExtension(folderImage)),
-            };
+            FilePath = folderImage,
+            ContentType = ContentTypeForExtension(fileSystem.Path.GetExtension(folderImage)),
+        };
+    }
+
+    public ResolvedCover? Resolve(string audioFilePath)
+    {
+        var folderCover = ResolveFolderCover(audioFilePath);
+        if (folderCover is not null)
+        {
+            return folderCover;
         }
 
         var embedded = embeddedReader.ReadFront(audioFilePath);

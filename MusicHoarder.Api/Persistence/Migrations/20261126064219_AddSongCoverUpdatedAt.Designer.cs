@@ -1765,6 +1765,8 @@ partial class _20261126064219_AddSongCoverUpdatedAt
 
                 b.HasIndex("SongIdHigh");
 
+                b.HasIndex("OwnerUserId", "Status");
+
                 b.HasIndex("SongIdLow", "SongIdHigh")
                     .IsUnique();
 
@@ -1887,6 +1889,24 @@ partial class _20261126064219_AddSongCoverUpdatedAt
                     .HasColumnType("text");
 
                 b.Property<bool>("HasCoverArt")
+                    .HasColumnType("boolean");
+
+                b.Property<bool>("HasFingerprint")
+                    .HasColumnType("boolean");
+
+                b.Property<bool>("HasNonBlankPlainLyrics")
+                    .HasColumnType("boolean");
+
+                b.Property<bool>("HasNonBlankSyncedLyrics")
+                    .HasColumnType("boolean");
+
+                b.Property<bool>("HasPlainLyrics")
+                    .HasColumnType("boolean");
+
+                b.Property<bool>("HasSyncedLyrics")
+                    .HasColumnType("boolean");
+
+                b.Property<bool>("HasTranscribedLyrics")
                     .HasColumnType("boolean");
 
                 b.Property<DateTime>("IndexedAtUtc")
@@ -2208,6 +2228,12 @@ partial class _20261126064219_AddSongCoverUpdatedAt
 
                 b.HasIndex("DeletedAtUtc", "LyricsStatus", "LyricsNextRecheckAfterUtc");
 
+                b.HasIndex("OwnerUserId", "DeletedAtUtc", "AcquiredAtUtc");
+
+                b.HasIndex("OwnerUserId", "DeletedAtUtc", "EnrichmentStatus");
+
+                b.HasIndex("OwnerUserId", "DeletedAtUtc", "LibraryBuildStatus");
+
                 b.HasIndex("DeletedAtUtc", "EnrichmentStatus", "LibraryBuildStatus", "Id");
 
                 b.HasIndex("DeletedAtUtc", "AlbumArtist", "Album", "Year", "Id");
@@ -2257,6 +2283,8 @@ partial class _20261126064219_AddSongCoverUpdatedAt
                 b.HasKey("Id");
 
                 b.HasIndex("SongId", "CreatedAtUtc");
+
+                b.HasIndex("Source", "FieldName", "SongId");
 
                 b.ToTable("SongMetadataChanges");
             });
@@ -2428,6 +2456,8 @@ partial class _20261126064219_AddSongCoverUpdatedAt
                 b.HasIndex("OwnerUserId", "GradedAtUtc");
 
                 b.HasIndex("SongId", "GradedAtUtc");
+
+                b.HasIndex("OwnerUserId", "SongId", "GradedAtUtc");
 
                 b.ToTable("SongQualityGrades");
             });
@@ -2733,6 +2763,9 @@ partial class _20261126064219_AddSongCoverUpdatedAt
                 b.HasIndex("MatchStatus");
 
                 b.HasIndex("UpdatedAtUtc");
+
+                b.HasIndex("OwnerUserId", "Source")
+                    .HasFilter("\"SpotifyAddedAtUtc\" IS NOT NULL");
 
                 b.ToTable("SpotifyTrackLibraryMatches");
             });
@@ -3095,6 +3128,9 @@ partial class _20261126064219_AddSongCoverUpdatedAt
                 b.HasIndex("OwnerUserId", "DeezerTrackId")
                     .IsUnique()
                     .HasFilter("\"DeezerTrackId\" IS NOT NULL");
+
+                b.HasIndex("OwnerUserId", "DownloadedSongId")
+                    .HasFilter("\"DownloadedSongId\" IS NOT NULL");
 
                 b.HasIndex("OwnerUserId", "SpotifyTrackId")
                     .IsUnique()

@@ -476,6 +476,8 @@ public class StorageUsageCalculatorTests
             => Task.FromResult<ResolvedCover?>(null);
         public string? GetCachedPath(string identityPath, long identityStamp, int requestedSize) => null;
         public void Prewarm(ResolvedCover source, string identityPath) { }
+
+        public ResolvedCover? TryGetCachedThumbnail(string identityPath, int size) => null;
     }
 
     private sealed class StubAvailability(bool sourceAvailable, bool destinationAvailable) : IDirectoryAvailability

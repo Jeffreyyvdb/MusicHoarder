@@ -57,6 +57,7 @@ export const ENDPOINTS: Endpoint[] = [
   { name: 'Stats', group: 'Open the app', path: () => '/stats', budget: { p95Ms: 200 } },
 
   // What the shell asks for on every document load to fill the Inbox badges and status rows.
+  { name: 'Inbox decision counts', group: 'On every start, for the admin', path: () => '/api/inbox/decision-counts', budget: { p95Ms: 100 } },
   { name: 'Duplicate tracks', group: 'On every start, for the admin', path: () => '/api/library/duplicates', budget: { p95Ms: 200 } },
   { name: 'Inbox name counts', group: 'On every start, for the admin', path: () => '/api/inbox/name-counts', budget: { p95Ms: 300 } },
   // The three reports those two counts stand in for. Only the Inbox's Artist names and Album names
@@ -96,4 +97,6 @@ export const ENDPOINTS: Endpoint[] = [
   { name: 'History feed', group: 'Manage', path: () => '/api/history', budget: { p95Ms: 500 } },
   { name: 'Insights', group: 'Manage', path: () => '/insights', budget: { p95Ms: 500 } },
   { name: 'Directory tree', group: 'Manage', path: () => '/library/directory-tree', budget: { p95Ms: 500 } },
+  { name: 'Background work', group: 'Manage', path: () => '/api/background-work' },
+  { name: 'Background work: lyrics', group: 'Manage', path: () => '/api/background-work/lyrics' },
 ]

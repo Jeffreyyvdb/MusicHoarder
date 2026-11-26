@@ -204,6 +204,20 @@ public sealed class ArtistDuplicateService(
         // that are not theirs — an elected AlbumArtist keeps the previous row's
         // AlbumArtistMusicBrainzId, a discrete Artists list falls out of step with its id list — so
         // an unguarded id union let one stray id fold unrelated artists together.
+        bool HasPairEvidence(string a, string b)
+        {
+            if (IsDismissed(a, b))
+                return false;
+            var (ka, kb) = (keyOf[a], keyOf[b]);
+            if (ka.Length > 0 && string.Equals(ka, kb, StringComparison.Ordinal))
+                return true;
+
+            var ratio = FuzzyTextMatch.RatioPreNormalized(ka, kb, a, b) ?? 0;
+            if (ratio >= threshold)
+                return true;
+            return ratio >= identityFloor && stats[a].Mbids.Overlaps(stats[b].Mbids);
+        }
+
         List<string> PairEvidence(string a, string b)
         {
             if (IsDismissed(a, b))
@@ -213,7 +227,7 @@ public sealed class ArtistDuplicateService(
                 return ["same name after normalization"];
 
             var why = new List<string>(2);
-            var ratio = FuzzyTextMatch.Ratio(a, b) ?? 0;
+            var ratio = FuzzyTextMatch.RatioPreNormalized(ka, kb, a, b) ?? 0;
             if (ratio >= threshold)
                 why.Add("similar spelling");
             if (ratio >= identityFloor && stats[a].Mbids.Overlaps(stats[b].Mbids))
@@ -262,7 +276,7 @@ public sealed class ArtistDuplicateService(
             {
                 for (var j = i + 1; j < block.Count; j++)
                 {
-                    if (Find(block[i]) == Find(block[j]) || PairEvidence(block[i], block[j]).Count == 0)
+                    if (Find(block[i]) == Find(block[j]) || !HasPairEvidence(block[i], block[j]))
                         continue;
                     var (ra, rb) = (Find(block[i]), Find(block[j]));
                     var (root, child) = string.CompareOrdinal(ra, rb) <= 0 ? (ra, rb) : (rb, ra);
@@ -320,12 +334,26 @@ public sealed class ArtistDuplicateService(
         // count is the very plan the Split button runs: offered and performed can't disagree.
         var spellings = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
         var rowsByKey = new Dictionary<string, List<SongMetadata>>(StringComparer.Ordinal);
+        var creditCache = new Dictionary<string, (string Name, string Key)?>(StringComparer.Ordinal);
         void NoteCredit(string? raw, SongMetadata song)
         {
-            if (ArtistCreditNormalizer.NormalizeDisplayCredit(raw) is not { } name || ArtistCreditEvidence.IsPlaceholderName(name))
+            if (string.IsNullOrWhiteSpace(raw))
                 return;
-            var key = TitleNormalizer.NormalizeArtistKey(name);
-            if (key.Length == 0)
+            if (!creditCache.TryGetValue(raw, out var cached))
+            {
+                if (ArtistCreditNormalizer.NormalizeDisplayCredit(raw) is { } normName
+                    && !ArtistCreditEvidence.IsPlaceholderName(normName))
+                {
+                    var normKey = TitleNormalizer.NormalizeArtistKey(normName);
+                    cached = normKey.Length > 0 ? (normName, normKey) : null;
+                }
+                else
+                {
+                    cached = null;
+                }
+                creditCache[raw] = cached;
+            }
+            if (cached is not var (name, key))
                 return;
             var bySpelling = spellings.TryGetValue(key, out var s) ? s : spellings[key] = new(StringComparer.Ordinal);
             bySpelling[name] = bySpelling.GetValueOrDefault(name) + 1;
@@ -335,7 +363,7 @@ public sealed class ArtistDuplicateService(
         }
         foreach (var song in songs)
         {
-            if (MultiValue.Split(song.Artists).Length == 0)
+            if (string.IsNullOrWhiteSpace(song.Artists) || MultiValue.Split(song.Artists).Length == 0)
                 NoteCredit(song.Artist, song);
             NoteCredit(song.AlbumArtist, song);
         }
@@ -613,13 +641,16 @@ public sealed class ArtistDuplicateService(
         return rows.Select(r => (r.KeyLow, r.KeyHigh)).ToHashSet();
     }
 
-    private sealed record NameStat(int Count, HashSet<string> Mbids)
+    private sealed class NameStat
     {
-        public NameStat Bump(string? mbid)
+        public int Count { get; private set; }
+        public HashSet<string> Mbids { get; } = [];
+
+        public void Bump(string? mbid)
         {
             if (!string.IsNullOrWhiteSpace(mbid))
                 Mbids.Add(mbid.Trim());
-            return this with { Count = Count + 1 };
+            Count++;
         }
     }
 
@@ -630,13 +661,22 @@ public sealed class ArtistDuplicateService(
     private static Dictionary<string, NameStat> CollectNameStats(IReadOnlyList<SongMetadata> songs)
     {
         var stats = new Dictionary<string, NameStat>(StringComparer.Ordinal);
+        var displayCache = new Dictionary<string, string?>(StringComparer.Ordinal);
 
         void Bump(Dictionary<string, NameStat> map, string? rawName, string? mbid)
         {
-            var name = ArtistCreditNormalizer.NormalizeDisplayCredit(rawName);
+            if (string.IsNullOrWhiteSpace(rawName))
+                return;
+            if (!displayCache.TryGetValue(rawName, out var name))
+            {
+                name = ArtistCreditNormalizer.NormalizeDisplayCredit(rawName);
+                displayCache[rawName] = name;
+            }
             if (name is null)
                 return;
-            map[name] = (map.TryGetValue(name, out var stat) ? stat : new NameStat(0, [])).Bump(mbid);
+            if (!map.TryGetValue(name, out var stat))
+                map[name] = stat = new NameStat();
+            stat.Bump(mbid);
         }
 
         foreach (var song in songs)

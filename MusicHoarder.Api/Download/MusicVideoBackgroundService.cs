@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using MusicHoarder.Api.BackgroundWork;
 using MusicHoarder.Api.Import;
 using MusicHoarder.Api.Persistence;
 
@@ -17,21 +18,26 @@ public class MusicVideoBackgroundService(
     IMusicVideoDownloader downloader,
     IMusicVideoFileAnalyzer fileAnalyzer,
     IHttpClientFactory httpClientFactory,
-    ILogger<MusicVideoBackgroundService> logger) : BackgroundService
+    ILogger<MusicVideoBackgroundService> logger,
+    BackgroundWorkStatus? status = null) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await ResetStaleFetchingAsync(stoppingToken);
         await EnqueueUnmeasuredAsync(stoppingToken);
 
+        status?.Idle(BackgroundJobIds.MusicVideoDownloads, null);
         await foreach (var work in channel.Reader.ReadAllAsync(stoppingToken))
         {
+            status?.Working(BackgroundJobIds.MusicVideoDownloads);
             try
             {
                 using var scope = scopeFactory.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
                 var alignment = scope.ServiceProvider.GetRequiredService<MusicVideoAlignmentService>();
                 await ProcessAsync(db, alignment, work, stoppingToken);
+                if (!channel.Reader.TryPeek(out _))
+                    status?.Idle(BackgroundJobIds.MusicVideoDownloads, null, work.Kind == MusicVideoWorkKind.Fetch);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -40,6 +46,7 @@ public class MusicVideoBackgroundService(
             catch (Exception ex)
             {
                 logger.LogError(ex, "Music video worker failed for song {SongId} ({Kind})", work.SongId, work.Kind);
+                status?.Failing(BackgroundJobIds.MusicVideoDownloads, ex, null);
             }
         }
     }

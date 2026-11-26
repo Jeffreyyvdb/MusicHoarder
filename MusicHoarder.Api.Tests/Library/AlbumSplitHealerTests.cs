@@ -975,6 +975,61 @@ public class AlbumSplitHealerTests
         }),
         NullLogger<AlbumSplitHealer>.Instance);
 
+    [Fact]
+    public void NeedsIdentityCorrection_MatchesApplyIdentityCorrectionAcrossAllFields()
+    {
+        var baseline = new AlbumIdentity(
+            Album: "Graduation",
+            AlbumArtist: "Kanye West",
+            Year: 2007,
+            IsCompilation: false,
+            TotalDiscs: 1,
+            ReleaseTypePrimary: "Album",
+            ReleaseTypes: "Album",
+            MusicBrainzReleaseId: "rel-1",
+            MusicBrainzReleaseGroupId: "rg-1",
+            AlbumArtistMusicBrainzId: "aa-1");
+
+        SongMetadata MatchingSong()
+        {
+            var s = Song("/s.flac", "Stronger", 1, year: 2007, album: "Graduation", releaseId: "rel-1");
+            s.TotalDiscs = 1;
+            s.ReleaseTypePrimary = "Album";
+            s.ReleaseTypes = "Album";
+            s.MusicBrainzReleaseGroupId = "rg-1";
+            s.AlbumArtistMusicBrainzId = "aa-1";
+            return s;
+        }
+
+        // Exact match: neither needs nor applies changes
+        var clean = MatchingSong();
+        Assert.False(clean.NeedsIdentityCorrection(baseline));
+        Assert.Empty(clean.ApplyIdentityCorrection(baseline));
+
+        // Each differing field flips NeedsIdentityCorrection to true and produces a change
+        var identities = new[]
+        {
+            baseline with { Album = "Graduation (Remastered)" },
+            baseline with { AlbumArtist = "Ye" },
+            baseline with { Year = 2008 },
+            baseline with { IsCompilation = true },
+            baseline with { TotalDiscs = 2 },
+            baseline with { ReleaseTypePrimary = "EP" },
+            baseline with { ReleaseTypes = "Album;Live" },
+            baseline with { MusicBrainzReleaseId = "rel-2" },
+            baseline with { MusicBrainzReleaseGroupId = "rg-2" },
+            baseline with { AlbumArtistMusicBrainzId = "aa-2" },
+        };
+
+        foreach (var candidate in identities)
+        {
+            var probe = MatchingSong();
+            Assert.True(probe.NeedsIdentityCorrection(candidate));
+            Assert.NotEmpty(probe.ApplyIdentityCorrection(candidate));
+            Assert.False(probe.NeedsIdentityCorrection(candidate));
+        }
+    }
+
     private static SongMetadata Song(
         string sourcePath,
         string title,

@@ -22,6 +22,13 @@ public interface ICoverThumbnailService
     string? GetCachedPath(string identityPath, long identityStamp, int requestedSize);
 
     /// <summary>
+    /// <see cref="GetCachedPath"/> keyed by the identity file's current last-write time: a cache
+    /// lookup that never loads or decodes the source cover (e.g. never opens a FLAC/MP3 with
+    /// TagLib when the WebP thumbnail is already cached). Null on a miss.
+    /// </summary>
+    ResolvedCover? TryGetCachedThumbnail(string identityPath, int size);
+
+    /// <summary>
     /// Returns a cached WebP thumbnail of <paramref name="source"/> at <paramref name="size"/> (max
     /// edge, no upscaling), generating + caching it on first request. Concurrent misses for the
     /// same source/size share one generation (single-flight). <paramref name="identityPath"/> is
@@ -82,6 +89,9 @@ public sealed class CoverThumbnailService(string cacheDirectory, ILogger<CoverTh
         var cacheFile = CacheFileFor(identityPath, identityStamp, requestedSize);
         return File.Exists(cacheFile) ? cacheFile : null;
     }
+
+    public ResolvedCover? TryGetCachedThumbnail(string identityPath, int size) =>
+        GetCachedPath(identityPath, SafeLastWriteTicks(identityPath), size) is { } path ? Webp(path) : null;
 
     public Task<ResolvedCover?> GetThumbnailAsync(ResolvedCover source, string identityPath, int size, CancellationToken ct = default)
     {

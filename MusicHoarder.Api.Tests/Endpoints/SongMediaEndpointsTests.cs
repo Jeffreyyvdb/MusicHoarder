@@ -62,13 +62,15 @@ public class SongMediaEndpointsTests : IDisposable
         public bool DirectoryHasCoverImage(string? directory) => false;
     }
 
-    private sealed class FakeThumbnailService(ResolvedCover? thumb) : ICoverThumbnailService
+    private sealed class FakeThumbnailService(ResolvedCover? thumb, ResolvedCover? cachedThumb = null) : ICoverThumbnailService
     {
         public int? LastRequestedSize { get; private set; }
 
         public string CacheDirectory => "/cache";
 
         public int ClampToBucket(int requestedSize) => requestedSize;
+
+        public ResolvedCover? TryGetCachedThumbnail(string identityPath, int size) => cachedThumb;
 
         public Task<ResolvedCover?> GetThumbnailAsync(
             ResolvedCover source, string identityPath, int size, CancellationToken ct = default)
@@ -596,5 +598,29 @@ public class SongMediaEndpointsTests : IDisposable
         var fileResult = Assert.IsType<PhysicalFileHttpResult>(result);
         Assert.Equal(coverPath, fileResult.FileName);
         Assert.Equal("private, max-age=86400", http.Response.Headers.CacheControl.ToString());
+    }
+
+    [Fact]
+    public async Task GetSongCover_WithSize_CachedThumbnailHit_SkipsCoverArtResolve()
+    {
+        var sourcePath = TempFile("song.mp3");
+        var thumbPath = TempFile("cached-thumb.webp");
+
+        await using var db = NewContext();
+        var song = NewSong(sourcePath, "song.mp3");
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        var cached = new ResolvedCover { FilePath = thumbPath, ContentType = "image/webp" };
+        var resolver = new FakeCoverArtResolver(new ResolvedCover { FilePath = thumbPath, ContentType = "image/jpeg" });
+        var thumbs = new FakeThumbnailService(thumb: null, cachedThumb: cached);
+        var http = new DefaultHttpContext();
+
+        var result = await SongsEndpoints.GetSongCover(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), resolver, thumbs, new CoverResolutionCache(), http, 256, null, CancellationToken.None);
+
+        var fileResult = Assert.IsType<PhysicalFileHttpResult>(result);
+        Assert.Equal(thumbPath, fileResult.FileName);
+        Assert.Equal("private, max-age=604800", http.Response.Headers.CacheControl.ToString());
+        Assert.False(resolver.ResolveCalled, "A warm thumbnail cache hit must not parse the audio file via TagLib.");
     }
 }

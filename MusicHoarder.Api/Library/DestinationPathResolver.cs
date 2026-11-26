@@ -1,3 +1,4 @@
+using System.Buffers;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Metadata;
 using MusicHoarder.Api.Options;
@@ -9,6 +10,7 @@ public class DestinationPathResolver(IOptions<MusicEnricherOptions> options) : I
 {
     private const int MaxSegmentLength = 60;
     private static readonly char[] ForbiddenPathChars = ['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
+    private static readonly SearchValues<char> ForbiddenPathSearchValues = SearchValues.Create(ForbiddenPathChars);
 
     private readonly string _destinationRoot = options.Value.DestinationDirectory;
     private readonly string _compilationFolder = string.IsNullOrWhiteSpace(options.Value.CompilationFolderName)
@@ -16,6 +18,22 @@ public class DestinationPathResolver(IOptions<MusicEnricherOptions> options) : I
         : options.Value.CompilationFolderName;
 
     public string ResolvePath(SongMetadata song) => ResolvePath(song, null);
+
+    public string ResolveDirectory(SongMetadata song)
+    {
+        ArgumentNullException.ThrowIfNull(song);
+
+        var topFolder = IsVariousArtists(song.IsCompilation, song.AlbumArtist)
+            ? NormalizeSegment(_compilationFolder, "Various Artists")
+            : ResolveAlbumArtistSegment(song.AlbumArtist, song.Artist);
+
+        if (song.IsUnreleased)
+            return Path.Combine(_destinationRoot, topFolder, "Unreleased");
+
+        var album = NormalizeSegment(song.Album, "Unknown Album");
+        var albumFolder = song.Year is > 0 ? $"{song.Year.Value} - {album}" : album;
+        return Path.Combine(_destinationRoot, topFolder, albumFolder);
+    }
 
     /// <summary>
     /// Resolves the destination path for a song, deriving the album-IDENTITY folder segments
@@ -127,12 +145,19 @@ public class DestinationPathResolver(IOptions<MusicEnricherOptions> options) : I
         }
 
         var cleaned = value.Trim();
-        foreach (var forbiddenChar in ForbiddenPathChars)
+        if (!cleaned.AsSpan().ContainsAny(ForbiddenPathSearchValues))
         {
-            cleaned = cleaned.Replace(forbiddenChar.ToString(), string.Empty, StringComparison.Ordinal);
+            return cleaned;
         }
 
-        return cleaned;
+        var sb = new System.Text.StringBuilder(cleaned.Length);
+        foreach (var ch in cleaned)
+        {
+            if (!ForbiddenPathSearchValues.Contains(ch))
+                sb.Append(ch);
+        }
+
+        return sb.ToString();
     }
 
     /// <summary>

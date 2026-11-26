@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.BackgroundWork;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 
@@ -35,6 +36,7 @@ public class MusicVideoCandidateCache(
     IMusicVideoProbe probe,
     IOptions<MusicEnricherOptions> options,
     TimeProvider time,
+    MusicVideoOutcomeMemo memo,
     ILogger<MusicVideoCandidateCache> logger)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
@@ -159,10 +161,11 @@ public class MusicVideoCandidateCache(
         stored.SearchedAtUtc = now;
         stored.CandidatesJson = JsonSerializer.Serialize(candidates, Json);
         stored.Error = null;
-        Schedule(stored, song, MusicVideoAutoPick.Choose(candidates, song, options.Value) is null
-            ? MusicVideoSearchOutcome.NoClip
-            : MusicVideoSearchOutcome.Clip, now);
+        Schedule(stored, song,
+            MusicVideoAutoPick.OutcomeOf(
+                candidates, song.Artist, song.DurationMs, song.DurationSeconds, MusicVideoPickGates.From(options.Value)), now);
         await SaveAsync(db, stored, isNew: row is null, ct);
+        memo.Forget(song.Id);
 
         return new VideoCandidateList(candidates, now);
     }
@@ -200,6 +203,7 @@ public class MusicVideoCandidateCache(
         candidates[index] = Merge(candidates[index], result);
         row.CandidatesJson = JsonSerializer.Serialize(candidates, Json);
         await TrySaveAsync(db, songId, ct);
+        memo.Forget(songId);
     }
 
     /// <summary>Sets when the song is searched again, and the run of empty searches that decides it.</summary>
@@ -231,17 +235,25 @@ public class MusicVideoCandidateCache(
                 HasThumbnail = candidate.HasThumbnail || probed.ThumbnailUrl is not null,
             };
 
-    private IReadOnlyList<CachedVideoCandidate> Read(SongVideoCandidateSet row)
+    /// <summary>A stored list, or null when its JSON cannot be read.</summary>
+    internal static List<CachedVideoCandidate>? TryParse(string candidatesJson)
     {
         try
         {
-            return JsonSerializer.Deserialize<List<CachedVideoCandidate>>(row.CandidatesJson, Json) ?? [];
+            return JsonSerializer.Deserialize<List<CachedVideoCandidate>>(candidatesJson, Json) ?? [];
         }
-        catch (JsonException ex)
+        catch (JsonException)
         {
-            logger.LogWarning(ex, "Unreadable music video candidate list for song {SongId}", row.SongId);
-            return [];
+            return null;
         }
+    }
+
+    private IReadOnlyList<CachedVideoCandidate> Read(SongVideoCandidateSet row)
+    {
+        if (TryParse(row.CandidatesJson) is { } list)
+            return list;
+        logger.LogWarning("Unreadable music video candidate list for song {SongId}", row.SongId);
+        return [];
     }
 
     /// <summary>

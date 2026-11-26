@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Matching;
@@ -40,7 +41,7 @@ public interface IAlbumDuplicateDetector
 /// spellings. Under-merge is the safe direction: pairs must carry identical
 /// <see cref="VersionQualifier"/> edition flags, so deluxe never suggests merging into standard.
 /// </summary>
-public sealed class AlbumDuplicateDetector(
+public sealed partial class AlbumDuplicateDetector(
     MusicHoarderDbContext db,
     IOptions<MusicEnricherOptions> options,
     DetectionCountMemo memo) : IAlbumDuplicateDetector
@@ -149,8 +150,12 @@ public sealed class AlbumDuplicateDetector(
         double threshold)
     {
         // One entry per logical album (AlbumGroupKey), carrying its majority display spelling.
+        // Memoize album/artist key normalization across the library so 10,000 tracks only run the
+        // regex/qualifier pipelines once per distinct album/artist string (~10x fewer calls).
+        var albumKeyCache = new Dictionary<string, string>(StringComparer.Ordinal);
+        var artistKeyCache = new Dictionary<string, string>(StringComparer.Ordinal);
         var albums = songs
-            .Select(s => (Key: AlbumGroupKey.For(s), Song: s))
+            .Select(s => (Key: AlbumGroupKey.ForCached(s, albumKeyCache, artistKeyCache), Song: s))
             .Where(x => x.Key is not null)
             .GroupBy(x => x.Key!)
             .Select(g =>
@@ -169,11 +174,14 @@ public sealed class AlbumDuplicateDetector(
                     .ThenBy(x => x.Key, StringComparer.Ordinal)
                     .Select(x => x.Key)
                     .FirstOrDefault() ?? string.Empty;
+                var dedupKey = TitleNormalizer.NormalizeForDedup(display);
                 return new AlbumEntry(
                     g.Key.ArtistKey,
                     artistDisplay,
                     display,
                     TitleNormalizer.NormalizeForSearch(display),
+                    dedupKey,
+                    ExtractNumbers(dedupKey),
                     // Detect on the TITLE argument: the album-argument path masks to packaging
                     // flags only, which would let "X: Live from ..." pair with the studio "X".
                     VersionQualifier.Detect(display),
@@ -202,13 +210,12 @@ public sealed class AlbumDuplicateDetector(
                         continue;
                     // Differing numbering is identity, not spelling: "Yeezus" vs "Yeezus 2" and
                     // sequel/edition titles must never fuzzy-pair no matter how similar the text.
-                    if (!NumbersMatch(a.Display, b.Display))
+                    if (!NumbersEqual(a.Numbers, b.Numbers))
                         continue;
 
                     string evidence;
                     double? ratio = null;
-                    if (TitleNormalizer.NormalizeForDedup(a.Display) == TitleNormalizer.NormalizeForDedup(b.Display)
-                        && TitleNormalizer.NormalizeForDedup(a.Display).Length > 0)
+                    if (a.DedupKey.Length > 0 && string.Equals(a.DedupKey, b.DedupKey, StringComparison.Ordinal))
                     {
                         evidence = "same title after normalization";
                     }
@@ -218,7 +225,7 @@ public sealed class AlbumDuplicateDetector(
                         // it); the exact-normalized path above still catches short-title variants.
                         if (a.SearchKey.Length < 4 || b.SearchKey.Length < 4)
                             continue;
-                        ratio = FuzzyTextMatch.Ratio(a.Display, b.Display);
+                        ratio = FuzzyTextMatch.RatioPreNormalized(a.SearchKey, b.SearchKey, a.Display, b.Display);
                         if ((ratio ?? 0) < threshold)
                             continue;
                         evidence = "similar title";
@@ -237,16 +244,35 @@ public sealed class AlbumDuplicateDetector(
             .ToList();
     }
 
-    /// <summary>Digit runs of both dedup-normalized titles must agree (order-sensitive) —
+    /// <summary>Digit runs of a dedup-normalized title (order-sensitive) —
     /// bracketed edition markers like "[V2]" are already stripped by the normalizer.</summary>
-    private static bool NumbersMatch(string displayA, string displayB)
+    private static string[] ExtractNumbers(string dedupKey)
     {
-        static List<string> Numbers(string display) => System.Text.RegularExpressions.Regex
-            .Matches(TitleNormalizer.NormalizeForDedup(display), @"\d+")
-            .Select(m => m.Value.TrimStart('0'))
-            .ToList();
-        return Numbers(displayA).SequenceEqual(Numbers(displayB), StringComparer.Ordinal);
+        if (dedupKey.Length == 0)
+            return [];
+        var matches = DigitRunPattern().Matches(dedupKey);
+        if (matches.Count == 0)
+            return [];
+        var numbers = new string[matches.Count];
+        for (var i = 0; i < matches.Count; i++)
+            numbers[i] = matches[i].Value.TrimStart('0');
+        return numbers;
     }
+
+    private static bool NumbersEqual(string[] a, string[] b)
+    {
+        if (a.Length != b.Length)
+            return false;
+        for (var i = 0; i < a.Length; i++)
+        {
+            if (!string.Equals(a[i], b[i], StringComparison.Ordinal))
+                return false;
+        }
+        return true;
+    }
+
+    [GeneratedRegex(@"\d+", RegexOptions.Compiled)]
+    private static partial Regex DigitRunPattern();
 
     private static bool IsDismissed(
         HashSet<(string Scope, string Low, string High)> dismissed, string artistKey, string keyA, string keyB)
@@ -260,6 +286,8 @@ public sealed class AlbumDuplicateDetector(
         string ArtistDisplay,
         string Display,
         string SearchKey,
+        string DedupKey,
+        string[] Numbers,
         VersionQualifiers Qualifiers,
         int SongCount);
 }

@@ -1,3 +1,4 @@
+using MusicHoarder.Api.BackgroundWork;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
@@ -37,6 +38,23 @@ public class LyricsTimingCheckServiceTests : IDisposable
         "[00:12.00]these are the words the model heard\n[00:17.00]in a song nobody wrote the lyrics down for";
 
     // --- Probe pass: which songs get a window ---
+
+    [Fact]
+    public async Task a_sweep_with_nothing_to_do_reports_idle_and_keeps_running()
+    {
+        await using var db = CreateDbContext();
+        var status = new BackgroundWorkStatus(TimeProvider.System);
+        var service = NewService(db, new FakeTranscriber(), new LyricsTimingOptions(), status);
+
+        await service.StartAsync(CancellationToken.None);
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (status.Get(BackgroundJobIds.Lyrics)?.State != BackgroundJobState.Idle && DateTime.UtcNow < deadline)
+            await Task.Delay(20);
+
+        Assert.Equal(BackgroundJobState.Idle, status.Get(BackgroundJobIds.Lyrics)?.State);
+        Assert.False(service.ExecuteTask!.IsFaulted);
+        await service.StopAsync(CancellationToken.None);
+    }
 
     [Fact]
     public async Task probe_pass_listens_to_songs_only_the_free_checks_passed_after_the_suspect_ones()
@@ -993,7 +1011,7 @@ public class LyricsTimingCheckServiceTests : IDisposable
 
     /// <summary>The sweep as production wires it. AI sync is on unless the test says otherwise.</summary>
     private static LyricsTimingCheckService NewService(
-        MusicHoarderDbContext db, FakeTranscriber transcriber, LyricsTimingOptions opts)
+        MusicHoarderDbContext db, FakeTranscriber transcriber, LyricsTimingOptions opts, BackgroundWorkStatus? status = null)
     {
         opts.EnableAutoSync ??= true;
         var monitor = new StaticOptionsMonitor<LyricsTimingOptions>(opts);
@@ -1015,7 +1033,8 @@ public class LyricsTimingCheckServiceTests : IDisposable
             budget,
             runtimeSettings,
             monitor,
-            NullLogger<LyricsTimingCheckService>.Instance);
+            NullLogger<LyricsTimingCheckService>.Instance,
+            status);
     }
 
     private static MusicHoarderDbContext CreateDbContext() =>

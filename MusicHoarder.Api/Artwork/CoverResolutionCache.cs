@@ -106,6 +106,10 @@ public static class CoverVersionStamp
         song.Id, song.LastModifiedUtc, song.LibraryBuiltAtUtc, song.HasCoverArt,
         song.DestinationPath, song.SourcePath, song.CoverUpdatedAtUtc);
 
+    public static string ForMedia(Sharing.SongMediaRef song) => ForSong(
+        song.Id, song.LastModifiedUtc, song.LibraryBuiltAtUtc, song.HasCoverArt,
+        song.DestinationPath, song.SourcePath, song.CoverUpdatedAtUtc);
+
     public static string ForSong(
         int id,
         DateTime lastModifiedUtc,

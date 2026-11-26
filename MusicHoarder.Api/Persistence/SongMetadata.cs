@@ -176,7 +176,22 @@ public class SongMetadata
     public static DateTime SeedAcquiredAt(DateTime lastModifiedUtc, DateTime indexedAtUtc) =>
         lastModifiedUtc < indexedAtUtc ? lastModifiedUtc : indexedAtUtc;
 
-    public string? Fingerprint { get; set; }
+    private string? _fingerprint;
+    public string? Fingerprint
+    {
+        get => _fingerprint;
+        set
+        {
+            _fingerprint = value;
+            HasFingerprint = !string.IsNullOrEmpty(value);
+        }
+    }
+
+    /// <summary>True when <see cref="Fingerprint"/> is non-empty. Stored as a boolean so list and
+    /// stats queries never have to detoast the multi-kilobyte Chromaprint text column. Note:
+    /// private-setter flags are omitted by <c>SongMetadataLightQuery.WithoutHeavyText</c> and
+    /// <c>SongColumnSet</c>, so do not read them on light-projected entities.</summary>
+    public bool HasFingerprint { get; private set; }
     public int? Bitrate { get; set; }
 
     /// <summary>
@@ -387,8 +402,36 @@ public class SongMetadata
 
     // --- Lyrics ---
 
-    public string? PlainLyrics { get; set; }
-    public string? SyncedLyrics { get; set; }
+    private string? _plainLyrics;
+    public string? PlainLyrics
+    {
+        get => _plainLyrics;
+        set
+        {
+            _plainLyrics = value;
+            HasPlainLyrics = !string.IsNullOrEmpty(value);
+            HasNonBlankPlainLyrics = !string.IsNullOrWhiteSpace(value);
+        }
+    }
+
+    private string? _syncedLyrics;
+    public string? SyncedLyrics
+    {
+        get => _syncedLyrics;
+        set
+        {
+            _syncedLyrics = value;
+            HasSyncedLyrics = !string.IsNullOrEmpty(value);
+            HasNonBlankSyncedLyrics = !string.IsNullOrWhiteSpace(value);
+        }
+    }
+
+    /// <summary>Stored presence flags for <see cref="PlainLyrics"/> and <see cref="SyncedLyrics"/>
+    /// so <c>GET /songs</c> never has to detoast the lyric text columns in PostgreSQL.</summary>
+    public bool HasPlainLyrics { get; private set; }
+    public bool HasSyncedLyrics { get; private set; }
+    public bool HasNonBlankPlainLyrics { get; private set; }
+    public bool HasNonBlankSyncedLyrics { get; private set; }
 
     /// <summary>Which service the stored <see cref="PlainLyrics"/>/<see cref="SyncedLyrics"/> came from.</summary>
     public LyricsOrigin LyricsOrigin { get; set; } = LyricsOrigin.Lrclib;
@@ -433,8 +476,35 @@ public class SongMetadata
     // fields are deliberately NOT in RebuildOnMetadataChangeInterceptor.TagRelevantProperties — storing a
     // transcription must never re-tag the destination file (the transcript is for comparison, not the file).
 
-    public string? TranscribedSyncedLyrics { get; set; }
-    public string? TranscribedPlainLyrics { get; set; }
+    private string? _transcribedSyncedLyrics;
+    public string? TranscribedSyncedLyrics
+    {
+        get => _transcribedSyncedLyrics;
+        set
+        {
+            _transcribedSyncedLyrics = value;
+            UpdateHasTranscribedLyrics();
+        }
+    }
+
+    private string? _transcribedPlainLyrics;
+    public string? TranscribedPlainLyrics
+    {
+        get => _transcribedPlainLyrics;
+        set
+        {
+            _transcribedPlainLyrics = value;
+            UpdateHasTranscribedLyrics();
+        }
+    }
+
+    /// <summary>True when either transcribed lyrics column is non-empty. Stored so <c>GET /songs</c>
+    /// never has to detoast AI lyric blobs.</summary>
+    public bool HasTranscribedLyrics { get; private set; }
+
+    private void UpdateHasTranscribedLyrics() =>
+        HasTranscribedLyrics = !string.IsNullOrEmpty(_transcribedSyncedLyrics)
+            || !string.IsNullOrEmpty(_transcribedPlainLyrics);
     public TranscriptionStatus TranscriptionStatus { get; set; } = TranscriptionStatus.NotRequested;
     public DateTime? TranscribedAtUtc { get; set; }
 
@@ -491,18 +561,27 @@ public class SongMetadata
     /// Whether the share page and other read-only surfaces say "Instrumental": LRCLIB says so, or the AI heard
     /// no singing and there are no words to show. The AI's mark never hides words the song has gained.
     /// </summary>
-    public bool ShowsAsInstrumental =>
-        LyricsStatus == LyricsStatus.Instrumental
-        || (IsInstrumental == true
-            && string.IsNullOrWhiteSpace(DisplaySyncedLyrics)
-            && string.IsNullOrWhiteSpace(DisplayPlainLyrics));
+    public bool ShowsAsInstrumental => ComputeShowsAsInstrumental(
+        LyricsStatus,
+        IsInstrumental,
+        hasDisplayWords: !string.IsNullOrWhiteSpace(DisplaySyncedLyrics) || !string.IsNullOrWhiteSpace(DisplayPlainLyrics));
 
     /// <remarks>Never for a song LRCLIB calls instrumental: its verdict outranks an earlier transcript.</remarks>
-    private bool UseTranscribedForDisplay =>
-        LyricsStatus != LyricsStatus.Instrumental
-        && (!string.IsNullOrWhiteSpace(TranscribedSyncedLyrics) || !string.IsNullOrWhiteSpace(TranscribedPlainLyrics))
-        && (PreferredLyricsSource == PreferredLyricsSource.Transcribed
-            || (string.IsNullOrWhiteSpace(SyncedLyrics) && string.IsNullOrWhiteSpace(PlainLyrics)));
+    private bool UseTranscribedForDisplay => ComputeUseTranscribedForDisplay(
+        LyricsStatus,
+        hasTranscribedWords: !string.IsNullOrWhiteSpace(TranscribedSyncedLyrics) || !string.IsNullOrWhiteSpace(TranscribedPlainLyrics),
+        PreferredLyricsSource,
+        hasOfficialWords: !string.IsNullOrWhiteSpace(SyncedLyrics) || !string.IsNullOrWhiteSpace(PlainLyrics));
+
+    /// <summary>The display rule in one place, as a static so a projection reaches the player's verdict.</summary>
+    public static bool ComputeUseTranscribedForDisplay(
+        LyricsStatus status, bool hasTranscribedWords, PreferredLyricsSource preferred, bool hasOfficialWords)
+        => status != LyricsStatus.Instrumental
+            && hasTranscribedWords
+            && (preferred == PreferredLyricsSource.Transcribed || !hasOfficialWords);
+
+    public static bool ComputeShowsAsInstrumental(LyricsStatus status, bool? isInstrumental, bool hasDisplayWords)
+        => status == LyricsStatus.Instrumental || (isInstrumental == true && !hasDisplayWords);
 
     /// <summary>
     /// True when the stored transcription carries the song's <b>official</b> lyric text re-timed against
@@ -855,6 +934,26 @@ public class SongMetadata
         }
 
         return changes;
+    }
+
+    /// <summary>
+    /// Pure read-only check matching <see cref="ApplyIdentityCorrection"/>'s exact change predicates,
+    /// without mutating the entity or allocating change lists (used by dry-run detection and counting).
+    /// </summary>
+    public bool NeedsIdentityCorrection(Library.AlbumIdentity identity)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+
+        return (!string.IsNullOrWhiteSpace(identity.Album) && !string.Equals(identity.Album, Album, StringComparison.Ordinal))
+            || (!string.IsNullOrWhiteSpace(identity.AlbumArtist) && !string.Equals(identity.AlbumArtist, AlbumArtist, StringComparison.Ordinal))
+            || (identity.Year is > 0 && identity.Year != Year)
+            || (identity.IsCompilation && !IsCompilation)
+            || (identity.TotalDiscs is > 0 && identity.TotalDiscs != TotalDiscs)
+            || (!string.IsNullOrWhiteSpace(identity.ReleaseTypePrimary) && !string.Equals(identity.ReleaseTypePrimary, ReleaseTypePrimary, StringComparison.Ordinal))
+            || (!string.IsNullOrWhiteSpace(identity.ReleaseTypes) && !string.Equals(identity.ReleaseTypes, ReleaseTypes, StringComparison.Ordinal))
+            || (!string.IsNullOrWhiteSpace(identity.MusicBrainzReleaseId) && !string.Equals(identity.MusicBrainzReleaseId, MusicBrainzReleaseId, StringComparison.Ordinal))
+            || (!string.IsNullOrWhiteSpace(identity.MusicBrainzReleaseGroupId) && !string.Equals(identity.MusicBrainzReleaseGroupId, MusicBrainzReleaseGroupId, StringComparison.Ordinal))
+            || (!string.IsNullOrWhiteSpace(identity.AlbumArtistMusicBrainzId) && !string.Equals(identity.AlbumArtistMusicBrainzId, AlbumArtistMusicBrainzId, StringComparison.Ordinal));
     }
 
     public void ApplyEnrichmentMatch(EnrichmentMatchData match)
