@@ -1,5 +1,6 @@
 <script lang="ts">
   import { sparkHeights } from '#lib/background-work/chart-math.ts';
+  import { cn } from '#lib/utils.ts';
 
   type Props = {
     values: number[];
@@ -14,14 +15,14 @@
   );
 </script>
 
-<span role="img" aria-label={summary} class="flex h-8 items-end gap-0.5 {className}">
+<span role="img" aria-label={summary} class={cn('flex h-8 items-end gap-[3px]', className)}>
   {#each heights as height, i (i)}
     <span class="flex h-full min-w-0 flex-1 items-end" aria-hidden="true">
       <span
-        class="w-full rounded-t-[2px]"
+        class="w-full rounded-t-[3px]"
         style:height={height === 0 ? '2px' : `${height}%`}
         style:background-color={height === 0 ? 'var(--viz-muted)' : 'var(--viz-neutral)'}
-        style:opacity={i === heights.length - 1 || height === 0 ? 1 : 0.55}
+        style:opacity={i === heights.length - 1 || height === 0 ? 1 : 0.4}
       ></span>
     </span>
   {/each}

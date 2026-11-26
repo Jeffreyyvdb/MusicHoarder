@@ -87,7 +87,7 @@
           <span class="text-subheadline text-right font-medium tabular-nums md:text-sm">
             {formatCount(segment.count)}
           </span>
-          <span class="text-footnote text-muted-foreground text-right tabular-nums md:text-xs">
+          <span class="text-subheadline text-muted-foreground text-right tabular-nums md:text-sm">
             {formatShare(segment.count, panel.total)}
           </span>
         </button>

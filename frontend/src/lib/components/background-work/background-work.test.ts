@@ -137,7 +137,8 @@ describe('BackgroundWorkSection', () => {
     expect(body).toContain('13,195');
     expect(body).toContain('of 21,006 songs have synced lyrics');
     expect(body).toContain('role="meter"');
-    expect(body).toMatch(/At this pace: about 33 days, around (28 Dec|Dec 28)/);
+    const words = body.replaceAll(/<[^>]+>/g, ' ').replaceAll(/\s+/g, ' ');
+    expect(words).toMatch(/At this pace about 33 days, around (28 Dec|Dec 28)/);
     expect(body).not.toContain('rate of 64 songs a day');
     expect(body).toContain('Working');
     expect(body).toContain('Failing');
