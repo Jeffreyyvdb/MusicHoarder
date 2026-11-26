@@ -388,6 +388,25 @@ describe('revalidate', () => {
     expect(fetchSongs).toHaveBeenCalledTimes(2);
     expect(store.error).toBeNull();
   });
+
+  it('says it is loaded only once a load has landed, an empty library included, until sign-out', async () => {
+    fetchSongs.mockRejectedValueOnce(new Error('offline'));
+    fetchAlbums.mockResolvedValue([]);
+    const store = await freshStore();
+    expect(store.loaded).toBe(false);
+
+    store.revalidate();
+    await flush();
+    expect(store.loaded).toBe(false);
+
+    store.revalidate();
+    await flush();
+    expect(store.songs).toEqual([]);
+    expect(store.loaded).toBe(true);
+
+    store.reset();
+    expect(store.loaded).toBe(false);
+  });
 });
 
 describe('live stream', () => {

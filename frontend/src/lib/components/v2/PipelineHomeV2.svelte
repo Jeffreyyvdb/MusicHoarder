@@ -73,11 +73,16 @@
   let quality = $state<QualityOverview | null>(null);
   let qualityProgress = $state<QualityProgress | null>(null);
   let duplicates = $state<DuplicatesResponse | null>(null);
+  let liveLoaded = $state(false);
   let countsLoaded = $state(false);
   let statsFailed = $state(false);
   let dupesFailed = $state(false);
   let rescanning = $state(false);
-  const loaded = $derived(countsLoaded && songsStore.loaded);
+  // The page's own reads have answered once, whether or not they succeeded.
+  const loaded = $derived(liveLoaded && countsLoaded);
+  // The same for the library: a failed load shows what the store holds beside the error row,
+  // rather than placeholders that never resolve.
+  const libraryReady = $derived(songsStore.loaded || songsStore.error != null);
   const loadError = $derived(statsFailed || dupesFailed || songsStore.error != null);
 
   // Each poll skips a tick while its last one is still out: during a scan the API is busy, and
@@ -95,6 +100,8 @@
   // What moves while a job runs: two small reads.
   const loadLive = skipWhileBusy(async () => {
     // Asks for the library again once the copy held is over 30s old; "unchanged" costs a 304.
+    // Deliberately not the store's live stream: during a build that refetches the whole library
+    // every few seconds, and the conveyor already shows a running build's counts from its own.
     songsStore.revalidate();
     const [stRes, qpRes] = await Promise.allSettled([
       fetchStats(),
@@ -104,6 +111,7 @@
     if (stRes.status === 'fulfilled') stats = stRes.value;
     if (qpRes.status === 'fulfilled') qualityProgress = qpRes.value;
     statsFailed = stRes.status === 'rejected';
+    liveLoaded = true;
   });
 
   // The two that walk the library on the server. Their figures move when a person decides
@@ -122,17 +130,11 @@
     countsLoaded = true;
   });
 
+  // loadLive revalidates the library, which starts nothing while a load is already out.
   function retryAll() {
-    if (songsStore.error != null) void songsStore.loadSongs({ silent: true });
     loadLive();
     loadCounts();
   }
-
-  // A build landing refreshes the library a few seconds later, as on the Listen pages.
-  $effect(() => {
-    songsStore.startLive();
-    return () => songsStore.stopLive();
-  });
 
   // Both pause while the page is hidden. The SSE-backed conveyor updates independently.
   $effect(() => poll(loadLive, 8_000, { immediate: true }));
@@ -153,12 +155,12 @@
   const sourceBytes = $derived(stats?.storage?.totalBytes ?? null);
 
   const inLibrary = $derived.by(() => {
-    if (!loaded) return null;
+    if (!libraryReady) return null;
     return songsStore.builtSongs.length;
   });
 
   const matchedCount = $derived.by(() => {
-    if (!loaded) return null;
+    if (!libraryReady) return null;
     return songsStore.enrichmentStatusCounts.complete;
   });
 
@@ -204,7 +206,7 @@
 
   // Errors — failed enrichment in the current dataset (not a fabricated 24h window).
   const errorCount = $derived.by(() => {
-    if (!loaded) return null;
+    if (!libraryReady) return null;
     return songsStore.enrichmentStatusCounts.failed;
   });
 
@@ -392,7 +394,7 @@
 
   // ── just landed (the newest albums the server grouped) ──────────────────────
   const justLanded = $derived.by<AlbumSummary[]>(() => {
-    if (!loaded) return [];
+    if (!libraryReady) return [];
     return sortAlbumsByRecency(songsStore.albums).slice(0, 6);
   });
 
@@ -1085,7 +1087,7 @@
           {#snippet header()}
             {@render sectionHeader('Just landed', { href: '/library', label: 'See all' })}
           {/snippet}
-          {#if !loaded}
+          {#if !libraryReady}
             {#each Array(4) as _, i (i)}
               <div class="flex items-center gap-3 px-4 py-2.5">
                 <Skeleton class="size-10 shrink-0 rounded-sm" />
