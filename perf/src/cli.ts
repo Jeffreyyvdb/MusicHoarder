@@ -5,6 +5,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { runApiBench, type ApiReport } from './api/bench.ts'
+import { renderWrites, runWritesScenario } from './api/writes.ts'
 import { compare } from './compare.ts'
 import { PERF_ROOT, SIZES, stackConfig, type SizeName, type StackConfig, type Target } from './config.ts'
 import { acquire, describeHolder, ref, releaseLock, releaseMine, running, updateLock, type LockHolder } from './lock.ts'
@@ -21,6 +22,8 @@ const HELP = `MusicHoarder performance suite
   bun perf measure  [options]   measure both against the running stack (or --url)
   bun perf api      [options]   measure the API (against the running stack, or --url)
   bun perf web      [options]   measure the web app in a browser (against the running stack, or --url)
+  bun perf writes   [options]   revalidate the library lists after bookkeeping writes and after visible ones
+                                (writes to the running local stack's database; --runs <n>, default 7)
   bun perf down     [--purge]   stop the local stack (--purge also deletes its database and files)
   bun perf compare <before> <after>   what changed between two runs (folders or labels under results/)
   bun perf report <run>         write a run's report again from its result.json
@@ -244,6 +247,21 @@ async function main() {
     case 'web':
       await measure(remoteUrl ? remoteTarget() : localTarget(cfg), { api: command !== 'web', web: command !== 'api' })
       break
+    case 'writes': {
+      if (remoteUrl) throw new Error('"writes" changes rows in the database, so it only runs against the local stack.')
+      const label = flags.get('label') ?? (git(['rev-parse', '--abbrev-ref', 'HEAD']) || 'run')
+      const report = await runWritesScenario(localTarget(cfg), Number(flags.get('runs') ?? 7))
+      const stamp = report.startedAt.replace(/[-:]/g, '').replace('T', '-').slice(0, 15)
+      const dir = join(resultsRoot, `${stamp}_${label.replace(/[^A-Za-z0-9._-]+/g, '-')}-writes`)
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, 'writes.json'), JSON.stringify({ label, commit: git(['rev-parse', '--short', 'HEAD']), ...report }, null, 2))
+      const markdown = renderWrites(report, label)
+      writeFileSync(join(dir, 'writes.md'), markdown)
+      console.log(`\n${markdown}\nWritten to ${dir}`)
+      // A stale list is always a failure; a bookkeeping write that cost a download only with --strict.
+      if (report.stale.length || (flags.has('strict') && report.missed.length)) process.exitCode = 1
+      break
+    }
     case 'all': {
       if (remoteUrl) {
         await measure(remoteTarget(), { api: true, web: true })

@@ -15,6 +15,9 @@ public static class WebApplicationExtensions
     {
         using var scope = app.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+        // A migration that backfills a column rewrites every song row in one statement, and the
+        // default 30 seconds would abort it, and with it the start, on a slow or busy disk.
+        dbContext.Database.SetCommandTimeout(TimeSpan.FromMinutes(10));
         await dbContext.Database.MigrateAsync();
 
         var protectedRows = await LegacySecretColumns.ProtectAsync(

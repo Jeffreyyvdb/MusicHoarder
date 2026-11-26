@@ -56,13 +56,18 @@ public interface ILibraryChangeStamp
 /// file's presence), that response must go out without a validator.
 /// </para>
 /// <para>
-/// A row's version is its primary key with Postgres's <c>xmin</c> (the transaction that wrote this
-/// version of the row) and <c>ctid</c> (where that version lives). Every insert, update and delete
-/// moves the per-table count or sum, and a version never comes back once replaced — which is what
-/// makes it safe for the stamp to be read a moment before the handler's own queries: a write landing
-/// in between leaves the client holding a stamp older than its data, so its next request simply
-/// downloads again. Comparing values instead would let a change that is later undone look like no
-/// change at all.
+/// A row's version is its primary key with a value that is replaced whenever the row is written
+/// and never comes back. For <c>Songs</c>, <c>SongMusicVideos</c> and <c>WishlistSources</c>, the
+/// three tables background jobs write around the clock, that is the <see cref="RowVersions.List"/>
+/// column a trigger keeps: it moves on every insert and on every update except one that changes
+/// only the bookkeeping columns <see cref="RowVersions"/> lists, none of which the handlers read.
+/// Without that the wishlist sync's two-minute "last synced" stamp alone meant the lists never
+/// answered "unchanged". For the other tables it is Postgres's own <c>xmin</c> and <c>ctid</c>,
+/// which move on every write. Every insert, update and delete that counts moves the per-table
+/// count or sum — which is what makes it safe for the stamp to be read a moment before the
+/// handler's own queries: a write landing in between leaves the client holding a stamp older than
+/// its data, so its next request simply downloads again. Comparing values instead would let a
+/// change that is later undone look like no change at all.
 /// </para>
 /// <para>
 /// The statement goes around the EF tenancy filter, so it is scoped by hand: the caller's id for
@@ -190,12 +195,6 @@ public sealed class LibraryChangeStamp(
             return sql.DelimitIdentifier(entity.FindProperty(property)!.GetColumnName(table)!);
         }
 
-        // count(*) catches a row arriving or leaving; the sum moves when any row's version does.
-        // A sum rather than an xor, so a row that a join happened to repeat could not cancel itself.
-        static string Versions(string alias, string key) =>
-            $"count(*)::text || ':' || coalesce(sum(hashtextextended(" +
-            $"{alias}.{key}::text || '/' || {alias}.xmin::text || '/' || {alias}.ctid::text, 0)), 0)::text";
-
         var songs = Table<SongMetadata>();
         var songId = Column<SongMetadata>(nameof(SongMetadata.Id));
         var songOwner = Column<SongMetadata>(nameof(SongMetadata.OwnerUserId));
@@ -206,32 +205,32 @@ public sealed class LibraryChangeStamp(
         return $"""
             SELECT concat_ws('|',
               pg_postmaster_start_time()::text,
-              (SELECT {Versions("s", songId)}
+              (SELECT {RowVersions.FoldSql("s", songId, RowVersions.Kept("s", RowVersions.List))}
                  FROM {songs} s
                 WHERE s.{songOwner} = ANY (@owners)),
-              (SELECT {Versions("v", Column<SongMusicVideo>(nameof(SongMusicVideo.Id)))}
+              (SELECT {RowVersions.FoldSql("v", Column<SongMusicVideo>(nameof(SongMusicVideo.Id)), RowVersions.Kept("v", RowVersions.List))}
                  FROM {Table<SongMusicVideo>()} v
                  JOIN {songs} s ON s.{songId} = v.{Column<SongMusicVideo>(nameof(SongMusicVideo.SongId))}
                 WHERE s.{songOwner} = ANY (@owners)),
-              (SELECT {Versions("w", Column<WishlistSource>(nameof(WishlistSource.Id)))}
+              (SELECT {RowVersions.FoldSql("w", Column<WishlistSource>(nameof(WishlistSource.Id)), RowVersions.Kept("w", RowVersions.List))}
                  FROM {Table<WishlistSource>()} w
                 WHERE w.{Column<WishlistSource>(nameof(WishlistSource.OwnerUserId))} = @caller),
-              (SELECT {Versions("i", Column<WishlistItem>(nameof(WishlistItem.Id)))}
+              (SELECT {RowVersions.FoldSql("i", Column<WishlistItem>(nameof(WishlistItem.Id)), RowVersions.Physical("i"))}
                  FROM {Table<WishlistItem>()} i
                 WHERE i.{Column<WishlistItem>(nameof(WishlistItem.OwnerUserId))} = @caller
                   AND i.{Column<WishlistItem>(nameof(WishlistItem.DownloadedSongId))} IS NOT NULL),
-              (SELECT {Versions("m", Column<SpotifyTrackLibraryMatch>(nameof(SpotifyTrackLibraryMatch.SpotifyTrackId)))}
+              (SELECT {RowVersions.FoldSql("m", Column<SpotifyTrackLibraryMatch>(nameof(SpotifyTrackLibraryMatch.SpotifyTrackId)), RowVersions.Physical("m"))}
                  FROM {Table<SpotifyTrackLibraryMatch>()} m
                 WHERE m.{Column<SpotifyTrackLibraryMatch>(nameof(SpotifyTrackLibraryMatch.OwnerUserId))} = @caller
                   AND m.{Column<SpotifyTrackLibraryMatch>(nameof(SpotifyTrackLibraryMatch.Source))} = @likedSync
                   AND m.{Column<SpotifyTrackLibraryMatch>(nameof(SpotifyTrackLibraryMatch.SpotifyAddedAtUtc))} IS NOT NULL),
-              (SELECT {Versions("g", Column<LibraryShareGrant>(nameof(LibraryShareGrant.Id)))}
+              (SELECT {RowVersions.FoldSql("g", Column<LibraryShareGrant>(nameof(LibraryShareGrant.Id)), RowVersions.Physical("g"))}
                  FROM {Table<LibraryShareGrant>()} g
                 WHERE g.{Column<LibraryShareGrant>(nameof(LibraryShareGrant.GranteeUserId))} = @caller),
-              (SELECT {Versions("u", Column<User>(nameof(User.Id)))}
+              (SELECT {RowVersions.FoldSql("u", Column<User>(nameof(User.Id)), RowVersions.Physical("u"))}
                  FROM {Table<User>()} u
                 WHERE u.{Column<User>(nameof(User.Id))} = ANY (@grantors)),
-              (SELECT {Versions("t", Column<UserSongState>(nameof(UserSongState.Id)))}
+              (SELECT {RowVersions.FoldSql("t", Column<UserSongState>(nameof(UserSongState.Id)), RowVersions.Physical("t"))}
                  FROM {Table<UserSongState>()} t
                 WHERE t.{Column<UserSongState>(nameof(UserSongState.UserId))} = @caller)
             ) AS "Value"

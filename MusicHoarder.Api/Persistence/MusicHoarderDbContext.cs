@@ -182,6 +182,8 @@ public class MusicHoarderDbContext : DbContext
         // keep is FilterUserId, read per query.
         var hasUser = _currentUser is not null;
 
+        RowVersions.Map(modelBuilder);
+
         modelBuilder.Entity<SongMetadata>(entity =>
         {
             entity.HasKey(e => e.Id);

@@ -534,6 +534,9 @@ public static class SongsEndpoints
         {
             originalTags = await query
                 .Where(s => s.OriginalMetadataCaptured)
+                // In id order, so the object's keys are written the same way whatever order the
+                // rows lie in the table: a write the change stamp ignores still moves a row.
+                .OrderBy(s => s.Id)
                 .Select(s => new { s.Id, s.OriginalTitle, s.OriginalArtist, s.OriginalAlbum })
                 .ToDictionaryAsync(
                     s => s.Id,

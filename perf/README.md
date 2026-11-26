@@ -62,8 +62,17 @@ through the frontend's `/api/mh` proxy to show what that hop adds.
 
 The two **unchanged** rows are the library lists asked for again with the `ETag` they came with,
 the way the web app revalidates on a page visit (`revalidate: true`): the row is the 304, and it
-fails if anything else comes back. They are also the only place that statement runs outside
-production, since the API's tests use an in-memory database.
+fails if anything else comes back. Nothing writes to the library between the two requests, which is never true in production.
+
+**After writes** (`bun perf writes`, `src/api/writes.ts`) is the same question once the background
+jobs have written. It makes the writes the wishlist sync, the lyrics timing check, the builder and
+the enrichment retry make, straight in the perf database, and asks again: after those bookkeeping
+writes the lists should still answer 304 and the Inbox name counts should come from memory ("Rows
+read" stays at 1); after a renamed song or a video that became ready they must answer 200 with the
+change in them. A list that answers 304 to a visible write, or 200 without it, is reported as
+**STALE** and exits 1; `--strict` also fails a bookkeeping write that cost a download. It ends by
+timing one-row song updates, which is what a row-version trigger costs. It writes to the database,
+so it runs against the local stack only, and puts back what it renamed.
 
 **Web app** (`src/web/bench.ts`), in headless Chromium, once per profile:
 
@@ -87,6 +96,7 @@ bun perf all                 start a stack, measure API and web, report, stop
 bun perf up                  start the stack and leave it running (API :5599, web :5598)
 bun perf measure             measure API and web against the running stack
 bun perf api | web           one of the two
+bun perf writes              revalidate the lists after bookkeeping writes and after visible ones
 bun perf down [--purge]      stop it (--purge also deletes the seeded database and files)
 bun perf compare <a> <b>     compare two runs, by label or folder
 bun perf list                runs so far

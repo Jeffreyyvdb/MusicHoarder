@@ -41,6 +41,9 @@ public static class SharedSongProjection
                 .ThenBy(s => s.TrackNumber ?? 0)
                 .ThenBy(s => s.Title ?? "")
                 .ThenBy(s => s.FileName)
+                // Rows that tie on all of the above would otherwise come in heap order, which any
+                // write to either row can change, including one LibraryChangeStamp ignores.
+                .ThenBy(s => s.Id)
                 .ToListAsync(ct);
             bySlice.Add((slice, rows));
         }

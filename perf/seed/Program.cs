@@ -32,6 +32,7 @@ await using (var db = new MusicHoarderDbContext(dbOptions))
     if (existing >= options.Songs)
     {
         await EnsureArtistImagesAsync(db, options.WebUrl);
+        await EnsureSourcesAndVideosAsync(db);
         Console.WriteLine($"perf-seed: {existing} songs already present, nothing to do.");
         return 0;
     }
@@ -218,6 +219,7 @@ await using (var db = new MusicHoarderDbContext(dbOptions))
     }
     await db.SaveChangesAsync();
     await EnsureArtistImagesAsync(db, options.WebUrl);
+    await EnsureSourcesAndVideosAsync(db);
     await db.Database.ExecuteSqlRawAsync("ANALYZE");
 }
 
@@ -305,6 +307,54 @@ static async Task EnsureArtistImagesAsync(MusicHoarderDbContext db, string webUr
         await db.Database.ExecuteSqlRawAsync("ANALYZE \"ArtistImages\"");
         Console.WriteLine($"perf-seed: ensured {byNormalized.Count} artist portraits ({changed} written).");
     }
+}
+
+// Rows the library lists depend on beyond the songs: synced playlist sources and music videos. The
+// write-then-revalidate scenario (`bun perf writes`) writes to them the way the wishlist sync and
+// the video prefetch do. Nothing syncs or fetches them: the sources are not auto-synced, and the
+// videos are failed fetches. Safe to re-run on a volume seeded before these existed.
+static async Task EnsureSourcesAndVideosAsync(MusicHoarderDbContext db)
+{
+    var nowUtc = DateTime.UtcNow;
+    if (!await db.WishlistSources.IgnoreQueryFilters().AnyAsync(w => w.OwnerUserId == WellKnownUsers.OwnerId))
+    {
+        for (var i = 1; i <= 3; i++)
+        {
+            db.WishlistSources.Add(new WishlistSource
+            {
+                OwnerUserId = WellKnownUsers.OwnerId,
+                SourceType = WishlistSourceType.Playlist,
+                SpotifyPlaylistId = $"perfsource{i}",
+                Name = $"Perf synced playlist {i}",
+                AutoSync = false,
+                LastSyncedAtUtc = nowUtc,
+                CreatedAtUtc = nowUtc.AddDays(-60),
+            });
+        }
+    }
+
+    if (!await db.SongMusicVideos.IgnoreQueryFilters().AnyAsync())
+    {
+        var songIds = await db.Songs.IgnoreQueryFilters()
+            .Where(s => s.OwnerUserId == WellKnownUsers.OwnerId && s.DeletedAtUtc == null && s.DestinationPath != null)
+            .OrderBy(s => s.Id)
+            .Select(s => s.Id)
+            .Take(40)
+            .ToListAsync();
+        foreach (var songId in songIds)
+        {
+            db.SongMusicVideos.Add(new SongMusicVideo
+            {
+                SongId = songId,
+                Status = MusicVideoStatus.Failed,
+                Pick = MusicVideoPick.Automatic,
+                LastError = "perf fixture: never fetched",
+                FetchedAtUtc = nowUtc,
+            });
+        }
+    }
+
+    await db.SaveChangesAsync();
 }
 
 // Skewed pick in [0, n): a few artists hold most of the tracks, a few songs most of the plays.

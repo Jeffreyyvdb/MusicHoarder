@@ -33,7 +33,9 @@ public interface IInboxNameCounter
 /// <para>
 /// On PostgreSQL, an L1 row-version stamp over every table the three detectors read lets repeated
 /// calls return immediately without transferring 10,000+ rows or re-running the unmemoized
-/// split-album dry run whenever nothing in those tables has moved.
+/// split-album dry run whenever nothing in those tables has moved. A song's version there is its
+/// <see cref="RowVersions.Names"/>, which a play, a like, a lyrics fetch or a build leaves alone:
+/// the detectors load only <see cref="Columns"/>, and none of those writes touches one of them.
 /// </para>
 /// </summary>
 public sealed class InboxNameCounter : IInboxNameCounter
@@ -144,28 +146,24 @@ public sealed class InboxNameCounter : IInboxNameCounter
             return sql.DelimitIdentifier(entity.FindProperty(property)!.GetColumnName(table)!);
         }
 
-        static string Versions(string alias, string key) =>
-            $"count(*)::text || ':' || coalesce(sum(hashtextextended(" +
-            $"{alias}.{key}::text || '/' || {alias}.xmin::text || '/' || {alias}.ctid::text, 0)), 0)::text";
-
         return $"""
             SELECT concat_ws('|',
               pg_postmaster_start_time()::text,
-              (SELECT {Versions("s", Column<SongMetadata>(nameof(SongMetadata.Id)))}
+              (SELECT {RowVersions.FoldSql("s", Column<SongMetadata>(nameof(SongMetadata.Id)), RowVersions.Kept("s", RowVersions.Names))}
                  FROM {Table<SongMetadata>()} s
                 WHERE s.{Column<SongMetadata>(nameof(SongMetadata.DeletedAtUtc))} IS NULL
                   AND NOT s.{Column<SongMetadata>(nameof(SongMetadata.IsSynthetic))}
                   AND s.{Column<SongMetadata>(nameof(SongMetadata.OwnerUserId))} <> @demo),
-              (SELECT {Versions("d", Column<DedupDismissal>(nameof(DedupDismissal.Id)))}
+              (SELECT {RowVersions.FoldSql("d", Column<DedupDismissal>(nameof(DedupDismissal.Id)), RowVersions.Physical("d"))}
                  FROM {Table<DedupDismissal>()} d
                 WHERE d.{Column<DedupDismissal>(nameof(DedupDismissal.OwnerUserId))} = @owner),
-              (SELECT {Versions("c", Column<CanonicalAlbum>(nameof(CanonicalAlbum.Id)))}
+              (SELECT {RowVersions.FoldSql("c", Column<CanonicalAlbum>(nameof(CanonicalAlbum.Id)), RowVersions.Physical("c"))}
                  FROM {Table<CanonicalAlbum>()} c),
-              (SELECT {Versions("t", Column<CanonicalAlbumTrack>(nameof(CanonicalAlbumTrack.Id)))}
+              (SELECT {RowVersions.FoldSql("t", Column<CanonicalAlbumTrack>(nameof(CanonicalAlbumTrack.Id)), RowVersions.Physical("t"))}
                  FROM {Table<CanonicalAlbumTrack>()} t),
-              (SELECT {Versions("a", Column<ArtistAlias>(nameof(ArtistAlias.Id)))}
+              (SELECT {RowVersions.FoldSql("a", Column<ArtistAlias>(nameof(ArtistAlias.Id)), RowVersions.Physical("a"))}
                  FROM {Table<ArtistAlias>()} a),
-              (SELECT {Versions("m", Column<SongMetadataChange>(nameof(SongMetadataChange.Id)))}
+              (SELECT {RowVersions.FoldSql("m", Column<SongMetadataChange>(nameof(SongMetadataChange.Id)), RowVersions.Physical("m"))}
                  FROM {Table<SongMetadataChange>()} m
                 WHERE m.{Column<SongMetadataChange>(nameof(SongMetadataChange.Source))} = '{AlbumSplitHealer.ChangeSource}'
                   AND m.{Column<SongMetadataChange>(nameof(SongMetadataChange.FieldName))} = '{nameof(SongMetadata.AlbumArtist)}')

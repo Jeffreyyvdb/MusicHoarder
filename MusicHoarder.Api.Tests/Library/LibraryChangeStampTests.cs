@@ -12,7 +12,8 @@ namespace MusicHoarder.Api.Tests.Library;
 /// <summary>
 /// The parts of the change stamp that do not need Postgres: when it declines to give one, and that
 /// every input it folds in moves the value. The row versions themselves come from a statement only
-/// Postgres can run, so that half is measured by the performance suite's "unchanged" rows.
+/// Postgres can run: <c>RowVersionTests</c> pins which writes move them, and the performance suite's
+/// "unchanged" rows and <c>bun perf writes</c> measure it.
 /// </summary>
 public class LibraryChangeStampTests
 {
