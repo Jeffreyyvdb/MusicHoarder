@@ -22,8 +22,18 @@ public interface IAuthService
     /// <summary>Starts a session for the demo user (no link required — exposed publicly).</summary>
     Task<Session?> StartDemoSessionAsync(string? ip, string? userAgent, CancellationToken ct);
 
-    /// <summary>Loads + refreshes a session if needed. Returns null when not valid.</summary>
+    /// <summary>
+    /// Loads + refreshes a session if needed. Returns null when not valid. Served from a short-TTL
+    /// in-memory cache (bursts of image requests must not hammer Postgres), so revocation/role/
+    /// disable paths must call <see cref="InvalidateSession"/> / <see cref="InvalidateUser"/>.
+    /// </summary>
     Task<(Session Session, User User)?> ResolveSessionAsync(Guid sessionId, CancellationToken ct);
+
+    /// <summary>Drops the cached resolution of one session (logout/revoke).</summary>
+    void InvalidateSession(Guid sessionId);
+
+    /// <summary>Drops the cached resolutions of every session of a user (disable, role or capability change).</summary>
+    void InvalidateUser(Guid userId);
 
     /// <summary>
     /// Loads the given sessions in one query and returns only the live ones (active, user not

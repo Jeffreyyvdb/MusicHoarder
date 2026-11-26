@@ -268,7 +268,15 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDuplicateDetectionService, DuplicateDetectionService>();
         services.AddSingleton<IEmbeddedPictureReader, TagLibEmbeddedPictureReader>();
         services.AddScoped<ICoverArtResolver, CoverArtResolver>();
+        // In-memory index of resolved covers, so warm cover requests skip the filesystem scan and
+        // TagLib read (see GetSongCover's fast path).
+        services.AddSingleton<ICoverResolutionCache, CoverResolutionCache>();
         services.AddScoped<IArtistImageService, ArtistImageService>();
+        // Portrait prefetch: the in-memory known-artist set, the request→worker queue, and the
+        // worker that drains it (live provider lookups never happen on the HTTP request path).
+        services.AddSingleton<IKnownArtistIndex, KnownArtistIndex>();
+        services.AddSingleton<IArtistImagePrefetcher, ArtistImagePrefetcher>();
+        services.AddHostedService<ArtistImagePrefetchBackgroundService>();
         services.AddScoped<IAlbumCoverWriter, AlbumCoverWriter>();
 
         // Disposable on-disk cache of resized WebP cover thumbnails (derived, regenerable artifacts).

@@ -336,6 +336,10 @@ public static class SongsEndpoints
                 s.DurationMs,
                 s.Bitrate,
                 s.HasCoverArt,
+                // The row's last-modified stamp and cover-write stamp, so the projection can compute
+                // the cover version token (the `?v=` on cover URLs that may be cached immutably).
+                s.LastModifiedUtc,
+                s.CoverUpdatedAtUtc,
                 // Stored boolean flags: avoids detoasting multi-KB Chromaprint fingerprints and
                 // lyrics blobs across the whole library in PostgreSQL.
                 s.HasFingerprint,
@@ -427,6 +431,13 @@ public static class SongsEndpoints
             s.DurationSeconds, s.DurationMs,
             s.Bitrate,
             s.HasCoverArt,
+            // Content version for the cover URL: present only when the row says it has art, so
+            // artless rows don't pay for it. Lets the client cache `…/cover?v=…` immutably.
+            CoverVersion = s.HasCoverArt
+                ? CoverVersionStamp.ForSong(
+                    s.Id, s.LastModifiedUtc, s.LibraryBuiltAtUtc, s.HasCoverArt,
+                    s.DestinationPath, s.SourcePath, s.CoverUpdatedAtUtc)
+                : null,
             s.HasFingerprint,
                 s.Isrc, s.MusicBrainzId, s.MusicBrainzReleaseId, s.SpotifyId, s.AcoustIdTrackId, s.LrclibId,
             s.Genre, s.ReleaseDate, s.Label,
@@ -1235,8 +1246,10 @@ public static class SongsEndpoints
         ILibraryScopeResolver scopeResolver,
         ICoverArtResolver coverArtResolver,
         ICoverThumbnailService thumbnails,
+        ICoverResolutionCache coverCache,
         HttpContext http,
         int? size,
+        string? v,
         CancellationToken ct)
     {
         var found = await scopeResolver.ResolveSongMediaAsync(db, id, ct);
@@ -1246,12 +1259,86 @@ public static class SongsEndpoints
         if (song is null || song.IsSynthetic)
             return Results.NotFound();
 
-        // Only query SongMusicVideos if no folder/embedded cover exists — avoids an extra DB query
-        // on 99% of cover requests. Filter bypassed deliberately: SongMusicVideo is scoped by its
+        // A content-version token lets the response be cached immutably; it only counts as current
+        // when it matches the row-derived stamp, so an old URL never pins new content.
+        var version = CoverVersionStamp.ForMedia(song);
+        var immutable = !string.IsNullOrEmpty(v) && string.Equals(v, version, StringComparison.Ordinal);
+        var thumbCacheControl = immutable
+            ? CoverVersionStamp.ImmutableCacheControl
+            : "private, max-age=604800";
+        var fullCacheControl = immutable
+            ? CoverVersionStamp.ImmutableCacheControl
+            : "private, max-age=86400";
+
+        // Warm path: the resolution is cached in memory, so a scroll burst serves straight from the
+        // on-disk thumbnail (or the cover file) with zero directory scans, zero TagLib reads and no
+        // extra DB queries. The identity file is re-statted at most once per cache StatInterval.
+        // An entry resolved for another version of the row (a rebuild into a new folder, a re-index,
+        // a replaced cover) is dropped: the bytes it points at may not be what this version serves.
+        if (coverCache.TryGet(song.Id, out var entry) && entry is not null
+            && !string.Equals(entry.Version, version, StringComparison.Ordinal))
+        {
+            coverCache.Invalidate(song.Id);
+            entry = null;
+        }
+
+        if (entry is not null)
+        {
+            var now = DateTime.UtcNow;
+            if (coverCache.RestatDue(entry, now))
+            {
+                long stamp;
+                try { stamp = File.GetLastWriteTimeUtc(entry.IdentityPath).Ticks; }
+                catch { stamp = 0; }
+                if (stamp != entry.IdentityStamp)
+                    coverCache.Invalidate(song.Id);
+                else
+                    coverCache.NoteStat(song.Id, now);
+            }
+
+            if (coverCache.TryGet(song.Id, out entry) && entry is not null)
+            {
+                if (size is int requested && requested > 0)
+                {
+                    var cachedThumb = thumbnails.GetCachedPath(entry.IdentityPath, entry.IdentityStamp, requested);
+                    if (cachedThumb is not null)
+                    {
+                        http.Response.Headers.CacheControl = thumbCacheControl;
+                        return Results.File(cachedThumb, contentType: "image/webp");
+                    }
+
+                    // Thumbnail not generated yet, but the cover is a plain file: generate it from
+                    // the cached resolution — still no directory scan, no TagLib, no DB.
+                    if (entry.CoverFilePath is not null)
+                    {
+                        var cover = new ResolvedCover { FilePath = entry.CoverFilePath, ContentType = entry.CoverContentType ?? "image/jpeg" };
+                        var thumb = await thumbnails.GetThumbnailAsync(cover, entry.IdentityPath, requested, http.RequestAborted);
+                        if (thumb?.FilePath is not null)
+                        {
+                            http.Response.Headers.CacheControl = thumbCacheControl;
+                            return Results.File(thumb.FilePath, contentType: thumb.ContentType);
+                        }
+                    }
+                    // Embedded art with no cached thumbnail: fall through to the full slow path.
+                }
+                else if (entry.CoverFilePath is not null && File.Exists(entry.CoverFilePath))
+                {
+                    http.Response.Headers.CacheControl = fullCacheControl;
+                    return Results.File(entry.CoverFilePath, contentType: entry.CoverContentType ?? "image/jpeg");
+                }
+                // Embedded art at full size: fall through to the slow path (rare — downloads/hero).
+            }
+        }
+
+        // Cold path: full resolution. The music-video thumbnail is looked up only when no real
+        // cover art resolved — for artful tracks (the common case while scrolling) that query is
+        // skipped entirely. Filter bypassed deliberately inside: SongMusicVideo is scoped by its
         // parent song's owner, and the song was already authorized above.
         Task<string?> FallbackVideoThumbAsync() => FindMusicVideoThumbnailAsync(db, song.Id, ct);
 
-        return await ServeCoverAsync(song, coverArtResolver, thumbnails, http, size, FallbackVideoThumbAsync);
+        return await ServeCoverAsync(
+            song, coverArtResolver, thumbnails, coverCache, http, size, FallbackVideoThumbAsync,
+            thumbCacheControl, fullCacheControl, version);
     }
 
     private static async Task<string?> FindMusicVideoThumbnailAsync(
@@ -1271,11 +1358,20 @@ public static class SongsEndpoints
     /// <summary>
     /// Resolve + serve a song's cover (thumbnailed when <paramref name="size"/> is set) for a row
     /// the caller has already authorized (also used by the anonymous share endpoints).
+    ///
+    /// <para>
+    /// This is the slow path: it stats/probes the filesystem and may read embedded art via TagLib.
+    /// When <paramref name="coverCache"/> is given, the resolution is stored in it so later requests
+    /// take the warm path in <see cref="GetSongCover"/>, and the grid thumbnail sizes are prewarmed
+    /// in the background. <paramref name="lookupVideoThumbnail"/> runs only when no real cover art
+    /// resolved — the common artful case skips that query altogether.
+    /// </para>
     /// </summary>
     internal static Task<IResult> ServeCoverAsync(
         SongMetadata song,
         ICoverArtResolver coverArtResolver,
         ICoverThumbnailService thumbnails,
+        ICoverResolutionCache? coverCache,
         HttpContext http,
         int? size,
         string? musicVideoThumbnailPath = null) =>
@@ -1283,6 +1379,7 @@ public static class SongsEndpoints
             new SongMediaRef(song.Id, song.IsSynthetic, song.SourcePath, song.DestinationPath),
             coverArtResolver,
             thumbnails,
+            coverCache,
             http,
             size,
             musicVideoThumbnailPath is null ? null : () => Task.FromResult<string?>(musicVideoThumbnailPath));
@@ -1291,9 +1388,13 @@ public static class SongsEndpoints
         SongMediaRef song,
         ICoverArtResolver coverArtResolver,
         ICoverThumbnailService thumbnails,
+        ICoverResolutionCache? coverCache,
         HttpContext http,
         int? size,
-        Func<Task<string?>>? resolveMusicVideoThumbnail = null)
+        Func<Task<string?>>? resolveMusicVideoThumbnail = null,
+        string? thumbCacheControl = null,
+        string? fullCacheControl = null,
+        string? version = null)
     {
         var filePath = ResolveAudioFilePath(song.DestinationPath, song.SourcePath);
 
@@ -1310,7 +1411,7 @@ public static class SongsEndpoints
             var cached = thumbnails.TryGetCachedThumbnail(fastIdentity, requestedFast);
             if (cached?.FilePath is not null)
             {
-                http.Response.Headers.CacheControl = "private, max-age=604800";
+                http.Response.Headers.CacheControl = thumbCacheControl ?? "private, max-age=604800";
                 return Results.File(cached.FilePath, contentType: cached.ContentType);
             }
         }
@@ -1332,15 +1433,39 @@ public static class SongsEndpoints
         }
 
         // Last resort: the music video's YouTube thumbnail (real art always wins when present).
+        string? videoThumb = null;
         if (cover is null && resolveMusicVideoThumbnail is not null)
         {
-            var videoThumb = await resolveMusicVideoThumbnail();
+            videoThumb = await resolveMusicVideoThumbnail();
             if (videoThumb is not null)
                 cover = new ResolvedCover { FilePath = videoThumb, ContentType = "image/jpeg" };
         }
 
         if (cover is null)
             return Results.NotFound();
+
+        // Remember the resolution so warm requests skip the directory scan / TagLib / probes.
+        if (coverCache is not null)
+        {
+            var identity = cover.FilePath ?? coverSourceAudioPath;
+            long identityStamp;
+            try { identityStamp = File.GetLastWriteTimeUtc(identity).Ticks; }
+            catch { identityStamp = 0; }
+            coverCache.Store(song.Id, new CoverResolutionEntry(
+                AudioFilePath: filePath,
+                CoverFilePath: cover.FilePath,
+                CoverContentType: cover.ContentType,
+                IdentityPath: identity,
+                IdentityStamp: identityStamp,
+                VideoThumbnailPath: videoThumb,
+                Version: version ?? CoverVersionStamp.ForMedia(song),
+                ResolvedAtUtc: DateTime.UtcNow,
+                LastStatAtUtc: DateTime.UtcNow));
+
+            // Prewarm the grid thumbnail sizes in the background so a scroll never pays the
+            // first-generation cost.
+            thumbnails.Prewarm(cover, identity);
+        }
 
         // A `?size=` request gets a small cached WebP thumbnail instead of the multi-MB original —
         // this is what the album grid uses so scrolling doesn't download full-resolution art.
@@ -1350,7 +1475,7 @@ public static class SongsEndpoints
             var thumb = await thumbnails.GetThumbnailAsync(cover, identity, requested, http.RequestAborted);
             if (thumb?.FilePath is not null)
             {
-                http.Response.Headers.CacheControl = "private, max-age=604800";
+                http.Response.Headers.CacheControl = thumbCacheControl ?? "private, max-age=604800";
                 return Results.File(thumb.FilePath, contentType: thumb.ContentType);
             }
             // Thumbnailing failed (corrupt image) — fall through to the original below.
@@ -1358,7 +1483,7 @@ public static class SongsEndpoints
 
         // Covers rarely change; let the browser cache them. Private because they're served through
         // the per-user authenticated proxy.
-        http.Response.Headers.CacheControl = "private, max-age=86400";
+        http.Response.Headers.CacheControl = fullCacheControl ?? "private, max-age=86400";
 
         return cover.FilePath is not null
             ? Results.File(cover.FilePath, contentType: cover.ContentType)

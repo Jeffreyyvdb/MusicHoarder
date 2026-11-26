@@ -17,7 +17,7 @@ export interface RunResult {
 }
 
 const BYTE_METRICS = /^(Transferred|JS heap)/
-const COUNT_METRICS = /^(Requests|API calls|Cover requests|DOM nodes)$/
+const COUNT_METRICS = /^(Requests|API calls|Cover requests|DOM nodes|Visible images|Images loaded|Images failed|Image requests)$/
 
 export function formatMetric(name: string, value: number | null): string {
   if (value == null) return '–'

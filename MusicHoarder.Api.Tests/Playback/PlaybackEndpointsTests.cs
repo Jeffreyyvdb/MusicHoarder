@@ -548,6 +548,10 @@ public class PlaybackEndpointsTests
         public Task<(Session Session, User User)?> ResolveSessionAsync(Guid sessionId, CancellationToken ct)
             => throw new NotSupportedException();
 
+        public void InvalidateSession(Guid sessionId) { }
+
+        public void InvalidateUser(Guid userId) { }
+
         public Task<RequestLinkResult?> RequestLinkAsync(string email, string frontendBaseUrl, string? client, string? ip, string? userAgent, CancellationToken ct)
             => throw new NotSupportedException();
 

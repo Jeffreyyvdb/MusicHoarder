@@ -17,8 +17,18 @@ public class ArtistImage
     /// <summary>The display spelling the lookup was first made with (diagnostics only).</summary>
     public string DisplayName { get; set; } = string.Empty;
 
-    /// <summary>Portrait CDN URL; null = no provider had a verified portrait (negative cache).</summary>
+    /// <summary>
+    /// Portrait CDN URL sized for grid/list tiles (~300–500px edge); null = no provider had a
+    /// verified portrait (negative cache).
+    /// </summary>
     public string? ImageUrl { get; set; }
+
+    /// <summary>
+    /// The largest available portrait (hero/full-screen views), when the provider offers more
+    /// than one size. Null for rows cached before this column existed — those serve
+    /// <see cref="ImageUrl"/> everywhere.
+    /// </summary>
+    public string? ImageUrlLarge { get; set; }
 
     /// <summary>Provider the portrait came from: <c>spotify</c> | <c>deezer</c>; null when not found.</summary>
     public string? Source { get; set; }

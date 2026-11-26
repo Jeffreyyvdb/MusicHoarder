@@ -39,13 +39,18 @@ public record DeezerAlbumTrackItem(
 /// <summary>An album search hit (<c>GET /search/album</c>) carrying enough identity to verify the match.</summary>
 public record DeezerAlbumCandidate(string Id, string? Title, string? ArtistName);
 
-/// <summary>An artist search hit (<c>GET /search/artist</c>) with its largest available portrait URL.</summary>
+/// <summary>
+/// An artist search hit (<c>GET /search/artist</c>) with its portraits: <see cref="PictureUrl"/>
+/// is sized for grid/list tiles, <see cref="PictureUrlLarge"/> is the largest available (hero
+/// views).
+/// </summary>
 public record DeezerArtistCandidate(
     string? Name,
     string? PictureUrl,
     string? Id = null,
     int Fans = 0,
-    int AlbumCount = 0);
+    int AlbumCount = 0,
+    string? PictureUrlLarge = null);
 
 /// <summary>
 /// One release on an artist's catalog page (<c>GET /artist/{id}/albums</c>). <see cref="RecordType"/>

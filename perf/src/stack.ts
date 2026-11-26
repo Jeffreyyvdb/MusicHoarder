@@ -229,6 +229,9 @@ function apiEnvironment(cfg: StackConfig): Record<string, string> {
     Frontend__PublicBaseUrl: cfg.webUrl,
     // Nothing here may call out: the rows are invented, and a provider lookup for them would be
     // both pointless traffic and noise in the numbers.
+    http_proxy: 'http://127.0.0.1:9',
+    https_proxy: 'http://127.0.0.1:9',
+    no_proxy: 'localhost,127.0.0.1,::1',
     MusicEnricher__AutoScanIntervalMinutes: '0',
     MusicEnricher__EnableUpdateCheck: 'false',
     MusicEnricher__EnableAcoustIdProvider: 'false',
@@ -240,7 +243,11 @@ function apiEnvironment(cfg: StackConfig): Record<string, string> {
     MusicEnricher__EnableYeTrackerProvider: 'false',
     MusicEnricher__EnableCanonicalAlbumFetch: 'false',
     MusicEnricher__EnableExternalCoverArtFetch: 'false',
-    MusicEnricher__EnableArtistImages: 'false',
+    // Artist portraits are pre-seeded in ArtistImages pointing at the local frontend so we can
+    // benchmark portrait loading offline; refresh/retry days are 0 so seeded rows never expire.
+    MusicEnricher__EnableArtistImages: 'true',
+    MusicEnricher__ArtistImageRefreshDays: '0',
+    MusicEnricher__ArtistImageNotFoundRetryDays: '0',
     MusicEnricher__EnableLyricsBackfillSweep: 'false',
     MusicEnricher__EnableLyricsRecheckSweep: 'false',
     MusicEnricher__EnableAlbumSplitSelfHeal: 'false',
@@ -321,11 +328,13 @@ export async function up(cfg: StackConfig, options: UpOptions): Promise<Target> 
   log(`seeding ${cfg.songs} songs (skipped when already there)`)
   run('dotnet', [
     seedDll,
-    '--connection', cfg.connection,
+    // Migrations can spend as long committing WAL as executing SQL on a busy disk.
+    '--connection', `${cfg.connection};Command Timeout=600`,
     '--songs', String(cfg.songs),
     '--source', join(cfg.workDir, 'source'),
     '--destination', join(cfg.workDir, 'destination'),
     '--templates', join(cfg.workDir, 'templates'),
+    '--web-url', cfg.webUrl,
   ])
   psql(cfg, 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements')
 

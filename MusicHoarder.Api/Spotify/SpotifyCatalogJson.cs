@@ -132,7 +132,15 @@ internal static class SpotifyCatalogJson
         }
     }
 
-    /// <summary>A <c>type=artist</c> search body's hits, each with its first (largest) image.</summary>
+    /// <summary>
+    /// The portrait edge a grid/list tile needs at up to 2× DPR — the smallest offered image that
+    /// still clears it is the one tiles download instead of the full-size portrait.
+    /// </summary>
+    internal const int GridPortraitMinHeight = 300;
+
+    /// <summary>
+    /// A <c>type=artist</c> search body's hits, each with a grid-sized and a full-size portrait.
+    /// </summary>
     internal static IReadOnlyList<SpotifyArtistCandidate> ParseArtistCandidates(string json)
     {
         try
@@ -147,21 +155,30 @@ internal static class SpotifyCatalogJson
             {
                 if (item.ValueKind != JsonValueKind.Object) continue;
                 var artistName = item.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() : null;
-                // Spotify orders images largest-first; the first url is the full-size portrait.
-                string? imageUrl = null;
+                // Spotify orders images largest-first: the first url is the full-size portrait, and
+                // the smallest one that still clears a 2× grid tile is the one tiles download.
+                string? large = null;
+                string? small = null;
+                var smallHeight = int.MaxValue;
                 if (item.TryGetProperty("images", out var images) && images.ValueKind == JsonValueKind.Array)
                 {
                     foreach (var img in images.EnumerateArray())
                     {
-                        if (img.ValueKind == JsonValueKind.Object && img.TryGetProperty("url", out var u) && u.ValueKind == JsonValueKind.String)
+                        if (img.ValueKind != JsonValueKind.Object || !img.TryGetProperty("url", out var u) || u.ValueKind != JsonValueKind.String)
+                            continue;
+                        var url = u.GetString();
+                        if (url is null) continue;
+                        large ??= url;
+                        var height = img.TryGetProperty("height", out var h) && h.ValueKind == JsonValueKind.Number ? h.GetInt32() : 0;
+                        if (height >= GridPortraitMinHeight && height < smallHeight)
                         {
-                            imageUrl = u.GetString();
-                            break;
+                            smallHeight = height;
+                            small = url;
                         }
                     }
                 }
 
-                candidates.Add(new SpotifyArtistCandidate(artistName, imageUrl));
+                candidates.Add(new SpotifyArtistCandidate(artistName, small ?? large, large));
             }
 
             return candidates;

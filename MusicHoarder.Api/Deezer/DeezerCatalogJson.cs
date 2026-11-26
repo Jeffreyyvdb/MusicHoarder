@@ -290,9 +290,11 @@ internal static class DeezerCatalogJson
             foreach (var item in data.EnumerateArray())
             {
                 if (item.ValueKind != JsonValueKind.Object) continue;
-                // Largest first: picture_xl is 1000x1000, picture_big 500x500.
-                var picture = ReadString(item, "picture_xl") ?? ReadString(item, "picture_big") ?? ReadString(item, "picture_medium");
-                candidates.Add(ParseArtist(item, picture));
+                // picture_xl is 1000x1000 (hero), picture_big 500x500 (grid tiles at 2× DPR),
+                // picture_medium 250x250 (last resort).
+                var large = ReadString(item, "picture_xl") ?? ReadString(item, "picture_big") ?? ReadString(item, "picture_medium");
+                var small = ReadString(item, "picture_big") ?? ReadString(item, "picture_medium") ?? ReadString(item, "picture_xl");
+                candidates.Add(ParseArtist(item, small, large));
             }
 
             return candidates;
@@ -303,8 +305,8 @@ internal static class DeezerCatalogJson
         }
     }
 
-    private static DeezerArtistCandidate ParseArtist(JsonElement item, string? picture) =>
-        new(ReadString(item, "name"), picture, ReadIdAsString(item), ReadInt(item, "nb_fan"), ReadInt(item, "nb_album"));
+    private static DeezerArtistCandidate ParseArtist(JsonElement item, string? picture, string? pictureLarge) =>
+        new(ReadString(item, "name"), picture, ReadIdAsString(item), ReadInt(item, "nb_fan"), ReadInt(item, "nb_album"), pictureLarge);
 
     /// <summary>One artist (<c>GET /artist/{id}</c>), or null for an error body.</summary>
     internal static DeezerArtistCandidate? ParseArtistDetail(string json)
@@ -314,8 +316,9 @@ internal static class DeezerCatalogJson
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
             if (root.ValueKind != JsonValueKind.Object || ReadIdAsString(root) is null) return null;
-            var picture = ReadString(root, "picture_xl") ?? ReadString(root, "picture_big") ?? ReadString(root, "picture_medium");
-            return ParseArtist(root, picture);
+            var large = ReadString(root, "picture_xl") ?? ReadString(root, "picture_big") ?? ReadString(root, "picture_medium");
+            var small = ReadString(root, "picture_big") ?? ReadString(root, "picture_medium") ?? ReadString(root, "picture_xl");
+            return ParseArtist(root, small, large);
         }
         catch (JsonException)
         {

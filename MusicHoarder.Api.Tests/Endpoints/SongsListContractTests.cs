@@ -40,8 +40,9 @@ public class SongsListContractTests
         // What a row shows, groups and sorts by.
         "Artist", "Artists", "AlbumArtist", "Album", "Title", "Year", "TrackNumber",
         "DurationSeconds", "DurationMs", "Bitrate", "Genre", "ReleaseDate", "Label",
-        // The cover and video affordances on a row.
-        "HasCoverArt", "HasMusicVideo",
+        // The cover and video affordances on a row. CoverVersion only appears when HasCoverArt
+        // (nulls are not written), and is what lets a cover URL be cached immutably.
+        "HasCoverArt", "CoverVersion", "HasMusicVideo",
         // Catalog ids: duplicate detection, Spotify matching on the Add pages, album grouping.
         "Isrc", "MusicBrainzId", "MusicBrainzReleaseId", "SpotifyId", "AcoustIdTrackId", "LrclibId",
         // Pipeline state: Tag review's queue, the Pipeline page's lists, the library's filters.

@@ -53,9 +53,9 @@ public static class SpotifyEndpoints
                 var useBrowserRedirect = baseUrl.Length > 0;
 
                 // The frontend's server-side /api/spotify/callback route forwards the request here
-                // (Node→API). A 302 back to that hop is unreadable to it (undici turns redirect:'manual'
-                // into an opaque response with no Location), so it would lose the outcome. When that
-                // route asks for JSON, return the outcome directly and let it own the browser redirect.
+                // (Node→API). That route builds the browser redirect itself — the outcome is easier to
+                // read as JSON than to parse out of a Location, and older runtimes' fetch made a manual
+                // redirect opaque. When it asks for JSON, return the outcome directly.
                 var jsonMode = string.Equals(
                     context.Request.Headers["X-Spotify-Callback-Mode"],
                     "json",

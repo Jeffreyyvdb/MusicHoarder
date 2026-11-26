@@ -1,6 +1,7 @@
 import type { RequestHandler } from './$types';
 import { getApiBaseUrl } from '#lib/server/api-target.ts';
 import { compressBody, pickProxyEncoding } from '#lib/server/proxy-compression.ts';
+import { browserLocation } from '#lib/server/proxy-location.ts';
 
 function buildTargetUrl(pathSegments: string, search: string): string {
   const base = getApiBaseUrl().replace(/\/$/, '');
@@ -43,13 +44,37 @@ async function proxy(
       headers,
       body: shouldForwardBody ? await request.arrayBuffer() : undefined,
       cache: 'no-store',
-      redirect: 'follow',
+      // 'manual' so a 3xx from the API (the artist-portrait redirect to the CDN, the Spotify
+      // connect hand-off) is passed to the browser as-is instead of Node following it, downloading
+      // the full-res image server-side and re-streaming it through this process — while also
+      // dropping the upstream Cache-Control that lets the browser cache the redirect.
+      redirect: 'manual',
       signal: controller.signal
     });
   } catch {
     return new Response(null, { status: 504 });
   } finally {
     clearTimeout(timeout);
+  }
+
+  // A redirect the API meant for the browser (e.g. /api/artists/image → CDN portrait): forward
+  // the status, Location and cache headers, with no body of our own.
+  const location = response.headers.get('location');
+  if (response.status >= 300 && response.status < 400 && location) {
+    const redirectHeaders = new Headers();
+    redirectHeaders.set('location', browserLocation(location, target));
+    for (const header of ['cache-control', 'etag', 'vary']) {
+      const value = response.headers.get(header);
+      if (value) redirectHeaders.set(header, value);
+    }
+    for (const value of response.headers.getSetCookie?.() ?? []) {
+      redirectHeaders.append('set-cookie', value);
+    }
+    return new Response(null, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: redirectHeaders
+    });
   }
 
   const responseHeaders = new Headers(response.headers);

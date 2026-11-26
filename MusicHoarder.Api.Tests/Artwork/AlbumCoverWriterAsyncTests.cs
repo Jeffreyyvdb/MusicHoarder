@@ -2,6 +2,7 @@ using System.IO.Abstractions.TestingHelpers;
 using Microsoft.Extensions.Logging.Abstractions;
 using MusicHoarder.Api.Artwork;
 using MusicHoarder.Api.Options;
+using MusicHoarder.Api.Tests.Artwork;
 
 namespace MusicHoarder.Api.Tests.Artwork;
 
@@ -274,6 +275,8 @@ public class AlbumCoverWriterAsyncTests
             fs,
             new CoverArtResolver(fs, new FixedEmbeddedPictureReader(embedded)),
             fetcher,
+            new CoverResolutionCache(),
+            new StubCoverThumbnailService(),
             Microsoft.Extensions.Options.Options.Create(options),
             NullLogger<AlbumCoverWriter>.Instance);
     }

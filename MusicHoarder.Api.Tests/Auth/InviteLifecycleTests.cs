@@ -178,13 +178,32 @@ public class InviteLifecycleTests
         var session = await svc.AcceptInviteAsync(minted!.RawToken, null, null, default);
         Assert.NotNull(await svc.ResolveSessionAsync(session!.Id, default));
 
+        Guid friendId;
         await using (var db = ctx())
         {
             var friend = await db.Users.SingleAsync(u => u.Role == UserRole.Member);
             friend.IsDisabled = true;
+            friendId = friend.Id;
             await db.SaveChangesAsync();
         }
 
+        // Account changes go through the invalidation API (RemoveFriend/UpdateCapabilities call it):
+        // the cached resolution dies immediately rather than after the cache TTL.
+        svc.InvalidateUser(friendId);
+        Assert.Null(await svc.ResolveSessionAsync(session.Id, default));
+    }
+
+    [Fact]
+    public async Task Revoked_session_is_rejected_immediately_even_within_the_cache_ttl()
+    {
+        var (svc, _) = MakeService();
+        var minted = await svc.CreateOrRotateInviteAsync(TestUsers.OwnerId, "pal@example.com", default);
+        var session = await svc.AcceptInviteAsync(minted!.RawToken, null, null, default);
+
+        // Resolve once so the session is in the short-TTL cache, then revoke: the next request
+        // must not be served from cache.
+        Assert.NotNull(await svc.ResolveSessionAsync(session!.Id, default));
+        await svc.RevokeAsync(session.Id, allForUser: false, default);
         Assert.Null(await svc.ResolveSessionAsync(session.Id, default));
     }
 

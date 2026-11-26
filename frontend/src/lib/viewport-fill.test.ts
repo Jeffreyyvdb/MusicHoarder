@@ -14,6 +14,7 @@ class FakeElement extends EventTarget {
   parentElement: FakeElement | null = null;
   children: FakeElement[] = [];
   overflowY = 'visible';
+  scrollTop = 0;
   private attrs = new Map<string, string>();
 
   constructor(attrs: Record<string, string> = {}) {
@@ -208,6 +209,58 @@ describe('watchNearViewport', () => {
     const { onnear, watcher } = watch(grid);
     expect(onnear.mock.calls).toEqual([[['album-0', 'album-1', 'album-2']]]);
     watcher.destroy();
+  });
+
+  it('holds tiles back while the scroller is flinging, and builds them once it slows', () => {
+    vi.useFakeTimers();
+    try {
+      const { grid, scroller, tiles } = page(6);
+      const { observer, onnear, watcher } = watch(grid);
+
+      // A fling: 100px every 16ms is ~6250 px/s.
+      for (let i = 1; i <= 5; i++) {
+        scroller.scrollTop = i * 100;
+        scroller.dispatchEvent(new Event('scroll'));
+        vi.advanceTimersByTime(16);
+      }
+      observer.report([tiles[0], tiles[1]]);
+      // Within reach, but held: building them now would fetch covers for tiles flying past.
+      expect(onnear).not.toHaveBeenCalled();
+      expect(observer.watched.has(tiles[0])).toBe(true);
+
+      // The scroll stops; the velocity window slides past the last movement and the flush builds.
+      vi.advanceTimersByTime(300);
+      expect(onnear.mock.calls).toEqual([[['album-0', 'album-1']]]);
+      expect(observer.watched.has(tiles[0])).toBe(false);
+      watcher.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reports immediately mid-fling when velocity gating is off', () => {
+    vi.useFakeTimers();
+    try {
+      const { grid, scroller, tiles } = page(4);
+      const onnear = vi.fn<(keys: string[]) => void>();
+      const watcher = watchNearViewport(grid as unknown as HTMLElement, {
+        attribute: KEY,
+        onnear,
+        gateOnVelocity: false
+      });
+      const observer = FakeObserver.made[FakeObserver.made.length - 1];
+
+      for (let i = 1; i <= 5; i++) {
+        scroller.scrollTop = i * 100;
+        scroller.dispatchEvent(new Event('scroll'));
+        vi.advanceTimersByTime(16);
+      }
+      observer.report([tiles[2]]);
+      expect(onnear).toHaveBeenCalledWith(['album-2']);
+      watcher.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

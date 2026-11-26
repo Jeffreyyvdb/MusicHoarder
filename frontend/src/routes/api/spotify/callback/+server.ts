@@ -6,10 +6,10 @@ import type { RequestHandler } from './$types';
  * redirect URI is <PUBLIC_BASE_URL>/api/spotify/callback). We forward the query to the API's
  * callback server-side, then 303 the browser into the app.
  *
- * The API would normally 302 straight back to the app, but a redirect is unreadable across this
- * Node→API hop: undici turns it into an opaque response with no Location. So we ask the API for a
- * JSON outcome (X-Spotify-Callback-Mode: json) and build the browser redirect here. This is also
- * why we can't use the /api/mh proxy, whose `redirect: 'follow'` would swallow the hop.
+ * The API would normally 302 straight back to the app; across this Node→API hop we instead ask it
+ * for a JSON outcome (X-Spotify-Callback-Mode: json) and build the browser redirect here, which
+ * does not depend on the runtime exposing a manual redirect's Location (older undici made it
+ * opaque). The /api/mh proxy would pass the API's 302 straight to the browser instead.
  *
  * Spotify's redirect-back is a top-level GET navigation to our own origin, so the SameSite=Lax
  * `mh_session` cookie rides along. We forward it to the API so its RequireAuth middleware sees the

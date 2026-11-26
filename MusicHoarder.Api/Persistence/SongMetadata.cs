@@ -203,6 +203,14 @@ public class SongMetadata
     /// </summary>
     public bool HasCoverArt { get; set; }
 
+    /// <summary>
+    /// When a cover was last written into this song's destination album folder (an external fetch,
+    /// a Spotify upgrade, the build's copy from the source). Only there to move the cover URL's
+    /// <c>?v=</c> (<see cref="Artwork.CoverVersionStamp"/>): a replaced <c>cover.jpg</c> changes no
+    /// other column, and a cover URL whose version matches is cached by browsers as immutable.
+    /// </summary>
+    public DateTime? CoverUpdatedAtUtc { get; set; }
+
     // --- Duplicate detection ---
 
     public bool IsDuplicate { get; set; }

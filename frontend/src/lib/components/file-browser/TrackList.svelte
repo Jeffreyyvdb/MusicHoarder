@@ -15,6 +15,7 @@
   import { DYNAMIC_TYPE_CHANGE, dynamicTypeScale } from '#lib/dynamic-type.ts';
   import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
   import { formatDuration } from '#lib/formatters.ts';
+  import { attachVelocityTracker } from '#lib/viewport-fill.ts';
   import {
     albumKeyForSong,
     mapEnrichmentStatus,
@@ -148,32 +149,49 @@
   });
   const rowH = $derived(compact ? Math.max(64, Math.round(64 * typeScale)) : 56);
   const OVERSCAN = 8;
+  // While the list is flung fast, rows that fly past shouldn't each mount a cover: the window
+  // shrinks to almost exactly what's on screen, and grows back as the scroll slows.
+  const FLING_VELOCITY_PX_S = 1800;
+  const FLING_OVERSCAN = 2;
 
   let scrollEl = $state<HTMLElement | null>(null);
   let rowsEl = $state<HTMLDivElement>();
   let scrollTop = $state(0);
+  let scrollVelocity = $state(0);
   let viewportH = $state(600);
   // Everything above the rows inside the scroller — the nav bar, large title, search, tokens,
   // Play/Shuffle and (desktop) the column header. The window is measured from the rows' own top.
   let headerH = $state(0);
 
-  const startIndex = $derived(Math.max(0, Math.floor((scrollTop - headerH) / rowH) - OVERSCAN));
+  const overscan = $derived(scrollVelocity > FLING_VELOCITY_PX_S ? FLING_OVERSCAN : OVERSCAN);
+  const startIndex = $derived(Math.max(0, Math.floor((scrollTop - headerH) / rowH) - overscan));
   const endIndex = $derived(
     Math.min(
       sorted.length,
-      Math.max(0, Math.ceil((scrollTop - headerH + viewportH) / rowH)) + OVERSCAN
+      Math.max(0, Math.ceil((scrollTop - headerH + viewportH) / rowH)) + overscan
     )
   );
   const visible = $derived(sorted.slice(startIndex, endIndex));
 
-  function onScroll() {
-    if (scrollEl) scrollTop = scrollEl.scrollTop;
-  }
   $effect(() => {
     const el = scrollEl;
     if (!el) return;
+    const tracker = attachVelocityTracker(el);
+    // The velocity is only read on a scroll event, so a fling that stops dead would leave the
+    // window shrunk until the next one; re-read it once the scroll has been still for a moment.
+    let settle: ReturnType<typeof setTimeout> | undefined;
+    const onScroll = () => {
+      scrollTop = el.scrollTop;
+      scrollVelocity = tracker.velocity();
+      clearTimeout(settle);
+      settle = setTimeout(() => (scrollVelocity = tracker.velocity()), 150);
+    };
     el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      clearTimeout(settle);
+      tracker.destroy();
+    };
   });
 
   // The header is measured as the rows' offset (no wrapper to measure — it would break sticky).
@@ -394,6 +412,7 @@
               >
                 <span class="relative shrink-0">
                   <Cover
+                    eager
                     artist={artistOf(song)}
                     title={song.album ?? titleOf(song)}
                     coverUrl={rowCoverUrlForSong(song)}
@@ -480,6 +499,7 @@
 
               <!-- cover -->
               <Cover
+                eager
                 artist={artistOf(song)}
                 title={song.album ?? titleOf(song)}
                 coverUrl={rowCoverUrlForSong(song)}

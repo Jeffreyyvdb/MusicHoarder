@@ -143,6 +143,10 @@ public class AuthenticationMiddlewareTests
         public Task<IReadOnlyList<(Session Session, User User)>> ResolveSessionsAsync(IReadOnlyCollection<Guid> sessionIds, CancellationToken ct)
             => Task.FromResult<IReadOnlyList<(Session, User)>>([]);
 
+        public void InvalidateSession(Guid sessionId) { }
+
+        public void InvalidateUser(Guid userId) { }
+
         public Task<RequestLinkResult?> RequestLinkAsync(string email, string frontendBaseUrl, string? client, string? ip, string? userAgent, CancellationToken ct)
             => throw new NotSupportedException();
 

@@ -91,6 +91,7 @@ export interface WebBenchOptions {
 // Runs in the page before any app code. Everything is read back through window.__perf.
 const INIT_SCRIPT = `(() => {
   const perf = { fcp: null, lcp: null, cls: 0, longTasks: [], events: [], seenAt: null, playCalledAt: null, playingAt: null, audio: {} }
+  performance.setResourceTimingBufferSize(12000)
   window.__perf = perf
   const observe = (type, handle, extra) => {
     try { new PerformanceObserver((list) => list.getEntries().forEach(handle)).observe({ type, buffered: true, ...extra }) } catch {}
@@ -134,6 +135,7 @@ const jsString = (value: string) =>
 
 const has = (selector: string) => `() => document.querySelector(${jsString(selector)})`
 const ALBUM_CARD = 'a[aria-label^="Open album"]'
+const ARTIST_CARD = '[data-mh-content] a[href*="artist="]'
 const TRACK_ROW = 'button[aria-label^="More for "]'
 const TRACKS_READY = `() => document.querySelector('input[aria-label="Search tracks"]') && document.querySelector(${jsString(TRACK_ROW)})`
 
@@ -150,16 +152,19 @@ const LOADS: LoadScenario[] = [
   { name: 'Open the app (Overview)', path: '/overview', ready: has(ALBUM_CARD), budget: { desktop: 2000, phone: 4000 } },
   { name: 'Open Albums', path: '/library', ready: has(ALBUM_CARD), budget: { desktop: 2000, phone: 4000 } },
   { name: 'Open Tracks', path: '/tracks', ready: TRACKS_READY, budget: { desktop: 2000, phone: 4000 } },
-  { name: 'Open Artists', path: '/artists', ready: `() => document.querySelector('[data-mh-content] a[href*="artist="]')`, budget: { desktop: 2000, phone: 4000 } },
+  { name: 'Open Artists', path: '/artists', ready: has(ARTIST_CARD), budget: { desktop: 2000, phone: 4000 } },
 ]
 
 const INTERACTION_BUDGETS: Record<string, { desktop: number; phone: number }> = {
   'Tracks → Albums': { desktop: 300, phone: 800 },
+  'Scroll Albums → covers ready': { desktop: 400, phone: 1000 },
   'Open an album': { desktop: 300, phone: 800 },
   'Albums → Tracks': { desktop: 300, phone: 800 },
   'Type in track search (worst keystroke)': { desktop: 100, phone: 200 },
   'Scroll the track list (95th percentile frame)': { desktop: 20, phone: 34 },
+  'Scroll Tracks → covers ready': { desktop: 400, phone: 1000 },
   'Press play → sound': { desktop: 400, phone: 800 },
+  'Scroll Artists → portraits ready': { desktop: 400, phone: 1000 },
 }
 
 function findChromium(): string {
@@ -293,11 +298,12 @@ async function measureLoad(browser: Browser, profile: Profile, target: Target, s
     })
 
     const isApi = (path: string) => path.startsWith('/api/')
-    const isCover = (path: string) => /\/cover(\?|$)/.test(path)
+    const isCover = (r: { path: string; type: string }) =>
+      /\/cover(\?|$)/.test(r.path) || /\/api\/artists\/image(\?|$)/.test(r.path) || (r.type === 'img' && !r.path.startsWith('/_app/'))
     const script = inPage.resources.filter((r) => /\.js(\?|$)/.test(r.path))
     const style = inPage.resources.filter((r) => /\.css(\?|$)/.test(r.path))
-    const api = inPage.resources.filter((r) => isApi(r.path) && !isCover(r.path))
-    const covers = inPage.resources.filter((r) => isCover(r.path))
+    const api = inPage.resources.filter((r) => isApi(r.path) && !isCover(r))
+    const covers = inPage.resources.filter((r) => isCover(r))
     const sum = (list: { transferBytes: number }[]) => list.reduce((total, r) => total + r.transferBytes, 0)
     const blocking = (until: number) =>
       inPage.longTasks.filter(([start]) => start < until).reduce((total, [, duration]) => total + Math.max(0, duration - 50), 0)
@@ -390,6 +396,144 @@ async function measureInteractions(browser: Browser, profile: Profile, target: T
         return tasks.filter(([at]) => at >= start - 1).reduce((total, [, duration]) => total + duration, 0)
       }, from)
 
+    /** Waits until every visible cover/portrait matching `coverSelector` has loaded after a scroll. */
+    const waitVisibleImages = async (
+      anchorSelector: string,
+      coverSelector: string,
+      resourceOffset: number,
+      frames: number[] | null,
+    ) => {
+      const res = (await page.evaluate(
+        async ({ anchor, cover, offset, seededPortraits }) => {
+          let scroller: Element | null = document.querySelector(anchor)
+          while (scroller && !(scroller.scrollHeight > scroller.clientHeight + 200 && /auto|scroll/.test(getComputedStyle(scroller).overflowY)))
+            scroller = scroller.parentElement
+          const element = scroller ?? document.scrollingElement!
+          const scrollEndedAt = performance.getEntriesByName('image-scroll-end').at(-1)!.startTime
+          const box =
+            element === document.scrollingElement
+              ? { top: 0, bottom: window.innerHeight, left: 0, right: window.innerWidth }
+              : element.getBoundingClientRect()
+          const visTop = Math.max(0, box.top)
+          const visBottom = Math.min(window.innerHeight, box.bottom)
+          const visLeft = Math.max(0, box.left)
+          const visRight = Math.min(window.innerWidth, box.right)
+
+          let readyMs = 0
+          let state = { visible: 0, loaded: 0, failed: 0, pending: 0 }
+
+          const sample = () => {
+            let visible = 0
+            let loaded = 0
+            let failed = 0
+            let pending = 0
+            for (const el of document.querySelectorAll(cover)) {
+              const r = el.getBoundingClientRect()
+              if (r.width <= 0 || r.height <= 0 || r.bottom <= visTop || r.top >= visBottom || r.right <= visLeft || r.left >= visRight) continue
+              visible++
+              const img = el.querySelector<HTMLImageElement>('img.mh-cover-img')
+              if (!img) continue
+              if (img.complete && img.naturalWidth > 0) {
+                if (seededPortraits && !/\/(?:artists\/image|placeholder-user\.jpg)\?/.test(img.currentSrc)) failed++
+                else loaded++
+              } else if (img.complete) failed++
+              else pending++
+            }
+            return { visible, loaded, failed, pending }
+          }
+
+          await new Promise<void>((resolve, reject) => {
+            const check = () => {
+              state = sample()
+              const now = performance.now()
+              if (state.visible > 0 && state.loaded === state.visible) {
+                readyMs = now - scrollEndedAt
+                return resolve()
+              }
+              if (now - scrollEndedAt >= 15_000)
+                return reject(new Error(`Images did not finish for ${cover}: ${JSON.stringify(state)}`))
+              requestAnimationFrame(check)
+            }
+            check()
+          })
+
+          const entries = (performance.getEntriesByType('resource') as PerformanceResourceTiming[]).slice(offset)
+          let requests = 0
+          let transferBytes = 0
+          for (const r of entries) {
+            const url = new URL(r.name)
+            const path = url.pathname + url.search
+            const isImg = /\/cover(\?|$)/.test(path) || /\/api\/artists\/image(\?|$)/.test(path) || (r.initiatorType === 'img' && !url.pathname.startsWith('/_app/'))
+            if (!isImg) continue
+            requests++
+            transferBytes += r.transferSize
+          }
+          return { readyMs, ...state, requests, transferBytes }
+        },
+        { anchor: anchorSelector, cover: coverSelector, offset: resourceOffset, seededPortraits: target.local !== null && anchorSelector === ARTIST_CARD },
+      )) as { readyMs: number; visible: number; loaded: number; failed: number; pending: number; requests: number; transferBytes: number }
+
+      const metrics: Record<string, number | null> = {
+        'Visible images': res.visible,
+        'Images loaded': res.loaded,
+        'Images failed': res.failed,
+        'Image requests': res.requests,
+        'Transferred, images': res.transferBytes,
+      }
+      if (frames && frames.length) metrics['Scroll p95 frame'] = percentile(frames, 95)
+      return { value: res.readyMs, metrics }
+    }
+
+    /** Smoothly scrolls down `screens` viewports over `durationMs`, then times until visible images finish loading. */
+    const scrollAndWaitImages = async (
+      anchorSelector: string,
+      coverSelector: string,
+      options: { screens?: number; durationMs?: number; reset?: boolean } = {},
+    ) => {
+      const { screens = 3.5, durationMs = 1200, reset = false } = options
+      const resourceOffset = (await page.evaluate(() => performance.getEntriesByType('resource').length)) as number
+      const frames = (await page.evaluate(
+        async ({ anchor, screensCount, duration }) => {
+          let scroller: Element | null = document.querySelector(anchor)
+          while (scroller && !(scroller.scrollHeight > scroller.clientHeight + 200 && /auto|scroll/.test(getComputedStyle(scroller).overflowY)))
+            scroller = scroller.parentElement
+          const element = scroller ?? document.scrollingElement!
+          const startTop = element.scrollTop
+          const maxScroll = Math.max(0, element.scrollHeight - element.clientHeight)
+          const targetTop = Math.min(maxScroll, startTop + Math.round(element.clientHeight * screensCount))
+          if (targetTop <= startTop) throw new Error(`No scrollable rows for ${anchor}`)
+          const deltas: number[] = []
+          let last = performance.now()
+          const started = last
+          await new Promise<void>((resolve) => {
+            const step = (now: number) => {
+              deltas.push(now - last)
+              last = now
+              const t = Math.min(1, (now - started) / duration)
+              element.scrollTop = startTop + (targetTop - startTop) * t
+              if (t < 1) requestAnimationFrame(step)
+              else resolve()
+            }
+            requestAnimationFrame(step)
+          })
+          performance.mark('image-scroll-end')
+          return deltas.slice(1)
+        },
+        { anchor: anchorSelector, screensCount: screens, duration: durationMs },
+      )) as number[]
+      const result = await waitVisibleImages(anchorSelector, coverSelector, resourceOffset, frames)
+      if (reset) {
+        await page.evaluate((anchor) => {
+          let scroller: Element | null = document.querySelector(anchor)
+          while (scroller && !(scroller.scrollHeight > scroller.clientHeight + 200 && /auto|scroll/.test(getComputedStyle(scroller).overflowY)))
+            scroller = scroller.parentElement
+          ;(scroller ?? document.scrollingElement!).scrollTop = 0
+        }, anchorSelector)
+        await page.waitForTimeout(150)
+      }
+      return result
+    }
+
     const navigate = async (name: string, script: string) => {
       const started = (await page.evaluate(script)) as number
       const value = (await seen(page, 60_000)) - started
@@ -398,6 +542,8 @@ async function measureInteractions(browser: Browser, profile: Profile, target: T
     }
     await navigate('Tracks → Albums', followLink('/library', has(ALBUM_CARD)))
     await endProfile('tracks-to-albums')
+    out['Scroll Albums → covers ready'] = await scrollAndWaitImages(ALBUM_CARD, ALBUM_CARD, { reset: true })
+    await endProfile('scroll-albums-covers')
     await navigate('Open an album', `(() => {
       window.__perf.watch(${jsString(has(TRACK_ROW))})
       const started = performance.now()
@@ -423,6 +569,7 @@ async function measureInteractions(browser: Browser, profile: Profile, target: T
     await page.fill('input[aria-label="Search tracks"]', '')
     await page.waitForTimeout(400)
 
+    const tracksResourceOffset = (await page.evaluate(() => performance.getEntriesByType('resource').length)) as number
     const frames = (await page.evaluate(async (rowSelector) => {
       // The list's own scroller: the nearest scrollable ancestor of a row.
       let scroller: Element | null = document.querySelector(rowSelector)
@@ -442,7 +589,7 @@ async function measureInteractions(browser: Browser, profile: Profile, target: T
         }
         requestAnimationFrame(step)
       })
-      element.scrollTop = 0
+      performance.mark('image-scroll-end')
       return deltas.slice(1)
     }, TRACK_ROW)) as number[]
     await endProfile('scroll')
@@ -453,6 +600,14 @@ async function measureInteractions(browser: Browser, profile: Profile, target: T
         'Slow frames (over 34 ms)': frames.length ? (frames.filter((f) => f > 34).length / frames.length) * 100 : 0,
       },
     }
+    out['Scroll Tracks → covers ready'] = await waitVisibleImages(TRACK_ROW, '[data-mh-tracks] .mh-cover', tracksResourceOffset, null)
+    await endProfile('scroll-tracks-covers')
+    await page.evaluate((rowSelector) => {
+      let scroller: Element | null = document.querySelector(rowSelector)
+      while (scroller && !(scroller.scrollHeight > scroller.clientHeight + 200 && /auto|scroll/.test(getComputedStyle(scroller).overflowY)))
+        scroller = scroller.parentElement
+      ;(scroller ?? document.scrollingElement!).scrollTop = 0
+    }, TRACK_ROW)
     await page.waitForTimeout(400)
 
     const pressed = (await page.evaluate((rowSelector) => {
@@ -507,6 +662,12 @@ async function measureInteractions(browser: Browser, profile: Profile, target: T
       api: audio.calls,
     }
     await endProfile('play')
+
+    await page.evaluate(followLink('/artists', has(ARTIST_CARD)))
+    await seen(page, 60_000)
+    await settle(page, 8000)
+    out['Scroll Artists → portraits ready'] = await scrollAndWaitImages(ARTIST_CARD, ARTIST_CARD)
+    await endProfile('scroll-artists-portraits')
     return { steps: out }
   } catch (error) {
     return { steps: out, failure: (error as Error).message.split('\n')[0] }
@@ -583,7 +744,7 @@ export async function runWebBench(target: Target, options: WebBenchOptions): Pro
           const samples = runs.map((run) => run[name]).filter((s) => s != null)
           report.scenarios.push({
             profile: profileName, name, kind: 'interaction',
-            primaryLabel: name.includes('→ sound') ? 'sound' : name.includes('keystroke') ? 'input to frame' : name.includes('frame') ? 'frame' : 'usable',
+            primaryLabel: name.includes('→ sound') ? 'sound' : name.includes('keystroke') ? 'input to frame' : name.includes('frame') ? 'frame' : name.includes('ready') ? 'images ready' : 'usable',
             primary: summarize(samples.map((s) => s.value)),
             metrics: medianMetrics(samples.map((s) => s.metrics)),
             api: samples.find((sample) => sample.api?.length)?.api ?? [],

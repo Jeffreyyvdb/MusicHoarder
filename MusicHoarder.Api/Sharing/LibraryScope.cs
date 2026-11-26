@@ -44,7 +44,19 @@ public interface ILibraryScope
 }
 
 /// <summary>Minimal projection for stream/cover point lookups — avoids reading 100+ columns.</summary>
-public sealed record SongMediaRef(int Id, bool IsSynthetic, string SourcePath, string? DestinationPath);
+/// <summary>
+/// What serving a song's media needs: its files, and the columns its cover URL version is made
+/// from (<see cref="Artwork.CoverVersionStamp"/>). Only the cover endpoint's lookups fill the latter.
+/// </summary>
+public sealed record SongMediaRef(
+    int Id,
+    bool IsSynthetic,
+    string SourcePath,
+    string? DestinationPath,
+    DateTime LastModifiedUtc = default,
+    DateTime? LibraryBuiltAtUtc = null,
+    bool HasCoverArt = false,
+    DateTime? CoverUpdatedAtUtc = null);
 
 public interface ILibraryScopeResolver
 {
@@ -72,7 +84,8 @@ public interface ILibraryScopeResolver
         var found = await ResolveSongAsync(db, songId, ct);
         return found is null
             ? null
-            : (new SongMediaRef(found.Value.Song.Id, found.Value.Song.IsSynthetic, found.Value.Song.SourcePath, found.Value.Song.DestinationPath),
+            : (new SongMediaRef(found.Value.Song.Id, found.Value.Song.IsSynthetic, found.Value.Song.SourcePath, found.Value.Song.DestinationPath,
+                    found.Value.Song.LastModifiedUtc, found.Value.Song.LibraryBuiltAtUtc, found.Value.Song.HasCoverArt, found.Value.Song.CoverUpdatedAtUtc),
                 found.Value.Slice);
     }
 }
@@ -133,7 +146,8 @@ public sealed class LibraryScopeResolver(
 
         var own = await db.Songs.AsNoTracking()
             .Where(s => s.Id == songId && s.DeletedAtUtc == null)
-            .Select(s => new SongMediaRef(s.Id, s.IsSynthetic, s.SourcePath, s.DestinationPath))
+            .Select(s => new SongMediaRef(s.Id, s.IsSynthetic, s.SourcePath, s.DestinationPath,
+                s.LastModifiedUtc, s.LibraryBuiltAtUtc, s.HasCoverArt, s.CoverUpdatedAtUtc))
             .FirstOrDefaultAsync(ct);
         if (own is not null)
             return (own, new LibrarySlice(callerId, IsSelf: true, GrantorDisplayName: null));
@@ -148,6 +162,7 @@ public sealed class LibraryScopeResolver(
             {
                 s.Id, s.OwnerUserId, s.IsSynthetic, s.SourcePath, s.DestinationPath,
                 s.LibraryBuildStatus, s.AlbumArtist, s.Artist, s.Album,
+                s.LastModifiedUtc, s.LibraryBuiltAtUtc, s.HasCoverArt, s.CoverUpdatedAtUtc,
             })
             .FirstOrDefaultAsync(ct);
         if (row is null)
@@ -159,7 +174,8 @@ public sealed class LibraryScopeResolver(
 
         var names = await LoadGrantorNamesAsync(db, [row.OwnerUserId], ct);
         return (
-            new SongMediaRef(row.Id, row.IsSynthetic, row.SourcePath, row.DestinationPath),
+            new SongMediaRef(row.Id, row.IsSynthetic, row.SourcePath, row.DestinationPath,
+                row.LastModifiedUtc, row.LibraryBuiltAtUtc, row.HasCoverArt, row.CoverUpdatedAtUtc),
             new LibrarySlice(row.OwnerUserId, IsSelf: false, GrantorDisplayName: names.GetValueOrDefault(row.OwnerUserId)));
     }
 

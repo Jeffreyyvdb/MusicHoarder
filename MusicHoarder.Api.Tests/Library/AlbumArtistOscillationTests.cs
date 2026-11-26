@@ -165,6 +165,8 @@ public class AlbumArtistOscillationTests
             fileSystem,
             new CoverArtResolver(fileSystem, new NoPictureReader()),
             new StubExternalCoverArtFetcher(),
+            new CoverResolutionCache(),
+            new StubCoverThumbnailService(),
             options,
             NullLogger<AlbumCoverWriter>.Instance);
 
