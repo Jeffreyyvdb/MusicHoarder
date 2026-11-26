@@ -6,7 +6,11 @@ namespace MusicHoarder.Api.Endpoints;
 
 public static class ArtistsEndpoints
 {
-    /// <summary>Most names one bulk request may carry — keeps the query string well under Kestrel's request-line limit.</summary>
+    /// <summary>
+    /// Most names one bulk request may carry. The client also splits by encoded length (long or
+    /// non-Latin names percent-encode to several times their length), so a request line stays
+    /// under Kestrel's 8 KB limit; this cap is the server's backstop.
+    /// </summary>
     internal const int MaxBulkNames = 150;
 
     /// <summary>
@@ -46,12 +50,13 @@ public static class ArtistsEndpoints
         if (string.IsNullOrWhiteSpace(name))
             return Results.BadRequest(new { error = "name is required" });
 
-        var url = await artistImages.GetImageUrlAsync(name, large, ct);
+        var (url, pending) = await artistImages.LookupAsync(name, large, ct);
         if (url is null)
         {
-            // Short-lived so a page full of unknown artists doesn't re-resolve per render, but a
-            // newly cached portrait still shows up without a hard refresh.
-            http.Response.Headers.CacheControl = "private, max-age=3600";
+            // A lookup was just queued: the portrait may exist within seconds, so the miss is only
+            // remembered briefly. Otherwise the providers have no portrait (or the name is not an
+            // artist anyone has): an hour keeps a page of those from re-asking on every render.
+            http.Response.Headers.CacheControl = pending ? "private, max-age=60" : "private, max-age=3600";
             return Results.NotFound();
         }
 

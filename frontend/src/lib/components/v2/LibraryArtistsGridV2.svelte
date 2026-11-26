@@ -222,6 +222,7 @@
                 >
                   {#if built}
                     <Cover
+                      eager
                       artist={group.coverArtist}
                       title={group.coverTitle}
                       coverUrl={portraitUrlFor(group.label)}
@@ -358,6 +359,7 @@
         >
           {#if built}
             <Cover
+              eager
               artist={group.coverArtist}
               title={group.coverTitle}
               coverUrl={portraitUrlFor(group.label)}

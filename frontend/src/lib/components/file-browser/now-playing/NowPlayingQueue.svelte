@@ -341,6 +341,7 @@
                 onclick={() => playerStore.skipToInQueue(pos)}
               >
                 <Cover
+                  eager
                   artist={song.artist}
                   title={song.album ?? song.title}
                   coverUrl={song.coverUrl}

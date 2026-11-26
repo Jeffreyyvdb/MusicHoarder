@@ -1,6 +1,7 @@
 import type { RequestHandler } from './$types';
 import { getApiBaseUrl } from '#lib/server/api-target.ts';
 import { compressBody, pickProxyEncoding } from '#lib/server/proxy-compression.ts';
+import { browserLocation } from '#lib/server/proxy-location.ts';
 
 function buildTargetUrl(pathSegments: string, search: string): string {
   const base = getApiBaseUrl().replace(/\/$/, '');
@@ -58,11 +59,16 @@ async function proxy(
 
   // A redirect the API meant for the browser (e.g. /api/artists/image → CDN portrait): forward
   // the status, Location and cache headers, with no body of our own.
-  if (response.status >= 300 && response.status < 400 && response.headers.has('location')) {
+  const location = response.headers.get('location');
+  if (response.status >= 300 && response.status < 400 && location) {
     const redirectHeaders = new Headers();
-    for (const header of ['location', 'cache-control', 'etag', 'vary']) {
+    redirectHeaders.set('location', browserLocation(location, target));
+    for (const header of ['cache-control', 'etag', 'vary']) {
       const value = response.headers.get(header);
       if (value) redirectHeaders.set(header, value);
+    }
+    for (const value of response.headers.getSetCookie?.() ?? []) {
+      redirectHeaders.append('set-cookie', value);
     }
     return new Response(null, {
       status: response.status,

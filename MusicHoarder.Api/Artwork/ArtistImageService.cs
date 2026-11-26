@@ -21,6 +21,13 @@ public interface IArtistImageService
     Task<string?> GetImageUrlAsync(string name, bool large = false, CancellationToken ct = default);
 
     /// <summary>
+    /// <see cref="GetImageUrlAsync"/>, also saying whether a background lookup is pending for the
+    /// name — so a miss can be cached briefly while the portrait may still arrive, and for longer
+    /// once the providers have said they have none.
+    /// </summary>
+    Task<ArtistImageLookup> LookupAsync(string name, bool large = false, CancellationToken ct = default);
+
+    /// <summary>
     /// Cached rows for many display names in one indexed query — the bulk map the artists grid
     /// fetches instead of one redirect per tile. Values are null for names with no row; known
     /// names without a fresh row are enqueued for background refresh.
@@ -34,6 +41,9 @@ public interface IArtistImageService
     /// </summary>
     Task RefreshAsync(string name, CancellationToken ct = default);
 }
+
+/// <summary>A cached portrait URL (null when none), and whether a background lookup was just queued for it.</summary>
+public readonly record struct ArtistImageLookup(string? Url, bool Pending);
 
 public sealed class ArtistImageService(
     MusicHoarderDbContext db,
@@ -50,15 +60,18 @@ public sealed class ArtistImageService(
 
     private readonly record struct FetchResult(string? Url, string? UrlLarge, string? Source, bool SpotifyRateLimited = false);
 
-    public async Task<string?> GetImageUrlAsync(string name, bool large = false, CancellationToken ct = default)
+    public async Task<string?> GetImageUrlAsync(string name, bool large = false, CancellationToken ct = default) =>
+        (await LookupAsync(name, large, ct)).Url;
+
+    public async Task<ArtistImageLookup> LookupAsync(string name, bool large = false, CancellationToken ct = default)
     {
         var opts = options.Value;
         if (!opts.EnableArtistImages || string.IsNullOrWhiteSpace(name))
-            return null;
+            return default;
 
         var normalized = TitleNormalizer.NormalizeForDedup(name);
         if (normalized.Length == 0 || name.Length > MaxNameLength)
-            return null;
+            return default;
 
         var cached = await db.ArtistImages.AsNoTracking()
             .FirstOrDefaultAsync(a => a.NormalizedName == normalized, ct);
@@ -68,17 +81,21 @@ public sealed class ArtistImageService(
             // No row yet: only names of artists actually in a library (or followed) may trigger a
             // provider lookup — anything else gets a plain 404. The lookup itself happens in the
             // background, so this request stays fast no matter what the providers are doing.
-            if (knownArtists.IsKnown(normalized))
-                prefetcher.Enqueue(name);
-            return null;
+            if (!knownArtists.IsKnown(normalized))
+                return default;
+            prefetcher.Enqueue(name);
+            return new ArtistImageLookup(null, Pending: true);
         }
 
-        if (IsStale(cached, opts, DateTime.UtcNow))
+        var stale = IsStale(cached, opts, DateTime.UtcNow);
+        if (stale)
             prefetcher.Enqueue(cached.DisplayName);
 
         // Stale-while-revalidate: serve the cached portrait immediately; the enqueued refresh
         // upgrades the row in the background.
-        return large ? cached.ImageUrlLarge ?? cached.ImageUrl : cached.ImageUrl;
+        return new ArtistImageLookup(
+            large ? cached.ImageUrlLarge ?? cached.ImageUrl : cached.ImageUrl,
+            Pending: stale);
     }
 
     public async Task<IReadOnlyDictionary<string, ArtistImage?>> GetImagesMapAsync(
@@ -86,7 +103,11 @@ public sealed class ArtistImageService(
     {
         var result = new Dictionary<string, ArtistImage?>(names.Count, StringComparer.Ordinal);
         if (!options.Value.EnableArtistImages || names.Count == 0)
-            return names.ToDictionary(n => n, _ => (ArtistImage?)null, StringComparer.Ordinal);
+        {
+            foreach (var name in names)
+                result[name] = null;
+            return result;
+        }
 
         var opts = options.Value;
         var now = DateTime.UtcNow;
@@ -214,15 +235,18 @@ public sealed class ArtistImageService(
         await SaveBestEffortAsync(ct);
     }
 
-    internal static bool IsStale(ArtistImage cached, MusicEnricherOptions opts, DateTime now)
+    internal static bool IsStale(ArtistImage cached, MusicEnricherOptions opts, DateTime now) =>
+        IsStale(cached.FetchedAtUtc, cached.ImageUrl is not null, opts, now);
+
+    internal static bool IsStale(DateTime fetchedAtUtc, bool hasImage, MusicEnricherOptions opts, DateTime now)
     {
         // Rows explicitly invalidated (e.g. provider priority migration or Spotify rate-limit
         // fallback) always refresh once, even when periodic refresh is disabled (0).
-        if (cached.FetchedAtUtc <= DateTime.UnixEpoch)
+        if (fetchedAtUtc <= DateTime.UnixEpoch)
             return true;
 
-        var retryDays = cached.ImageUrl is null ? opts.ArtistImageNotFoundRetryDays : opts.ArtistImageRefreshDays;
-        return retryDays > 0 && cached.FetchedAtUtc <= now.AddDays(-retryDays);
+        var retryDays = hasImage ? opts.ArtistImageRefreshDays : opts.ArtistImageNotFoundRetryDays;
+        return retryDays > 0 && fetchedAtUtc <= now.AddDays(-retryDays);
     }
 
     private async Task<FetchResult> FetchAsync(string name, bool hasFallbackUrl, CancellationToken ct)

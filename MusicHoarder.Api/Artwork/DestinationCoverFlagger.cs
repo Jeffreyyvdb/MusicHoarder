@@ -15,10 +15,13 @@ namespace MusicHoarder.Api.Artwork;
 internal static class DestinationCoverFlagger
 {
     /// <summary>
-    /// Sets <c>HasCoverArt = true</c> for the non-deleted, non-synthetic, non-demo songs whose
-    /// <see cref="SongMetadata.DestinationPath"/> lives directly in <paramref name="folder"/>. Tracked
-    /// load + <c>SaveChanges</c> (the EF in-memory test provider can't translate <c>ExecuteUpdate</c>);
-    /// only rows currently <c>false</c> are touched, so it's idempotent. Returns the number flagged.
+    /// Called after a cover was written into <paramref name="folder"/>: sets <c>HasCoverArt = true</c>
+    /// and stamps <see cref="SongMetadata.CoverUpdatedAtUtc"/> for the non-deleted, non-synthetic,
+    /// non-demo songs whose <see cref="SongMetadata.DestinationPath"/> lives directly in it. The stamp
+    /// goes on every such song, not only the ones that had no art: a replaced cover must move each
+    /// song's cover URL version, or browsers keep the old image under the unchanged URL. Tracked
+    /// load + <c>SaveChanges</c> (the EF in-memory test provider can't translate <c>ExecuteUpdate</c>).
+    /// Returns the number of songs whose flag flipped.
     /// </summary>
     internal static async Task<int> FlagFolderAsync(
         MusicHoarderDbContext db, string folder, char separator, CancellationToken ct)
@@ -30,16 +33,20 @@ internal static class DestinationCoverFlagger
         var songs = await db.Songs
             .IgnoreQueryFilters()
             .ExcludingDemoTenant()
-            .Where(s => !s.HasCoverArt
-                && s.DeletedAtUtc == null
+            .Where(s => s.DeletedAtUtc == null
                 && !s.IsSynthetic
                 && s.DestinationPath != null
                 && s.DestinationPath.StartsWith(prefix))
             .ToListAsync(ct);
 
+        var now = DateTime.UtcNow;
+        var flagged = 0;
         foreach (var song in songs)
         {
+            if (!song.HasCoverArt)
+                flagged++;
             song.HasCoverArt = true;
+            song.CoverUpdatedAtUtc = now;
         }
 
         if (songs.Count > 0)
@@ -47,6 +54,6 @@ internal static class DestinationCoverFlagger
             await db.SaveChangesAsync(ct);
         }
 
-        return songs.Count;
+        return flagged;
     }
 }

@@ -1294,6 +1294,7 @@
           class="flex flex-col items-center gap-4 pt-2 md:flex-row md:items-end md:gap-7 md:pt-4"
         >
           <Cover
+            eager
             artist={artistAlbums[0]?.artist ?? artistName}
             title={artistAlbums[0]?.title ?? artistName}
             coverUrl={portraitLargeUrlFor(artistName)}

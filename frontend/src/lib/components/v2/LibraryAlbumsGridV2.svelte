@@ -295,6 +295,7 @@
       >
         <div class="relative">
           <Cover
+            eager
             artist={album.artist}
             title={album.title}
             coverUrl={album.coverUrl}

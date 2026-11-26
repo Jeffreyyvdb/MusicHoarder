@@ -11,12 +11,13 @@ internal sealed class StubCoverThumbnailService : ICoverThumbnailService
     public string? GetCachedPath(string identityPath, long identityStamp, int requestedSize) => null;
     public Task<ResolvedCover?> GetThumbnailAsync(ResolvedCover source, string identityPath, int size, CancellationToken ct = default)
         => Task.FromResult<ResolvedCover?>(null);
-    public void Prewarm(ResolvedCover source, string identityPath, CancellationToken ct = default) { }
+    public void Prewarm(ResolvedCover source, string identityPath) { }
 }
 
 /// <summary>
 /// An <see cref="IAuthService"/> that supports nothing — for endpoint tests whose path never
-/// touches auth beyond the (new) invalidation calls.
+/// touches auth beyond the invalidation calls, which it records so a test can assert that a change
+/// to an account drops its cached session resolution.
 /// </summary>
 internal sealed class NoOpAuthService : IAuthService
 {
@@ -37,9 +38,13 @@ internal sealed class NoOpAuthService : IAuthService
 
     public Task RevokeAsync(Guid sessionId, bool allForUser, CancellationToken ct) => Task.CompletedTask;
 
-    public void InvalidateSession(Guid sessionId) { }
+    public List<Guid> InvalidatedSessions { get; } = [];
 
-    public void InvalidateUser(Guid userId) { }
+    public List<Guid> InvalidatedUsers { get; } = [];
+
+    public void InvalidateSession(Guid sessionId) => InvalidatedSessions.Add(sessionId);
+
+    public void InvalidateUser(Guid userId) => InvalidatedUsers.Add(userId);
 
     public Task<InviteMintResult?> CreateOrRotateInviteAsync(Guid ownerUserId, string email, CancellationToken ct)
         => Task.FromResult<InviteMintResult?>(null);

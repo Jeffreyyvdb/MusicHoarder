@@ -344,6 +344,7 @@ public static class SongsEndpoints
                 // The row's last-modified stamp, so the projection can compute the cover version
                 // token (the `?v=` on cover URLs that may be cached immutably).
                 s.LastModifiedUtc,
+                s.CoverUpdatedAtUtc,
                 // A flag, not the value: a Chromaprint fingerprint is a few kilobytes per song, and
                 // was half of this response. One track's fingerprint is in its enrichment detail.
                 HasFingerprint = s.Fingerprint != null && s.Fingerprint != string.Empty,
@@ -425,7 +426,9 @@ public static class SongsEndpoints
             // Content version for the cover URL: present only when the row says it has art, so
             // artless rows don't pay for it. Lets the client cache `…/cover?v=…` immutably.
             CoverVersion = s.HasCoverArt
-                ? CoverVersionStamp.ForSong(s.Id, s.LastModifiedUtc, s.LibraryBuiltAtUtc, s.HasCoverArt, s.DestinationPath)
+                ? CoverVersionStamp.ForSong(
+                    s.Id, s.LastModifiedUtc, s.LibraryBuiltAtUtc, s.HasCoverArt,
+                    s.DestinationPath, s.SourcePath, s.CoverUpdatedAtUtc)
                 : null,
             s.HasFingerprint,
                 s.Isrc, s.MusicBrainzId, s.MusicBrainzReleaseId, s.SpotifyId, s.AcoustIdTrackId, s.LrclibId,
@@ -1253,16 +1256,25 @@ public static class SongsEndpoints
         var version = CoverVersionStamp.ForSong(song);
         var immutable = !string.IsNullOrEmpty(v) && string.Equals(v, version, StringComparison.Ordinal);
         var thumbCacheControl = immutable
-            ? "private, max-age=31536000, immutable"
+            ? CoverVersionStamp.ImmutableCacheControl
             : "private, max-age=604800";
         var fullCacheControl = immutable
-            ? "private, max-age=31536000, immutable"
+            ? CoverVersionStamp.ImmutableCacheControl
             : "private, max-age=86400";
 
         // Warm path: the resolution is cached in memory, so a scroll burst serves straight from the
         // on-disk thumbnail (or the cover file) with zero directory scans, zero TagLib reads and no
         // extra DB queries. The identity file is re-statted at most once per cache StatInterval.
-        if (coverCache.TryGet(song.Id, out var entry) && entry is not null)
+        // An entry resolved for another version of the row (a rebuild into a new folder, a re-index,
+        // a replaced cover) is dropped: the bytes it points at may not be what this version serves.
+        if (coverCache.TryGet(song.Id, out var entry) && entry is not null
+            && !string.Equals(entry.Version, version, StringComparison.Ordinal))
+        {
+            coverCache.Invalidate(song.Id);
+            entry = null;
+        }
+
+        if (entry is not null)
         {
             var now = DateTime.UtcNow;
             if (coverCache.RestatDue(entry, now))
@@ -1406,7 +1418,7 @@ public static class SongsEndpoints
 
             // Prewarm the grid thumbnail sizes in the background so a scroll never pays the
             // first-generation cost.
-            thumbnails.Prewarm(cover, identity, ct);
+            thumbnails.Prewarm(cover, identity);
         }
 
         // A `?size=` request gets a small cached WebP thumbnail instead of the multi-MB original —

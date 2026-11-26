@@ -21,6 +21,14 @@
      * and list-row art pass 3, because current iPhones are @3x and a 2× thumb there reads soft.
      */
     dprCap?: number;
+    /**
+     * Load the image as soon as the tile exists instead of when the browser judges it near the
+     * viewport. Only for lists that already build tiles just ahead of the viewport
+     * (`#lib/viewport-fill.ts`, virtualized rows) and for above-the-fold heroes: there, lazy loading
+     * on top made WebKit hold the fetch until the tile was practically on screen, stalling covers
+     * while scrolling. Everywhere else a list may be library-sized, so lazy stays the default.
+     */
+    eager?: boolean;
     class?: string;
   };
 
@@ -34,6 +42,7 @@
     caption = true,
     interactive = false,
     dprCap = 2,
+    eager = false,
     class: className
   }: Props = $props();
 
@@ -119,14 +128,12 @@
 
   <!-- Top layer: fades in over the tinted tile so covers appear smoothly instead of snapping in. -->
   {#if resolvedCoverUrl}
-    <!-- No loading="lazy": the grids that show many covers are windowed (#lib/viewport-fill.ts), so
-         an <img> only exists near the viewport — and lazy loading on top of that made WebKit hold
-         the fetch until the tile was practically on screen, stalling covers while scrolling. -->
     <img
       src={resolvedCoverUrl}
       alt=""
       width={size}
       height={size}
+      loading={eager ? 'eager' : 'lazy'}
       decoding="async"
       onload={() => {
         imgLoaded = true;

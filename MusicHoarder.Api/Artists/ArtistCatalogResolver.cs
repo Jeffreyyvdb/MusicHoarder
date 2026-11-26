@@ -82,7 +82,7 @@ public sealed class ArtistCatalogResolver(
         link.Status = ArtistCatalogLinkStatus.Unconfirmed;
         link.DeezerArtistId = null;
         link.Name = candidates[0].Name;
-        link.PictureUrl = candidates[0].PictureUrl;
+        link.PictureUrl = candidates[0].PictureUrlLarge ?? candidates[0].PictureUrl;
         link.Fans = candidates[0].Fans;
         link.NextCheckAfterUtc = now + UnprovenRetry;
         await db.SaveChangesAsync(ct);
@@ -124,7 +124,7 @@ public sealed class ArtistCatalogResolver(
         link.Status = status;
         link.DeezerArtistId = artist.Id;
         link.Name = artist.Name;
-        link.PictureUrl = artist.PictureUrl;
+        link.PictureUrl = artist.PictureUrlLarge ?? artist.PictureUrl;
         link.Fans = artist.Fans;
         link.CheckedAtUtc = now;
         link.NextCheckAfterUtc = null;

@@ -2849,8 +2849,36 @@ export interface ArtistPortrait {
   large: string;
 }
 
-/** Max names per bulk request (server-side cap); the client chunks larger lists. */
+/** Max names per bulk request (the server's cap is 150). */
 const ARTIST_IMAGES_CHUNK = 120;
+
+/**
+ * Max encoded length of one request's `names` value. Kestrel refuses a request line over 8 KB, and
+ * a non-Latin or long classical name percent-encodes to several times its length, so a count
+ * alone is not enough.
+ */
+const ARTIST_IMAGES_QUERY_BUDGET = 6000;
+
+/** Splits names into requests that each stay under both the name cap and the encoded-length budget. */
+export function chunkArtistNames(names: readonly string[]): string[][] {
+  const chunks: string[][] = [];
+  let current: string[] = [];
+  let length = 0;
+  for (const name of new Set(names)) {
+    const encoded = encodeURIComponent(name).length + 3; // + the %0A separator
+    // A single name over the budget cannot be asked for in bulk; its tile keeps the per-name URL.
+    if (encoded > ARTIST_IMAGES_QUERY_BUDGET) continue;
+    if (current.length >= ARTIST_IMAGES_CHUNK || length + encoded > ARTIST_IMAGES_QUERY_BUDGET) {
+      chunks.push(current);
+      current = [];
+      length = 0;
+    }
+    current.push(name);
+    length += encoded;
+  }
+  if (current.length > 0) chunks.push(current);
+  return chunks;
+}
 
 /**
  * Fetch cached portraits for many artists in a handful of requests instead of one redirect per
@@ -2862,12 +2890,8 @@ export async function fetchArtistImages(
   names: readonly string[]
 ): Promise<Map<string, ArtistPortrait>> {
   const map = new Map<string, ArtistPortrait>();
-  const unique = [...new Set(names)];
-  const chunks: string[][] = [];
-  for (let i = 0; i < unique.length; i += ARTIST_IMAGES_CHUNK)
-    chunks.push(unique.slice(i, i + ARTIST_IMAGES_CHUNK));
   await Promise.all(
-    chunks.map(async (chunk) => {
+    chunkArtistNames(names).map(async (chunk) => {
       const query = chunk.map((n) => encodeURIComponent(n)).join('%0A');
       try {
         const res = await fetch(`${API_PREFIX}/api/artists/images?names=${query}`);

@@ -46,6 +46,24 @@ public sealed class CoverThumbnailServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task GetThumbnail_ACallerThatGivesUp_DoesNotFailTheOthersWaitingOnTheSameGeneration()
+    {
+        var cacheDir = Path.Combine(_dir, "cache");
+        var sourcePng = await WritePngAsync("shared.png", 1200, 1200);
+        var service = new CoverThumbnailService(cacheDir, NullLogger<CoverThumbnailService>.Instance);
+
+        using var abandoned = new CancellationTokenSource();
+        var first = service.GetThumbnailAsync(FileCover(sourcePng), sourcePng, 400, abandoned.Token);
+        var second = service.GetThumbnailAsync(FileCover(sourcePng), sourcePng, 400);
+        abandoned.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first);
+        var thumb = await second;
+        Assert.NotNull(thumb);
+        Assert.True(File.Exists(thumb!.FilePath));
+    }
+
+    [Fact]
     public async Task GetThumbnail_SmallerOriginal_IsNotUpscaled()
     {
         var cacheDir = Path.Combine(_dir, "cache");

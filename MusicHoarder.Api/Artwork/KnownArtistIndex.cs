@@ -25,6 +25,12 @@ public interface IKnownArtistIndex
 
     /// <summary>(Re)loads the index from the database. Cheap: three DISTINCT reads plus follows.</summary>
     Task RefreshAsync(MusicHoarderDbContext db, CancellationToken ct);
+
+    /// <summary>
+    /// Makes one name known now, ahead of the next <see cref="RefreshAsync"/> — for a follow, so its
+    /// portrait can be fetched at once instead of after the next sweep.
+    /// </summary>
+    void Add(string displayName);
 }
 
 public sealed class KnownArtistIndex : IKnownArtistIndex
@@ -38,40 +44,36 @@ public sealed class KnownArtistIndex : IKnownArtistIndex
 
     public IReadOnlyDictionary<string, string> All => _names;
 
+    public void Add(string displayName) => AddTo(_names, displayName);
+
+    private static void AddTo(ConcurrentDictionary<string, string> names, string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return;
+        var normalized = TitleNormalizer.NormalizeForDedup(raw);
+        if (normalized.Length == 0) return;
+        names.TryAdd(normalized, raw.Trim());
+    }
+
     public async Task RefreshAsync(MusicHoarderDbContext db, CancellationToken ct)
     {
-        // The whole point is a fixed, small set of names — read them unfiltered (any tenant's
-        // artist may be requested) and normalize each exactly the way the cache row keys do.
-        var artists = await db.Songs.IgnoreQueryFilters().AsNoTracking()
-            .Where(s => s.DeletedAtUtc == null)
-            .Select(s => new { s.Artist, s.AlbumArtist, s.Artists })
-            .ToListAsync(ct);
+        // Read unfiltered (any tenant's artist may be requested), one DISTINCT column at a time so
+        // the database folds a library's thousands of rows into its few hundred names, and normalize
+        // each exactly the way the cache row keys do.
+        var songs = db.Songs.IgnoreQueryFilters().AsNoTracking().Where(s => s.DeletedAtUtc == null);
+        var raw = new List<string?>();
+        raw.AddRange(await songs.Select(s => s.Artist).Distinct().ToListAsync(ct));
+        raw.AddRange(await songs.Select(s => s.AlbumArtist).Distinct().ToListAsync(ct));
+        var credits = await songs.Where(s => s.Artists != null && s.Artists != "")
+            .Select(s => s.Artists).Distinct().ToListAsync(ct);
+        foreach (var credit in credits)
+            raw.AddRange(credit!.Split(';'));
+        raw.AddRange(await db.FollowedArtists.IgnoreQueryFilters().AsNoTracking()
+            .Select(f => f.Name)
+            .ToListAsync(ct));
 
         var next = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
-        void Add(string? raw)
-        {
-            if (string.IsNullOrWhiteSpace(raw)) return;
-            var normalized = TitleNormalizer.NormalizeForDedup(raw);
-            if (normalized.Length == 0) return;
-            next.TryAdd(normalized, raw.Trim());
-        }
-
-        foreach (var row in artists)
-        {
-            Add(row.Artist);
-            Add(row.AlbumArtist);
-            if (!string.IsNullOrEmpty(row.Artists))
-            {
-                foreach (var part in row.Artists.Split(';'))
-                    Add(part);
-            }
-        }
-
-        var followed = await db.FollowedArtists.IgnoreQueryFilters().AsNoTracking()
-            .Select(f => f.Name)
-            .ToListAsync(ct);
-        foreach (var name in followed)
-            Add(name);
+        foreach (var name in raw)
+            AddTo(next, name);
 
         _names = next;
     }

@@ -475,7 +475,7 @@ public class StorageUsageCalculatorTests
         public Task<ResolvedCover?> GetThumbnailAsync(ResolvedCover source, string identityPath, int size, CancellationToken ct = default)
             => Task.FromResult<ResolvedCover?>(null);
         public string? GetCachedPath(string identityPath, long identityStamp, int requestedSize) => null;
-        public void Prewarm(ResolvedCover source, string identityPath, CancellationToken ct = default) { }
+        public void Prewarm(ResolvedCover source, string identityPath) { }
     }
 
     private sealed class StubAvailability(bool sourceAvailable, bool destinationAvailable) : IDirectoryAvailability

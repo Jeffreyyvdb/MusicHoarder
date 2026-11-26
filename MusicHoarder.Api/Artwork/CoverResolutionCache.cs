@@ -86,19 +86,38 @@ public sealed class CoverResolutionCache : ICoverResolutionCache
 /// <summary>
 /// The content-version token for a song's cover URLs (<c>?v=</c>). Derived only from row columns,
 /// so it is stable within a list response and changes whenever a cover-affecting event changes the
-/// row: a re-index/re-tag (LastModifiedUtc), a rebuild (LibraryBuiltAtUtc), a destination cover
-/// written by the sweep (HasCoverArt), or a different destination folder. When the token in the
-/// request matches, the cover endpoint may answer <c>immutable</c>.
+/// row: a re-index/re-tag (LastModifiedUtc), a rebuild (LibraryBuiltAtUtc), a moved file (either
+/// path), a cover written into the destination folder (CoverUpdatedAtUtc, stamped by
+/// <see cref="DestinationCoverFlagger"/> after every write), or HasCoverArt flipping. When the token
+/// in the request matches, the cover endpoint may answer <c>immutable</c>.
+///
+/// <para>
+/// A cover changed on disk by hand (a <c>folder.jpg</c> dropped into a source folder) moves no
+/// column, which is why a matching token is cached for a week (<see cref="ImmutableCacheControl"/>) and
+/// not a year: never longer than covers were cached before there was a token.
+/// </para>
 /// </summary>
 public static class CoverVersionStamp
 {
-    public static string ForSong(SongMetadata song) => ForSong(
-        song.Id, song.LastModifiedUtc, song.LibraryBuiltAtUtc, song.HasCoverArt, song.DestinationPath);
+    /// <summary>How long a browser may keep a cover whose <c>?v=</c> matches, without asking again.</summary>
+    public const string ImmutableCacheControl = "private, max-age=604800, immutable";
 
-    public static string ForSong(int id, DateTime lastModifiedUtc, DateTime? libraryBuiltAtUtc, bool hasCoverArt, string? destinationPath)
+    public static string ForSong(SongMetadata song) => ForSong(
+        song.Id, song.LastModifiedUtc, song.LibraryBuiltAtUtc, song.HasCoverArt,
+        song.DestinationPath, song.SourcePath, song.CoverUpdatedAtUtc);
+
+    public static string ForSong(
+        int id,
+        DateTime lastModifiedUtc,
+        DateTime? libraryBuiltAtUtc,
+        bool hasCoverArt,
+        string? destinationPath,
+        string? sourcePath,
+        DateTime? coverUpdatedAtUtc)
     {
         var material =
-            $"{id}|{lastModifiedUtc.Ticks}|{libraryBuiltAtUtc?.Ticks ?? 0}|{hasCoverArt}|{destinationPath ?? ""}";
+            $"{id}|{lastModifiedUtc.Ticks}|{libraryBuiltAtUtc?.Ticks ?? 0}|{hasCoverArt}|{destinationPath ?? ""}"
+            + $"|{sourcePath ?? ""}|{coverUpdatedAtUtc?.Ticks ?? 0}";
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(material)))[..12].ToLowerInvariant();
     }
 }

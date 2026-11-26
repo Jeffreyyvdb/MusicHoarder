@@ -16,7 +16,7 @@ partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261125150000_AddArtistImageLargeUrl";
+    public override string LastMigrationId => "20261126064219_AddSongCoverUpdatedAt";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -1828,6 +1828,9 @@ partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
 
                 b.Property<string>("Copyright")
                     .HasColumnType("text");
+
+                b.Property<DateTime?>("CoverUpdatedAtUtc")
+                    .HasColumnType("timestamp with time zone");
 
                 b.Property<DateTime?>("DeletedAtUtc")
                     .HasColumnType("timestamp with time zone");

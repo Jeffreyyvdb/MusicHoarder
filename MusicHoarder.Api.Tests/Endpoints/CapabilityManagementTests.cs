@@ -79,6 +79,25 @@ public class CapabilityManagementTests
         Assert.Equal(Capability.TrackListening, demoted.Capabilities);
     }
 
+    [Theory]
+    [InlineData(true)]  // promote a member: the serializable path is not taken
+    [InlineData(false)] // demote an admin: the serializable path returns early
+    public async Task A_role_change_drops_the_accounts_cached_sessions(bool promote)
+    {
+        // A cached session resolution carries the role; without this a demoted admin keeps admin
+        // rights until the cache entry expires.
+        var options = NewOptions();
+        await SeedUsers(options, secondAdmin: true);
+        var auth = new NoOpAuthService();
+        var target = promote ? TestUsers.FriendId : SecondAdminId;
+
+        var result = await Invoke(
+            options, target, promote ? ["Administer"] : ["TrackListening"], auth: auth);
+
+        Assert.Equal(StatusCodes.Status200OK, StatusOf(result));
+        Assert.Contains(target, auth.InvalidatedUsers);
+    }
+
     [Fact]
     public async Task An_admin_cannot_change_their_own_capabilities()
     {
@@ -276,7 +295,8 @@ public class CapabilityManagementTests
         DbContextOptions<MusicHoarderDbContext> options,
         Guid targetId,
         string[] capabilities,
-        Guid? caller = null)
+        Guid? caller = null,
+        NoOpAuthService? auth = null)
     {
         var acting = caller is { } id
             ? new CurrentUser(id, "acting@test.local", UserRole.Admin, "Acting")
@@ -287,7 +307,7 @@ public class CapabilityManagementTests
             new FriendsEndpoints.UpdateCapabilitiesRequest(capabilities),
             db,
             new TestCurrentUserAccessor(acting),
-            new NoOpAuthService(),
+            auth ?? new NoOpAuthService(),
             default);
     }
 

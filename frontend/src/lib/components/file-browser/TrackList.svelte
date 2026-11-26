@@ -177,13 +177,19 @@
     const el = scrollEl;
     if (!el) return;
     const tracker = attachVelocityTracker(el);
+    // The velocity is only read on a scroll event, so a fling that stops dead would leave the
+    // window shrunk until the next one; re-read it once the scroll has been still for a moment.
+    let settle: ReturnType<typeof setTimeout> | undefined;
     const onScroll = () => {
       scrollTop = el.scrollTop;
       scrollVelocity = tracker.velocity();
+      clearTimeout(settle);
+      settle = setTimeout(() => (scrollVelocity = tracker.velocity()), 150);
     };
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => {
       el.removeEventListener('scroll', onScroll);
+      clearTimeout(settle);
       tracker.destroy();
     };
   });
@@ -406,6 +412,7 @@
               >
                 <span class="relative shrink-0">
                   <Cover
+                    eager
                     artist={artistOf(song)}
                     title={song.album ?? titleOf(song)}
                     coverUrl={rowCoverUrlForSong(song)}
@@ -492,6 +499,7 @@
 
               <!-- cover -->
               <Cover
+                eager
                 artist={artistOf(song)}
                 title={song.album ?? titleOf(song)}
                 coverUrl={rowCoverUrlForSong(song)}

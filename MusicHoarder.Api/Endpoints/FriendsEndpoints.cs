@@ -144,6 +144,9 @@ public static class FriendsEndpoints
             if (lastAdmin)
                 return Results.BadRequest(new { error = "last_admin" });
 
+            // The demoted account's cached session resolution still says Admin.
+            authService.InvalidateUser(userId);
+
             // Re-read: the tracker was cleared inside the strategy, so `user` is detached.
             var saved = await db.Users.AsNoTracking().FirstAsync(u => u.Id == userId, ct);
             return CapabilitiesResponse(saved);

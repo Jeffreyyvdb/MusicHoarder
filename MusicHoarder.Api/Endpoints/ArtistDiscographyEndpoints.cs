@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Artists;
+using MusicHoarder.Api.Artwork;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
 using MusicHoarder.Api.Deezer;
@@ -245,6 +246,8 @@ public static class ArtistDiscographyEndpoints
         ArtistMonitorSweep monitor,
         ArtistDiscographyService discography,
         ICurrentUserAccessor currentUser,
+        IKnownArtistIndex knownArtists,
+        IArtistImagePrefetcher portraitPrefetcher,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(body.DeezerArtistId))
@@ -268,13 +271,19 @@ public static class ArtistDiscographyEndpoints
             // The page the follow was made from finds it by its own spelling of the name.
             ArtistKey = Truncate(TitleNormalizer.NormalizeForSearch(
                 string.IsNullOrWhiteSpace(body.Artist) ? artist.Name : body.Artist), 512),
-            PictureUrl = artist.PictureUrl is null ? null : Truncate(artist.PictureUrl, 1024),
+            // The artist page's hero falls back to this picture, so keep the large one.
+            PictureUrl = (artist.PictureUrlLarge ?? artist.PictureUrl) is { } picture ? Truncate(picture, 1024) : null,
             ReleaseKinds = kinds == ArtistReleaseKinds.None ? ArtistReleaseKinds.Album | ArtistReleaseKinds.Ep : kinds,
             AutoDownload = body.AutoDownload ?? true,
             FollowedAtUtc = DateTime.UtcNow,
         };
         db.FollowedArtists.Add(follow);
         await db.SaveChangesAsync(ct);
+
+        // The portrait lookup gate only knows followed artists from its periodic sweep; let it know
+        // this one now so the Following page shows a portrait right away, not after the next sweep.
+        knownArtists.Add(follow.Name);
+        portraitPrefetcher.Enqueue(follow.Name);
 
         // The baseline, now: everything already out is recorded and left alone. If the catalog cannot
         // be read the first scheduled check records it instead (LastCheckedAtUtc stays null until then).

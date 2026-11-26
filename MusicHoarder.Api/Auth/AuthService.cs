@@ -21,6 +21,15 @@ public sealed class AuthService : IAuthService
 
     private readonly ConcurrentDictionary<Guid, (Session Session, User User, DateTime CachedAtUtc)> _sessionCache = new();
 
+    // Bumped by every invalidation. A resolution only goes into the cache when no invalidation
+    // happened while it was reading: otherwise a read that saw the session just before a revoke
+    // could put it back right after the revoke cleared it.
+    private long _invalidationGeneration;
+
+    // Expired entries are swept at most once per TTL, so sessions that are never seen again (a
+    // demo visitor, a closed tab) do not stay in memory until a restart.
+    private long _lastSweepTicks;
+
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IMagicLinkSender _sender;
     private readonly IHostEnvironment _hostEnv;
@@ -172,6 +181,7 @@ public sealed class AuthService : IAuthService
         if (_sessionCache.TryGetValue(sessionId, out var cached) && nowUtc - cached.CachedAtUtc < SessionCacheTtl)
             return (cached.Session, cached.User);
 
+        var generation = Interlocked.Read(ref _invalidationGeneration);
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
 
@@ -202,14 +212,40 @@ public sealed class AuthService : IAuthService
 
         // The entities outlive the scope that loaded them; nothing mutates them after this point
         // (the sliding write above happened before caching).
-        _sessionCache[sessionId] = (session, session.User, nowUtc);
+        if (Interlocked.Read(ref _invalidationGeneration) == generation)
+        {
+            _sessionCache[sessionId] = (session, session.User, nowUtc);
+            // An invalidation that raced the store above wins: drop what was just stored.
+            if (Interlocked.Read(ref _invalidationGeneration) != generation)
+                _sessionCache.TryRemove(sessionId, out _);
+        }
+        SweepExpiredSessions(nowUtc);
         return (session, session.User);
     }
 
-    public void InvalidateSession(Guid sessionId) => _sessionCache.TryRemove(sessionId, out _);
+    private void SweepExpiredSessions(DateTime nowUtc)
+    {
+        var last = Interlocked.Read(ref _lastSweepTicks);
+        if (nowUtc.Ticks - last < SessionCacheTtl.Ticks
+            || Interlocked.CompareExchange(ref _lastSweepTicks, nowUtc.Ticks, last) != last)
+            return;
+
+        foreach (var pair in _sessionCache)
+        {
+            if (nowUtc - pair.Value.CachedAtUtc >= SessionCacheTtl)
+                _sessionCache.TryRemove(pair);
+        }
+    }
+
+    public void InvalidateSession(Guid sessionId)
+    {
+        Interlocked.Increment(ref _invalidationGeneration);
+        _sessionCache.TryRemove(sessionId, out _);
+    }
 
     public void InvalidateUser(Guid userId)
     {
+        Interlocked.Increment(ref _invalidationGeneration);
         foreach (var pair in _sessionCache)
         {
             if (pair.Value.User.Id == userId)

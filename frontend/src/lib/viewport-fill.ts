@@ -150,6 +150,7 @@ export function watchNearViewport(
         if (fast) {
           // Held, not built: keep watching so we notice when it leaves reach again.
           held.set(key, { el: entry.target as HTMLElement, at: now });
+          scheduleFlush();
           continue;
         }
         observer.unobserve(entry.target);
@@ -162,9 +163,16 @@ export function watchNearViewport(
   );
   for (const el of tiles) observer.observe(el);
 
-  // Held tiles: flushed when the scroll slows/stops, when they leave reach, or after the cap.
+  // Held tiles: flushed when the scroll slows/stops, when they leave reach, or after the cap. The
+  // flush timer runs only while something is held, so an idle list (a queue on screen while music
+  // plays) wakes nothing.
   const held = new Map<string, { el: HTMLElement; at: number }>();
-  const flush = () => {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  function scheduleFlush() {
+    timer ??= setTimeout(flush, HOLD_FLUSH_MS);
+  }
+  function flush() {
+    timer = null;
     if (held.size === 0) return;
     const now = performance.now();
     const slow = !gate || tracker.velocity() <= FLING_VELOCITY_PX_S;
@@ -176,10 +184,9 @@ export function watchNearViewport(
         keys.push(key);
       }
     }
+    if (held.size > 0) scheduleFlush();
     if (keys.length > 0) onnear(keys);
-  };
-  // eslint-disable-next-line local/no-bare-poll -- a local flush timer for held tiles, not a server poll
-  const timer = setInterval(flush, HOLD_FLUSH_MS);
+  }
 
   const onFocusIn = (event: Event) => {
     const target = event.target as Element | null;
@@ -196,7 +203,7 @@ export function watchNearViewport(
   return {
     destroy: () => {
       observer.disconnect();
-      clearInterval(timer);
+      if (timer !== null) clearTimeout(timer);
       container.removeEventListener('focusin', onFocusIn);
       tracker.destroy();
     }

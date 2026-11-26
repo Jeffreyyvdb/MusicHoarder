@@ -34,10 +34,11 @@ public interface ICoverThumbnailService
     /// <summary>
     /// Generates the grid sizes (128/400) for a cover in the background when nothing is asking for
     /// them yet — called when a cover is written or a song is built, so scrolling never pays the
-    /// first-generation cost. Fire-and-forget; bounded concurrency, no queue growth beyond one
-    /// pending pass per source.
+    /// first-generation cost. Fire-and-forget and not cancellable: it outlives whatever asked for
+    /// it. Bounded concurrency, shares in-flight generations with requests, and drops (never
+    /// queues) passes beyond a small pending cap.
     /// </summary>
-    void Prewarm(ResolvedCover source, string identityPath, CancellationToken ct = default);
+    void Prewarm(ResolvedCover source, string identityPath);
 }
 
 /// <summary>
@@ -53,11 +54,16 @@ public sealed class CoverThumbnailService(string cacheDirectory, ILogger<CoverTh
     internal static readonly int[] PrewarmSizes = [128, 400];
 
     // Single-flight: concurrent misses for the same identity+size share one generation instead of
-    // N requests each decoding the same multi-MB original. Entries leave the map once the file is
-    // on disk (its existence is the source of truth), or when generation failed.
-    private readonly ConcurrentDictionary<string, Lazy<Task<ResolvedCover?>>> _inFlight = new(StringComparer.Ordinal);
+    // N requests each decoding the same multi-MB original. A generation never runs on a request's
+    // token (one caller giving up must not fail the others); each caller only stops *waiting* when
+    // its own request goes away. The entry leaves the map once its pass is over — the cache file's
+    // existence is the source of truth — and only that entry, never a newer one under the same key.
+    private readonly ConcurrentDictionary<string, Task<ResolvedCover?>> _inFlight = new(StringComparer.Ordinal);
 
-    // Prewarm passes, deduped the same way so a build storm doesn't queue one pass per song.
+    // Prewarm passes, deduped so a build storm doesn't queue one pass per song, and capped: past
+    // MaxPendingPrewarms a pass is dropped rather than queued (each one pins its source bytes), and
+    // the next request for that cover generates it on demand instead.
+    internal const int MaxPendingPrewarms = 64;
     private readonly ConcurrentDictionary<string, byte> _prewarming = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _prewarmSlots = new(2);
 
@@ -80,53 +86,71 @@ public sealed class CoverThumbnailService(string cacheDirectory, ILogger<CoverTh
     public Task<ResolvedCover?> GetThumbnailAsync(ResolvedCover source, string identityPath, int size, CancellationToken ct = default)
     {
         var stamp = SafeLastWriteTicks(identityPath);
-        var key = ThumbnailKey(identityPath, stamp, size);
         var cacheFile = CacheFileFor(identityPath, stamp, size);
 
         if (File.Exists(cacheFile))
             return Task.FromResult<ResolvedCover?>(Webp(cacheFile));
 
-        var lazy = _inFlight.GetOrAdd(key, _ => new Lazy<Task<ResolvedCover?>>(
-            () => GenerateAsync(source, identityPath, stamp, size, cacheFile, ct),
-            LazyThreadSafetyMode.ExecutionAndPublication));
-        return AwaitSingleFlightAsync(key, lazy);
+        return GenerateOnceAsync(source, identityPath, stamp, size, cacheFile).WaitAsync(ct);
     }
 
-    private async Task<ResolvedCover?> AwaitSingleFlightAsync(string key, Lazy<Task<ResolvedCover?>> lazy)
+    /// <summary>The one generation of this identity+size, started now unless one is already running.</summary>
+    private Task<ResolvedCover?> GenerateOnceAsync(
+        ResolvedCover source, string identityPath, long stamp, int size, string cacheFile)
     {
-        try
+        var key = ThumbnailKey(identityPath, stamp, size);
+        while (true)
         {
-            return await lazy.Value.ConfigureAwait(false);
-        }
-        finally
-        {
-            // Once the pass is over the cache file's existence decides; drop the entry so the next
-            // (possibly failed) miss retries instead of replaying a stale result forever.
-            _inFlight.TryRemove(key, out _);
+            if (_inFlight.TryGetValue(key, out var running))
+                return running;
+
+            var done = new TaskCompletionSource<ResolvedCover?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            if (!_inFlight.TryAdd(key, done.Task))
+                continue;
+
+            _ = RunAsync();
+            return done.Task;
+
+            async Task RunAsync()
+            {
+                try
+                {
+                    done.SetResult(await GenerateAsync(source, identityPath, stamp, size, cacheFile).ConfigureAwait(false));
+                }
+                catch (Exception ex)
+                {
+                    done.SetException(ex);
+                }
+                finally
+                {
+                    _inFlight.TryRemove(new KeyValuePair<string, Task<ResolvedCover?>>(key, done.Task));
+                }
+            }
         }
     }
 
-    public void Prewarm(ResolvedCover source, string identityPath, CancellationToken ct = default)
+    public void Prewarm(ResolvedCover source, string identityPath)
     {
         var stamp = SafeLastWriteTicks(identityPath);
         var key = $"{ThumbnailKey(identityPath, stamp, 0)}|prewarm";
-        if (!_prewarming.TryAdd(key, 0))
+        if (_prewarming.Count >= MaxPendingPrewarms || !_prewarming.TryAdd(key, 0))
             return;
 
+        // No token: a prewarm outlives the request or pipeline step that asked for it, and a token
+        // that fired before the delegate started would skip the finally and pin the dedupe key.
         _ = Task.Run(async () =>
         {
             try
             {
-                await _prewarmSlots.WaitAsync(ct).ConfigureAwait(false);
+                await _prewarmSlots.WaitAsync().ConfigureAwait(false);
                 try
                 {
                     foreach (var size in PrewarmSizes)
                     {
-                        ct.ThrowIfCancellationRequested();
-                        if (GetCachedPath(identityPath, stamp, size) is not null)
+                        var cacheFile = CacheFileFor(identityPath, stamp, size);
+                        if (File.Exists(cacheFile))
                             continue;
-                        await GenerateAsync(source, identityPath, stamp, size, CacheFileFor(identityPath, stamp, size), ct)
-                            .ConfigureAwait(false);
+                        await GenerateOnceAsync(source, identityPath, stamp, size, cacheFile).ConfigureAwait(false);
                     }
                 }
                 finally
@@ -134,7 +158,7 @@ public sealed class CoverThumbnailService(string cacheDirectory, ILogger<CoverTh
                     _prewarmSlots.Release();
                 }
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex)
             {
                 logger.LogDebug(ex, "Cover prewarm failed for {Path}", identityPath);
             }
@@ -142,18 +166,17 @@ public sealed class CoverThumbnailService(string cacheDirectory, ILogger<CoverTh
             {
                 _prewarming.TryRemove(key, out _);
             }
-        }, ct);
+        });
     }
 
     private async Task<ResolvedCover?> GenerateAsync(
-        ResolvedCover source, string identityPath, long stamp, int size, string cacheFile, CancellationToken ct)
+        ResolvedCover source, string identityPath, long stamp, int size, string cacheFile)
     {
         try
         {
             var bytes = source.FilePath is not null
-                ? await File.ReadAllBytesAsync(source.FilePath, ct)
+                ? await File.ReadAllBytesAsync(source.FilePath)
                 : source.Bytes!;
-            ct.ThrowIfCancellationRequested();
 
             using var original = SKBitmap.Decode(bytes);
             if (original is null)
@@ -172,7 +195,7 @@ public sealed class CoverThumbnailService(string cacheDirectory, ILogger<CoverTh
 
             return Webp(cacheFile);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex)
         {
             logger.LogWarning(ex, "Cover thumbnail generation failed for {Path} @ {Size}", identityPath, size);
             return null;

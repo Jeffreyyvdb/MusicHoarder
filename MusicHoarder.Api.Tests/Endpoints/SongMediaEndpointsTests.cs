@@ -79,7 +79,7 @@ public class SongMediaEndpointsTests : IDisposable
 
         public string? GetCachedPath(string identityPath, long identityStamp, int requestedSize) => null;
 
-        public void Prewarm(ResolvedCover source, string identityPath, CancellationToken ct = default) { }
+        public void Prewarm(ResolvedCover source, string identityPath) { }
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -341,6 +341,77 @@ public class SongMediaEndpointsTests : IDisposable
         Assert.IsAssignableFrom<IStatusCodeHttpResult>(result);
         Assert.Equal(404, ((IStatusCodeHttpResult)result).StatusCode);
         Assert.False(resolver.ResolveCalled, "Resolver should NOT be called when the audio file is missing.");
+    }
+
+    [Fact]
+    public async Task GetSongCover_MatchingVersion_IsCachedImmutably_AndAStaleOneIsNot()
+    {
+        var sourcePath = TempFile("song.mp3");
+        var coverPath = TempFile("cover.jpg");
+
+        await using var db = NewContext();
+        var song = NewSong(sourcePath, "song.mp3");
+        song.HasCoverArt = true;
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        var resolver = new FakeCoverArtResolver(new ResolvedCover { FilePath = coverPath, ContentType = "image/jpeg" });
+        var cache = new CoverResolutionCache();
+        var current = CoverVersionStamp.ForSong(song);
+
+        var matching = new DefaultHttpContext();
+        await SongsEndpoints.GetSongCover(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), resolver, new FakeThumbnailService(null), cache, matching, null, current, CancellationToken.None);
+        Assert.Equal(CoverVersionStamp.ImmutableCacheControl, matching.Response.Headers.CacheControl.ToString());
+
+        var stale = new DefaultHttpContext();
+        await SongsEndpoints.GetSongCover(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId), resolver, new FakeThumbnailService(null), cache, stale, null, "000000000000", CancellationToken.None);
+        Assert.DoesNotContain("immutable", stale.Response.Headers.CacheControl.ToString());
+    }
+
+    [Fact]
+    public void CoverVersion_MovesWhenACoverIsWrittenIntoTheFolder()
+    {
+        // A replaced cover.jpg changes no other column; without CoverUpdatedAtUtc the URL would
+        // stay the same and browsers would keep the old image.
+        var song = NewSong("/src/a.mp3", "a.mp3");
+        song.HasCoverArt = true;
+        var before = CoverVersionStamp.ForSong(song);
+
+        song.CoverUpdatedAtUtc = DateTime.UtcNow;
+
+        Assert.NotEqual(before, CoverVersionStamp.ForSong(song));
+    }
+
+    [Fact]
+    public async Task GetSongCover_CachedResolutionOfAnotherRowVersion_IsResolvedAgain()
+    {
+        // The row moved (rebuilt into another folder): the warm entry still points at the old
+        // folder's cover, whose file is untouched, so only its version can tell it is stale.
+        var sourcePath = TempFile("song.mp3");
+        var oldCover = TempFile("old.jpg");
+        var newCover = TempFile("new.jpg");
+
+        await using var db = NewContext();
+        var song = NewSong(sourcePath, "song.mp3");
+        song.HasCoverArt = true;
+        db.Songs.Add(song);
+        await db.SaveChangesAsync();
+
+        var cache = new CoverResolutionCache();
+        await SongsEndpoints.GetSongCover(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId),
+            new FakeCoverArtResolver(new ResolvedCover { FilePath = oldCover, ContentType = "image/jpeg" }),
+            new FakeThumbnailService(null), cache, new DefaultHttpContext(), null, null, CancellationToken.None);
+
+        song.CoverUpdatedAtUtc = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+
+        var resolver = new FakeCoverArtResolver(new ResolvedCover { FilePath = newCover, ContentType = "image/jpeg" });
+        var result = await SongsEndpoints.GetSongCover(song.Id, db, TestLibraryScope.For(TestUsers.OwnerId),
+            resolver, new FakeThumbnailService(null), cache, new DefaultHttpContext(), null,
+            CoverVersionStamp.ForSong(song), CancellationToken.None);
+
+        Assert.True(resolver.ResolveCalled);
+        Assert.Equal(newCover, Assert.IsType<PhysicalFileHttpResult>(result).FileName);
     }
 
     [Fact]

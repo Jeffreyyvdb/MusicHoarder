@@ -111,11 +111,7 @@ public sealed class ArtistImagePrefetchBackgroundService(
         var staleDisplayByKey = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var row in rows)
         {
-            var stale = row.FetchedAtUtc <= DateTime.UnixEpoch
-                || (row.ImageUrl is null
-                    ? opts.ArtistImageNotFoundRetryDays > 0 && row.FetchedAtUtc <= now.AddDays(-opts.ArtistImageNotFoundRetryDays)
-                    : opts.ArtistImageRefreshDays > 0 && row.FetchedAtUtc <= now.AddDays(-opts.ArtistImageRefreshDays));
-            if (stale)
+            if (ArtistImageService.IsStale(row.FetchedAtUtc, row.ImageUrl is not null, opts, now))
                 staleDisplayByKey[row.NormalizedName] = row.DisplayName;
             else
                 fresh.Add(row.NormalizedName);
