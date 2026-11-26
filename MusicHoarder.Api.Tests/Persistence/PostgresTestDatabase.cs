@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging;
+using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Tests.Auth;
 using Npgsql;
 
 namespace MusicHoarder.Api.Tests.Persistence;
@@ -47,7 +49,14 @@ public sealed class PostgresTestDatabase : IAsyncDisposable
     }
 
     /// <summary>A context on this database; with <paramref name="log"/>, EF's warnings and errors are written to it.</summary>
-    public MusicHoarderDbContext NewContext(ILogger? log = null, params IInterceptor[] interceptors)
+    public MusicHoarderDbContext NewContext(ILogger? log = null, params IInterceptor[] interceptors) =>
+        new(Options(log, interceptors));
+
+    /// <summary>A context whose tenancy filter is on, scoped to <paramref name="caller"/> as a request's is.</summary>
+    public MusicHoarderDbContext NewContextFor(CurrentUser caller, params IInterceptor[] interceptors) =>
+        new(Options(null, interceptors), new TestCurrentUserAccessor(caller));
+
+    private DbContextOptions Options(ILogger? log, IInterceptor[] interceptors)
     {
         var options = new DbContextOptionsBuilder<MusicHoarderDbContext>().UseNpgsql(_connectionString);
         if (log is not null)
@@ -55,7 +64,7 @@ public sealed class PostgresTestDatabase : IAsyncDisposable
                 data => log.Log(data.LogLevel, data.EventId, data.ToString(), null, (s, _) => s));
         if (interceptors.Length > 0)
             options.AddInterceptors(interceptors);
-        return new MusicHoarderDbContext(options.Options);
+        return options.Options;
     }
 
     public async ValueTask DisposeAsync()

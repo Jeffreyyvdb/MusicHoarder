@@ -16,7 +16,7 @@ partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261126064219_AddSongCoverUpdatedAt";
+    public override string LastMigrationId => "20261126142335_AddRowVersions";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -26,6 +26,8 @@ partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
             .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
         NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
+
+        modelBuilder.HasSequence("RowVersions");
 
         modelBuilder.Entity("MusicHoarder.Api.Auth.Invite", b =>
             {
@@ -1974,6 +1976,9 @@ partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
                 b.Property<DateTime?>("LikedAtUtc")
                     .HasColumnType("timestamp with time zone");
 
+                b.Property<long?>("ListVersion")
+                    .HasColumnType("bigint");
+
                 b.Property<double?>("LrclibDurationSeconds")
                     .HasColumnType("double precision");
 
@@ -2051,6 +2056,9 @@ partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
 
                 b.Property<string>("MusicBrainzReleaseId")
                     .HasColumnType("text");
+
+                b.Property<long?>("NameVersion")
+                    .HasColumnType("bigint");
 
                 b.Property<string>("NavidromeSongId")
                     .HasColumnType("text");
@@ -2315,6 +2323,9 @@ partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
 
                 b.Property<double?>("LetterboxFraction")
                     .HasColumnType("double precision");
+
+                b.Property<long?>("ListVersion")
+                    .HasColumnType("bigint");
 
                 b.Property<int>("Pick")
                     .HasColumnType("integer");
@@ -3171,6 +3182,9 @@ partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
 
                 b.Property<DateTime?>("LastSyncedAtUtc")
                     .HasColumnType("timestamp with time zone");
+
+                b.Property<long?>("ListVersion")
+                    .HasColumnType("bigint");
 
                 b.Property<string>("Name")
                     .IsRequired()

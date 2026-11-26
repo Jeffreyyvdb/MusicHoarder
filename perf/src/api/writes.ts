@@ -93,10 +93,12 @@ function bookkeepingWrites(cfg: StackConfig, songIds: number[]) {
       WHERE "Id" IN (${ids})`,
   )
   psql(cfg, `UPDATE "Songs" SET "LibraryBuildLastAttemptedAtUtc" = now(), "LastWrittenAtUtc" = now() WHERE "Id" IN (${ids})`)
+  psql(cfg, `UPDATE "Songs" SET "EnrichedAtUtc" = now(), "EnrichmentLastAttemptedAtUtc" = now() WHERE "Id" IN (${ids})`)
 }
 
 function timeSongUpdates(cfg: StackConfig, set: string, rowsPerRepeat: number): number {
-  const [[micros] = []] = psql(
+  // psql prints a line for the CREATE as well; the timing is the last one.
+  const micros = psql(
     cfg,
     `CREATE FUNCTION pg_temp.mh_time_updates(ids int[]) RETURNS double precision LANGUAGE plpgsql AS $$
      DECLARE started timestamptz := clock_timestamp(); id int;
@@ -107,7 +109,7 @@ function timeSongUpdates(cfg: StackConfig, set: string, rowsPerRepeat: number): 
        RETURN extract(epoch FROM clock_timestamp() - started) * 1000000 / array_length(ids, 1);
      END $$;
      SELECT pg_temp.mh_time_updates(ARRAY(SELECT "Id" FROM "Songs" ORDER BY "Id" LIMIT ${rowsPerRepeat}))`,
-  )
+  ).at(-1)?.[0]
   return Number(micros)
 }
 
