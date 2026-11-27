@@ -148,7 +148,7 @@ public static class AlbumsEndpoints
         // Stamp: every Songs row of the caller.
         var query = scope.SongsFor(db, self);
         if (builtOnly)
-            query = query.Where(s => s.LibraryBuildStatus == LibraryBuildStatus.Done && s.DestinationPath != null);
+            query = query.Where(s => s.LibraryBuildStatus == LibraryBuildStatus.Done && (s.DestinationPath != null || s.AudioAssetId != null));
 
         var songs = await query
             .Select(s => new
@@ -157,7 +157,7 @@ public static class AlbumsEndpoints
                 s.Title, s.TrackNumber, s.Year, s.DurationSeconds, s.FileSizeBytes,
                 s.Genre, s.Label, s.CatalogNumber, s.Upc, s.ReleaseDate, s.MusicBrainzReleaseId,
                 s.HasCoverArt, s.PlayCount, s.LikedAtUtc, s.AcquisitionIntent, s.LibraryBuildStatus,
-                s.SpotifyId,
+                s.AudioAssetId, s.SpotifyId,
                 Isrc = unreleased ? s.Isrc : null,
                 IsUnreleased = unreleased && s.IsUnreleased,
                 EnrichmentStatus = unreleased ? s.EnrichmentStatus : default,
@@ -203,7 +203,7 @@ public static class AlbumsEndpoints
                 s.Genre, s.Label, s.CatalogNumber, s.Upc, s.ReleaseDate, s.MusicBrainzReleaseId,
                 s.HasCoverArt, s.PlayCount, s.LikedAtUtc,
                 IsAlbumFill: s.AcquisitionIntent == SongAcquisitionIntent.AlbumFill,
-                IsBuilt: s.LibraryBuildStatus == LibraryBuildStatus.Done && s.DestinationPath != null,
+                IsBuilt: s.LibraryBuildStatus == LibraryBuildStatus.Done && (s.DestinationPath != null || s.AudioAssetId != null),
                 IsUnreleased: isUnreleased,
                 SpotifyAddedAtUtc: saveDates.SaveDateFor(s.Id, s.SpotifyId, saveDates.LinkFor(s.Id)?.SpotifyAddedAtUtc),
                 s.AcquiredAtUtc, s.LibraryBuiltAtUtc, s.IndexedAtUtc);

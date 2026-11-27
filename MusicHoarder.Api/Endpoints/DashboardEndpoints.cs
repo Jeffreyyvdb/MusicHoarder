@@ -339,7 +339,7 @@ public static class DashboardEndpoints
     internal static async Task<IResult> GetInsights(MusicHoarderDbContext db)
     {
         var active = db.Songs.Where(s => s.DeletedAtUtc == null);
-        var built = active.Where(s => s.LibraryBuildStatus == LibraryBuildStatus.Done && s.DestinationPath != null);
+        var built = active.Where(s => s.LibraryBuildStatus == LibraryBuildStatus.Done && (s.DestinationPath != null || s.AudioAssetId != null));
 
         // Most scalar counts batched into two GroupBy(_=>1) round-trips (same pattern as GetStats),
         // which the EF InMemory provider translates cleanly (no GroupBy→First).
@@ -399,7 +399,7 @@ public static class DashboardEndpoints
             .Select(g => new InsightsLikedCounts
             {
                 Total = g.Count(),
-                InLibrary = g.Count(w => w.DownloadedSong != null && w.DownloadedSong.DeletedAtUtc == null && w.DownloadedSong.LibraryBuildStatus == LibraryBuildStatus.Done && w.DownloadedSong.DestinationPath != null),
+                InLibrary = g.Count(w => w.DownloadedSong != null && w.DownloadedSong.DeletedAtUtc == null && w.DownloadedSong.LibraryBuildStatus == LibraryBuildStatus.Done && (w.DownloadedSong.DestinationPath != null || w.DownloadedSong.AudioAssetId != null)),
                 Downloaded = g.Count(w => w.Status == WishlistItemStatus.Downloaded || w.DownloadedSongId != null),
                 SkippedOwned = g.Count(w => w.Status == WishlistItemStatus.SkippedOwned),
                 Downloading = g.Count(w => w.Status == WishlistItemStatus.Downloading),
@@ -414,7 +414,7 @@ public static class DashboardEndpoints
             .Select(g => new InsightsWishlistCounts
             {
                 Total = g.Count(),
-                InLibrary = g.Count(w => w.DownloadedSong != null && w.DownloadedSong.DeletedAtUtc == null && w.DownloadedSong.LibraryBuildStatus == LibraryBuildStatus.Done && w.DownloadedSong.DestinationPath != null),
+                InLibrary = g.Count(w => w.DownloadedSong != null && w.DownloadedSong.DeletedAtUtc == null && w.DownloadedSong.LibraryBuildStatus == LibraryBuildStatus.Done && (w.DownloadedSong.DestinationPath != null || w.DownloadedSong.AudioAssetId != null)),
                 Downloaded = g.Count(w => w.Status == WishlistItemStatus.Downloaded || w.DownloadedSongId != null),
             })
             .SingleOrDefaultAsync();

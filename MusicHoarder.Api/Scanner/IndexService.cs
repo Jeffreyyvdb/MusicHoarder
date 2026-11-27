@@ -360,6 +360,9 @@ public class IndexService(
 
     private async Task FlushBatchAsync(List<SongMetadata> batch, CancellationToken ct)
     {
+        // Re-indexing a changed file clears its asset link; under the claim, so adoption or a hosted
+        // build cannot save a link to the old bytes after this batch has cleared it.
+        using var assetClaim = await Assets.AudioAssetRegistry.ClaimAsync(ct);
         var ownerId = ownerLookup.OwnerUserId;
         var paths = new HashSet<string>(batch.Select(m => m.SourcePath), StringComparer.Ordinal);
 
@@ -396,6 +399,11 @@ public class IndexService(
                 existing.DeletedAtUtc = null;
                 // A file is back at a path whose staged copy had been released: it is a source again.
                 existing.ClearSourceRelease();
+                // The bytes the asset was hashed from may be gone; the next hosted build or adoption
+                // pass links the file as it is now. Written even when it reads null here, so a link
+                // adoption saved since this row was loaded is cleared too.
+                existing.AudioAssetId = null;
+                dbContext.Entry(existing).Property(s => s.AudioAssetId).IsModified = true;
 
                 // File content changed — clear stale downstream state so fingerprint
                 // and enrichment re-run for this track.

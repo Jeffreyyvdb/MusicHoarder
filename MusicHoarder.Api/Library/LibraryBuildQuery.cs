@@ -26,9 +26,14 @@ public static class LibraryBuildQuery
     /// <see cref="SongMetadata.SourcePath"/> is an <see cref="UpgradeRequestStatus.AwaitingIngest"/>
     /// request's <see cref="UpgradeRequest.DownloadedFilePath"/>) is held out of the build entirely.
     /// </summary>
+    /// <param name="hostedStorage">
+    /// In hosted storage a Done row with an asset is built though it has no destination copy, so only a
+    /// Done row with neither is picked up again.
+    /// </param>
     public static IQueryable<SongMetadata> BuildCandidates(
         IQueryable<SongMetadata> songs, DateTime? lyricsWaitCutoff, int maxBuildAttempts,
-        bool buildNeedsReview = false, IQueryable<UpgradeRequest>? upgradeRequests = null)
+        bool buildNeedsReview = false, IQueryable<UpgradeRequest>? upgradeRequests = null,
+        bool hostedStorage = false)
     {
         var query = songs
             .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic)
@@ -42,7 +47,7 @@ public static class LibraryBuildQuery
             .Where(s => s.EnrichmentStatus == EnrichmentStatus.Matched
                 || (buildNeedsReview && s.EnrichmentStatus == EnrichmentStatus.NeedsReview))
             .Where(s => s.LibraryBuildStatus != LibraryBuildStatus.Done
-                || s.DestinationPath == null
+                || (s.DestinationPath == null && (!hostedStorage || s.AudioAssetId == null))
                 || s.PreviousDestinationPath != null)
             // Quarantine a track that's failed too many times so a persistently un-writable file can't
             // loop the builder forever (issue #239). Only Failed rows carry a non-zero counter; success
@@ -81,9 +86,10 @@ public static class LibraryBuildQuery
     /// <summary>
     /// The cutoff a fresh build's <see cref="SongMetadata.EnrichedAtUtc"/> must predate to skip the lyrics
     /// wait, or null when the gate is disabled (<see cref="MusicEnricherOptions.LyricsBeforeBuildWaitMinutes"/> == 0).
+    /// The wait exists to embed lyrics in the file, so hosted storage, which writes no tags, never waits.
     /// </summary>
     public static DateTime? LyricsWaitCutoff(MusicEnricherOptions options)
-        => options.LyricsBeforeBuildWaitMinutes > 0
+        => options.LyricsBeforeBuildWaitMinutes > 0 && options.StorageMode != StorageMode.Hosted
             ? DateTime.UtcNow - TimeSpan.FromMinutes(options.LyricsBeforeBuildWaitMinutes)
             : null;
 }

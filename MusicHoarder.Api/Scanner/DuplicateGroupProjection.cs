@@ -162,7 +162,7 @@ public static class DuplicateGroupProjection
             DuplicateOfId: m.DuplicateOfId,
             EnrichmentStatus: m.EnrichmentStatus,
             DestinationPath: m.DestinationPath,
-            IsBuilt: m.LibraryBuildStatus == LibraryBuildStatus.Done && m.DestinationPath != null,
+            IsBuilt: m.LibraryBuildStatus == LibraryBuildStatus.Done && (m.DestinationPath != null || m.AudioAssetId != null),
             IsKeeper: m.Id == keeper.Id,
             IsPinned: m.DuplicateKeeperPinnedAtUtc != null,
             Confidence: confirmedIds.Contains(m.Id) ? "confirmed" : "suspected",

@@ -120,6 +120,7 @@ public class MusicHoarderDbContext : DbContext
     }
 
     public DbSet<SongMetadata> Songs { get; set; } = null!;
+    public DbSet<AudioAsset> AudioAssets { get; set; } = null!;
     public DbSet<SongDuplicateLink> SongDuplicateLinks { get; set; } = null!;
     public DbSet<ArtistAlias> ArtistAliases { get; set; } = null!;
     public DbSet<DedupDismissal> DedupDismissals { get; set; } = null!;
@@ -223,9 +224,27 @@ public class MusicHoarderDbContext : DbContext
                 .HasForeignKey(e => e.DuplicateOfId)
                 .OnDelete(DeleteBehavior.SetNull);
 
+            // Assets are never deleted, so Restrict only guards against a mistake.
+            entity.HasOne(e => e.AudioAsset)
+                .WithMany()
+                .HasForeignKey(e => e.AudioAssetId)
+                .OnDelete(DeleteBehavior.Restrict);
+
             // Global query filter: scope every read to the current user. Background services
             // bypass via .IgnoreQueryFilters().
             entity.HasQueryFilter(s => !hasUser || s.OwnerUserId == FilterUserId);
+        });
+
+        // Instance-wide: no owner, no query filter. Songs reach an asset only through their own
+        // AudioAssetId, which the songs' filter already scopes.
+        modelBuilder.Entity<AudioAsset>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Sha256).HasMaxLength(64);
+            entity.HasIndex(e => e.Sha256).IsUnique();
+            entity.HasIndex(e => e.StoragePath);
+            entity.Property(e => e.Container).HasMaxLength(16);
+            entity.Property(e => e.Codec).HasMaxLength(128);
         });
 
         modelBuilder.Entity<SongDuplicateLink>(entity =>

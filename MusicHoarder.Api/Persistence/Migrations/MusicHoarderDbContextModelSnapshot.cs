@@ -16,7 +16,7 @@ partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261127181628_AddCleanEditChecks";
+    public override string LastMigrationId => "20261127195719_AddAudioAssets";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -466,6 +466,66 @@ partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
                     .IsUnique();
 
                 b.ToTable("ArtistImages");
+            });
+
+        modelBuilder.Entity("MusicHoarder.Api.Persistence.AudioAsset", b =>
+            {
+                var id = b.Property<int>("Id")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("integer");
+
+                NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(id);
+
+                b.Property<int?>("Bitrate")
+                    .HasColumnType("integer");
+
+                b.Property<string>("Codec")
+                    .HasMaxLength(128)
+                    .HasColumnType("character varying(128)");
+
+                b.Property<string>("Container")
+                    .IsRequired()
+                    .HasMaxLength(16)
+                    .HasColumnType("character varying(16)");
+
+                b.Property<DateTime>("CreatedAtUtc")
+                    .HasColumnType("timestamp with time zone");
+
+                b.Property<int?>("DurationMs")
+                    .HasColumnType("integer");
+
+                b.Property<string>("Fingerprint")
+                    .HasColumnType("text");
+
+                b.Property<DateTime>("LastReferencedAtUtc")
+                    .HasColumnType("timestamp with time zone");
+
+                b.Property<DateTime?>("PurgedAtUtc")
+                    .HasColumnType("timestamp with time zone");
+
+                b.Property<int?>("SampleRate")
+                    .HasColumnType("integer");
+
+                b.Property<string>("Sha256")
+                    .IsRequired()
+                    .HasMaxLength(64)
+                    .HasColumnType("character varying(64)");
+
+                b.Property<long>("SizeBytes")
+                    .HasColumnType("bigint");
+
+                b.Property<string>("StoragePath")
+                    .IsRequired()
+                    .HasColumnType("text");
+
+                b.HasKey("Id");
+
+                b.HasIndex("Sha256")
+                    .IsUnique();
+
+                b.HasIndex("StoragePath");
+
+                b.ToTable("AudioAssets");
             });
 
         modelBuilder.Entity("MusicHoarder.Api.Persistence.CanonicalAlbum", b =>
@@ -1865,6 +1925,9 @@ partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
                 b.Property<string>("Artists")
                     .HasColumnType("text");
 
+                b.Property<int?>("AudioAssetId")
+                    .HasColumnType("integer");
+
                 b.Property<int?>("Bitrate")
                     .HasColumnType("integer");
 
@@ -2256,6 +2319,8 @@ partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
                     .HasColumnType("integer");
 
                 b.HasKey("Id");
+
+                b.HasIndex("AudioAssetId");
 
                 b.HasIndex("DestinationPath");
 
@@ -3497,10 +3562,17 @@ partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
 
         modelBuilder.Entity("MusicHoarder.Api.Persistence.SongMetadata", b =>
             {
+                b.HasOne("MusicHoarder.Api.Persistence.AudioAsset", "AudioAsset")
+                    .WithMany()
+                    .HasForeignKey("AudioAssetId")
+                    .OnDelete(DeleteBehavior.Restrict);
+
                 b.HasOne("MusicHoarder.Api.Persistence.SongMetadata", "DuplicateOf")
                     .WithMany()
                     .HasForeignKey("DuplicateOfId")
                     .OnDelete(DeleteBehavior.SetNull);
+
+                b.Navigation("AudioAsset");
 
                 b.Navigation("DuplicateOf");
             });

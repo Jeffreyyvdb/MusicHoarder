@@ -20,6 +20,7 @@ public static class BackgroundWorkServiceCollectionExtensions
         services.AddScoped<IBackgroundJobInsight, QualityGradingInsight>();
         services.AddScoped<IBackgroundJobInsight, EnrichmentRetriesInsight>();
         services.AddScoped<IBackgroundJobInsight, AlbumFillFollowsInsight>();
+        services.AddScoped<IBackgroundJobInsight, AudioAssetsInsight>();
         return services;
     }
 }

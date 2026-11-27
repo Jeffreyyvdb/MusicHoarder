@@ -46,6 +46,7 @@ public class SongReportService(
     ILibraryDestinationCleaner destinationCleaner,
     IOptions<MusicEnricherOptions> options,
     IOptionsMonitor<SlskdOptions> slskdOptions,
+    Assets.AudioAssetRegistry assetRegistry,
     ILogger<SongReportService> logger)
 {
     public const string WishlistReportedError = "Reported as a wrong download and removed from the library.";
@@ -70,6 +71,8 @@ public class SongReportService(
         var now = DateTime.UtcNow;
         var report = Snapshot(ownerId, song, fetcher, reason, note, now);
 
+        // Removal may delete a file an asset stores; hold the claim until the purge mark is saved.
+        using var assetClaim = remove ? await Assets.AudioAssetRegistry.ClaimAsync(ct) : null;
         if (remove)
         {
             var sourceIsManaged = IsManaged(song.SourcePath);
@@ -78,6 +81,14 @@ public class SongReportService(
                 return new SongReportResult(SongReportOutcome.NotRemovable, Message:
                     "This file is in your own music folder, which MusicHoarder never deletes from. "
                     + "Delete it there and the next scan drops it from the library.");
+            }
+
+            // A stored file another song plays stays, and so does this song: deleting the row alone
+            // would only have the next scan bring it back.
+            if (song.SourceReleasedAtUtc is null && !await assetRegistry.TryPurgeForSongAsync(db, song.SourcePath, song.Id, ct))
+            {
+                return new SongReportResult(SongReportOutcome.NotRemovable, Message:
+                    "Another song plays this same stored file, so it was left in the library.");
             }
 
             // The staged download first: if it stays, the next scan brings the song back, so a failure

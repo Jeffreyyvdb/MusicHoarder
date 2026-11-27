@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MusicHoarder.Api.Assets;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
@@ -18,9 +19,17 @@ public class WishlistDownloadProcessor(
     IMusicVideoDownloader musicVideoDownloader,
     MusicVideoChannel musicVideoChannel,
     IDownloadArtworkEmbedder artworkEmbedder,
+    AudioAssetRegistry assetRegistry,
     IOptions<MusicEnricherOptions> options,
     ILogger<WishlistDownloadProcessor> logger)
 {
+    /// <summary>
+    /// Where hosted storage has providers write. The scanner skips folders whose name starts with a dot,
+    /// so a download is never indexed here before it is hashed and moved into the content store.
+    /// </summary>
+    public static string HostedStagingDirectory(MusicEnricherOptions options)
+        => Path.Combine(options.DownloadDirectory, ".staging");
+
     /// <summary>
     /// Processes up to <see cref="MusicEnricherOptions.WishlistDownloadBatchSize"/> Pending items: skips
     /// exact already-owned tracks, downloads the rest via the resolved provider, and persists the resulting
@@ -30,7 +39,8 @@ public class WishlistDownloadProcessor(
         MusicHoarderDbContext db, Guid ownerId, CancellationToken ct)
     {
         var opts = options.Value;
-        var destinationDir = opts.DownloadDirectory;
+        var hosted = opts.StorageMode == StorageMode.Hosted;
+        var destinationDir = hosted ? HostedStagingDirectory(opts) : opts.DownloadDirectory;
         var batchSize = Math.Clamp(opts.WishlistDownloadBatchSize, 1, 500);
         var claimTime = DateTime.UtcNow;
 
@@ -114,10 +124,12 @@ public class WishlistDownloadProcessor(
         // Downloads hit the network/disk only — no DB access — so the parallel section is EF-safe.
         // Parallel.ForEachAsync already bounds in-flight bodies to MaxDegreeOfParallelism, so no extra
         // semaphore is needed.
-        var results = new Dictionary<int, (DownloadResult Result, string ProviderName, string? UnavailableProvider, MusicVideoDownloadResult? Video)>();
+        var results = new Dictionary<int, (DownloadResult Result, string ProviderName, string? UnavailableProvider, MusicVideoDownloadResult? Video, AudioFileFacts? Staged)>();
         var resultsLock = new object();
         if (toDownload.Count > 0)
         {
+            if (hosted)
+                Directory.CreateDirectory(destinationDir);
             await Parallel.ForEachAsync(
                 toDownload,
                 new ParallelOptions { MaxDegreeOfParallelism = opts.DownloadConcurrency, CancellationToken = ct },
@@ -173,7 +185,22 @@ public class WishlistDownloadProcessor(
                                 result.SourceId ?? item.SourceUrl, PinIsExplicit: false,
                                 item.Artist, item.Title, item.DurationMs),
                             token);
-                    lock (resultsLock) results[item.Id] = (result, providerName, unavailableProvider, video);
+                    // Hosted storage: hash the finished file here, in parallel; storing it needs the database.
+                    AudioFileFacts? staged = null;
+                    if (hosted && result.Success && result.FilePath is not null)
+                    {
+                        try
+                        {
+                            staged = await assetRegistry.ReadAsync(result.FilePath, token);
+                        }
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                        {
+                            logger.LogWarning(ex, "Could not hash hosted download {Path}", Logging.LogSanitizer.ForLog(result.FilePath));
+                            // The item is retried with a fresh download; this copy would never be read.
+                            try { File.Delete(result.FilePath); } catch (Exception cleanup) when (cleanup is IOException or UnauthorizedAccessException) { }
+                        }
+                    }
+                    lock (resultsLock) results[item.Id] = (result, providerName, unavailableProvider, video, staged);
                 });
         }
 
@@ -181,6 +208,8 @@ public class WishlistDownloadProcessor(
         // UpdatedAtUtc stamps reflect when each item actually finished, not when the batch started.
         var finishedAt = DateTime.UtcNow;
         var downloadedCount = 0;
+        // Hosted downloads link to assets: hold the claim from the first store to the save.
+        using var assetClaim = hosted && results.Count > 0 ? await AudioAssetRegistry.ClaimAsync(ct) : null;
         foreach (var item in toDownload)
         {
             if (!results.TryGetValue(item.Id, out var entry))
@@ -192,16 +221,28 @@ public class WishlistDownloadProcessor(
                 continue;
             }
 
-            var (result, providerName, unavailableProvider, video) = entry;
+            var (result, providerName, unavailableProvider, video, staged) = entry;
             item.DownloadProvider = providerName;
             item.UpdatedAtUtc = finishedAt;
 
-            if (result.Success && result.FilePath is not null)
+            var filePath = result.FilePath;
+            if (hosted && result.Success && filePath is not null)
+            {
+                filePath = await StoreHostedAsync(db, staged, ct);
+                if (filePath is null)
+                {
+                    item.MarkFailed("The download could not be moved into the content store.", opts.WishlistDownloadRetryBaseMinutes, opts.WishlistDownloadMaxAttempts, finishedAt);
+                    progressTracker.IncrementFailed();
+                    continue;
+                }
+            }
+
+            if (result.Success && filePath is not null)
             {
                 item.Status = WishlistItemStatus.Downloaded;
                 item.AttemptCount += 1;
                 item.NextAttemptAtUtc = null;
-                item.DownloadedFilePath = NormalizePath(result.FilePath);
+                item.DownloadedFilePath = NormalizePath(filePath);
                 item.DownloadedSourceId = Truncate(result.SourceId, 128);
                 item.LastError = null;
                 // Delivered by a provider behind one that was down: remember which, so the upgrade
@@ -244,6 +285,27 @@ public class WishlistDownloadProcessor(
 
         await db.SaveChangesAsync(ct);
         return (batch.Count, downloadedCount);
+    }
+
+    /// <summary>
+    /// Moves a hosted download into the content store, or drops it when the same bytes are stored
+    /// already. Returns where the item's file now is, or null when it could not be stored.
+    /// </summary>
+    private async Task<string?> StoreHostedAsync(MusicHoarderDbContext db, AudioFileFacts? staged, CancellationToken ct)
+    {
+        if (staged is null)
+            return null;
+        try
+        {
+            return await assetRegistry.StoreDownloadAsync(db, staged, ct);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            logger.LogWarning(ex, "Could not store hosted download {Path}", Logging.LogSanitizer.ForLog(staged.Path));
+            // The item is retried with a fresh download; a staged copy left behind would never be read.
+            try { File.Delete(staged.Path); } catch (Exception cleanup) when (cleanup is IOException or UnauthorizedAccessException) { }
+            return null;
+        }
     }
 
     /// <summary>

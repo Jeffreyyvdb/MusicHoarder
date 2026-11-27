@@ -136,7 +136,7 @@ public sealed record SharedSongRowDto
             HasMusicVideo = hasMusicVideo,
             AcquiredAtUtc = song.AcquiredAtUtc ?? song.IndexedAtUtc,
             IsBuilt = song.LibraryBuildStatus == LibraryBuildStatus.Done
-                && !string.IsNullOrWhiteSpace(song.DestinationPath),
+                && (!string.IsNullOrWhiteSpace(song.DestinationPath) || song.AudioAssetId != null),
             SharedByUserId = sharedByUserId,
             LikedAtUtc = state?.LikedAtUtc,
             PlayCount = state?.PlayCount ?? 0,

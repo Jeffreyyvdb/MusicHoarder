@@ -200,7 +200,8 @@ public static class EnrichmentEndpoints
                             scope.ServiceProvider.GetRequiredService<IDownloadArtworkEmbedder>(),
                             ids => channel.EnqueueRange(ids, label: "Re-stamp wishlist downloads"),
                             logger,
-                            lifetime.ApplicationStopping);
+                            lifetime.ApplicationStopping,
+                            scope.ServiceProvider.GetRequiredService<Assets.AudioAssetRegistry>());
                     }
                     catch (Exception ex)
                     {
@@ -228,9 +229,9 @@ public static class EnrichmentEndpoints
             .WithSummary("Trigger the FingerprintService to fingerprint tracks with missing fingerprints.")
             .RequireAdmin();
 
-        group.MapPost("/build", (JobManager jobManager, IDirectoryAvailability availability) =>
+        group.MapPost("/build", (JobManager jobManager, IDirectoryAvailability availability, IOptions<MusicEnricherOptions> options) =>
             {
-                if (!availability.Current.AllAvailable)
+                if (!availability.Current.CanBuild(options.Value.StorageMode))
                     return Results.Conflict(new { message = "Source/destination directory is offline. Reconnect to your music library before building." });
 
                 if (!jobManager.TryStartJob(JobType.Build, out var jobId, out _))
@@ -255,7 +256,7 @@ public static class EnrichmentEndpoints
                 if (string.IsNullOrWhiteSpace(artist) || string.IsNullOrWhiteSpace(album))
                     return Results.BadRequest(new { message = "artist and album are required." });
 
-                if (!availability.Current.AllAvailable)
+                if (!availability.Current.CanBuild(options.Value.StorageMode))
                     return Results.Conflict(new { message = "Source/destination directory is offline. Reconnect to your music library before rebuilding." });
 
                 // First choice: consolidate against the multi-provider canonical tracklist — this heals
@@ -334,9 +335,10 @@ public static class EnrichmentEndpoints
                 IAlbumSplitHealer healer,
                 IDirectoryAvailability availability,
                 JobManager jobManager,
+                IOptions<MusicEnricherOptions> options,
                 CancellationToken ct) =>
             {
-                if (!availability.Current.AllAvailable)
+                if (!availability.Current.CanBuild(options.Value.StorageMode))
                     return Results.Conflict(new { message = "Source/destination directory is offline. Reconnect to your music library before healing." });
 
                 var result = await healer.HealAsync(ct);
@@ -582,7 +584,8 @@ public static class EnrichmentEndpoints
         IDownloadArtworkEmbedder artworkEmbedder,
         Action<IReadOnlyList<int>> enqueue,
         ILogger logger,
-        CancellationToken ct)
+        CancellationToken ct,
+        Assets.AudioAssetRegistry? assetRegistry = null)
     {
         // Map each linked song to its WishlistItem identity (a song satisfies at most one item via the
         // unique (owner, track) index; if several point at the same song, any is fine).
@@ -626,14 +629,24 @@ public static class EnrichmentEndpoints
                 var album = DownloadTagWriter.ResolveAlbum(id.Album, id.Title);
 
                 // Rewrite the file tags (durable). Tolerant — a missing file (e.g. a prior build
-                // "file not found") still gets its DB identity fixed below.
-                if (DownloadTagWriter.Stamp(song.SourcePath, id.Artist, id.Title, album, id.Isrc, logger))
-                    fileStamped++;
+                // "file not found") still gets its DB identity fixed below. A stored audio asset is
+                // never written to: its bytes are its name, and other songs may play it. The claim,
+                // per song, stops the file becoming an asset between this check and the writes.
+                using (await Assets.AudioAssetRegistry.ClaimAsync(ct))
+                {
+                    var sourcePath = song.SourcePath;
+                    // A content-store file is named by its hash even before its asset row is saved.
+                    var stored = song.AudioAssetId is not null
+                        || assetRegistry?.ContentStoreSha(sourcePath) is not null
+                        || await db.AudioAssets.AnyAsync(a => a.PurgedAtUtc == null && a.StoragePath == sourcePath, ct);
+                    if (!stored && DownloadTagWriter.Stamp(song.SourcePath, id.Artist, id.Title, album, id.Isrc, logger))
+                        fileStamped++;
 
-                // Backfill cover art for files downloaded before the downloader embedded any (no-op
-                // when the file already has art, the item has no image, or the file is gone).
-                if (await artworkEmbedder.EmbedAsync(song.SourcePath, id.AlbumArt, ct))
-                    song.HasCoverArt = true;
+                    // Backfill cover art for files downloaded before the downloader embedded any (no-op
+                    // when the file already has art, the item has no image, or the file is gone).
+                    if (!stored && await artworkEmbedder.EmbedAsync(song.SourcePath, id.AlbumArt, ct))
+                        song.HasCoverArt = true;
+                }
 
                 song.Artist = NullIfEmpty(id.Artist);
                 song.Title = NullIfEmpty(id.Title);

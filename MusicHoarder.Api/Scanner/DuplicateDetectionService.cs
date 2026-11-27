@@ -34,7 +34,7 @@ public interface IDuplicateDetectionService
         .OrderByDescending(s => s.DuplicateKeeperPinnedAtUtc ?? DateTime.MinValue)
         .ThenByDescending(QualityScore)
         .ThenByDescending(s => s.EnrichmentStatus == EnrichmentStatus.Matched)
-        .ThenByDescending(s => s.LibraryBuildStatus == LibraryBuildStatus.Done && s.DestinationPath != null)
+        .ThenByDescending(s => s.LibraryBuildStatus == LibraryBuildStatus.Done && (s.DestinationPath != null || s.AudioAssetId != null))
         .ThenByDescending(s => s.FileSizeBytes)
         .ThenBy(s => s.Id)
         .ToList();

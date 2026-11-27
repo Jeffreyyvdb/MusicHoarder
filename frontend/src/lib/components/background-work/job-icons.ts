@@ -6,6 +6,7 @@ import {
   DiscAlbum,
   Download,
   Gauge,
+  HardDrive,
   Image,
   RefreshCw
 } from '@lucide/svelte';
@@ -21,5 +22,6 @@ export const JOB_ICONS: Record<BackgroundJobId, Icon> = {
   'music-video-downloads': Download,
   'quality-grading': Gauge,
   'enrichment-retries': RefreshCw,
-  'album-fill-follows': DiscAlbum
+  'album-fill-follows': DiscAlbum,
+  'audio-assets': HardDrive
 };

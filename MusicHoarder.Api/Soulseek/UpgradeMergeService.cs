@@ -29,6 +29,7 @@ public class UpgradeMergeService(
     ILibraryDestinationCleaner destinationCleaner,
     IOptionsMonitor<SlskdOptions> slskdOptions,
     IOptions<MusicEnricherOptions> enricherOptions,
+    Assets.AudioAssetRegistry assetRegistry,
     ILogger<UpgradeMergeService> logger)
 {
     /// <summary>Processes every AwaitingIngest request whose provisional row is ready. Returns how
@@ -152,33 +153,42 @@ public class UpgradeMergeService(
         db.Songs.Remove(provisional);
         await db.SaveChangesAsync(ct);
 
-        var oldSourcePath = target.SourcePath;
-        target.ApplySourceUpgrade(
-            facts.SourcePath, facts.FileSizeBytes, facts.FileName, facts.Extension,
-            facts.LastModifiedUtc, facts.Bitrate, facts.Fingerprint,
-            facts.DurationSeconds, facts.DurationMs);
-        // The duplicate flags referenced the old fingerprint pairing; the next dedup run recomputes.
-        if (target.IsDuplicate)
-            target.ClearDuplicate();
-        target.ResetLibraryBuild();
-        // The song's audio is now a different recording, so any music-video sync offset — including a
-        // Manual one, which was nudged against the OLD audio — is stale. Reset and re-align against
-        // the fingerprint ApplySourceUpgrade just installed.
-        var musicVideo = await db.SongMusicVideos
-            .IgnoreQueryFilters()
-            .FirstOrDefaultAsync(v => v.SongId == target.Id, ct);
-        if (musicVideo is not null)
+        // The file swap holds the claim adoption links under, so the two cannot interleave.
+        string oldSourcePath;
+        SongMusicVideo? musicVideo;
+        using (await Assets.AudioAssetRegistry.ClaimAsync(ct))
         {
-            musicVideo.SyncOffsetMs = 0;
-            musicVideo.SyncSource = MusicVideoSyncSource.Unaligned;
-            musicVideo.SyncConfidence = null;
+            oldSourcePath = target.SourcePath;
+            target.ApplySourceUpgrade(
+                facts.SourcePath, facts.FileSizeBytes, facts.FileName, facts.Extension,
+                facts.LastModifiedUtc, facts.Bitrate, facts.Fingerprint,
+                facts.DurationSeconds, facts.DurationMs);
+            // The duplicate flags referenced the old fingerprint pairing; the next dedup run recomputes.
+            if (target.IsDuplicate)
+                target.ClearDuplicate();
+            target.ResetLibraryBuild();
+            // ApplySourceUpgrade clears the asset link; write it even when it already reads null here,
+            // so a link adoption saved since this row was loaded cannot outlive the file it was hashed from.
+            db.Entry(target).Property(s => s.AudioAssetId).IsModified = true;
+            // The song's audio is now a different recording, so any music-video sync offset — including a
+            // Manual one, which was nudged against the OLD audio — is stale. Reset and re-align against
+            // the fingerprint ApplySourceUpgrade just installed.
+            musicVideo = await db.SongMusicVideos
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(v => v.SongId == target.Id, ct);
+            if (musicVideo is not null)
+            {
+                musicVideo.SyncOffsetMs = 0;
+                musicVideo.SyncSource = MusicVideoSyncSource.Unaligned;
+                musicVideo.SyncConfidence = null;
+            }
+            request.MarkTerminal(UpgradeRequestStatus.Completed);
+            await db.SaveChangesAsync(ct);
         }
-        request.MarkTerminal(UpgradeRequestStatus.Completed);
-        await db.SaveChangesAsync(ct);
         if (musicVideo is not null)
             musicVideoChannel.Enqueue(new MusicVideoWorkItem(target.Id, MusicVideoWorkKind.Align));
 
-        DeleteOldSourceFile(oldSourcePath);
+        await DeleteOldSourceFileAsync(oldSourcePath, target.Id, ct);
 
         if (jobManager.TryStartJob(JobType.Build, out var jobId, out _))
             logger.LogInformation("Upgrade merge triggered build {JobId}", jobId);
@@ -196,15 +206,7 @@ public class UpgradeMergeService(
         db.Songs.Remove(provisional);
         request.MarkTerminal(UpgradeRequestStatus.Failed, reason);
         await db.SaveChangesAsync(ct);
-        try
-        {
-            if (File.Exists(downloadedPath))
-                File.Delete(downloadedPath);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            logger.LogWarning(ex, "Failed to delete rejected upgrade download {Path}", LogSanitizer.ForLog(downloadedPath));
-        }
+        await DeleteUnlessSharedAsync(downloadedPath, provisional.Id, "rejected upgrade download", ct);
         logger.LogInformation("Upgrade for song {SongId} aborted: {Reason}", request.SongId, reason);
     }
 
@@ -275,9 +277,10 @@ public class UpgradeMergeService(
     /// The replaced source file is deleted only when it lives under a writable managed directory
     /// (the download staging dir or the synced-source dir). Files in the read-only source library
     /// are left in place — the scanner will re-index them as a new row (accepted v1 behavior; the
-    /// builder's position guard prevents a destination collision).
+    /// builder's position guard prevents a destination collision). An asset's file is never deleted
+    /// here either: other songs may play the same stored bytes.
     /// </summary>
-    private void DeleteOldSourceFile(string sourcePath)
+    private async Task DeleteOldSourceFileAsync(string sourcePath, int songId, CancellationToken ct)
     {
         var managedRoots = new[]
         {
@@ -295,14 +298,31 @@ public class UpgradeMergeService(
             return;
         }
 
+        await DeleteUnlessSharedAsync(sourcePath, songId, "replaced source file", ct);
+    }
+
+    /// <summary>
+    /// Deletes a managed file, unless it is an asset another live song still plays: that file stays,
+    /// and its asset with it. An asset only this song used is marked purged as the file goes.
+    /// </summary>
+    private async Task DeleteUnlessSharedAsync(string path, int songId, string what, CancellationToken ct)
+    {
+        using var claim = await Assets.AudioAssetRegistry.ClaimAsync(ct);
+        if (!await assetRegistry.TryPurgeForSongAsync(db, path, songId, ct))
+        {
+            logger.LogInformation("Left {What} in place: another song plays the same stored file {Path}", what, LogSanitizer.ForLog(path));
+            return;
+        }
+        await db.SaveChangesAsync(ct);
+
         try
         {
-            if (File.Exists(sourcePath))
-                File.Delete(sourcePath);
+            if (File.Exists(path))
+                File.Delete(path);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            logger.LogWarning(ex, "Failed to delete replaced source file {Path}", LogSanitizer.ForLog(sourcePath));
+            logger.LogWarning(ex, "Failed to delete {What} {Path}", what, LogSanitizer.ForLog(path));
         }
     }
 }

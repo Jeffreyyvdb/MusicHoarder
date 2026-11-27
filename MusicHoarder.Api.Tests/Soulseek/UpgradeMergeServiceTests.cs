@@ -539,6 +539,7 @@ public class UpgradeMergeServiceTests : IDisposable
         return new UpgradeMergeService(
             db, new JobManager(), new OwnerLookupService(), musicVideoChannel,
             new LibraryDestinationCleaner(new System.IO.Abstractions.FileSystem()), slskd, enricher,
+            new MusicHoarder.Api.Assets.AudioAssetRegistry(enricher, TimeProvider.System, NullLogger<MusicHoarder.Api.Assets.AudioAssetRegistry>.Instance),
             NullLogger<UpgradeMergeService>.Instance);
     }
 

@@ -76,6 +76,10 @@ services:
       MusicEnricher__DownloadDirectory: "/data/downloads"
       MusicEnricher__YtDlpCookiesPath: "${YTDLP_COOKIES_PATH:-}"
       MusicEnricher__YtDlpExtraArgs: "${YTDLP_EXTRA_ARGS:-}"
+      MusicEnricher__StorageMode: "${STORAGE_MODE:-Folders}"
+      MusicEnricher__ContentStoreDirectory: "/data/downloads/content"
+      MusicEnricher__EnableAudioAssetAdoption: "${ENABLE_AUDIO_ASSET_ADOPTION:-false}"
+      MusicEnricher__AudioAssetAdoptionConcurrency: "${AUDIO_ASSET_ADOPTION_CONCURRENCY:-2}"
       MusicEnricher__DownloadProviders__0: "${DOWNLOAD_PROVIDER_1:-spotiflac}"
       MusicEnricher__DownloadProviders__1: "${DOWNLOAD_PROVIDER_2:-slskd}"
       MusicEnricher__DownloadProviders__2: "${DOWNLOAD_PROVIDER_3:-yt-dlp}"
@@ -117,6 +121,9 @@ services:
         target: "/data/cookies/youtube.txt"
         source: "${YTDLP_COOKIES_HOST_PATH:-/dev/null}"
         read_only: true
+      - type: "volume"
+        target: "/data/downloads/content"
+        source: "musichoarder-content"
       - type: "volume"
         target: "/data/synced-source"
         source: "musichoarder-synced-source"
@@ -250,6 +257,8 @@ volumes:
   musichoarder-cover-thumbs:
     driver: "local"
   musichoarder-downloads:
+    driver: "local"
+  musichoarder-content:
     driver: "local"
   musichoarder-synced-source:
     driver: "local"

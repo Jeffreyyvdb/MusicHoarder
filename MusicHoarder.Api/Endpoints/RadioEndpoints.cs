@@ -110,7 +110,7 @@ public static class RadioEndpoints
                 s.PlayCount,
                 s.LikedAtUtc,
                 s.LastPlayedAtUtc,
-                s.LibraryBuildStatus == LibraryBuildStatus.Done && s.DestinationPath != null))
+                s.LibraryBuildStatus == LibraryBuildStatus.Done && (s.DestinationPath != null || s.AudioAssetId != null)))
             .ToListAsync(ct);
 
     /// <summary>

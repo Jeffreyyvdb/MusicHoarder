@@ -37,6 +37,9 @@ public sealed record StagedSourceReleaseResult(
     /// <summary>The download and destination roots nest, so "under staging" and "in the library" overlap.</summary>
     public const string IdleRootsNested = "roots-nested";
 
+    /// <summary>Hosted storage keeps no destination copy, so a download's file is its only copy.</summary>
+    public const string IdleHostedStorage = "hosted-storage";
+
     public static StagedSourceReleaseResult Idle(string reason) => new(0, 0, 0, 0, 0, 0, 0, reason);
 }
 
@@ -79,6 +82,8 @@ public class StagedSourceReleaseService(
     public string? UnavailableReason()
     {
         var opts = options.Value;
+        if (opts.StorageMode == StorageMode.Hosted)
+            return StagedSourceReleaseResult.IdleHostedStorage;
         if (!opts.EnableWishlistDownloads)
             return StagedSourceReleaseResult.IdleDownloadsDisabled;
         if (string.IsNullOrWhiteSpace(opts.DownloadDirectory))
@@ -221,6 +226,9 @@ public class StagedSourceReleaseService(
 
     private async Task<ReleaseOutcome> ReleaseOneAsync(Candidate c, string downloadRoot, CancellationToken ct)
     {
+        // Adoption links files under the same claim, so a file cannot become an asset mid-release.
+        using var claim = await Assets.AudioAssetRegistry.ClaimAsync(ct);
+
         // 1. Stamp the row first. From this moment the scanner treats the missing file as intended.
         var song = await db.Songs.IgnoreQueryFilters().FirstOrDefaultAsync(s => s.Id == c.Id, ct);
         if (song is null || !StillEligible(song, c))
@@ -236,11 +244,13 @@ public class StagedSourceReleaseService(
         //    load and our save changed the row's build state; the stamp must not stand on such a row.
         var current = await db.Songs.IgnoreQueryFilters().AsNoTracking()
             .Where(s => s.Id == c.Id)
-            .Select(s => new { s.LibraryBuildStatus, s.PreviousDestinationPath, s.SourcePath, s.DeletedAtUtc })
+            .Select(s => new { s.LibraryBuildStatus, s.PreviousDestinationPath, s.SourcePath, s.DeletedAtUtc, s.AudioAssetId })
             .FirstAsync(ct);
         if (current.LibraryBuildStatus != LibraryBuildStatus.Done
             || current.PreviousDestinationPath is not null
             || current.DeletedAtUtc is not null
+            || current.AudioAssetId is not null
+            || await db.AudioAssets.AnyAsync(a => a.StoragePath == c.SourcePath && a.PurgedAtUtc == null, ct)
             || !string.Equals(current.SourcePath, c.SourcePath, StringComparison.Ordinal))
         {
             await RevertAsync(song, ct);
@@ -285,6 +295,7 @@ public class StagedSourceReleaseService(
         && song.DestinationPath is not null
         && song.PreviousDestinationPath is null
         && !song.IsSourceReleased
+        && song.AudioAssetId is null
         && song.DeletedAtUtc is null
         && string.Equals(song.SourcePath, c.SourcePath, StringComparison.Ordinal);
 
@@ -359,6 +370,8 @@ public class StagedSourceReleaseService(
                 && s.DeletedAtUtc == null
                 && !s.IsSynthetic
                 && s.SourceReleasedAtUtc == null
+                // An asset's file is the stored copy other libraries may point at; it is never released.
+                && s.AudioAssetId == null
                 && s.LibraryBuildStatus == LibraryBuildStatus.Done
                 && s.DestinationPath != null
                 && s.PreviousDestinationPath == null
