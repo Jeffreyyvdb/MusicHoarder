@@ -58,6 +58,16 @@ public class AuthOptions
     [Range(1, 365)]
     public int SessionLifetimeDays { get; set; } = 30;
 
+    /// <summary>
+    /// How many demo sessions exist at once. The demo login is anonymous, so nothing else bounds
+    /// how many session rows it can write: past this number each new demo session replaces the
+    /// oldest one, whose browser is sent back to the login page. Not a rate limit, on purpose:
+    /// the API only ever sees the proxy in front of it, so a limit here could not tell one
+    /// client from the next, and a shared one would let a single script lock every visitor out.
+    /// </summary>
+    [Range(1, 100_000)]
+    public int DemoSessionLimit { get; set; } = 500;
+
     [MaxLength(64)]
     public string CookieName { get; set; } = "mh_session";
 

@@ -60,6 +60,34 @@ public class DemoReadOnlyMiddlewareTests
     }
 
     [Theory]
+    [InlineData("/api/auth/logout-extra")]
+    [InlineData("/api/auth/logout/everywhere")]
+    [InlineData("/api/auth/demo-loginX")]
+    [InlineData("/api/auth/switch-owner")]
+    [InlineData("/api/auth/consume/batch")]
+    [InlineData("/api/auth/webauthn/authenticate")]
+    [InlineData("/api/auth/webauthn/authenticate-as")]
+    [InlineData("/api/auth/webauthn/authenticate/begin/extra")]
+    [InlineData("/api/invite/accept-all")]
+    public async Task demo_auth_allowance_does_not_reach_a_path_that_only_starts_like_one(string path)
+    {
+        var (ctx, nextCalled) = await InvokeAsync(Demo(), "POST", path);
+
+        Assert.False(nextCalled());
+        Assert.Equal(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("/api/auth/logout/")]
+    [InlineData("/API/Auth/Logout")]
+    public async Task demo_auth_allowance_ignores_case_and_a_trailing_slash(string path)
+    {
+        var (_, nextCalled) = await InvokeAsync(Demo(), "POST", path);
+
+        Assert.True(nextCalled());
+    }
+
+    [Theory]
     [InlineData("/api/share/AbC-123_x/visit")]
     [InlineData("/api/share/AbC-123_x/songs/42/play")]
     public async Task demo_may_send_a_share_links_open_and_play_beacons(string path)

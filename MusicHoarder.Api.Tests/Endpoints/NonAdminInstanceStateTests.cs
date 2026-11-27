@@ -6,8 +6,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
+using MusicHoarder.Api.Download;
 using MusicHoarder.Api.Endpoints;
 using MusicHoarder.Api.Enrichment;
+using MusicHoarder.Api.Jobs;
+using MusicHoarder.Api.Library;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Pipeline;
@@ -45,6 +48,8 @@ public class NonAdminInstanceStateTests
                  {
                      "/api/enrichment/library-availability", "/overview",
                      "/library/directory-tree", "/api/quality/progress",
+                     "/api/enrichment/status", "/api/enrichment/progress",
+                     "/api/enrichment/purge-status",
                  })
         {
             var (status, body) = await Get(Caller(who), path);
@@ -52,6 +57,7 @@ public class NonAdminInstanceStateTests
             Assert.DoesNotContain(DestDir, body);
             Assert.DoesNotContain(ProviderText, body);
             Assert.DoesNotContain("7654", body);
+            Assert.DoesNotContain("5432", body);
             if (path != "/api/quality/progress")
                 Assert.Equal(StatusCodes.Status200OK, status);
             else
@@ -67,6 +73,17 @@ public class NonAdminInstanceStateTests
         Assert.Contains("\"destinationAvailable\":true", body);
     }
 
+    [Theory]
+    [MemberData(nameof(NonAdmins))]
+    public async Task Non_admin_reads_an_idle_pipeline(string who)
+    {
+        var status = (await Get(Caller(who), "/api/enrichment/status")).Body;
+        Assert.Contains("\"status\":\"Idle\"", status);
+        Assert.Contains("\"isComplete\":true", status);
+        Assert.Contains("\"isComplete\":true", (await Get(Caller(who), "/api/enrichment/progress")).Body);
+        Assert.Contains("\"status\":\"idle\"", (await Get(Caller(who), "/api/enrichment/purge-status")).Body);
+    }
+
     [Fact]
     public async Task Admin_gets_directory_paths_and_run_state()
     {
@@ -76,6 +93,9 @@ public class NonAdminInstanceStateTests
         Assert.Contains(DestDir, overview);
         Assert.Contains("7654", overview);
         Assert.Contains(SourceDir, (await Get(Caller("admin"), "/library/directory-tree")).Body);
+        Assert.Contains("7654", (await Get(Caller("admin"), "/api/enrichment/status")).Body);
+        Assert.Contains("7654", (await Get(Caller("admin"), "/api/enrichment/progress")).Body);
+        Assert.Contains("5432", (await Get(Caller("admin"), "/api/enrichment/purge-status")).Body);
         var progress = await Get(Caller("admin"), "/api/quality/progress");
         Assert.Equal(StatusCodes.Status200OK, progress.Status);
         Assert.Contains(ProviderText, progress.Body);
@@ -101,6 +121,15 @@ public class NonAdminInstanceStateTests
         builder.Services.AddSingleton(scan);
         builder.Services.AddSingleton(new FingerprintProgressTracker());
         builder.Services.AddSingleton(new EnrichmentProgressTracker());
+        builder.Services.AddSingleton(new LibraryBuilderProgressTracker());
+        builder.Services.AddSingleton(new DownloadProgressTracker());
+        var jobs = new JobManager();
+        jobs.TryStartJob(JobType.Scan, out _, out _);
+        builder.Services.AddSingleton(jobs);
+        var purge = new PurgeStatusTracker();
+        purge.Start("all", Guid.NewGuid());
+        purge.SetTotals(5432, 0);
+        builder.Services.AddSingleton(purge);
         builder.Services.AddSingleton(grading);
         builder.Services.AddSingleton<IDirectoryAvailability>(new FixedAvailability());
         builder.Services.AddSingleton<IRuntimeSettingsService>(new StubRuntimeSettings());
@@ -122,7 +151,16 @@ public class NonAdminInstanceStateTests
         var http = new DefaultHttpContext { RequestServices = scope.ServiceProvider };
         http.Request.Method = HttpMethods.Get;
         http.Response.Body = body;
-        await endpoint.RequestDelegate!(http);
+        // The progress stream has no end of its own: read what it sends first, then hang up.
+        using var hangUp = new CancellationTokenSource(TimeSpan.FromMilliseconds(400));
+        if (path == "/api/enrichment/progress") http.RequestAborted = hangUp.Token;
+        try
+        {
+            await endpoint.RequestDelegate!(http);
+        }
+        catch (OperationCanceledException) when (hangUp.IsCancellationRequested)
+        {
+        }
         return (http.Response.StatusCode, Encoding.UTF8.GetString(body.ToArray()));
     }
 

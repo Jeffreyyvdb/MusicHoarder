@@ -153,6 +153,46 @@ public class AuthServiceTests
     }
 
     [Fact]
+    public async Task StartDemoSession_keeps_only_the_newest_demo_sessions()
+    {
+        var (svc, ctx) = MakeService(demoSessionLimit: 3);
+        var minted = new List<Session>();
+        for (var i = 0; i < 5; i++)
+            minted.Add((await svc.StartDemoSessionAsync(null, null, default))!);
+
+        await using var db = ctx();
+        var stored = await db.Sessions.Select(s => s.Id).ToListAsync();
+        Assert.Equal(minted.Skip(2).Select(s => s.Id).Order(), stored.Order());
+        Assert.Null(await svc.ResolveSessionAsync(minted[0].Id, default));
+        Assert.NotNull(await svc.ResolveSessionAsync(minted[4].Id, default));
+    }
+
+    [Fact]
+    public async Task StartDemoSession_drops_ended_demo_sessions_and_leaves_other_accounts_alone()
+    {
+        var (svc, ctx) = MakeService(seedOwnerEmail: "me@example.com", demoSessionLimit: 3);
+        var link = await svc.RequestLinkAsync("me@example.com", "http://app", null, null, null, default);
+        var rawToken = Uri.UnescapeDataString(new Uri(link!.DevMagicLinkUrl!).Query.TrimStart('?').Split('=')[1]);
+        var owner = await svc.ConsumeLinkAsync(rawToken, null, null, default);
+        await svc.RevokeAsync(owner!.Id, allForUser: false, default);
+
+        var loggedOut = await svc.StartDemoSessionAsync(null, null, default);
+        await svc.RevokeAsync(loggedOut!.Id, allForUser: false, default);
+        var expired = await svc.StartDemoSessionAsync(null, null, default);
+        await using (var db = ctx())
+        {
+            (await db.Sessions.FirstAsync(s => s.Id == expired!.Id)).ExpiresAtUtc = DateTime.UtcNow.AddMinutes(-1);
+            await db.SaveChangesAsync();
+        }
+
+        var live = await svc.StartDemoSessionAsync(null, null, default);
+
+        await using var after = ctx();
+        var stored = await after.Sessions.Select(s => s.Id).ToListAsync();
+        Assert.Equal(new[] { owner.Id, live!.Id }.Order(), stored.Order());
+    }
+
+    [Fact]
     public async Task Revoke_invalidates_session()
     {
         var (svc, ctx) = MakeService();
@@ -168,7 +208,7 @@ public class AuthServiceTests
 
     // -- helpers --
 
-    private static (IAuthService Service, Func<MusicHoarderDbContext> CreateCtx) MakeService(string? seedOwnerEmail = null)
+    private static (IAuthService Service, Func<MusicHoarderDbContext> CreateCtx) MakeService(string? seedOwnerEmail = null, int demoSessionLimit = 500)
     {
         var dbName = Guid.NewGuid().ToString();
         var options = new DbContextOptionsBuilder<MusicHoarderDbContext>()
@@ -218,6 +258,7 @@ public class AuthServiceTests
                 DemoUserEmail = "demo@example.com",
                 MagicLinkTtlMinutes = 15,
                 SessionLifetimeDays = 30,
+                DemoSessionLimit = demoSessionLimit,
             }),
             NullLogger<AuthService>.Instance);
 
