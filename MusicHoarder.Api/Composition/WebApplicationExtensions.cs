@@ -60,6 +60,7 @@ public static class WebApplicationExtensions
         app.MapQualityEndpoints();
         app.MapAlbumQualityEndpoints();
         app.MapQualityTrialEndpoints();
+        app.MapCleanEditEndpoints();
         app.MapSnapshotsEndpoints();
         app.MapSpotifyEndpoints();
         app.MapWishlistEndpoints();

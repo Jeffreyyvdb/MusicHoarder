@@ -1,0 +1,204 @@
+using System.Globalization;
+using System.Text.Json;
+using MusicHoarder.Api.RateLimiting;
+
+namespace MusicHoarder.Api.CleanEdits;
+
+internal sealed record ReferenceQuery(string Artist, string Title, string? Isrc, double DurationSeconds);
+
+/// <summary>A free 30 s preview of one edition of the song.</summary>
+internal sealed record EditionReference(Edition Edition, string Id, string PreviewUrl);
+
+/// <summary><see cref="Incomplete"/> is set when a catalog could not be asked, so an empty answer is not proof that the song has no references.</summary>
+internal sealed record ReferenceLookup(IReadOnlyList<EditionReference> References, bool Incomplete);
+
+/// <summary>Where the explicit and clean editions of a song come from.</summary>
+internal interface IEditionReferenceClient
+{
+    Task<ReferenceLookup> FindAsync(ReferenceQuery query, CancellationToken ct);
+
+    /// <summary>The preview's bytes, or null when it could not be fetched.</summary>
+    Task<byte[]?> DownloadPreviewAsync(string url, CancellationToken ct);
+}
+
+/// <summary>
+/// iTunes Search and Deezer as reference catalogs. Both flag every edition ("explicit" / "cleaned",
+/// "explicit_content_lyrics" 1 / 3) and give a free preview. A result counts only when its
+/// normalized title equals the song's and its length is within <see cref="DurationToleranceSeconds"/>,
+/// so a live cut or a remix is never a reference. Paced politely and never throws: a failure marks the
+/// lookup incomplete.
+/// </summary>
+internal sealed class EditionReferenceClient(HttpClient http, ILogger<EditionReferenceClient> logger) : IEditionReferenceClient
+{
+    public const string HttpClientName = "edition-references";
+    public const double DurationToleranceSeconds = 4;
+
+    internal static readonly TimeSpan ITunesInterval = TimeSpan.FromSeconds(3);
+    internal static readonly TimeSpan DeezerInterval = TimeSpan.FromMilliseconds(350);
+
+    private const int MaxPreviewBytes = 4 * 1024 * 1024;
+    private const int DeezerQuotaErrorCode = 4;
+
+    private readonly RequestRateGate _iTunesGate = new();
+    private readonly RequestRateGate _deezerGate = new();
+
+    public async Task<ReferenceLookup> FindAsync(ReferenceQuery query, CancellationToken ct)
+    {
+        var found = new List<EditionReference>();
+        var incomplete = false;
+        var wanted = ReferenceTitle.Normalize(query.Title);
+
+        try
+        {
+            found.AddRange(await SearchITunesAsync(query, wanted, ct));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            incomplete = true;
+            logger.LogDebug(ex, "iTunes reference lookup failed");
+        }
+
+        try
+        {
+            var (deezer, complete) = await SearchDeezerAsync(query, wanted, ct);
+            found.AddRange(deezer);
+            incomplete |= !complete;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            incomplete = true;
+            logger.LogDebug(ex, "Deezer reference lookup failed");
+        }
+
+        return new ReferenceLookup(found, incomplete);
+    }
+
+    public async Task<byte[]?> DownloadPreviewAsync(string url, CancellationToken ct)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
+            return null;
+        try
+        {
+            using var response = await http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct);
+            if (!response.IsSuccessStatusCode || response.Content.Headers.ContentLength > MaxPreviewBytes)
+                return null;
+            await using var body = await response.Content.ReadAsStreamAsync(ct);
+            using var buffer = new MemoryStream();
+            var chunk = new byte[16 * 1024];
+            int read;
+            while ((read = await body.ReadAsync(chunk, ct)) > 0)
+            {
+                if (buffer.Length + read > MaxPreviewBytes)
+                    return null;
+                buffer.Write(chunk, 0, read);
+            }
+            return buffer.ToArray();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            logger.LogDebug(ex, "Preview download failed");
+            return null;
+        }
+    }
+
+    private async Task<List<EditionReference>> SearchITunesAsync(ReferenceQuery query, string wanted, CancellationToken ct)
+    {
+        var term = Uri.EscapeDataString($"{ReferenceTitle.LeadArtist(query.Artist)} {ReferenceTitle.WithoutBrackets(query.Title)}");
+        using var json = await GetJsonAsync(
+            $"https://itunes.apple.com/search?term={term}&entity=song&limit=50&country=US", _iTunesGate, ITunesInterval, ct);
+
+        var found = new List<EditionReference>();
+        if (!json.RootElement.TryGetProperty("results", out var results) || results.ValueKind != JsonValueKind.Array)
+            return found;
+        foreach (var track in results.EnumerateArray())
+        {
+            var edition = Text(track, "trackExplicitness") switch
+            {
+                "explicit" => (Edition?)Edition.Explicit,
+                "cleaned" => Edition.Clean,
+                _ => null,
+            };
+            var preview = Text(track, "previewUrl");
+            if (edition is null || string.IsNullOrEmpty(preview)
+                || ReferenceTitle.Normalize(Text(track, "trackName") ?? "") != wanted
+                || Math.Abs(Number(track, "trackTimeMillis") / 1000 - query.DurationSeconds) > DurationToleranceSeconds)
+                continue;
+            found.Add(new EditionReference(edition.Value, $"itunes:{Number(track, "trackId").ToString("0", CultureInfo.InvariantCulture)}", preview));
+        }
+        return found;
+    }
+
+    private async Task<(List<EditionReference> References, bool Complete)> SearchDeezerAsync(
+        ReferenceQuery query, string wanted, CancellationToken ct)
+    {
+        var tracks = new List<JsonElement>();
+        var documents = new List<JsonDocument>();
+        var complete = true;
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(query.Isrc))
+            {
+                var byIsrc = await GetJsonAsync(
+                    $"https://api.deezer.com/track/isrc:{Uri.EscapeDataString(query.Isrc)}", _deezerGate, DeezerInterval, ct);
+                documents.Add(byIsrc);
+                complete &= !IsQuotaError(byIsrc.RootElement);
+                if (byIsrc.RootElement.TryGetProperty("id", out _))
+                    tracks.Add(byIsrc.RootElement);
+            }
+
+            var q = Uri.EscapeDataString(
+                $"artist:\"{ReferenceTitle.LeadArtist(query.Artist)}\" track:\"{ReferenceTitle.WithoutBrackets(query.Title).Trim()}\"");
+            var search = await GetJsonAsync($"https://api.deezer.com/search?q={q}", _deezerGate, DeezerInterval, ct);
+            documents.Add(search);
+            complete &= !IsQuotaError(search.RootElement);
+            if (search.RootElement.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array)
+                tracks.AddRange(data.EnumerateArray());
+
+            var found = new List<EditionReference>();
+            var seen = new HashSet<long>();
+            foreach (var track in tracks)
+            {
+                var id = (long)Number(track, "id");
+                var preview = Text(track, "preview");
+                var edition = (int)Number(track, "explicit_content_lyrics") switch
+                {
+                    1 => (Edition?)Edition.Explicit,
+                    3 => Edition.Clean,
+                    _ => null,
+                };
+                if (!seen.Add(id) || string.IsNullOrEmpty(preview) || edition is null
+                    || Math.Abs(Number(track, "duration") - query.DurationSeconds) > DurationToleranceSeconds
+                    || ReferenceTitle.Normalize(Text(track, "title") ?? "") != wanted)
+                    continue;
+                found.Add(new EditionReference(edition.Value, $"deezer:{id}", preview));
+            }
+            return (found, complete);
+        }
+        finally
+        {
+            foreach (var document in documents)
+                document.Dispose();
+        }
+    }
+
+    private async Task<JsonDocument> GetJsonAsync(string url, RequestRateGate gate, TimeSpan interval, CancellationToken ct)
+    {
+        await gate.WaitAsync(interval, ct);
+        using var response = await http.GetAsync(url, ct);
+        response.EnsureSuccessStatusCode();
+        return await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+    }
+
+    private static bool IsQuotaError(JsonElement root) =>
+        root.TryGetProperty("error", out var error)
+        && error.ValueKind == JsonValueKind.Object
+        && error.TryGetProperty("code", out var code)
+        && code.TryGetInt32(out var value)
+        && value == DeezerQuotaErrorCode;
+
+    private static string? Text(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+
+    private static double Number(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number ? value.GetDouble() : 0;
+}

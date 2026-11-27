@@ -17,10 +17,12 @@ public sealed class RequestRateGate
     private DateTime _nextSlotUtc = DateTime.MinValue;
 
     /// <summary>Waits for the next free slot at <paramref name="requestsPerSecond"/> (values below 1 are treated as 1).</summary>
-    public async Task WaitAsync(int requestsPerSecond, CancellationToken ct)
-    {
-        var minInterval = MinInterval(requestsPerSecond);
+    public Task WaitAsync(int requestsPerSecond, CancellationToken ct) =>
+        WaitAsync(MinInterval(requestsPerSecond), ct);
 
+    /// <summary>Waits for the next free slot, one <paramref name="minInterval"/> after the previous one. For rates below one a second.</summary>
+    public async Task WaitAsync(TimeSpan minInterval, CancellationToken ct)
+    {
         await _lock.WaitAsync(ct);
         try
         {

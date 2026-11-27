@@ -9,6 +9,7 @@ using MusicHoarder.Api.Audio;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
 using MusicHoarder.Api.BackgroundWork;
+using MusicHoarder.Api.CleanEdits;
 using MusicHoarder.Api.CoverArtArchive;
 using MusicHoarder.Api.Deezer;
 using MusicHoarder.Api.Discover;
@@ -460,6 +461,20 @@ public static class ServiceCollectionExtensions
         });
         services.AddSingleton<IQualityGradingService, QualityGradingService>();
         services.AddHostedService<QualityGradingBackgroundService>();
+
+        // The clean-edit check: compares built files with the free iTunes and Deezer previews of both
+        // editions. Singletons, so the two catalogs' pacing is shared by every run.
+        services.AddHttpClient(EditionReferenceClient.HttpClientName, client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(20);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("MusicHoarder-EditionCheck");
+        });
+        services.AddSingleton<IEditionReferenceClient>(sp => new EditionReferenceClient(
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient(EditionReferenceClient.HttpClientName),
+            sp.GetRequiredService<ILogger<EditionReferenceClient>>()));
+        services.AddSingleton<IMonoDecoder, FfmpegMonoDecoder>();
+        services.AddSingleton<CleanEditChecker>();
+        services.AddSingleton<CleanEditSweep>();
 
         // Album reconciliation grading — shares the chat client + QualityGradingOptions above.
         services.AddSingleton<AlbumGradingProgressTracker>();

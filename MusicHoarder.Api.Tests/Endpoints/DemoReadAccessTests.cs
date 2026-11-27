@@ -59,6 +59,8 @@ public class DemoReadAccessTests
         "/api/enrichment/split-albums",
         "/api/albums/quality/progress",
         "/api/quality/progress",
+        "/api/clean-edits",
+        "/api/clean-edits/progress",
         "/api/inbox/name-counts",
         "/api/background-work",
         "/api/background-work/{id}",
@@ -160,6 +162,7 @@ public class DemoReadAccessTests
         routes.MapAlbumQualityEndpoints();
         routes.MapQualityTrialEndpoints();
         routes.MapQualityEndpoints();
+        routes.MapCleanEditEndpoints();
         routes.MapSnapshotsEndpoints();
         routes.MapPlaylistSyncEndpoints();
         routes.MapEnrichmentEndpoints();
