@@ -16,9 +16,8 @@ export const CSP_REPORT_PATH = '/api/csp-report';
 export const CSP_REPORT_GROUP = 'csp-endpoint';
 
 /**
- * One year. It started at max-age=300 so the header could bed in before committing browsers to
- * it, and it has now run in production for a while — exactly the point at which the original
- * comment here said to raise it.
+ * One year. It started at five minutes, because a long max-age is hard to undo if a site ever has
+ * to serve plain HTTP again, and five minutes protects nobody between two visits.
  */
 const HSTS = 'max-age=31536000';
 
