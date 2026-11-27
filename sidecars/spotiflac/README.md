@@ -104,7 +104,7 @@ Instead of the built-in community relay, point at your own instances:
   MusicHoarder's job: with `StreamingFlac:PreferExplicit` (on by default) the API swaps a clean edit's id
   for its explicit edition's before calling `/acquire`, and sends that track's ISRC as `isrc`. The
   module's own ISRC lookup can come back empty, and it then searches by title, which picked the clean
-  single of an explicit track. So the wrapper seeds the module's ISRC cache with the sent ISRC (a value
-  the module cached itself wins), and makes Qobuz's title search prefer explicit hits for an explicit
-  Spotify track. The second wraps private names of the pinned module; check it still applies when you
-  bump `requirements.txt` (a warning is logged at the first download when it does not).
+  single of an explicit track. So the wrapper answers the module's ISRC lookup with the sent ISRC for
+  that Spotify id, and makes Qobuz's title search prefer an explicit hit with the requested title for an
+  explicit Spotify track. Both wrap private names of the pinned module; check they still apply when you
+  bump `requirements.txt` (a warning is logged at the first download when one does not).
