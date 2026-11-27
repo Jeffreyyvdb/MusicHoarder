@@ -38,6 +38,8 @@ public static class BackgroundJobState
 
     /// <summary>The service has not reported since the API started.</summary>
     public const string Unknown = "unknown";
+
+    public static readonly IReadOnlyList<string> All = [Off, Idle, Working, Waiting, Failing, Unknown];
 }
 
 /// <summary>
