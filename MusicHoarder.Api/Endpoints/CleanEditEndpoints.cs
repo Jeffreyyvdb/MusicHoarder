@@ -102,16 +102,17 @@ public static class CleanEditEndpoints
 
     private static IResult Start(CleanEditSweep sweep, ICurrentUserAccessor user) =>
         sweep.TryStart(user.UserId)
-            ? Results.Accepted(value: sweep.Progress)
+            ? Results.Accepted(value: sweep.ProgressFor(user.UserId))
             : Results.Conflict(new { error = "A check is already running." });
 
-    private static IResult Stop(CleanEditSweep sweep)
+    private static IResult Stop(CleanEditSweep sweep, ICurrentUserAccessor user)
     {
-        sweep.Stop();
-        return Results.Ok(sweep.Progress);
+        sweep.Stop(user.UserId);
+        return Results.Ok(sweep.ProgressFor(user.UserId));
     }
 
-    private static IResult GetProgress(CleanEditSweep sweep) => Results.Ok(sweep.Progress);
+    private static IResult GetProgress(CleanEditSweep sweep, ICurrentUserAccessor user) =>
+        Results.Ok(sweep.ProgressFor(user.UserId));
 
     private static string ToWire(CleanEditVerdict verdict) =>
         char.ToLowerInvariant(verdict.ToString()[0]) + verdict.ToString()[1..];

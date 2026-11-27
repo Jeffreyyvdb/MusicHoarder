@@ -3,11 +3,13 @@ using MusicHoarder.Api.CleanEdits;
 
 namespace MusicHoarder.Api.Tests.CleanEdits;
 
-/// <summary>A decoder that hands back five seconds of silence for any file.</summary>
+/// <summary>A decoder that hands back five seconds of silence for any file it can "read".</summary>
 internal sealed class SilentDecoder : IMonoDecoder
 {
+    public Func<string, bool> Unreadable { get; set; } = _ => false;
+
     public Task<float[]?> DecodeAsync(string path, CancellationToken ct) =>
-        Task.FromResult<float[]?>(new float[BandSpectrogram.SampleRate * 5]);
+        Task.FromResult(Unreadable(path) ? null : new float[BandSpectrogram.SampleRate * 5]);
 }
 
 internal sealed class ScriptedReferences : IEditionReferenceClient

@@ -60,6 +60,53 @@ public class CleanEditDeciderTests
     }
 
     [Fact]
+    public void Another_explicit_mix_that_sings_more_does_not_make_an_exact_match_look_clean_or_muted()
+    {
+        double[] extraAdLibs = [17, 23, 29];
+        var file = Explicit(WordsInPreview);
+        var test = BandSpectrogram.FromPcm(file);
+        var otherMix = SyntheticSong.Reference(test, Edition.Explicit, "itunes:3", Explicit(WordsInPreview.Concat(extraAdLibs)), PreviewFrom);
+        Assert.True(otherMix.Correlation >= 0.85, "the other mix must align tightly enough to be heard");
+
+        var result = CleanEditDecider.Analyze(test,
+        [
+            SyntheticSong.Reference(test, Edition.Explicit, "deezer:1", file, PreviewFrom),
+            otherMix,
+            SyntheticSong.Reference(test, Edition.Clean, "itunes:2", Clean(WordsInPreview), PreviewFrom),
+        ]);
+
+        Assert.NotEqual(CleanEditVerdict.CleanMaster, result.Verdict);
+        Assert.NotEqual(CleanEditVerdict.MutedWords, result.Verdict);
+        Assert.Empty(result.MutedWords!.SpanStartSeconds);
+    }
+
+    [Fact]
+    public void Muted_words_heard_by_every_explicit_preview_count()
+    {
+        var test = BandSpectrogram.FromPcm(Muted(WordsInPreview));
+
+        var result = CleanEditDecider.Analyze(test,
+        [
+            SyntheticSong.Reference(test, Edition.Explicit, "deezer:1", Explicit(WordsInPreview), PreviewFrom),
+            SyntheticSong.Reference(test, Edition.Explicit, "itunes:3", Explicit(WordsInPreview), PreviewFrom + 5),
+        ]);
+
+        Assert.Equal(CleanEditVerdict.MutedWords, result.Verdict);
+    }
+
+    [Fact]
+    public void A_clean_edition_the_catalogs_list_but_that_did_not_align_leaves_the_verdict_open()
+    {
+        var test = BandSpectrogram.FromPcm(Explicit(WordsOutsidePreview));
+
+        var result = CleanEditDecider.Analyze(test,
+            [SyntheticSong.Reference(test, Edition.Explicit, "deezer:1", Explicit(WordsOutsidePreview), PreviewFrom)],
+            [Edition.Explicit, Edition.Clean]);
+
+        Assert.Equal(CleanEditVerdict.Inconclusive, result.Verdict);
+    }
+
+    [Fact]
     public void Muted_words_need_no_clean_edition_to_be_found()
     {
         var result = Analyze(Muted(WordsInPreview), WordsInPreview, cleanPreview: false);

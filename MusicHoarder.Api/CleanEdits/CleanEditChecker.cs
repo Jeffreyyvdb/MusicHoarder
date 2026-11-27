@@ -42,13 +42,23 @@ internal sealed record CleanEditEvidence(
     }
 }
 
+/// <summary>Why a check failed: the file could not be read, or the catalogs did not fully answer.</summary>
+internal enum CheckFailure
+{
+    None,
+    File,
+    Catalog,
+}
+
 internal sealed record CleanEditOutcome(
     CleanEditVerdict Verdict,
     double? Margin,
     double? EditedSeconds,
-    CleanEditEvidence? Evidence)
+    CleanEditEvidence? Evidence,
+    CheckFailure Failure = CheckFailure.None)
 {
-    public static CleanEditOutcome Failed { get; } = new(CleanEditVerdict.Failed, null, null, null);
+    public static CleanEditOutcome UnreadableFile { get; } = new(CleanEditVerdict.Failed, null, null, null, CheckFailure.File);
+    public static CleanEditOutcome CatalogFailed { get; } = new(CleanEditVerdict.Failed, null, null, null, CheckFailure.Catalog);
 }
 
 /// <summary>
@@ -64,10 +74,10 @@ internal sealed class CleanEditChecker(
     {
         var pcm = await decoder.DecodeAsync(subject.Path, ct);
         if (pcm is null)
-            return CleanEditOutcome.Failed;
+            return CleanEditOutcome.UnreadableFile;
         var test = BandSpectrogram.FromPcm(pcm);
         if (test.Frames == 0)
-            return CleanEditOutcome.Failed;
+            return CleanEditOutcome.UnreadableFile;
 
         double[] durations = subject.RequestedDurationSeconds is { } requested
             ? [requested, (double)pcm.Length / BandSpectrogram.SampleRate]
@@ -89,10 +99,10 @@ internal sealed class CleanEditChecker(
                 located.Add(new LocatedReference(reference.Edition, reference.Id, preview, found.OffsetFrames, found.Correlation));
         }
 
-        var analysis = CleanEditDecider.Analyze(test, located);
+        var analysis = CleanEditDecider.Analyze(test, located, [.. lookup.References.Select(r => r.Edition).Distinct()]);
         var missingData = lookup.Incomplete || unreadable > 0;
         if (missingData && analysis.Verdict is CleanEditVerdict.Inconclusive or CleanEditVerdict.NoCleanEdition or CleanEditVerdict.NoReference)
-            return CleanEditOutcome.Failed;
+            return CleanEditOutcome.CatalogFailed;
 
         var evidence = new CleanEditEvidence(
             [.. located.Select(r => new ReferenceUsed(

@@ -16,6 +16,7 @@ public sealed class CleanEditSweepTests : IDisposable
 
     private readonly string _folder = Directory.CreateTempSubdirectory("clean-edit-sweep").FullName;
     private readonly ScriptedReferences _references = new();
+    private readonly SilentDecoder _decoder = new();
     private readonly CancellationTokenSource _shutdown = new();
 
     public void Dispose()
@@ -28,7 +29,7 @@ public sealed class CleanEditSweepTests : IDisposable
     {
         var services = new ServiceCollection();
         services.AddScoped(_ => new MusicHoarderDbContext(_options));
-        var checker = new CleanEditChecker(new SilentDecoder(), _references, NullLogger<CleanEditChecker>.Instance);
+        var checker = new CleanEditChecker(_decoder, _references, NullLogger<CleanEditChecker>.Instance);
         return new CleanEditSweep(
             services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
             checker,
@@ -74,12 +75,12 @@ public sealed class CleanEditSweepTests : IDisposable
     private static async Task<CleanEditSweepProgress> WaitForEndAsync(CleanEditSweep sweep)
     {
         var deadline = DateTime.UtcNow.AddSeconds(30);
-        while (sweep.Progress.Running)
+        while (sweep.ProgressFor(TestUsers.OwnerId).Running)
         {
             Assert.True(DateTime.UtcNow < deadline, "the sweep did not finish");
             await Task.Delay(10);
         }
-        return sweep.Progress;
+        return sweep.ProgressFor(TestUsers.OwnerId);
     }
 
     private async Task<List<CleanEditCheck>> ChecksAsync()
@@ -154,6 +155,54 @@ public sealed class CleanEditSweepTests : IDisposable
     }
 
     [Fact]
+    public async Task Files_that_cannot_be_read_do_not_stop_the_run()
+    {
+        for (var i = 0; i < CleanEditSweep.ConsecutiveFailuresBeforeStopping + 3; i++)
+            await AddSongAsync($"broken{i}");
+        var healthy = await AddSongAsync("healthy");
+        _decoder.Unreadable = path => Path.GetFileName(path).StartsWith("broken", StringComparison.Ordinal);
+
+        var progress = await RunToEndAsync(NewSweep());
+
+        Assert.Null(progress.StoppedReason);
+        Assert.Equal(CleanEditSweep.ConsecutiveFailuresBeforeStopping + 3, progress.Failed);
+        Assert.Equal(CleanEditVerdict.NoReference, (await ChecksAsync()).Single(c => c.SongId == healthy).Verdict);
+    }
+
+    [Fact]
+    public async Task A_file_replaced_with_one_of_the_same_size_is_checked_again()
+    {
+        await AddSongAsync("same-size");
+        var sweep = NewSweep();
+        await RunToEndAsync(sweep);
+        var file = Path.Combine(_folder, "same-size.flac");
+        File.SetLastWriteTimeUtc(file, File.GetLastWriteTimeUtc(file).AddHours(1));
+
+        var progress = await RunToEndAsync(sweep);
+
+        Assert.Equal((1, 0), (progress.Checked, progress.Skipped));
+    }
+
+    [Fact]
+    public async Task Another_account_neither_sees_nor_stops_the_run()
+    {
+        await AddSongAsync("slow");
+        _references.Block = new TaskCompletionSource();
+        var sweep = NewSweep();
+        var other = Guid.NewGuid();
+
+        Assert.True(sweep.TryStart(TestUsers.OwnerId));
+        await _references.WaitUntilAskedAsync();
+        sweep.Stop(other);
+
+        Assert.False(sweep.ProgressFor(other).Running);
+        Assert.Null(sweep.ProgressFor(other).Current);
+        Assert.True(sweep.ProgressFor(TestUsers.OwnerId).Running);
+        sweep.Stop(TestUsers.OwnerId);
+        await WaitForEndAsync(sweep);
+    }
+
+    [Fact]
     public async Task Stopping_ends_the_run_and_leaves_the_rest_for_next_time()
     {
         await AddSongAsync("slow");
@@ -163,7 +212,7 @@ public sealed class CleanEditSweepTests : IDisposable
         Assert.True(sweep.TryStart(TestUsers.OwnerId));
         Assert.False(sweep.TryStart(TestUsers.OwnerId));
         await _references.WaitUntilAskedAsync();
-        sweep.Stop();
+        sweep.Stop(TestUsers.OwnerId);
         var progress = await WaitForEndAsync(sweep);
 
         Assert.Equal("Stopped.", progress.StoppedReason);

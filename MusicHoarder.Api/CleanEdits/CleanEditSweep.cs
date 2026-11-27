@@ -30,20 +30,24 @@ internal sealed class CleanEditSweep(
     IHostApplicationLifetime lifetime,
     ILogger<CleanEditSweep> logger)
 {
-    /// <summary>Catalogs that answer nothing this many times in a row are rate limiting us or down; stop rather than hammer them.</summary>
+    /// <summary>
+    /// Catalogs that fail this many songs in a row are rate limiting us or down; stop rather than hammer
+    /// them. Files that cannot be read do not count: a run of bad files must not stall the library.
+    /// </summary>
     internal const int ConsecutiveFailuresBeforeStopping = 5;
 
     private readonly object _gate = new();
     private CancellationTokenSource? _cancel;
+    private Guid? _owner;
     private CleanEditSweepProgress _progress = new(false, false, 0, 0, 0, 0, 0, null, null, null, null);
 
-    public CleanEditSweepProgress Progress
+    private static readonly CleanEditSweepProgress Idle = new(false, false, 0, 0, 0, 0, 0, null, null, null, null);
+
+    /// <summary>The run <paramref name="caller"/> started last; anyone else sees an idle sweep.</summary>
+    public CleanEditSweepProgress ProgressFor(Guid caller)
     {
-        get
-        {
-            lock (_gate)
-                return _progress;
-        }
+        lock (_gate)
+            return _owner == caller ? _progress : Idle;
     }
 
     /// <summary>Starts a run for <paramref name="ownerUserId"/>'s library. False when one is already running.</summary>
@@ -56,6 +60,7 @@ internal sealed class CleanEditSweep(
                 return false;
             cancel = CancellationTokenSource.CreateLinkedTokenSource(lifetime.ApplicationStopping);
             _cancel = cancel;
+            _owner = ownerUserId;
             _progress = new CleanEditSweepProgress(true, false, 0, 0, 0, 0, 0, null, null, DateTime.UtcNow, null);
         }
 
@@ -63,11 +68,12 @@ internal sealed class CleanEditSweep(
         return true;
     }
 
-    public void Stop()
+    /// <summary>Stops the running sweep when <paramref name="caller"/> started it.</summary>
+    public void Stop(Guid caller)
     {
         lock (_gate)
         {
-            if (!_progress.Running)
+            if (!_progress.Running || _owner != caller)
                 return;
             _progress = _progress with { Stopping = true };
             _cancel?.Cancel();
@@ -88,7 +94,7 @@ internal sealed class CleanEditSweep(
                 .OrderByDescending(s => s.Id)
                 .Select(s => new Candidate(s.Id, s.Artist!, s.Title!, s.Isrc,
                     db.WishlistItems.IgnoreQueryFilters()
-                        .Where(w => w.DownloadedSongId == s.Id && w.DurationMs > 0)
+                        .Where(w => w.OwnerUserId == ownerUserId && w.DownloadedSongId == s.Id && w.DurationMs > 0)
                         .Select(w => (int?)w.DurationMs)
                         .FirstOrDefault(),
                     s.DestinationPath!))
@@ -113,9 +119,11 @@ internal sealed class CleanEditSweep(
 
                 Update(p => p with { Current = $"{song.Artist} - {song.Title}" });
                 var outcome = await CheckAsync(song, ct);
-                await SaveAsync(db, ownerUserId, song.Id, stamp, outcome, ct);
+                // A file replaced while it was being checked gets its verdict on the next run.
+                if (FileStamp(song.Path) == stamp)
+                    await SaveAsync(db, ownerUserId, song.Id, stamp, outcome, ct);
 
-                failedInARow = outcome.Verdict == CleanEditVerdict.Failed ? failedInARow + 1 : 0;
+                failedInARow = outcome.Failure == CheckFailure.Catalog ? failedInARow + 1 : 0;
                 var failed = outcome.Verdict == CleanEditVerdict.Failed;
                 Update(p => p with
                 {
@@ -156,7 +164,7 @@ internal sealed class CleanEditSweep(
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogWarning(ex, "Clean-edit check failed for song {SongId}", song.Id);
-            return CleanEditOutcome.Failed;
+            return CleanEditOutcome.UnreadableFile;
         }
     }
 
@@ -179,13 +187,13 @@ internal sealed class CleanEditSweep(
         db.ChangeTracker.Clear();
     }
 
-    /// <summary>The file's path and size, or null when it is not there to check.</summary>
+    /// <summary>The file's path, size and modification time, or null when it is not there to check.</summary>
     internal static string? FileStamp(string path)
     {
         try
         {
             var info = new FileInfo(path);
-            return info.Exists ? $"{path}|{info.Length}" : null;
+            return info.Exists ? $"{path}|{info.Length}|{info.LastWriteTimeUtc.Ticks}" : null;
         }
         catch (IOException)
         {

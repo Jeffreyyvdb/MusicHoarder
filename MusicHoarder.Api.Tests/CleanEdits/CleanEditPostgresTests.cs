@@ -51,14 +51,14 @@ public sealed class CleanEditPostgresTests : IDisposable
             NullLogger<CleanEditSweep>.Instance);
         Assert.True(sweep.TryStart(TestUsers.OwnerId));
         var deadline = DateTime.UtcNow.AddSeconds(30);
-        while (sweep.Progress.Running)
+        while (sweep.ProgressFor(TestUsers.OwnerId).Running)
         {
             Assert.True(DateTime.UtcNow < deadline, "the sweep did not finish");
             await Task.Delay(10);
         }
 
-        Assert.Null(sweep.Progress.StoppedReason);
-        Assert.Equal(2, sweep.Progress.Checked);
+        Assert.Null(sweep.ProgressFor(TestUsers.OwnerId).StoppedReason);
+        Assert.Equal(2, sweep.ProgressFor(TestUsers.OwnerId).Checked);
         var asked = references.Asked.ToDictionary(q => q.Title, q => q.DurationsSeconds);
         Assert.Equal([312.893, 5], asked["Stronger"]);
         Assert.Equal([5], asked["Wandered To LA"]);

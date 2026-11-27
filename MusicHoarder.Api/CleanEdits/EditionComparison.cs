@@ -14,13 +14,17 @@ internal sealed record LocatedReference(
     int OffsetFrames,
     double Correlation);
 
-/// <summary>Which of an explicit and a clean preview the file follows where those two differ.</summary>
+/// <summary>
+/// Which of an explicit and a clean preview the file follows where those two differ.
+/// <see cref="Contested"/>: another pair decisively says the other edition.
+/// </summary>
 internal sealed record PairwiseResult(
     string ExplicitId,
     string CleanId,
     double EditedSeconds,
     Edition? Closer,
-    double Margin);
+    double Margin,
+    bool Contested = false);
 
 /// <summary>Spans where the file is silent but an explicit preview is singing.</summary>
 internal sealed record MutedWordsResult(string ReferenceId, IReadOnlyList<double> SpanStartSeconds);
@@ -44,21 +48,22 @@ internal static class EditionComparison
     /// <summary>
     /// Over every explicit and clean preview that overlap, finds the frames where the two previews
     /// differ (the edited words) and asks which one the file is closer to there. The pair with the
-    /// most edited audio decides. Null when no pair overlaps enough to compare.
+    /// most edited audio decides, unless pairs that each pass <paramref name="decisiveMargin"/> disagree:
+    /// another master or mix of the explicit edition differs from the clean one in more places, and
+    /// can make an exact explicit file look clean. Null when no pair overlaps enough to compare.
     /// </summary>
-    public static PairwiseResult? Pairwise(BandSpectrogram test, IReadOnlyList<LocatedReference> references)
+    public static PairwiseResult? Pairwise(BandSpectrogram test, IReadOnlyList<LocatedReference> references, double decisiveMargin)
     {
-        PairwiseResult? best = null;
-        foreach (var explicitRef in references.Where(r => r.Edition == Edition.Explicit))
-        {
-            foreach (var cleanRef in references.Where(r => r.Edition == Edition.Clean))
-            {
-                var result = ComparePair(test, explicitRef, cleanRef);
-                if (result is not null && (best is null || result.EditedSeconds > best.EditedSeconds))
-                    best = result;
-            }
-        }
-        return best;
+        var results = (
+            from explicitRef in references.Where(r => r.Edition == Edition.Explicit)
+            from cleanRef in references.Where(r => r.Edition == Edition.Clean)
+            select ComparePair(test, explicitRef, cleanRef)).OfType<PairwiseResult>().ToList();
+        if (results.Count == 0)
+            return null;
+
+        var best = results.MaxBy(r => r.EditedSeconds)!;
+        var decisive = results.Where(r => r.Closer is not null && r.Margin >= decisiveMargin).Select(r => r.Closer).Distinct().Count();
+        return decisive > 1 ? best with { Contested = true } : best;
     }
 
     private static PairwiseResult? ComparePair(BandSpectrogram test, LocatedReference explicitRef, LocatedReference cleanRef)
@@ -109,48 +114,90 @@ internal static class EditionComparison
     /// <summary>
     /// Words the file has muted against an explicit preview: runs of frames where the file's vocal
     /// bands sit far below the preview's while the preview has vocals there. This catches a mute that
-    /// differs from the label's clean edit, which the pairwise test cannot see. The preview with the
-    /// most such runs wins. Null when no explicit preview is aligned tightly enough.
+    /// differs from the label's clean edit, which the pairwise test cannot see. A run counts only when
+    /// every other tightly aligned explicit preview covering it also hears the file go quiet there, so
+    /// a different master or mix of the explicit edition cannot invent mutes the file's own match does
+    /// not show. The preview with the most such runs wins. Null when no explicit preview is aligned
+    /// tightly enough.
     /// </summary>
     public static MutedWordsResult? MutedWords(BandSpectrogram test, IReadOnlyList<LocatedReference> references)
     {
+        var heard = references
+            .Where(r => r.Edition == Edition.Explicit && r.Correlation >= MutedMinimumCorrelation)
+            .Select(r => QuietAgainst(test, r))
+            .OfType<QuietFrames>()
+            .ToList();
+
         MutedWordsResult? best = null;
-        foreach (var reference in references)
+        foreach (var candidate in heard)
         {
-            if (reference.Edition != Edition.Explicit || reference.Correlation < MutedMinimumCorrelation)
-                continue;
-            var from = Math.Max(reference.OffsetFrames, 0);
-            var to = Math.Min(reference.OffsetFrames + reference.Bands.Frames, test.Frames);
-            if (to - from < MinimumOverlapFrames)
-                continue;
-
-            var t = test.Slice(from, to);
-            var e = reference.Bands.Slice(from - reference.OffsetFrames, to - reference.OffsetFrames).MatchLevelTo(t);
-            var testVocals = t.BandMean(VocalFirstBand, VocalLastBand);
-            var referenceVocals = e.BandMean(VocalFirstBand, VocalLastBand);
-            var floor = Stats.Percentile(referenceVocals, VocalFloorPercentile);
-
-            var starts = new List<double>();
-            var runStart = -1;
-            for (var f = 0; f <= t.Frames; f++)
-            {
-                var muted = f < t.Frames
-                    && testVocals[f] - referenceVocals[f] < MutedDropDb
-                    && referenceVocals[f] > floor;
-                if (muted && runStart < 0)
-                    runStart = f;
-                if (!muted && runStart >= 0)
-                {
-                    if (f - runStart >= MinimumMutedFrames)
-                        starts.Add(Math.Round((from + runStart) * BandSpectrogram.FrameSeconds, 1));
-                    runStart = -1;
-                }
-            }
-
-            var result = new MutedWordsResult(reference.Id, starts);
+            var starts = candidate.Runs()
+                .Where(run => heard.All(other => other == candidate || other.Agrees(run.Start, run.End)))
+                .Select(run => Math.Round(run.Start * BandSpectrogram.FrameSeconds, 1))
+                .ToList();
+            var result = new MutedWordsResult(candidate.ReferenceId, starts);
             if (best is null || result.SpanStartSeconds.Count > best.SpanStartSeconds.Count)
                 best = result;
         }
         return best;
+    }
+
+    /// <summary>Where, in the file's own frames, it is quiet against one explicit preview.</summary>
+    private sealed record QuietFrames(string ReferenceId, int From, bool[] Quiet)
+    {
+        private const int Slack = 2;
+
+        public IEnumerable<(int Start, int End)> Runs()
+        {
+            var runStart = -1;
+            for (var f = 0; f <= Quiet.Length; f++)
+            {
+                var quiet = f < Quiet.Length && Quiet[f];
+                if (quiet && runStart < 0)
+                    runStart = f;
+                if (!quiet && runStart >= 0)
+                {
+                    if (f - runStart >= MinimumMutedFrames)
+                        yield return (From + runStart, From + f);
+                    runStart = -1;
+                }
+            }
+        }
+
+        /// <summary>
+        /// True when this preview does not cover the run, or hears the file go quiet for at least half
+        /// of it too. A lone quiet frame is a framing blip, not agreement.
+        /// </summary>
+        public bool Agrees(int start, int end)
+        {
+            if (start < From || end > From + Quiet.Length)
+                return true;
+            var quiet = 0;
+            for (var f = Math.Max(start - Slack, From); f < Math.Min(end + Slack, From + Quiet.Length); f++)
+            {
+                if (Quiet[f - From])
+                    quiet++;
+            }
+            return 2 * quiet >= end - start;
+        }
+    }
+
+    private static QuietFrames? QuietAgainst(BandSpectrogram test, LocatedReference reference)
+    {
+        var from = Math.Max(reference.OffsetFrames, 0);
+        var to = Math.Min(reference.OffsetFrames + reference.Bands.Frames, test.Frames);
+        if (to - from < MinimumOverlapFrames)
+            return null;
+
+        var t = test.Slice(from, to);
+        var e = reference.Bands.Slice(from - reference.OffsetFrames, to - reference.OffsetFrames).MatchLevelTo(t);
+        var testVocals = t.BandMean(VocalFirstBand, VocalLastBand);
+        var referenceVocals = e.BandMean(VocalFirstBand, VocalLastBand);
+        var floor = Stats.Percentile(referenceVocals, VocalFloorPercentile);
+
+        var quiet = new bool[t.Frames];
+        for (var f = 0; f < t.Frames; f++)
+            quiet[f] = testVocals[f] - referenceVocals[f] < MutedDropDb && referenceVocals[f] > floor;
+        return new QuietFrames(reference.Id, from, quiet);
     }
 }
