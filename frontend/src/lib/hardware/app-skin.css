@@ -34,7 +34,8 @@
  * `data-mh-desk` / `-tv-on` (Now Playing), `data-mh-np` (TrackPanel's parts: body, screen, readout,
  * keys, modes, volume), `data-mh-rocker` (SongTransport's buttons, TrackPanel's mode row),
  * `--np-volume` / `data-muted` (VolumeControl), `data-mh-crt` (VideoBackdrop), `data-mh-lcd`,
- * `data-mh-readout`, `data-mh-screen`, `data-mh-tray-list` / `-tray-head`,
+ * `data-mh-readout`, `data-mh-screen`, `data-mh-tray-list` / `-tray-head`, `data-mh-cards`
+ * (BackgroundWorkSection's card grid),
  * `data-mh-decor` (decoration, wherever a component marks it), plus `data-lyric-state` on Now
  * Playing's lyric lines (LyricsPanel).
  */
@@ -696,6 +697,41 @@
 :root[data-mh-skin='hardware'] [data-slot='grouped-list-section'] {
   margin-bottom: 6px;
 }
+/* A section of cards (`data-mh-cards`: Pipeline's background work from md) draws no tray: each
+   card is a plate of its own, so a tray behind the grid only framed it, flush at its edges and a
+   gap apart inside. The plate is the one a Card gets; its shadow replaces Tailwind's hover and
+   focus rings, so those come back here. */
+:root[data-mh-skin='hardware'] [data-mh-cards] > [data-slot='grouped-list-content'] {
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+:root[data-mh-skin='hardware'] [data-mh-cards] [data-slot='background-job'] {
+  --mh-plate-shadow:
+    inset 0 1px 3px rgb(0 0 0 / 0.09), inset 0 0 0 1px rgb(0 0 0 / 0.05),
+    0 1px 0 rgb(255 255 255 / 0.7);
+  border-radius: 16px;
+  background: var(--surface-sunken);
+  box-shadow: var(--mh-plate-shadow);
+}
+:root[data-mh-skin='hardware'].dark [data-mh-cards] [data-slot='background-job'] {
+  --mh-plate-shadow:
+    inset 0 1px 3px rgb(0 0 0 / 0.5), inset 0 0 0 1px rgb(0 0 0 / 0.4),
+    0 1px 0 rgb(255 255 255 / 0.04);
+}
+@media (hover: hover) and (pointer: fine) {
+  :root[data-mh-skin='hardware'] [data-mh-cards] [data-slot='background-job']:hover {
+    box-shadow:
+      inset 0 0 0 1px var(--separator),
+      var(--mh-plate-shadow);
+  }
+}
+:root[data-mh-skin='hardware'] [data-mh-cards] [data-slot='background-job']:focus-visible {
+  box-shadow:
+    inset 0 0 0 2px var(--ring),
+    var(--mh-plate-shadow);
+}
+
 /* A list row has no hairline but a dashed rule, as the kit's screens and trays draw it. */
 :root[data-mh-skin='hardware'] [data-slot='grouped-list-row']::after {
   background: none;
