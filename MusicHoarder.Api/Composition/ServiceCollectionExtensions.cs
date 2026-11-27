@@ -132,7 +132,8 @@ public static class ServiceCollectionExtensions
             .BindConfiguration(WebAuthnOptions.SectionName);
 
         services.AddHttpContextAccessor();
-        services.AddScoped<ICurrentUserAccessor, HttpContextCurrentUserAccessor>();
+        services.AddScoped<HttpContextCurrentUserAccessor>();
+        services.AddScoped<ICurrentUserAccessor>(sp => sp.GetRequiredService<HttpContextCurrentUserAccessor>());
         services.AddSingleton<IOwnerLookupService, OwnerLookupService>();
         services.AddBackgroundWork();
         services.AddSingleton<ISessionCookieService, SessionCookieService>();

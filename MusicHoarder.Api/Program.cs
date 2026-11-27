@@ -63,6 +63,8 @@ builder.Services.AddOpenApi(options =>
 });
 
 var app = builder.Build();
+// Observable instruments exist only once their owner is built, and nothing else asks for it.
+app.Services.GetRequiredService<MusicHoarder.Api.BackgroundWork.BackgroundWorkMetrics>();
 
 app.MapDefaultEndpoints();
 

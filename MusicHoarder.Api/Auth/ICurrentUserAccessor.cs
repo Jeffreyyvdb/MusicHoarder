@@ -20,8 +20,16 @@ public sealed class HttpContextCurrentUserAccessor : ICurrentUserAccessor
         _httpContextAccessor = httpContextAccessor;
     }
 
+    private CurrentUser? _actingAs;
+
+    /// <summary>
+    /// Lets a scope with no request (a background sampler) read as one account. Used only when there is
+    /// no request user, so it can never change who a request is: a request scope never calls it.
+    /// </summary>
+    public void ActAs(CurrentUser user) => _actingAs = user;
+
     public CurrentUser? User =>
-        _httpContextAccessor.HttpContext?.Items[HttpContextItemKey] as CurrentUser;
+        _httpContextAccessor.HttpContext?.Items[HttpContextItemKey] as CurrentUser ?? _actingAs;
 
     public Guid UserId => User?.Id ?? Guid.Empty;
 }

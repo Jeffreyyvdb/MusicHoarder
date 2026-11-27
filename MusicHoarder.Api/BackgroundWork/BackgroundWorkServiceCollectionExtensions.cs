@@ -10,6 +10,7 @@ public static class BackgroundWorkServiceCollectionExtensions
         services.TryAddSingleton<BackgroundWorkStatus>();
         services.TryAddSingleton<MusicVideoOutcomeMemo>();
         services.AddScoped<MusicVideoBacklogLoader>();
+        services.TryAddSingleton<BackgroundWorkMetrics>();
 
         services.AddScoped<IBackgroundJobInsight, LyricsInsight>();
         services.AddScoped<IBackgroundJobInsight, TranscriptionAllowanceInsight>();

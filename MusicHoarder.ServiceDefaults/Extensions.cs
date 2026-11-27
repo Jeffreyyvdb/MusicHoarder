@@ -67,7 +67,9 @@ public static class Extensions
                     // Pipeline-domain instruments (queue depth, stage durations, terminal outcomes).
                     // Name must match MusicHoarder.Api PipelineMetrics.MeterName (ServiceDefaults can't
                     // reference the API project).
-                    .AddMeter("MusicHoarder.Pipeline");
+                    .AddMeter("MusicHoarder.Pipeline")
+                    // Must match MusicHoarder.Api BackgroundWorkMetrics.MeterName.
+                    .AddMeter("MusicHoarder.BackgroundWork");
             })
             .WithTracing(tracing =>
             {

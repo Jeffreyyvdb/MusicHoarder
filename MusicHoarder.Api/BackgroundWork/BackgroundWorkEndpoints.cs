@@ -20,6 +20,20 @@ public static class BackgroundWorkEndpoints
         ILogger<IBackgroundJobInsight> logger,
         CancellationToken ct)
     {
+        var jobs = await ReadSummariesAsync(insights, logger, ct);
+        return Results.Json(new BackgroundWorkSummaryDto(DateTime.UtcNow, jobs), Json);
+    }
+
+    /// <summary>
+    /// Every job's row in the Pipeline page's order. One job that cannot be read becomes an "unknown" row
+    /// instead of blanking the list. The endpoint and the metrics sampler both call this, so the page and
+    /// the exported gauges cannot disagree.
+    /// </summary>
+    internal static async Task<IReadOnlyList<BackgroundJobSummaryDto>> ReadSummariesAsync(
+        IEnumerable<IBackgroundJobInsight> insights,
+        ILogger logger,
+        CancellationToken ct)
+    {
         var byId = insights.ToDictionary(i => i.Id);
         var jobs = new List<BackgroundJobSummaryDto>();
         foreach (var id in BackgroundJobIds.All)
@@ -37,7 +51,7 @@ public static class BackgroundWorkEndpoints
             }
         }
 
-        return Results.Json(new BackgroundWorkSummaryDto(DateTime.UtcNow, jobs), Json);
+        return jobs;
     }
 
     internal static async Task<IResult> GetDetail(
