@@ -37,6 +37,7 @@ const APP_ROUTES: [path: string, group: NavGroupId][] = [
   ['/clean-edits', 'manage'],
   ['/directories', 'manage'],
   ['/discover', 'add'],
+  ['/find', 'add'],
   ['/grader-trial', 'manage'],
   ['/history', 'manage'],
   ['/inbox', 'inbox'],
