@@ -57,7 +57,8 @@ _SPOTIFY_TRACK_RE = re.compile(r"^https://open\.spotify\.com/track/([A-Za-z0-9]{
 # a tie with the clean one; less than the artist match (180), so a wrong artist's explicit track
 # still loses.
 _EXPLICIT_BONUS = 150
-_BRACKETED_RE = re.compile(r"\s*[\(\[][^\)\]]*[\)\]]")
+# A credit or an edition label in brackets, not "(Live)" or "(Remix)", which name another recording.
+_LABEL_RE = re.compile(r"\s*[\(\[][^\)\]]*\b(?:feat|with|ft|explicit|clean|edit|version)\b[^\)\]]*[\)\]]", re.IGNORECASE)
 
 # Per acquire: the (Spotify id, ISRC) the API sent, and the requested track's title when Spotify marks
 # it explicit. Context variables, because acquires run concurrently in threads, each with the module's
@@ -210,10 +211,17 @@ async def acquire(req: AcquireRequest):
 
 
 def _run_spotiflac(req: AcquireRequest, services: list[str], output_path: str) -> None:
+    _install_module_hooks()
+    token = _sent_isrc.set(_sent_isrc_for(req.spotify_url, req.isrc))
+    try:
+        _download(req, services, output_path)
+    finally:
+        _sent_isrc.reset(token)
+
+
+def _download(req: AcquireRequest, services: list[str], output_path: str) -> None:
     from SpotiFLAC import SpotiFLAC
 
-    _install_module_hooks()
-    _sent_isrc.set(_sent_isrc_for(req.spotify_url, req.isrc))
     SpotiFLAC(
         url=req.spotify_url,
         output_dir=os.path.dirname(output_path),
@@ -292,7 +300,7 @@ def _hook_qobuz_title_search() -> None:
         return
 
     def title_key(title: str) -> str:
-        return normalize(_BRACKETED_RE.sub("", title or ""))
+        return normalize(_LABEL_RE.sub("", title or ""))
 
     def score_preferring_explicit(query, track, *args, **kwargs):
         wanted = _explicit_title.get()

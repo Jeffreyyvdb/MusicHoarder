@@ -95,6 +95,16 @@ public class CleanEditDeciderTests
     }
 
     [Fact]
+    public void An_explicit_preview_that_did_not_align_proves_nothing_even_with_no_clean_edition_sold()
+    {
+        var test = BandSpectrogram.FromPcm(Muted(WordsInPreview));
+
+        var result = CleanEditDecider.Analyze(test, [], [Edition.Explicit]);
+
+        Assert.Equal(CleanEditVerdict.Inconclusive, result.Verdict);
+    }
+
+    [Fact]
     public void A_clean_edition_the_catalogs_list_but_that_did_not_align_leaves_the_verdict_open()
     {
         var test = BandSpectrogram.FromPcm(Explicit(WordsOutsidePreview));

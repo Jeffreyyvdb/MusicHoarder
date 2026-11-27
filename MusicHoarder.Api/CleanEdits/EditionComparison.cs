@@ -161,7 +161,8 @@ internal static class EditionComparison
 
         /// <summary>
         /// Runs of quiet frames, joined across a loud flicker of up to <see cref="MaximumFlickerFrames"/>.
-        /// A run counts when its quiet frames, not its extent, reach <see cref="MinimumMutedFrames"/>.
+        /// A run counts when its quiet frames, not its extent, reach <see cref="MinimumMutedFrames"/>,
+        /// and they are at least half of it.
         /// </summary>
         public IEnumerable<(int Start, int End)> Runs()
         {
@@ -172,7 +173,7 @@ internal static class EditionComparison
                     continue;
                 if (runStart >= 0 && f - runEnd > MaximumFlickerFrames)
                 {
-                    if (quietFrames >= MinimumMutedFrames)
+                    if (Counts(runStart, runEnd, quietFrames))
                         yield return (From + runStart, From + runEnd);
                     runStart = -1;
                 }
@@ -181,9 +182,13 @@ internal static class EditionComparison
                 runEnd = f + 1;
                 quietFrames++;
             }
-            if (runStart >= 0 && quietFrames >= MinimumMutedFrames)
+            if (runStart >= 0 && Counts(runStart, runEnd, quietFrames))
                 yield return (From + runStart, From + runEnd);
         }
+
+        // Mostly quiet, as Agrees asks of another preview, so a sparse chain of flickers is no word.
+        private static bool Counts(int start, int end, int quietFrames) =>
+            quietFrames >= MinimumMutedFrames && 2 * quietFrames >= end - start;
 
         /// <summary>
         /// True when this preview does not cover the run, or hears the file go quiet for at least half

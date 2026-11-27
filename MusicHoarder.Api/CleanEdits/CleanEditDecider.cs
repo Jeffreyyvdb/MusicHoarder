@@ -23,6 +23,7 @@ internal static class CleanEditDecider
     private sealed record Facts(
         bool ListsExplicit,
         bool ListsClean,
+        bool HeardExplicit,
         int MutedSpans,
         Edition? Closer,
         double Margin,
@@ -35,7 +36,7 @@ internal static class CleanEditDecider
         (f => f is { Closer: Edition.Clean, Margin: >= DecisiveMargin }, CleanEditVerdict.CleanMaster),
         (f => f is { Closer: Edition.Explicit, Margin: >= DecisiveMargin }, CleanEditVerdict.Explicit),
         (f => !f.ListsExplicit, CleanEditVerdict.NoReference),
-        (f => !f.ListsClean, CleanEditVerdict.NoCleanEdition),
+        (f => f.HeardExplicit && !f.ListsClean, CleanEditVerdict.NoCleanEdition),
         (_ => true, CleanEditVerdict.Inconclusive),
     ];
 
@@ -52,6 +53,7 @@ internal static class CleanEditDecider
         var facts = new Facts(
             hasExplicit || listed?.Contains(Edition.Explicit) == true,
             hasClean || listed?.Contains(Edition.Clean) == true,
+            hasExplicit,
             muted?.SpanStartSeconds.Count ?? 0,
             pairwise?.Closer,
             pairwise?.Margin ?? 0,

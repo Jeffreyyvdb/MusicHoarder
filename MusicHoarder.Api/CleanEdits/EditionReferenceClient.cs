@@ -178,7 +178,11 @@ internal sealed class EditionReferenceClient(
                 var byIsrc = await GetJsonAsync(
                     $"https://api.deezer.com/track/isrc:{Uri.EscapeDataString(query.Isrc)}", _deezerGate, DeezerInterval, ct);
                 documents.Add(byIsrc);
-                complete &= !IsQuotaError(byIsrc.RootElement);
+                if (IsQuotaError(byIsrc.RootElement))
+                {
+                    Interlocked.Exchange(ref _deezerBackoffUntilUtcTicks, (DateTime.UtcNow + DeezerQuotaBackoff).Ticks);
+                    return ([], false);
+                }
                 if (byIsrc.RootElement.TryGetProperty("id", out _))
                     tracks.Add(byIsrc.RootElement);
             }

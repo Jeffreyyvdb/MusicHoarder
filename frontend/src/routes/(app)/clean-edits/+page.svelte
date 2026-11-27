@@ -116,7 +116,9 @@
 
   async function refresh() {
     try {
-      progress = await fetchCleanEditProgress();
+      const latest = await fetchCleanEditProgress();
+      if (destroyed) return;
+      progress = latest;
     } catch {
       // The list below still refreshes; the next poll catches the progress up.
     }
