@@ -87,9 +87,12 @@ jobs:
       # migration snapshot to build and spectrogram tests to run, about 15 s together. 210 since hosted
       # storage (PR #809): main ran about 194 s, and the PR's migration snapshot and asset tests add
       # 3 s to the build and 2 s to the tests, which left no room for a restore that varies by 10 s.
+      # 240 since 2026-11-27: the runners alone move this job by about 80 s. One commit of PR #807
+      # measured 135 s and then 216 s, and main itself ranged 122-194 s over the same evening, so
+      # 210 failed changes that had made nothing slower. 240 still catches a real jump.
       - uses: ./.github/actions/budget
         with:
-          seconds: 210
+          seconds: 240
 
   frontend:
     runs-on: ubuntu-latest
