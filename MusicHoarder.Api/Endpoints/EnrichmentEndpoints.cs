@@ -426,10 +426,13 @@ public static class EnrichmentEndpoints
                 FingerprintProgressTracker fingerprintTracker,
                 EnrichmentProgressTracker enrichmentTracker,
                 LibraryBuilderProgressTracker buildTracker,
-                DownloadProgressTracker downloadTracker) =>
+                DownloadProgressTracker downloadTracker,
+                ICurrentUserAccessor currentUser) =>
             {
-                var snapshot = ProgressSnapshotFactory.Create(
-                    jobManager, scanTracker, fingerprintTracker, enrichmentTracker, buildTracker, downloadTracker);
+                var snapshot = currentUser.User?.IsAdmin == true
+                    ? ProgressSnapshotFactory.Create(
+                        jobManager, scanTracker, fingerprintTracker, enrichmentTracker, buildTracker, downloadTracker)
+                    : ProgressSnapshotFactory.Idle;
                 return Results.Ok(new { Progress = snapshot });
             })
             .WithName("GetEnrichmentStatus")
@@ -490,7 +493,8 @@ public static class EnrichmentEndpoints
             .WithSummary("Start a background hard-delete of every song, provider attempt, cached Spotify match, and copied destination file. Returns 202 Accepted.")
             .RequireAdmin();
 
-        group.MapGet("/purge-status", (PurgeStatusTracker tracker) => Results.Ok(tracker.Get()))
+        group.MapGet("/purge-status", (PurgeStatusTracker tracker, ICurrentUserAccessor currentUser) =>
+                Results.Ok(currentUser.User?.IsAdmin == true ? tracker.Get() : PurgeSnapshot.Idle))
             .WithName("GetPurgeStatus")
             .WithSummary("Get the current purge status snapshot. Includes the last completed result until a new purge starts.");
 
@@ -755,8 +759,10 @@ public static class EnrichmentEndpoints
         FingerprintProgressTracker fingerprintTracker,
         EnrichmentProgressTracker enrichmentTracker,
         LibraryBuilderProgressTracker buildTracker,
-        DownloadProgressTracker downloadTracker)
+        DownloadProgressTracker downloadTracker,
+        ICurrentUserAccessor currentUser)
     {
+        var isAdmin = currentUser.User?.IsAdmin == true;
         context.Response.Headers.ContentType = "text/event-stream";
         context.Response.Headers.CacheControl = "no-cache";
         context.Response.Headers.Connection = "keep-alive";
@@ -769,8 +775,10 @@ public static class EnrichmentEndpoints
             var wasRunning = false;
             while (!cancellationToken.IsCancellationRequested)
             {
-                var snapshot = ProgressSnapshotFactory.Create(
-                    jobManager, scanTracker, fingerprintTracker, enrichmentTracker, buildTracker, downloadTracker);
+                var snapshot = isAdmin
+                    ? ProgressSnapshotFactory.Create(
+                        jobManager, scanTracker, fingerprintTracker, enrichmentTracker, buildTracker, downloadTracker)
+                    : ProgressSnapshotFactory.Idle;
                 yield return JsonSerializer.Serialize(snapshot, SseJsonOptions);
 
                 if (snapshot.IsComplete && wasRunning)
