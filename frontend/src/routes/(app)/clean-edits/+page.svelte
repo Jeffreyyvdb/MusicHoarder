@@ -106,7 +106,8 @@
         if (destroyed) return;
         progress = latest;
         await load(Math.max(PAGE, list?.items.length ?? 0));
-        if (!latest.running) stopPolling();
+        // Read after the await: a check started meanwhile must keep this poll going.
+        if (!progress?.running) stopPolling();
       } catch {
         // A failed poll is tried again on the next tick; giving up would leave Stop showing for a
         // run that has long finished.

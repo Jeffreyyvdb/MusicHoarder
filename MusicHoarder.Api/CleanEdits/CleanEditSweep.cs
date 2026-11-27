@@ -192,13 +192,19 @@ internal sealed class CleanEditSweep(
         db.ChangeTracker.Clear();
     }
 
-    /// <summary>The file's path, size and modification time, or null when it is not there to check.</summary>
+    /// <summary>
+    /// The file's size, modification time and a hash of its path, or null when it is not there to check.
+    /// Hashed so a long path cannot outgrow the column.
+    /// </summary>
     internal static string? FileStamp(string path)
     {
         try
         {
             var info = new FileInfo(path);
-            return info.Exists ? $"{path}|{info.Length}|{info.LastWriteTimeUtc.Ticks}" : null;
+            if (!info.Exists)
+                return null;
+            var pathHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(path)));
+            return $"{info.Length}|{info.LastWriteTimeUtc.Ticks}|{pathHash}";
         }
         catch (IOException)
         {

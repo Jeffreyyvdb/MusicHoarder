@@ -71,16 +71,15 @@ public sealed class StreamingFlacDownloadProvider(
             }
 
             string? explicitIsrc = null;
-            var requestedTrackId = trackId;
+            string? spotifyIsrc = null;
             if (options.CurrentValue.PreferExplicit)
-                (trackId, explicitIsrc) = await PreferExplicitEditionAsync(trackId, clientId, clientSecret, ct);
+                (trackId, explicitIsrc, spotifyIsrc) = await PreferExplicitEditionAsync(trackId, clientId, clientSecret, ct);
 
-            // The sidecar's own ISRC lookup can come back empty, and it then picks by title, which
-            // can land on the clean edition. Only an ISRC of the id actually sent may go with it: after
-            // a swap, the request's ISRC names the clean edition.
-            var isrc = trackId == requestedTrackId
-                ? ProviderIdentity.NormalizeIsrc(req.Isrc) is { Length: > 0 } own ? own : null
-                : explicitIsrc;
+            // The sidecar's own ISRC lookup can come back empty, and it then picks by title, which can
+            // land on the clean edition. The sidecar trusts the ISRC sent over its own lookup, so only
+            // Spotify's ISRC for the id actually sent goes with it: a stored ISRC is kept apart from the
+            // Spotify id and can name another edition, and after a swap the request's names the clean one.
+            var isrc = spotifyIsrc;
 
             Directory.CreateDirectory(req.DestinationDirectory);
             var stem = Guid.NewGuid().ToString("N");
@@ -153,41 +152,46 @@ public sealed class StreamingFlacDownloadProvider(
     }
 
     /// <summary>
-    /// Swaps a clean edit's id for its explicit edition's, returning that edition's ISRC alongside.
+    /// Swaps a clean edit's id for its explicit edition's, returning that edition's ISRC alongside
+    /// (<c>EditionIsrc</c>, null unless swapped) and Spotify's ISRC for the id to send (<c>SpotifyIsrc</c>).
     /// Best-effort: without credentials, when the track is already explicit or has no explicit
     /// edition, or on any lookup failure (a rate limit included), the requested id is kept and the
     /// download goes ahead unchanged.
     /// </summary>
-    private async Task<(string TrackId, string? Isrc)> PreferExplicitEditionAsync(
+    private async Task<(string TrackId, string? EditionIsrc, string? SpotifyIsrc)> PreferExplicitEditionAsync(
         string trackId, string? clientId, string? clientSecret, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
-            return (trackId, null);
+            return (trackId, null, null);
 
         try
         {
             var track = await catalogSearch.GetTrackAsync(clientId!, clientSecret!, trackId, ct);
-            if (track is null || track.Explicit)
-                return (trackId, null);
+            if (track is null)
+                return (trackId, null, null);
+            if (track.Explicit)
+                return (trackId, null, Isrc(track.Isrc));
 
             var candidates = await catalogSearch.SearchTracksAsync(
                 clientId!, clientSecret!, ExplicitVersionMatcher.SearchQuery(track), ct);
             if (ExplicitVersionMatcher.FindExplicitEdition(track, candidates) is not { } edition)
-                return (trackId, null);
+                return (trackId, null, Isrc(track.Isrc));
 
             logger.LogInformation(
                 "streaming-flac: '{Artist} - {Title}' ({TrackId}) is a clean edit; acquiring its explicit edition {ExplicitId}",
                 LogSanitizer.ForLog(track.Artist), LogSanitizer.ForLog(track.Title),
                 LogSanitizer.ForLog(trackId), LogSanitizer.ForLog(edition.Id));
-            return (edition.Id, ProviderIdentity.NormalizeIsrc(edition.Isrc) is { Length: > 0 } isrc ? isrc : null);
+            return (edition.Id, Isrc(edition.Isrc), Isrc(edition.Isrc));
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             logger.LogDebug(ex, "streaming-flac: explicit-edition lookup failed for {TrackId}; using it as is",
                 LogSanitizer.ForLog(trackId));
-            return (trackId, null);
+            return (trackId, null, null);
         }
     }
+
+    private static string? Isrc(string? isrc) => ProviderIdentity.NormalizeIsrc(isrc) is { Length: > 0 } normalized ? normalized : null;
 
     private static string TrackUrl(string trackId) => $"https://open.spotify.com/track/{trackId}";
 }

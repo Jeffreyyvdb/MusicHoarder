@@ -228,17 +228,30 @@ public class StreamingFlacDownloadProviderTests : IDisposable
     }
 
     [Theory]
-    [InlineData(" usabc1234567 ", "USABC1234567")]
+    [InlineData(" usspt1234567 ", "USSPT1234567")]
     [InlineData(null, null)]
-    public async Task Acquire_SendsTheTracksOwnIsrc(string? requestIsrc, string? expected)
+    public async Task Acquire_SendsTheIsrcSpotifyGivesForTheTrack_NotTheStoredOne(string? spotifyIsrc, string? expected)
+    {
+        string? sentBody = null;
+        var handler = new FakeSidecarHandler { AcquireResponder = body => { sentBody = body; return NotFound("stop"); } };
+        var catalog = new FakeCatalog(null) { Tracks = { ["abc"] = Track("abc", isExplicit: true, isrc: spotifyIsrc) } };
+        var provider = CreateProvider(handler, catalog: catalog, spotifyClientId: "id", spotifyClientSecret: "secret");
+
+        await provider.DownloadAsync(Request(trackId: "abc", isrc: "USSTO0000001"), default);
+
+        Assert.Equal(expected, ReadIsrc(sentBody!));
+    }
+
+    [Fact]
+    public async Task Acquire_WithoutSpotifyToVouchForIt_SendsNoIsrc()
     {
         string? sentBody = null;
         var handler = new FakeSidecarHandler { AcquireResponder = body => { sentBody = body; return NotFound("stop"); } };
         var provider = CreateProvider(handler);
 
-        await provider.DownloadAsync(Request(trackId: "abc", isrc: requestIsrc), default);
+        await provider.DownloadAsync(Request(trackId: "abc", isrc: "USSTO0000001"), default);
 
-        Assert.Equal(expected, ReadIsrc(sentBody!));
+        Assert.Null(ReadIsrc(sentBody!));
     }
 
     [Theory]

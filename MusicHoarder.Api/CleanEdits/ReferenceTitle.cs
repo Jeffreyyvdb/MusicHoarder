@@ -44,7 +44,11 @@ internal static partial class ReferenceTitle
     /// <summary>The first credited artist, which is how catalogs file a collaboration.</summary>
     public static string LeadArtist(string artist) => artist.Split(',')[0];
 
-    [GeneratedRegex(@"[\(\[].*?(feat|with|ft\.|clean|explicit|edit|version).*?[\)\]]", RegexOptions.CultureInvariant)]
+    // One bracket group holding a credit or an edition label, unless it also names another recording:
+    // "(Live Version)" and "(Remix)" stay, so a live cut never matches the studio song.
+    [GeneratedRegex(
+        @"[\(\[](?![^\)\]]*\b(?:live|remix|mix|acoustic|demo|instrumental|karaoke|sped|slowed|remaster(?:ed)?)\b)[^\)\]]*?\b(?:feat|with|ft|clean|explicit|edit|edited|version)\b[^\)\]]*[\)\]]",
+        RegexOptions.CultureInvariant)]
     private static partial Regex EditionLabel();
 
     [GeneratedRegex(@"[^\p{L}\p{N}]+", RegexOptions.CultureInvariant)]

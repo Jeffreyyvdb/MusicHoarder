@@ -17,6 +17,9 @@ public class ReferenceTitleTests
 
     [Theory]
     [InlineData("Stronger (Live)", "Stronger")]
+    [InlineData("Stronger (Live Version)", "Stronger")]
+    [InlineData("Stronger (Remix Version)", "Stronger")]
+    [InlineData("Stronger (feat. Daft Punk) (Live)", "Stronger")]
     [InlineData("Stronger Remix", "Stronger")]
     [InlineData("Harder", "Stronger")]
     public void A_different_recording_does_not_match(string catalog, string song)

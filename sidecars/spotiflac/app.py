@@ -57,8 +57,13 @@ _SPOTIFY_TRACK_RE = re.compile(r"^https://open\.spotify\.com/track/([A-Za-z0-9]{
 # a tie with the clean one; less than the artist match (180), so a wrong artist's explicit track
 # still loses.
 _EXPLICIT_BONUS = 150
-# A credit or an edition label in brackets, not "(Live)" or "(Remix)", which name another recording.
-_LABEL_RE = re.compile(r"\s*[\(\[][^\)\]]*\b(?:feat|with|ft|explicit|clean|edit|version)\b[^\)\]]*[\)\]]", re.IGNORECASE)
+# A credit or an edition label in brackets, unless the bracket also names another recording:
+# "(Live Version)" or "(Remix)" must not match the studio song.
+_LABEL_RE = re.compile(
+    r"\s*[\(\[](?![^\)\]]*\b(?:live|remix|mix|acoustic|demo|instrumental|karaoke|sped|slowed|remaster(?:ed)?)\b)"
+    r"[^\)\]]*?\b(?:feat|with|ft|explicit|clean|edit|edited|version)\b[^\)\]]*[\)\]]",
+    re.IGNORECASE,
+)
 
 # Per acquire: the (Spotify id, ISRC) the API sent, and the requested track's title when Spotify marks
 # it explicit. Context variables, because acquires run concurrently in threads, each with the module's

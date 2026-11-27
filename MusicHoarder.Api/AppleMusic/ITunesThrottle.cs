@@ -1,4 +1,5 @@
 using System.Threading.RateLimiting;
+using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.RateLimiting;
 
@@ -17,8 +18,19 @@ internal static class ITunesThrottle
     private static readonly ReconfigurableRateLimiter Limiter = new();
     private static long _backoffUntilUtcTicks;
 
-    public static ValueTask<RateLimitLease> AcquireAsync(MusicEnricherOptions options, CancellationToken ct) =>
-        Limiter.AcquireAsync(1, TimeSpan.FromSeconds(60.0 / Math.Clamp(options.AppleMusicApiRequestsPerMinute, 1, 30)), ct);
+    /// <summary>
+    /// A permit to call iTunes now. Throws <see cref="ProviderRateLimitedException"/> when a backoff
+    /// window opened while the caller waited in the queue for the permit.
+    /// </summary>
+    public static async ValueTask<RateLimitLease> AcquireAsync(MusicEnricherOptions options, CancellationToken ct)
+    {
+        var lease = await Limiter.AcquireAsync(1, TimeSpan.FromSeconds(60.0 / Math.Clamp(options.AppleMusicApiRequestsPerMinute, 1, 30)), ct);
+        var wait = BackoffUntil - DateTime.UtcNow;
+        if (wait <= TimeSpan.Zero)
+            return lease;
+        lease.Dispose();
+        throw new ProviderRateLimitedException(wait);
+    }
 
     public static DateTime BackoffUntil => new(Interlocked.Read(ref _backoffUntilUtcTicks), DateTimeKind.Utc);
 
