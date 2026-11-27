@@ -104,12 +104,17 @@ describe('inlineText', () => {
 });
 
 describe('inlineText sanitization', () => {
-  it('removes markup a tag-only strip would leave behind', () => {
-    // A bare "<script" with no closing ">" must not survive: the output lands in HTML attributes.
-    expect(inlineText('Hello <script>alert(1)</script>')).toBe('Hello alert(1)');
+  it('cannot carry markup — no angle brackets, ampersands or double quotes survive', () => {
+    expect(inlineText('Hello <script>alert(1)</script>')).toBe('Hello scriptalert(1)/script');
     expect(inlineText('a <script b')).toBe('a script b');
-    // An unterminated tag leaves only its leftover text — no angle brackets survive.
-    expect(inlineText('a <b>c</b')).toBe('a c/b');
     expect(inlineText('Tom & Jerry <3')).toBe('Tom  Jerry 3');
+    expect(inlineText('He said "hi" <b>bold</b>')).toBe('He said hi bbold/b');
+  });
+
+  it('keeps readable text, including non-ASCII letters', () => {
+    expect(inlineText('**Use** `marked` for [docs](https://example.com)')).toBe(
+      'Use marked for docs(https://example.com)'
+    );
+    expect(inlineText('Café del Mar — café')).toBe('Café del Mar  café');
   });
 });
