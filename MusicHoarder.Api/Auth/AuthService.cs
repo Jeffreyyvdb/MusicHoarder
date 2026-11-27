@@ -175,7 +175,9 @@ public sealed class AuthService : IAuthService
         var session = CreateSession(demo.Id, ip, userAgent, nowUtc);
         db.Sessions.Add(session);
         await db.SaveChangesAsync(ct).ConfigureAwait(false);
-        await TrimDemoSessionsAsync(db, nowUtc, ct).ConfigureAwait(false);
+        // Not the request's token: the session is already saved, so a caller that hangs up here
+        // must not leave the trim undone.
+        await TrimDemoSessionsAsync(db, session.Id, nowUtc, CancellationToken.None).ConfigureAwait(false);
         return session;
     }
 
@@ -186,7 +188,7 @@ public sealed class AuthService : IAuthService
     /// runs at a time and removes at most <see cref="DemoTrimBatch"/> rows of each kind, so a
     /// backlog is worked off over several logins instead of holding one up.
     /// </summary>
-    private async Task TrimDemoSessionsAsync(MusicHoarderDbContext db, DateTime nowUtc, CancellationToken ct)
+    private async Task TrimDemoSessionsAsync(MusicHoarderDbContext db, Guid keepId, DateTime nowUtc, CancellationToken ct)
     {
         var limit = Math.Max(1, _options.CurrentValue.DemoSessionLimit);
         var demoSessions = db.Sessions.Where(s => s.UserId == WellKnownUsers.DemoId);
@@ -199,16 +201,25 @@ public sealed class AuthService : IAuthService
                 .Take(DemoTrimBatch)
                 .ToListAsync(ct).ConfigureAwait(false);
             var overLimit = await demoSessions
-                .Where(s => s.RevokedAtUtc == null && s.ExpiresAtUtc > nowUtc)
+                .Where(s => s.RevokedAtUtc == null && s.ExpiresAtUtc > nowUtc && s.Id != keepId)
                 .OrderByDescending(s => s.IssuedAtUtc).ThenByDescending(s => s.Id)
-                .Skip(limit)
+                .Skip(limit - 1)
                 .Take(DemoTrimBatch)
                 .ToListAsync(ct).ConfigureAwait(false);
             if (ended.Count + overLimit.Count == 0) return;
 
             db.Sessions.RemoveRange(ended);
             db.Sessions.RemoveRange(overLimit);
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            try
+            {
+                await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                // Another process removed some of these first (two replicas during a rollout). The
+                // next demo login trims what is left.
+                return;
+            }
 
             // A dropped session must stop working on its next request, not after the cache TTL.
             foreach (var session in overLimit) InvalidateSession(session.Id);
@@ -361,7 +372,15 @@ public sealed class AuthService : IAuthService
         {
             session.RevokedAtUtc = nowUtc;
         }
-        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // The row went while this request held it (a demo session trimmed past the limit),
+            // which ends the session just as well.
+        }
 
         // A revoked session must stop working on its very next request, not after the cache TTL.
         InvalidateSession(sessionId);

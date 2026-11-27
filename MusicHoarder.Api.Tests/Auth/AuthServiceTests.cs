@@ -168,6 +168,24 @@ public class AuthServiceTests
     }
 
     [Fact]
+    public async Task StartDemoSession_never_drops_the_session_it_just_made()
+    {
+        var (svc, ctx) = MakeService(demoSessionLimit: 1);
+        var first = await svc.StartDemoSessionAsync(null, null, default);
+        await using (var db = ctx())
+        {
+            // Later than anything a new session is stamped with, so it outranks the new one.
+            (await db.Sessions.FirstAsync(s => s.Id == first!.Id)).IssuedAtUtc = DateTime.UtcNow.AddMinutes(5);
+            await db.SaveChangesAsync();
+        }
+
+        var second = await svc.StartDemoSessionAsync(null, null, default);
+
+        await using var after = ctx();
+        Assert.Equal(second!.Id, (await after.Sessions.SingleAsync()).Id);
+    }
+
+    [Fact]
     public async Task StartDemoSession_stops_a_dropped_session_that_was_just_used()
     {
         var (svc, _) = MakeService(demoSessionLimit: 1);
