@@ -124,7 +124,11 @@ public sealed class AudioAssetRegistry(
     public async Task<AudioAsset> LinkAsync(
         MusicHoarderDbContext db, SongMetadata song, AudioFileFacts facts, CancellationToken ct)
     {
-        var asset = await FindAsync(db, facts.Sha256, ct) ?? Add(db, facts, facts.Path);
+        var asset = await FindAsync(db, facts.Sha256, ct);
+        // A file registered in place may have changed since; the file being linked has these bytes now.
+        if (asset is { PurgedAtUtc: null, Id: > 0 } && !await StillHoldsAsync(asset, ct))
+            asset.StoragePath = facts.Path;
+        asset ??= Add(db, facts, facts.Path);
         Link(song, asset, facts.Path);
         return asset;
     }

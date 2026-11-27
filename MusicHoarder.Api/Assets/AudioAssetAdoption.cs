@@ -81,7 +81,9 @@ public sealed class AudioAssetAdoptionService(
                     return;
                 try
                 {
-                    if (await registry.ReadAsync(song.SourcePath, token) is { } facts && facts.SizeBytes == song.FileSizeBytes)
+                    if (await registry.ReadAsync(song.SourcePath, token) is { } facts
+                        && facts.SizeBytes == song.FileSizeBytes
+                        && Math.Abs((facts.LastWriteUtc - song.LastModifiedUtc).Ticks) < TimeSpan.TicksPerMicrosecond)
                         read[song.Id] = facts;
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

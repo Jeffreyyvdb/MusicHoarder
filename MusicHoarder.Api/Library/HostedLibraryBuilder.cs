@@ -121,7 +121,9 @@ public sealed class HostedLibraryBuilder(
         metrics.RecordStageDuration("build", duration.TotalSeconds);
         metrics.RecordTerminal("built", done);
         metrics.RecordTerminal("build_failed", failed);
-        return new LibraryBuildBatchResult(songs.Count, done, failed, duration);
+        // Rows skipped because they changed while hashing are not counted: they are picked up again by
+        // the next sweep, and a batch that skipped them all must read as empty or the loop would spin.
+        return new LibraryBuildBatchResult(done + failed, done, failed, duration);
     }
 
     /// <summary>

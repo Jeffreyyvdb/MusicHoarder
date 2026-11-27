@@ -196,6 +196,8 @@ public class WishlistDownloadProcessor(
                         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                         {
                             logger.LogWarning(ex, "Could not hash hosted download {Path}", Logging.LogSanitizer.ForLog(result.FilePath));
+                            // The item is retried with a fresh download; this copy would never be read.
+                            try { File.Delete(result.FilePath); } catch (Exception cleanup) when (cleanup is IOException or UnauthorizedAccessException) { }
                         }
                     }
                     lock (resultsLock) results[item.Id] = (result, providerName, unavailableProvider, video, staged);
