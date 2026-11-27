@@ -193,14 +193,14 @@ function stop(): void {
 }
 
 /**
- * The main player started a song: end the preview so the two never overlap. The page calls this
- * from an effect on `localPlayback.isPlaying`, because module-level effects would outlive it.
+ * The main player started a song: end the preview so the two never overlap. The command palette
+ * calls this from an effect on `localPlayback.isPlaying`; a module-level effect has no owner here.
  */
 function yieldToMainPlayer(): void {
   if (state !== 'idle') stop();
 }
 
-/** Leave the page: stop and let go of the element. */
+/** The palette closed: stop and let go of the element. */
 function release(): void {
   stop();
   if (audio) {

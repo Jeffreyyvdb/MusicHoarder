@@ -8,6 +8,7 @@
     Cpu,
     Clock,
     Disc3,
+    Globe,
     Mic2,
     Music,
     Loader2,
@@ -15,6 +16,10 @@
     type LucideIcon
   } from '@lucide/svelte';
   import * as Command from '#lib/components/ui/command/index.ts';
+  import CatalogPaletteResults from '#lib/components/CatalogPaletteResults.svelte';
+  import CatalogPreviewBar from '#lib/components/CatalogPreviewBar.svelte';
+  import { catalogPreview } from '#lib/catalog-preview.svelte.ts';
+  import { localPlayback } from '#lib/stores/player.svelte.ts';
   import * as Dialog from '#lib/components/ui/dialog/index.ts';
   import { navGroupsFor, tabsFor } from '#lib/nav.ts';
   import { isAdmin, isDemo } from '#lib/auth/capabilities.ts';
@@ -104,6 +109,49 @@
   }
 
   let query = $state('');
+
+  // ── the catalog ─────────────────────────────────────────────────────────────
+  // Beyond the library: the admin can search the music catalog for what they typed (⌘↵, or the
+  // last row), hear a result and queue its download without leaving the palette. Only on request,
+  // because every catalog search is a call to an outside service.
+  const canSearchCatalog = $derived(isAdmin(page.data.user));
+  const MIN_CATALOG_QUERY = 2;
+  const offersCatalog = $derived(canSearchCatalog && query.trim().length >= MIN_CATALOG_QUERY);
+  /** The query the catalog was searched for; its results show only while the field still says it. */
+  let catalogQuery = $state<string | null>(null);
+  const catalogShown = $derived(catalogQuery !== null && catalogQuery === query.trim());
+  let highlighted = $state('');
+  let catalogResults = $state<ReturnType<typeof CatalogPaletteResults> | null>(null);
+
+  const modifierHint = $derived(
+    typeof navigator !== 'undefined' && /mac|iphone|ipad|ipod/i.test(navigator.platform)
+      ? '⌘↵'
+      : 'Ctrl ↵'
+  );
+
+  function searchCatalog() {
+    if (!offersCatalog) return;
+    rememberSearch();
+    catalogQuery = query.trim();
+  }
+
+  // ⌘↵ / Ctrl+↵ is the catalog key: on a catalog row it adds that track, anywhere else it searches
+  // the catalog for the query. Caught on the way down, before the list's own Enter handling.
+  function onKeydownCapture(event: KeyboardEvent) {
+    if (event.key !== 'Enter' || !(event.metaKey || event.ctrlKey) || !canSearchCatalog) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (catalogShown && catalogResults?.addByValue(highlighted)) return;
+    searchCatalog();
+  }
+
+  // A preview never outlives the palette, and gives way to the library player.
+  $effect(() => {
+    if (!dialogOpen) untrack(() => catalogPreview.release());
+  });
+  $effect(() => {
+    if (localPlayback.isPlaying) untrack(() => catalogPreview.yieldToMainPlayer());
+  });
 
   // The palette reads the shared songs store rather than fetching its own copy:
   // one full-library download per session, already warm on any page that has
@@ -258,6 +306,7 @@
   function dismiss() {
     commandPalette.setOpen(false);
     query = '';
+    catalogQuery = null;
   }
 
   function navigate(href: string) {
@@ -302,10 +351,12 @@
   >
     <Dialog.Title class="sr-only">Search everywhere</Dialog.Title>
     <Dialog.Description class="sr-only">
-      Search tracks, albums, artists and pages.
+      Search tracks, albums, artists and pages{canSearchCatalog ? ', or the music catalog' : ''}.
     </Dialog.Description>
     <Command.Root
       shouldFilter={false}
+      bind:value={highlighted}
+      onkeydowncapture={onKeydownCapture}
       class="max-md:bg-background max-md:rounded-none! max-md:p-0 md:max-h-[80vh]"
     >
       <div class="flex items-center gap-2 max-md:px-3 max-md:pt-2 max-md:pb-1">
@@ -362,7 +413,16 @@
           </Command.Group>
         {/if}
 
-        {#if hasQuery && !secret && !loopingCommand && !hasLibraryResults && navMatches.length === 0 && !loading}
+        <!-- Asked for, so first: the library groups below stay where they were. -->
+        {#if catalogShown && catalogQuery}
+          <CatalogPaletteResults
+            bind:this={catalogResults}
+            query={catalogQuery}
+            onhighlight={(value) => (highlighted = value)}
+          />
+        {/if}
+
+        {#if hasQuery && !secret && !loopingCommand && !hasLibraryResults && navMatches.length === 0 && !loading && !offersCatalog}
           <Command.Empty class="max-md:text-body text-muted-foreground"
             >No results for “{query}”.</Command.Empty
           >
@@ -480,7 +540,30 @@
             {/each}
           </Command.Group>
         {/if}
+
+        {#if offersCatalog && !catalogShown}
+          <Command.Group heading="Catalog">
+            <Command.Item value="catalog-search" onSelect={searchCatalog}>
+              <Globe class="text-muted-foreground" />
+              <span class="min-w-0 flex-1 truncate">Search the catalog for “{query.trim()}”</span>
+              <kbd
+                class="text-muted-foreground text-footnote hidden shrink-0 pl-3 font-sans md:inline md:text-xs"
+                >{modifierHint}</kbd
+              >
+            </Command.Item>
+          </Command.Group>
+        {/if}
       </Command.List>
+      {#if catalogPreview.track}
+        <CatalogPreviewBar
+          class="border-border border-t px-3 pt-2 pb-3 max-md:pb-[max(12px,env(safe-area-inset-bottom))]"
+        />
+      {/if}
+      {#if catalogShown}
+        <p class="text-muted-foreground hidden border-t px-3 py-2 text-xs md:block">
+          ↵ to preview · {modifierHint} to add
+        </p>
+      {/if}
     </Command.Root>
   </Dialog.Content>
 </Dialog.Root>

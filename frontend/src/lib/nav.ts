@@ -17,7 +17,6 @@ import FlaskConical from '@lucide/svelte/icons/flask-conical';
 import FolderTree from '@lucide/svelte/icons/folder-tree';
 import Gauge from '@lucide/svelte/icons/gauge';
 import Gift from '@lucide/svelte/icons/gift';
-import Headphones from '@lucide/svelte/icons/headphones';
 import History from '@lucide/svelte/icons/history';
 import Inbox from '@lucide/svelte/icons/inbox';
 import LayoutGrid from '@lucide/svelte/icons/layout-grid';
@@ -303,14 +302,6 @@ export const NAV_GROUPS: NavGroup[] = [
     match: exact('/add'),
     items: [
       {
-        // Search is the tab bar's circle and Plus the top bar's Add-from-URL, so neither glyph.
-        id: 'find',
-        label: 'Find music',
-        href: '/find',
-        icon: Headphones,
-        keywords: 'search preview listen try add download song track deezer'
-      },
-      {
         id: 'discover',
         label: 'Discover',
         href: '/discover',
@@ -488,13 +479,11 @@ export function navGroupsFor(user: NavAudience): NavGroup[] {
  * - `clean-edits`: runs against the instance's files and third-party catalogs, admin-only.
  * - `performance`: snapshots record the instance's pipeline configuration.
  * - `following`: reads a third-party catalog for the instance, and following queues downloads.
- * - `find`: searches a third-party catalog for the instance and resolves full songs through yt-dlp.
  *
  * Hiding an item here hides it from every nav surface, and the route guard
  * ({@link isPathAllowedFor}) follows for any path no visible item shares.
  */
 export const DEMO_HIDDEN_ITEMS: ReadonlySet<string> = new Set([
-  'find',
   'following',
   'playlist-sync',
   'grader-trial',
