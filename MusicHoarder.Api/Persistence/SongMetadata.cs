@@ -83,6 +83,16 @@ public class SongMetadata
     public required string FileName { get; set; }
     public required string Extension { get; set; }
     public required DateTime LastModifiedUtc { get; set; }
+
+    /// <summary>
+    /// The stored file this row plays: an <see cref="Persistence.AudioAsset"/> with the same bytes as
+    /// <see cref="SourcePath"/>. Set by a hosted build, a hosted download and the adoption job; cleared
+    /// whenever the row's file changes. A song with an asset and <see cref="LibraryBuildStatus.Done"/>
+    /// counts as built even without a <see cref="DestinationPath"/>.
+    /// </summary>
+    public int? AudioAssetId { get; set; }
+    public AudioAsset? AudioAsset { get; set; }
+
     public string? Artist { get; set; }
     public string? AlbumArtist { get; set; }
     public string? Album { get; set; }
@@ -1162,6 +1172,27 @@ public class SongMetadata
         PreviousDestinationPath = null;
     }
 
+    /// <summary>
+    /// Hosted storage: the song joins the library as the file it already has, with no copy and no tags
+    /// written. <see cref="DestinationPath"/> is left as it was, so a copy an earlier folder-mode build
+    /// made is neither deleted nor read.
+    /// </summary>
+    public void MarkBuiltInPlace()
+    {
+        LibraryBuildStatus = LibraryBuildStatus.Done;
+        LibraryBuiltAtUtc ??= DateTime.UtcNow;
+        LibraryBuildError = null;
+        LibraryBuildAttempts = 0;
+        PreviousDestinationPath = null;
+    }
+
+    /// <summary>
+    /// In the library: built, and holding a file to play there. A folder-mode build has a tagged
+    /// destination copy; a hosted build has an asset instead. Queries spell the same rule in SQL.
+    /// </summary>
+    public bool IsBuilt =>
+        LibraryBuildStatus == LibraryBuildStatus.Done && (DestinationPath != null || AudioAssetId != null);
+
     public void MarkBuildFailed(string error)
     {
         LibraryBuildStatus = LibraryBuildStatus.Failed;
@@ -1245,6 +1276,10 @@ public class SongMetadata
         IndexedAtUtc = DateTime.UtcNow;
         // A new staged file exists at the new path, so the row is no longer source-less.
         SourceReleasedAtUtc = null;
+        // Different bytes: the old asset stays for whoever else plays it, and this row is linked again
+        // by the next hosted build or adoption pass.
+        AudioAssetId = null;
+        AudioAsset = null;
         // The old file's write snapshot no longer describes the new source; drop it so the next
         // build diffs from scratch instead of a stale baseline.
         LastWrittenTagsJson = null;
