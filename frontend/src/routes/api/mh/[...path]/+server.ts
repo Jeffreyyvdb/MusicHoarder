@@ -32,8 +32,11 @@ async function proxy(
   // AI lyrics transcription and pronunciation/translation are deliberate long-running synchronous
   // actions (ffmpeg + Whisper, or chunked LLM calls), so they get a much longer window — each is
   // bounded server-side by its own TimeoutSeconds. Aborting early would also cancel the API-side work.
+  // Finding a catalog track's full song runs yt-dlp, which took 12 s cold; the API bounds it at 90 s.
   const isLongRunning =
-    pathSegments.endsWith('/lyrics/transcribe') || pathSegments.endsWith('/lyrics/translate');
+    pathSegments.endsWith('/lyrics/transcribe') ||
+    pathSegments.endsWith('/lyrics/translate') ||
+    pathSegments.startsWith('api/catalog/full/');
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), isLongRunning ? 240_000 : 10_000);
 

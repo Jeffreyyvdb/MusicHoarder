@@ -44,25 +44,40 @@ public sealed class DeezerCatalogService(
         return track;
     }
 
-    public async Task<IReadOnlyList<DeezerCatalogTrack>> SearchTracksAsync(string query, CancellationToken ct = default)
+    public Task<IReadOnlyList<DeezerCatalogTrack>> SearchTracksAsync(string query, CancellationToken ct = default) =>
+        SearchTracksAsync(query, options.Value.DeezerApiSearchLimit, ct);
+
+    public async Task<IReadOnlyList<DeezerCatalogTrack>> SearchTracksAsync(string query, int limit, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(query))
             return [];
 
         var opts = options.Value;
-        var limit = Math.Clamp(opts.DeezerApiSearchLimit, 1, 50);
+        limit = Math.Clamp(limit, 1, 50);
         var cacheKey = BuildSearchCacheKey(query, limit);
         if (cache.TryGetValue(cacheKey, out IReadOnlyList<DeezerCatalogTrack>? cached) && cached is not null)
             return cached;
 
         var url = $"{BaseUrl}/search?q={Uri.EscapeDataString(query)}&limit={limit}";
         var json = await GetAsync(url, ct);
-        var tracks = json is null ? [] : DeezerCatalogJson.ParseSearchResponse(json);
+        // A failed request reads as no hits here, but is not remembered as one.
+        if (json is null)
+            return [];
+        var tracks = DeezerCatalogJson.ParseSearchResponse(json);
         cache.Set(cacheKey, tracks, new MemoryCacheEntryOptions
         {
             AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(Math.Max(1, opts.DeezerApiSearchCacheMinutes)),
         });
         return tracks;
+    }
+
+    public async Task<string?> GetPreviewUrlAsync(string id, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+            return null;
+
+        var json = await GetAsync($"{BaseUrl}/track/{Uri.EscapeDataString(id)}", ct);
+        return json is null ? null : DeezerCatalogJson.ParseTrackDetail(json)?.PreviewUrl;
     }
 
     /// <summary>Hydrate a search hit to full detail (ISRC / release year / track position).</summary>

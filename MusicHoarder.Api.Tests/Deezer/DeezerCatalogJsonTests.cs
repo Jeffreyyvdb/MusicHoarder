@@ -59,6 +59,38 @@ public class DeezerCatalogJsonTests
     }
 
     [Fact]
+    public void CoverPreviewAndExplicit_AreReadFromTheSearchItemAndTheDetail()
+    {
+        const string payload = """
+            { "id": 7, "title": "T", "duration": 30, "preview": "https://cdnt-preview.dzcdn.net/clip.mp3?hdnea=x",
+              "explicit_lyrics": true, "artist": { "name": "A" },
+              "album": { "title": "B", "cover_medium": "https://img/medium.jpg", "cover_big": "https://img/big.jpg" } }
+            """;
+
+        var hit = Assert.Single(DeezerCatalogJson.ParseSearchResponse($$"""{ "data": [ {{payload}} ] }"""));
+        var detail = DeezerCatalogJson.ParseTrackDetail(payload)!;
+
+        foreach (var track in new[] { hit, detail })
+        {
+            Assert.Equal("https://img/medium.jpg", track.CoverUrl);
+            Assert.Equal("https://cdnt-preview.dzcdn.net/clip.mp3?hdnea=x", track.PreviewUrl);
+            Assert.True(track.Explicit);
+        }
+    }
+
+    [Fact]
+    public void Cover_FallsBackToTheBigOne_AndMissingFieldsAreNullAndFalse()
+    {
+        var bigOnly = DeezerCatalogJson.ParseTrackDetail("""{ "id": 7, "album": { "cover_big": "https://img/big.jpg" } }""")!;
+        Assert.Equal("https://img/big.jpg", bigOnly.CoverUrl);
+
+        var bare = DeezerCatalogJson.ParseTrackDetail("""{ "id": 7, "preview": "", "explicit_lyrics": false }""")!;
+        Assert.Null(bare.CoverUrl);
+        Assert.Null(bare.PreviewUrl);
+        Assert.False(bare.Explicit);
+    }
+
+    [Fact]
     public void NonIntegralNumericId_ThrowsToday()
     {
         // GetInt64 throws FormatException on a number it cannot hold, and the readers only catch

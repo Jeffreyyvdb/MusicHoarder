@@ -9,6 +9,16 @@ public interface IDeezerCatalogService
     /// release year or track position (those come from <see cref="LookupByIdAsync"/>).</summary>
     Task<IReadOnlyList<DeezerCatalogTrack>> SearchTracksAsync(string query, CancellationToken ct = default);
 
+    /// <summary>Like <see cref="SearchTracksAsync(string, CancellationToken)"/> with the caller's own
+    /// result limit (1-50) instead of <c>DeezerApiSearchLimit</c>.</summary>
+    Task<IReadOnlyList<DeezerCatalogTrack>> SearchTracksAsync(string query, int limit, CancellationToken ct = default) =>
+        SearchTracksAsync(query, ct);
+
+    /// <summary>The track's current preview clip URL, read fresh from <c>GET /track/{id}</c> every call
+    /// because the URL carries an expiring token (so neither this nor <see cref="LookupByIdAsync"/>'s
+    /// cache may answer it). Null when Deezer has no such track or no clip.</summary>
+    Task<string?> GetPreviewUrlAsync(string id, CancellationToken ct = default) => Task.FromResult<string?>(null);
+
     /// <summary>Hydrate a search hit to full detail (<c>GET /track/{id}</c>): ISRC, release year,
     /// track position.</summary>
     Task<DeezerCatalogTrack?> LookupByIdAsync(string id, CancellationToken ct = default);

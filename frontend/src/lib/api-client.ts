@@ -4245,7 +4245,10 @@ export interface ImportResolveResult {
 }
 
 export interface ImportTrackPayload {
-  source: ImportSource;
+  /** Omitted for a Deezer catalog track, which names itself with `deezerTrackId`. */
+  source?: ImportSource;
+  /** A Deezer track id from the catalog search; the server fills and validates the rest. */
+  deezerTrackId?: string | null;
   title: string;
   artist: string;
   album?: string | null;
@@ -4262,6 +4265,8 @@ export interface ImportTrackResult {
   wishlistItemId: number;
   jobStarted: boolean;
   jobId: string | null;
+  /** The item's wishlist status after the import (absent from servers older than this field). */
+  status?: string;
 }
 
 /** Resolve a pasted Spotify/YouTube track URL into editable, download-ready metadata. */
@@ -4278,6 +4283,54 @@ export async function importTrack(payload: ImportTrackPayload): Promise<ImportTr
     method: 'POST',
     body: JSON.stringify(payload)
   });
+}
+
+// ── Find music (Deezer catalog search, 30 s previews, full songs through YouTube) ─────────────
+
+export interface CatalogTrack {
+  deezerId: string;
+  title: string;
+  artist: string;
+  album: string | null;
+  durationMs: number;
+  coverUrl: string | null;
+  explicit: boolean;
+  hasPreview: boolean;
+  /** The wishlist item's status when the track is already queued, else null. */
+  wishlistStatus: string | null;
+}
+
+export interface CatalogFullSong {
+  youTubeVideoId: string;
+  videoTitle: string;
+  durationMs: number | null;
+}
+
+/** At most 25 tracks. Pass a signal to drop a search a newer keystroke replaced. */
+export async function searchCatalogTracks(
+  q: string,
+  signal?: AbortSignal
+): Promise<CatalogTrack[]> {
+  const result = await requestJson<{ tracks: CatalogTrack[] }>(
+    `/api/catalog/search?q=${encodeURIComponent(q)}`,
+    { signal }
+  );
+  return result.tracks;
+}
+
+/** An `<audio>` source: the 30-second clip. */
+export function catalogPreviewUrl(deezerId: string): string {
+  return `${API_PREFIX}/api/catalog/preview/${encodeURIComponent(deezerId)}`;
+}
+
+/** An `<audio>` source: the whole song. Only after {@link resolveCatalogFullSong} succeeded. */
+export function catalogFullUrl(deezerId: string): string {
+  return `${API_PREFIX}/api/catalog/full/${encodeURIComponent(deezerId)}`;
+}
+
+/** Finds the YouTube audio for a catalog track (about 4 s cold, instant once warm). */
+export async function resolveCatalogFullSong(deezerId: string): Promise<CatalogFullSong> {
+  return requestJson<CatalogFullSong>(`/api/catalog/full/${encodeURIComponent(deezerId)}/resolve`);
 }
 
 // ── Discover (Spotify's own playlists, from the Spotify Playlist Archive) ─────

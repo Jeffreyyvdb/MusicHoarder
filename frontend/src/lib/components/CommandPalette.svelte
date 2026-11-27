@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import {
@@ -8,6 +8,7 @@
     Cpu,
     Clock,
     Disc3,
+    Globe,
     Mic2,
     Music,
     Loader2,
@@ -15,6 +16,10 @@
     type LucideIcon
   } from '@lucide/svelte';
   import * as Command from '#lib/components/ui/command/index.ts';
+  import CatalogPaletteResults from '#lib/components/CatalogPaletteResults.svelte';
+  import CatalogPreviewBar from '#lib/components/CatalogPreviewBar.svelte';
+  import { catalogPreview, previewAvailable } from '#lib/catalog-preview.svelte.ts';
+  import { localPlayback } from '#lib/stores/player.svelte.ts';
   import * as Dialog from '#lib/components/ui/dialog/index.ts';
   import { navGroupsFor, tabsFor } from '#lib/nav.ts';
   import { isAdmin, isDemo } from '#lib/auth/capabilities.ts';
@@ -101,9 +106,72 @@
   function handleOpenChange(value: boolean) {
     dialogOpen = value;
     commandPalette.setOpen(value);
+    // Escape and the backdrop close without dismiss(); a reopen must not search the catalog again.
+    if (!value) catalogQuery = null;
   }
 
   let query = $state('');
+
+  // ── the catalog ─────────────────────────────────────────────────────────────
+  // Beyond the library: the admin can search the music catalog for what they typed (⌘↵, or the
+  // last row), hear a result and queue its download without leaving the palette. Only on request,
+  // because every catalog search is a call to an outside service.
+  const canSearchCatalog = $derived(isAdmin(page.data.user));
+  const MIN_CATALOG_QUERY = 2;
+  // Never for the easter egg or a `looping:<key>` query: the key must not leave the device.
+  const offersCatalog = $derived.by(
+    () => canSearchCatalog && query.trim().length >= MIN_CATALOG_QUERY && !secret && !loopingCommand
+  );
+  /** The query the catalog was searched for; its results show only while the field still says it. */
+  let catalogQuery = $state<string | null>(null);
+  const catalogShown = $derived(catalogQuery !== null && catalogQuery === query.trim());
+  let highlighted = $state('');
+  let catalogResults = $state<ReturnType<typeof CatalogPaletteResults> | null>(null);
+  let listEl = $state<HTMLElement | null>(null);
+  const canPreview = previewAvailable();
+
+  const modifierHint = $derived(
+    typeof navigator !== 'undefined' && /mac|iphone|ipad|ipod/i.test(navigator.platform)
+      ? '⌘↵'
+      : 'Ctrl ↵'
+  );
+
+  // Asked for once, for exactly that text: editing the field forgets it, so typing back to the same
+  // words does not search the catalog again unasked.
+  $effect(() => {
+    const typed = query.trim();
+    untrack(() => {
+      if (catalogQuery !== null && catalogQuery !== typed) catalogQuery = null;
+    });
+  });
+
+  function searchCatalog() {
+    if (!offersCatalog) return;
+    rememberSearch();
+    catalogQuery = query.trim();
+    // The results open at the top of the list, and the row that asked for them may have been at
+    // the bottom of a long one.
+    void tick().then(() => listEl?.scrollTo({ top: 0 }));
+  }
+
+  // ⌘↵ / Ctrl+↵ is the catalog key: on a catalog row it adds that track, anywhere else it searches
+  // the catalog for the query. Caught on the way down, before the list's own Enter handling.
+  function onKeydownCapture(event: KeyboardEvent) {
+    if (event.key !== 'Enter' || !(event.metaKey || event.ctrlKey) || !canSearchCatalog) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (catalogShown && catalogResults?.addByValue(highlighted)) return;
+    searchCatalog();
+  }
+
+  // A preview never outlives the palette, and gives way to the library player.
+  $effect(() => {
+    if (!dialogOpen) untrack(() => catalogPreview.release());
+  });
+  $effect(() => () => catalogPreview.release());
+  $effect(() => {
+    if (localPlayback.isPlaying) untrack(() => catalogPreview.yieldToMainPlayer());
+  });
 
   // The palette reads the shared songs store rather than fetching its own copy:
   // one full-library download per session, already warm on any page that has
@@ -258,6 +326,7 @@
   function dismiss() {
     commandPalette.setOpen(false);
     query = '';
+    catalogQuery = null;
   }
 
   function navigate(href: string) {
@@ -293,7 +362,7 @@
     showCloseButton={false}
     overlayClass="z-[75] data-open:animate-none! data-closed:animate-none!"
     class={cn(
-      'z-[75] gap-0 overflow-hidden p-0 data-closed:animate-none! data-open:animate-none!',
+      'z-[75] flex flex-col gap-0 overflow-hidden p-0 data-closed:animate-none! data-open:animate-none!',
       // Desktop: the panel, high enough that the whole list fits under it.
       'md:top-[10vh] md:max-w-2xl md:translate-y-0',
       // Phone: the whole screen, a plain page rather than a floating card.
@@ -302,11 +371,13 @@
   >
     <Dialog.Title class="sr-only">Search everywhere</Dialog.Title>
     <Dialog.Description class="sr-only">
-      Search tracks, albums, artists and pages.
+      Search tracks, albums, artists and pages{canSearchCatalog ? ', or the music catalog' : ''}.
     </Dialog.Description>
     <Command.Root
       shouldFilter={false}
-      class="max-md:bg-background max-md:rounded-none! max-md:p-0 md:max-h-[80vh]"
+      bind:value={highlighted}
+      onkeydowncapture={onKeydownCapture}
+      class="max-md:bg-background h-auto min-h-0 flex-1 max-md:rounded-none! max-md:p-0 md:max-h-[80vh]"
     >
       <div class="flex items-center gap-2 max-md:px-3 max-md:pt-2 max-md:pb-1">
         <div class="min-w-0 flex-1">
@@ -329,6 +400,7 @@
            in the palette is checkable — and its `ml-auto` fought the trailing meta column's own
            auto margin, leaving each row's group label at a different x. -->
       <Command.List
+        bind:ref={listEl}
         class="max-md:[&_[data-slot=command-item]]:text-body max-md:[&_[data-command-group-heading]]:text-footnote max-md:max-h-none max-md:min-h-0 max-md:flex-1 max-md:overscroll-contain max-md:px-2 max-md:pb-[max(16px,env(safe-area-inset-bottom))] md:max-h-[65vh] [&_.cn-command-item-indicator]:hidden max-md:[&_[data-slot=command-item]]:min-h-11 max-md:[&_[data-slot=command-item]]:gap-3"
       >
         <!-- The page commands are local, so they stay usable while the library
@@ -362,7 +434,20 @@
           </Command.Group>
         {/if}
 
-        {#if hasQuery && !secret && !loopingCommand && !hasLibraryResults && navMatches.length === 0 && !loading}
+        <!-- Asked for, so first: the library groups below stay where they were. -->
+        {#if catalogShown && catalogQuery}
+          <CatalogPaletteResults
+            bind:this={catalogResults}
+            query={catalogQuery}
+            onhighlight={(value) => (highlighted = value)}
+            onclear={() => {
+              query = '';
+              catalogQuery = null;
+            }}
+          />
+        {/if}
+
+        {#if hasQuery && !secret && !loopingCommand && !hasLibraryResults && navMatches.length === 0 && !loading && !offersCatalog}
           <Command.Empty class="max-md:text-body text-muted-foreground"
             >No results for “{query}”.</Command.Empty
           >
@@ -480,7 +565,32 @@
             {/each}
           </Command.Group>
         {/if}
+
+        {#if offersCatalog && !catalogShown}
+          <Command.Group heading="Catalog">
+            <Command.Item value="catalog-search" onSelect={searchCatalog}>
+              <Globe class="text-muted-foreground" />
+              <span class="min-w-0 flex-1 truncate">Search the catalog for “{query.trim()}”</span>
+              <kbd
+                class="text-muted-foreground text-footnote hidden shrink-0 pl-3 font-sans md:inline md:text-xs"
+                >{modifierHint}</kbd
+              >
+            </Command.Item>
+          </Command.Group>
+        {/if}
       </Command.List>
     </Command.Root>
+    <!-- Outside the command root: it takes Enter for its highlighted row, so a button in here
+         could not be pressed by key. -->
+    {#if catalogPreview.track}
+      <CatalogPreviewBar
+        class="border-border shrink-0 border-t px-3 pt-2 pb-3 max-md:pb-[max(12px,env(safe-area-inset-bottom))]"
+      />
+    {/if}
+    {#if catalogShown}
+      <p class="text-muted-foreground hidden shrink-0 border-t px-3 py-2 text-xs md:block">
+        {canPreview ? `↵ to preview · ${modifierHint} to add` : `↵ to add`}
+      </p>
+    {/if}
   </Dialog.Content>
 </Dialog.Root>

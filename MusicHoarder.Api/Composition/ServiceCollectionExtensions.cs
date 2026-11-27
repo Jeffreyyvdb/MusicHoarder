@@ -9,6 +9,7 @@ using MusicHoarder.Api.Audio;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
 using MusicHoarder.Api.BackgroundWork;
+using MusicHoarder.Api.Catalog;
 using MusicHoarder.Api.CleanEdits;
 using MusicHoarder.Api.CoverArtArchive;
 using MusicHoarder.Api.Deezer;
@@ -785,6 +786,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<Playlists.LibraryPlaylistExportQueue>();
         services.AddSingleton<Playlists.ILibraryPlaylistExporter, Playlists.LibraryPlaylistExporter>();
         services.AddHostedService<Playlists.LibraryPlaylistExportBackgroundService>();
+
+        services.AddCatalog();
 
         return services;
     }

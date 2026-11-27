@@ -77,7 +77,7 @@ public class YtDlpDownloadProviderTests
         // A malicious-looking title must remain a single positional arg that can't be parsed as a flag,
         // because the ytsearchN: prefix means the value never starts with '-'.
         var req = new DownloadRequest("--exec rm -rf", "; whoami", null, null, 1000, "/tmp");
-        var query = YtDlpDownloadProvider.BuildSearchQuery(req);
+        var query = YtDlpSearch.BuildQuery(req);
 
         Assert.StartsWith("ytsearch5:", query);
         Assert.DoesNotContain('\n', query);
@@ -87,14 +87,14 @@ public class YtDlpDownloadProviderTests
     public void BuildSearchQuery_UsesTitleOnly_WhenArtistBlank()
     {
         var req = new DownloadRequest("", "Some Song", null, null, 1000, "/tmp");
-        Assert.Equal("ytsearch5:Some Song", YtDlpDownloadProvider.BuildSearchQuery(req));
+        Assert.Equal("ytsearch5:Some Song", YtDlpSearch.BuildQuery(req));
     }
 
     [Fact]
     public void BuildSearchQuery_DropsTheCleanEditLabel_FromTheTitle()
     {
         var req = new DownloadRequest("Kid Cudi", "Heart Of A Lion (Kid Cudi Theme Music) (Album Version Edited)", null, null, 1000, "/tmp");
-        Assert.Equal("ytsearch5:Kid Cudi Heart Of A Lion (Kid Cudi Theme Music)", YtDlpDownloadProvider.BuildSearchQuery(req));
+        Assert.Equal("ytsearch5:Kid Cudi Heart Of A Lion (Kid Cudi Theme Music)", YtDlpSearch.BuildQuery(req));
     }
 
     [Fact]
@@ -123,7 +123,7 @@ public class YtDlpDownloadProviderTests
     [Fact]
     public void PickCandidate_SkipsTheCleanEdit_YouTubeListsFirst()
     {
-        var (picked, skipped) = YtDlpDownloadProvider.PickCandidate(
+        var (picked, skipped) = YtDlpSearch.Pick(
         [
             Hit("Xt22KvnRSL4", "Kid Cudi - Make Her Say (Clean Version) ft. Kanye West, Common"),
             Hit("N4yOHlNKcxs", "Kid Cudi - Make Her Say (Dirty Official Video)"),
@@ -138,18 +138,18 @@ public class YtDlpDownloadProviderTests
     [Fact]
     public void PickCandidate_RejectsABareCleanUpload_ButAcceptsATitleThatIsAboutBeingClean()
     {
-        var (bare, _) = YtDlpDownloadProvider.PickCandidate([Hit("a", "Make Her Say CLEAN"), Hit("b", "Make Her Say")], MakeHerSay);
+        var (bare, _) = YtDlpSearch.Pick([Hit("a", "Make Her Say CLEAN"), Hit("b", "Make Her Say")], MakeHerSay);
         Assert.Equal("b", bare?.Id);
 
         var outkast = new DownloadRequest("OutKast", "So Fresh, So Clean", null, null, 1000, "/tmp");
-        var (picked, _) = YtDlpDownloadProvider.PickCandidate([Hit("c", "OutKast - So Fresh, So Clean")], outkast);
+        var (picked, _) = YtDlpSearch.Pick([Hit("c", "OutKast - So Fresh, So Clean")], outkast);
         Assert.Equal("c", picked?.Id);
     }
 
     [Fact]
     public void PickCandidate_PicksNothing_WhenEveryHitIsACleanEdit()
     {
-        var (picked, skipped) = YtDlpDownloadProvider.PickCandidate(
+        var (picked, skipped) = YtDlpSearch.Pick(
             [Hit("a", "Make Her Say (Clean)"), Hit("b", "Make Her Say Censored")], MakeHerSay);
 
         Assert.Null(picked);
