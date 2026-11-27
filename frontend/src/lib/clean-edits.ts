@@ -105,7 +105,7 @@ export function evidenceLine(item: CleanEditItem): string {
 export function progressLine(progress: CleanEditProgress): string | null {
   if (progress.running) {
     const where = `${progress.processed.toLocaleString()} of ${progress.total.toLocaleString()}`;
-    if (progress.stopping) return `Stopping after this song · ${where}`;
+    if (progress.stopping) return `Stopping · ${where}`;
     return progress.current ? `Checking ${where} · ${progress.current}` : `Checking ${where}`;
   }
   return progress.stoppedReason ?? null;

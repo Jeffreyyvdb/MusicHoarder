@@ -65,7 +65,9 @@
 
   async function load(count = PAGE) {
     try {
-      list = await fetchCleanEdits(count, 0);
+      const latest = await fetchCleanEdits(count, 0);
+      if (destroyed) return;
+      list = latest;
       error = null;
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to load the clean edit check';
@@ -80,7 +82,13 @@
     try {
       const next = await fetchCleanEdits(PAGE, list.items.length);
       if (destroyed || !list) return;
-      list = { ...next, items: [...list.items, ...next.items] };
+      // A running check can add a song earlier in the A to Z order, which shifts the next page by
+      // one: drop a row already on screen rather than show it, and key it, twice.
+      const shown = new Set(list.items.map((item) => item.songId));
+      list = {
+        ...next,
+        items: [...list.items, ...next.items.filter((item) => !shown.has(item.songId))]
+      };
     } catch (e) {
       toast.error('Could not load more', {
         description: e instanceof Error ? e.message : undefined

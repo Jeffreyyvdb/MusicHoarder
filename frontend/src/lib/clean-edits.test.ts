@@ -67,7 +67,7 @@ describe('clean edits', () => {
       progressLine(progress({ running: true, total: 1200, processed: 34, current: 'A - B' }))
     ).toBe('Checking 34 of 1,200 · A - B');
     expect(progressLine(progress({ running: true, stopping: true, total: 10, processed: 3 }))).toBe(
-      'Stopping after this song · 3 of 10'
+      'Stopping · 3 of 10'
     );
     expect(progressLine(progress({ stoppedReason: 'Stopped.' }))).toBe('Stopped.');
     expect(progressLine(progress({}))).toBeNull();

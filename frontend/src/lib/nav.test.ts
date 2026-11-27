@@ -663,6 +663,7 @@ describe('surfaceFor', () => {
       '/quality?song=42',
       '/album-quality',
       '/grader-trial',
+      '/clean-edits',
       '/performance',
       '/stats',
       '/history',
