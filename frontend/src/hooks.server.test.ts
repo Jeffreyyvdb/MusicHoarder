@@ -259,3 +259,26 @@ describe('library preload', () => {
     expect(response.headers.get('link')).toBeNull();
   });
 });
+
+describe('SSR page fills', () => {
+  it('hoists data-mh-skin="hardware" onto <html> for hardware-skinned share links', async () => {
+    const { resolve } = await run('/share/tok', 'text/html');
+    const opts = resolve.mock.calls[0]?.[1] as {
+      transformPageChunk?: (input: { html: string; done: boolean }) => Promise<string> | string;
+    };
+    expect(opts?.transformPageChunk).toBeTypeOf('function');
+
+    const hardwareHtml = await opts.transformPageChunk!({
+      html: '<!doctype html><html lang="en"><head><link data-mh-share-skin="hardware" /></head></html>',
+      done: true
+    });
+    expect(hardwareHtml).toContain('<html data-mh-skin="hardware" lang="en">');
+
+    const plainHtml = await opts.transformPageChunk!({
+      html: '<!doctype html><html lang="en"><head></head></html>',
+      done: true
+    });
+    expect(plainHtml).toContain('<html lang="en">');
+    expect(plainHtml).not.toContain('data-mh-skin="hardware"');
+  });
+});

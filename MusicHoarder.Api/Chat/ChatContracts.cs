@@ -70,10 +70,10 @@ public sealed record ChatMessagePageDto(IReadOnlyList<ChatMessageDto> Messages, 
 /// neither, the first link in the text becomes the attachment, the way a messaging app previews a
 /// pasted URL.
 /// </summary>
-public sealed record SendChatMessageRequest(string? Text, string? Url, int? SongId, string? Scope);
+public sealed record SendChatMessageRequest(string? Text, string? Url, int? SongId, string? Scope, string? Skin = null);
 
 /// <summary>Send the same thing to several people at once ("Send to…", the share sheet).</summary>
-public sealed record SendToPeopleRequest(IReadOnlyList<Guid> RecipientIds, string? Text, string? Url, int? SongId, string? Scope);
+public sealed record SendToPeopleRequest(IReadOnlyList<Guid> RecipientIds, string? Text, string? Url, int? SongId, string? Scope, string? Skin = null);
 
 public sealed record SendToPeopleResponse(IReadOnlyList<ChatMessageDto> Messages);
 

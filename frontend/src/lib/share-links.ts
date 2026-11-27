@@ -1,5 +1,6 @@
 import { toast } from 'svelte-sonner';
 import { createSongShare, listSongShares, shareUrl, type SongShareView } from '#lib/api-client.ts';
+import { shareSkin } from '#lib/hardware/hardware-mode.svelte.ts';
 
 /**
  * Public share links for every "Share link…" item: a song row's menu (TrackRowMenu), the album
@@ -19,12 +20,18 @@ import { createSongShare, listSongShares, shareUrl, type SongShareView } from '#
  */
 
 export type ShareScope = 'song' | 'album';
-export type ShareLink = { url: string; title: string };
+export type ShareLink = { url: string; title: string; songId?: number; skin?: string | null };
+
+function normalizedSkin(skin: string | null | undefined): 'hardware' | 'default' {
+  return skin === 'hardware' ? 'hardware' : 'default';
+}
 
 function toLink(share: SongShareView): ShareLink {
   return {
     url: shareUrl(share.token),
-    title: share.artist ? `${share.title} — ${share.artist}` : share.title
+    title: share.artist ? `${share.title} — ${share.artist}` : share.title,
+    songId: share.songId,
+    skin: share.skin ?? null
   };
 }
 
@@ -74,8 +81,12 @@ export async function findShareLink(
   return hit ? toLink(hit) : null;
 }
 
-async function mint(songId: number, scope: ShareScope): Promise<ShareLink> {
-  const share = await createSongShare(songId, scope);
+async function mint(
+  songId: number,
+  scope: ShareScope,
+  skin: 'hardware' | 'default'
+): Promise<ShareLink> {
+  const share = await createSongShare(songId, scope, skin);
   listed = null;
   return toLink(share);
 }
@@ -153,12 +164,24 @@ export function shareLink(opts: {
   scope: ShareScope;
 }): void {
   const noun = opts.scope === 'album' ? 'album' : 'song';
+  const skin = shareSkin();
   if (opts.known) {
+    // Keep the share sheet synchronous inside the user's tap; if the sharer toggled SPEC-01 since
+    // this link was last created, sync the skin on the server in the background for the MATCHED
+    // share's songId (for album shares the existing token may be keyed on another track of the
+    // album, not the first one).
+    if (normalizedSkin(opts.known.skin) !== skin) {
+      const targetSongId = opts.known.songId ?? opts.songId;
+      const known = opts.known;
+      known.skin = skin === 'hardware' ? 'hardware' : null;
+      listed = null;
+      void createSongShare(targetSongId, opts.scope, skin).catch(() => {});
+    }
     void handOff(opts.known, noun);
     return;
   }
 
-  const pending = mint(opts.songId, opts.scope);
+  const pending = mint(opts.songId, opts.scope, skin);
   const copied = copyWhenReady(pending);
   // Every outcome below reuses this id, so the pending toast changes in place rather than stacking
   // a second one. An update merges over the pending toast's props: `duration: undefined` hands the

@@ -1111,8 +1111,10 @@ async function playSong(
   source?: PlaybackSource
 ) {
   // The session's song on another device toggles THERE, like the glyph on screen promises.
+  // Match streamUrl too so starting a public share stream does not toggle an in-app library session
+  // that happens to share the same song id.
   const remote = remoteView();
-  if (remote && remote.song?.id === song.id) {
+  if (remote && remote.song?.id === song.id && remote.song?.streamUrl === song.streamUrl) {
     if (remote.isPlaying) remote.pause();
     else remote.resume();
     return;
@@ -1120,7 +1122,9 @@ async function playSong(
   if (!ensureAudioEl() || !audioEl) return;
 
   // A superseded device's paused leftovers are not "the loaded song": a pick starts it afresh.
-  const toggles = !remote && currentSong?.id === song.id;
+  // Matching streamUrl keeps a share link distinct from a library track with the same song id.
+  const toggles =
+    !remote && currentSong?.id === song.id && currentSong?.streamUrl === song.streamUrl;
   // Pausing the loaded song from its row's glyph is not a new list: a shuffled queue stays as it is.
   if (!(toggles && shuffleOn)) {
     seedQueue(song, contextQueue, index, { source });

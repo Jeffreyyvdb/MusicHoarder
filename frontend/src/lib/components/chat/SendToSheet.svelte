@@ -6,6 +6,7 @@
   import * as BottomSheet from '#lib/components/ui/bottom-sheet/index.ts';
   import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
   import { fetchChatPeople, sendChatToPeople, type ChatPerson } from '#lib/api-client.ts';
+  import { shareSkin } from '#lib/hardware/hardware-mode.svelte.ts';
   import { chatStore } from '#lib/stores/chat.svelte.ts';
   import { sendTo } from '#lib/stores/send-to.svelte.ts';
   import PeoplePicker from './PeoplePicker.svelte';
@@ -48,7 +49,8 @@
       const { messages } = await sendChatToPeople(selected, {
         songId: current.songId,
         scope: current.scope,
-        text: note.trim() || null
+        text: note.trim() || null,
+        skin: shareSkin()
       });
       sendTo.open = false;
       void chatStore.refresh();

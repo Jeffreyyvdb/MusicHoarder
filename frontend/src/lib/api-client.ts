@@ -3109,6 +3109,7 @@ export interface SongShareView {
   token: string;
   scope: 'Song' | 'Album';
   songId: number;
+  skin?: string | null;
   createdAtUtc: string;
   title: string;
   artist?: string | null;
@@ -3121,11 +3122,12 @@ export interface SongShareView {
  */
 export async function createSongShare(
   songId: number,
-  scope: 'song' | 'album'
+  scope: 'song' | 'album',
+  skin?: string | null
 ): Promise<SongShareView> {
   return requestJson<SongShareView>('/api/shares', {
     method: 'POST',
-    body: JSON.stringify({ songId, scope })
+    body: JSON.stringify(skin === undefined ? { songId, scope } : { songId, scope, skin })
   });
 }
 
@@ -3273,6 +3275,7 @@ export interface ChatDraft {
   url?: string | null;
   songId?: number | null;
   scope?: 'song' | 'album' | null;
+  skin?: string | null;
 }
 
 export async function fetchChatPeople(): Promise<ChatPerson[]> {

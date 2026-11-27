@@ -1,3 +1,19 @@
+<script lang="ts" module>
+  /** Read-only shape VideoBackdrop needs; SongVideo satisfies it, and the share page builds one from ShareTrack. */
+  export interface VideoBackdropSource {
+    readonly playable: boolean;
+    readonly songId: number | null;
+    readonly offsetMs: number;
+    readonly generation: number;
+    readonly info: {
+      readonly status?: string;
+      readonly durationSeconds?: number | null;
+      readonly letterbox?: number | null;
+      readonly pillarbox?: number | null;
+    } | null;
+  }
+</script>
+
 <script lang="ts">
   import { MediaQuery } from 'svelte/reactivity';
   import { getSongVideoStreamUrl } from '#lib/api-client.ts';
@@ -5,7 +21,6 @@
   import { releaseMedia } from '#lib/actions/release-media.ts';
   import { playerStore } from '#lib/stores/player.svelte.ts';
   import { videoBackdropPrefs } from '#lib/stores/video-backdrop-prefs.svelte.ts';
-  import type { SongVideo } from '#lib/components/file-browser/now-playing/song-video.svelte.ts';
   import { cn } from '#lib/utils.ts';
   import { BACKDROP_GIVE_UP_S, createVideoFollower } from '#lib/video-follow.ts';
 
@@ -34,6 +49,8 @@
     ambientUrl,
     dimAlpha,
     video,
+    streamUrl,
+    isCurrent,
     blurred = false,
     showing = $bindable(false)
   }: {
@@ -41,7 +58,11 @@
     ambientUrl: string | null;
     /** The dim layer's alpha for this cover (cover-dim.ts). */
     dimAlpha: number;
-    video: SongVideo;
+    video: VideoBackdropSource;
+    /** Override the stream URL (used by the anonymous share page). */
+    streamUrl?: string;
+    /** Override whether this song is the active player stream (share links match streamUrl too). */
+    isCurrent?: boolean;
     /** Video mode is up: soften the clip into a glow behind the watch view. */
     blurred?: boolean;
     /** Out: the video is up (the overlay adds a text halo for legibility over moving pictures). */
@@ -58,7 +79,7 @@
 
   const reduceMotion = new MediaQuery('(prefers-reduced-motion: reduce)');
 
-  const isCurrentSong = $derived(playerStore.currentSong?.id === songId);
+  const isCurrentSong = $derived(isCurrent ?? playerStore.currentSong?.id === songId);
   const offsetMs = $derived(video.offsetMs);
   const showVideo = $derived(
     video.playable &&
@@ -192,7 +213,7 @@
   >
     <video
       bind:this={videoEl}
-      src={getSongVideoStreamUrl(songId)}
+      src={streamUrl ?? getSongVideoStreamUrl(songId)}
       muted
       playsinline
       preload="auto"

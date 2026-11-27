@@ -1,7 +1,7 @@
 <script lang="ts">
   import { FastForward, Pause, Play, Rewind, Shuffle } from '@lucide/svelte';
   import type { Snippet } from 'svelte';
-  import { mediaAppearance } from '#lib/hardware/hardware-mode.svelte.ts';
+  import { mediaAppearance, useSkinOverride } from '#lib/hardware/hardware-mode.svelte.ts';
   import { Button } from '#lib/components/ui/button/index.ts';
   import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
   import Scrubber from './Scrubber.svelte';
@@ -54,6 +54,7 @@
   // Prev/next walk the active playback queue, so they only act while this track is the one loaded
   // in the player; a browsed song has no queue position to move within. Previous is otherwise
   // always live (it restarts the first item), next while the queue or the radio can supply.
+  const skinForced = useSkinOverride();
   const canGoPrevious = $derived(isActive && playerStore.hasPrevious);
   const canGoNext = $derived(isActive && playerStore.hasNext);
   // Shuffle reorders this device's queue, so like prev/next it acts only on the loaded track.
@@ -112,7 +113,10 @@
     </DropdownMenu.Trigger>
     <!-- z-[70]: this menu can open from inside Now Playing (z-[60]); the default z-50 would render
          it invisibly behind the overlay. -->
-    <DropdownMenu.Content align="center" class={cn('z-[70] min-w-36', media && mediaAppearance())}>
+    <DropdownMenu.Content
+      align="center"
+      class={cn('z-[70] min-w-36', media && mediaAppearance(skinForced()))}
+    >
       <DropdownMenu.RadioGroup
         value={String(playerStore.playbackRate)}
         onValueChange={(v) => playerStore.setPlaybackRate(Number(v))}

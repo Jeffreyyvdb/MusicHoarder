@@ -31,6 +31,14 @@ public class SongShare
 
     public ShareScope Scope { get; set; }
 
+    /// <summary>
+    /// The presentation skin the sharer had active when creating or last re-sharing this link
+    /// (e.g. "hardware" for SPEC-01, null for the default player). Re-sharing with an explicit skin
+    /// updates this value on the existing active token; callers that omit skin leave it unchanged.
+    /// </summary>
+    [MaxLength(32)]
+    public string? Skin { get; set; }
+
     public DateTime CreatedAtUtc { get; set; }
 
     public DateTime? RevokedAtUtc { get; set; }
