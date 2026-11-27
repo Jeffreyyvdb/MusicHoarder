@@ -111,10 +111,11 @@ describe('inlineText sanitization', () => {
     expect(inlineText('He said "hi" <b>bold</b>')).toBe('He said hi bbold/b');
   });
 
-  it('keeps readable text, including non-ASCII letters', () => {
+  it('keeps readable text, including non-ASCII letters and code-span underscores', () => {
     expect(inlineText('**Use** `marked` for [docs](https://example.com)')).toBe(
       'Use marked for docs(https://example.com)'
     );
+    expect(inlineText('`FOO_BAR`')).toBe('FOO_BAR');
     expect(inlineText('Café del Mar — café')).toBe('Café del Mar  café');
   });
 });

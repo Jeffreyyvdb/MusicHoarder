@@ -163,6 +163,18 @@ export function neighbors(slug: DocSlug): { prev: DocPage | null; next: DocPage 
 }
 
 /**
+ * Decodes the HTML entities marked leaves in link `href`/`title` values (`&amp;` arrives as the
+ * literal six characters), so `escapeHtmlAttribute` encodes them exactly once.
+ */
+function decodeMarkedEntities(value: string): string {
+  return value.replace(
+    /&(amp|lt|gt|quot|#39|#x27);/g,
+    (_, entity: string) =>
+      ({ amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", '#x27': "'" })[entity] ?? _
+  );
+}
+
+/**
  * Renders a documentation Markdown file to HTML with GitHub-style heading ids, rewritten links,
  * and the heading tree for the "On this page" table of contents.
  */
@@ -189,8 +201,8 @@ export function renderDoc(source: string, docPath: DocPath): RenderedDoc {
         const target = resolved.kind === 'doc' ? docLinkHref(resolved) : resolved.href;
         const external = resolved.kind === 'external' && /^https?:/.test(target);
         const attributes = [
-          `href="${escapeHtmlAttribute(target)}"`,
-          title ? `title="${escapeHtmlAttribute(title)}"` : '',
+          `href="${escapeHtmlAttribute(decodeMarkedEntities(target))}"`,
+          title ? `title="${escapeHtmlAttribute(decodeMarkedEntities(title))}"` : '',
           external ? 'target="_blank" rel="noopener noreferrer"' : ''
         ]
           .filter(Boolean)

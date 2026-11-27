@@ -107,7 +107,9 @@ export interface TocEntry {
  * sanitization), keep only an allowlist of word characters, whitespace and harmless punctuation.
  */
 export function inlineText(markdown: string): string {
-  return markdown.replace(/[^\p{L}\p{N}\s.,:;!?'’()/+#@%=-]/gu, '').trim();
+  // Underscore stays: code spans in headings (`FOO_BAR`) must slug to GitHub's `foo_bar`, and
+  // GithubSlugger preserves underscores the way GitHub does.
+  return markdown.replace(/[^\p{L}\p{N}\s.,:;!?'’()/+#@%=_-]/gu, '').trim();
 }
 
 /** Escapes a string for safe inclusion in a double-quoted HTML attribute. */

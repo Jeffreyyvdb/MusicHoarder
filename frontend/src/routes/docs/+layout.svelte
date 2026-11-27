@@ -61,12 +61,12 @@
     </nav>
   </header>
 
-  <div class="mx-auto flex max-w-[1200px] gap-10 px-4 pt-6 pb-24 md:px-10">
+  <div class="mx-auto flex max-w-[1200px] flex-col gap-10 px-4 pt-6 pb-24 md:px-10 lg:flex-row">
     <!-- Mobile: the same nav as a collapsible block. Desktop: sticky sidebar. -->
     <div class="lg:hidden">
       <details class="bg-background-grouped rounded-[18px]">
         <summary
-          class="flex min-h-11 cursor-pointer items-center px-4 text-[13px] font-semibold select-none"
+          class="text-muted-foreground flex min-h-11 cursor-pointer items-center px-4 text-[13px] font-semibold select-none"
         >
           Documentation
         </summary>
@@ -74,7 +74,7 @@
           {#each groups as group (group.label)}
             <div>
               <p
-                class="text-muted-foreground-dim px-3 pb-1 text-[11px] font-semibold tracking-wide uppercase"
+                class="text-muted-foreground px-3 pb-1 text-[11px] font-semibold tracking-wide uppercase"
               >
                 {group.label}
               </p>
