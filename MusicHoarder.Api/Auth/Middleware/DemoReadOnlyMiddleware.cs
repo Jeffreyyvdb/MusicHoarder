@@ -67,7 +67,8 @@ public sealed class DemoReadOnlyMiddleware
             return;
         }
 
-        if (IsSafeMethod(context.Request.Method) || IsAllowlistedWrite(context.Request.Path.Value))
+        if (IsSafeMethod(context.Request.Method)
+            || (HttpMethods.IsPost(context.Request.Method) && IsAllowlistedWrite(context.Request.Path.Value)))
         {
             await _next(context);
             return;

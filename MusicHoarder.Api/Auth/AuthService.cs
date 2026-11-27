@@ -251,7 +251,16 @@ public sealed class AuthService : IAuthService
         if (remaining < SlidingExtensionThreshold)
         {
             session.ExpiresAtUtc = nowUtc.AddDays(_options.CurrentValue.SessionLifetimeDays);
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            try
+            {
+                await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                // The row went while this request held it (a demo session trimmed past the limit).
+                _sessionCache.TryRemove(sessionId, out _);
+                return null;
+            }
         }
 
         // The entities outlive the scope that loaded them; nothing mutates them after this point

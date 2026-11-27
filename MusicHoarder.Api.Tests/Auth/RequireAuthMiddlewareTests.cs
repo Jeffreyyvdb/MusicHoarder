@@ -73,6 +73,10 @@ public class RequireAuthMiddlewareTests
     [InlineData("/alive-admin")]
     [InlineData("/openapi-internal")]
     [InlineData("/scalarx")]
+    [InlineData("/api/sync/check/history")]
+    [InlineData("/api/version/config")]
+    [InlineData("/health/details")]
+    [InlineData("/alive/metrics")]
     public async Task APathThatOnlyStartsLikeAnAllowlistedOne_Requires401_WhenAnonymous(string path)
     {
         var (ctx, nextCalled) = await RunAsync(path, user: null);
@@ -91,6 +95,8 @@ public class RequireAuthMiddlewareTests
     [InlineData("/health")]
     [InlineData("/openapi/v1.json")]
     [InlineData("/scalar/v1")]
+    [InlineData("/scalar")]
+    [InlineData("/api/sync/like/")]
     public async Task AllowlistedPathsAndTheirChildren_PassThrough_WithoutASession(string path)
     {
         var (_, nextCalled) = await RunAsync(path, user: null);
