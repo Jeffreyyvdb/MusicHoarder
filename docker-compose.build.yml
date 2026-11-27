@@ -15,8 +15,10 @@ services:
 
   frontend:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
+      # Repo root, not ./frontend: the /docs pages prerender the repository's docs/ Markdown at
+      # build time, and frontend/Dockerfile is written for a repo-root context (see its header).
+      context: .
+      dockerfile: frontend/Dockerfile
 
   # Only built when the spotiflac profile is active (COMPOSE_PROFILES=spotiflac); otherwise ignored.
   spotiflac:

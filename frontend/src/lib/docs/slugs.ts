@@ -98,14 +98,26 @@ export interface TocEntry {
   depth: 2 | 3;
 }
 
-/** Pulls the visible text out of inline Markdown, for heading ids and TOC labels. */
+/**
+ * Pulls the visible text out of inline Markdown, for heading ids and TOC labels.
+ *
+ * The output ends up inside HTML attributes and rendered text, so it must not be able to carry
+ * markup: complete tags are stripped, and any leftover `<`, `>` or `&` are removed too — a bare
+ * `<script` with no closing `>` would otherwise survive the tag strip (CodeQL: incomplete
+ * multi-character sanitization).
+ */
 export function inlineText(markdown: string): string {
   return markdown
-    .replace(/<[^>]+>/g, '')
-    .replaceAll('`', '')
-    .replaceAll('*', '')
-    .replaceAll('_', '')
-    .replaceAll('[', '')
-    .replaceAll(']', '')
+    .replace(/<[^>]*>/g, '')
+    .replaceAll(/[<>&`*[\]_]/g, '')
     .trim();
+}
+
+/** Escapes a string for safe inclusion in a double-quoted HTML attribute. */
+export function escapeHtmlAttribute(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
 }

@@ -2,6 +2,7 @@ import { Marked } from 'marked';
 import GithubSlugger from 'github-slugger';
 import {
   docLinkHref,
+  escapeHtmlAttribute,
   inlineText,
   resolveDocLink,
   slugForDocPath,
@@ -180,7 +181,7 @@ export function renderDoc(source: string, docPath: DocPath): RenderedDoc {
         const plain = inlineText(text);
         const id = slugger.slug(plain);
         if (depth === 2 || depth === 3) toc.push({ id, text: plain, depth });
-        return `<h${depth} id="${id}">${html}</h${depth}>`;
+        return `<h${depth} id="${escapeHtmlAttribute(id)}">${html}</h${depth}>`;
       },
       link({ href, title, tokens }) {
         const text = this.parser.parseInline(tokens);
@@ -188,8 +189,8 @@ export function renderDoc(source: string, docPath: DocPath): RenderedDoc {
         const target = resolved.kind === 'doc' ? docLinkHref(resolved) : resolved.href;
         const external = resolved.kind === 'external' && /^https?:/.test(target);
         const attributes = [
-          `href="${target.replaceAll('"', '&quot;')}"`,
-          title ? `title="${title.replaceAll('"', '&quot;')}"` : '',
+          `href="${escapeHtmlAttribute(target)}"`,
+          title ? `title="${escapeHtmlAttribute(title)}"` : '',
           external ? 'target="_blank" rel="noopener noreferrer"' : ''
         ]
           .filter(Boolean)

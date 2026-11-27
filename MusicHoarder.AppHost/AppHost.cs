@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.RegularExpressions;
+using Aspire.Hosting.ApplicationModel;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
@@ -235,6 +236,32 @@ var frontend = builder.AddViteApp("frontend", "../frontend")
     .PublishAsNodeServer(entryPoint: "build/index.js", outputPath: "build");
 #pragma warning restore ASPIRECERTIFICATES001
 #pragma warning restore ASPIREJAVASCRIPT001
+
+// The /docs pages prerender the repository's docs/ Markdown into the frontend at build time
+// (frontend/src/lib/docs/content.ts globs ../../../../docs), so the frontend image build needs the
+// repository root as its build context. PublishAsNodeServer generates a Dockerfile with only the
+// frontend directory as context, and the docs never reach the image — the prerender then fails with
+// "docs/README.md is missing from the documentation bundle". Swap the generated Dockerfile for the
+// repo's own frontend/Dockerfile, which is written for a repo-root context and COPYs both trees;
+// pr-preview.yml and docker-compose.build.yml build that same Dockerfile, so every frontend image
+// comes from one source.
+if (builder.ExecutionContext.IsPublishMode)
+{
+    var appHostRoot = builder.Environment.ContentRootPath;
+    var repoRoot = Path.GetFullPath(Path.Combine(appHostRoot, ".."));
+    var frontendDockerfile = Path.GetFullPath(Path.Combine(appHostRoot, "..", "frontend", "Dockerfile"));
+    var frontendAnnotations = frontend.Resource.Annotations;
+    if (frontendAnnotations.OfType<DockerfileBuildAnnotation>().FirstOrDefault() is { } generated)
+    {
+        frontendAnnotations.Remove(generated);
+        var replacement = new DockerfileBuildAnnotation(repoRoot, frontendDockerfile, null);
+        // Carry over whatever the generated annotation had customized; nothing does today, but a
+        // future PublishAsNodeServer change shouldn't silently drop here.
+        replacement.ImageName = generated.ImageName;
+        replacement.ImageTag = generated.ImageTag;
+        frontendAnnotations.Add(replacement);
+    }
+}
 
 #pragma warning disable ASPIRECOMPUTE003
 #pragma warning disable ASPIREPIPELINES003 // WithRemoteImageTag is experimental.
