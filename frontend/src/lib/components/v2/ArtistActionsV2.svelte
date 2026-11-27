@@ -1,6 +1,8 @@
 <script lang="ts">
-  import { Ellipsis, Play, Shuffle } from '@lucide/svelte';
+  import { Ellipsis, Play } from '@lucide/svelte';
   import { Button } from '#lib/components/ui/button/index.ts';
+  import ShuffleToggle from '#lib/components/v2/ShuffleToggle.svelte';
+  import type { ShuffleScope } from '#lib/shuffle-prefs.ts';
   import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
   import { Spinner } from '#lib/components/ui/spinner/index.ts';
   import type { ArtistReleaseKind } from '#lib/api-client.ts';
@@ -17,9 +19,9 @@
     page: ArtistPageState | null;
     canPlay: boolean;
     onplay: () => void;
-    onshuffle: () => void;
+    shuffleScope: ShuffleScope;
   };
-  const { page, canPlay, onplay, onshuffle }: Props = $props();
+  const { page, canPlay, onplay, shuffleScope }: Props = $props();
 
   const follow = $derived(page?.follow ?? null);
   // Follow needs a catalog artist the page trusts; until then the button waits rather than guessing.
@@ -44,16 +46,7 @@
     >
       <Play class="size-6 translate-x-px" fill="currentColor" />
     </button>
-    <Button
-      variant="ghost"
-      size="icon-lg"
-      class="size-11 rounded-full"
-      aria-label="Shuffle"
-      title="Shuffle"
-      onclick={onshuffle}
-    >
-      <Shuffle class="size-6" />
-    </Button>
+    <ShuffleToggle scope={shuffleScope} appearance="icon" />
   {/if}
 
   {#if page}

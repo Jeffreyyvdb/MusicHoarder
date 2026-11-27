@@ -91,6 +91,21 @@ describe('playback snapshot round-trip', () => {
     expect(storage.reloaded().read()?.source).toEqual(source);
   });
 
+  it("restores the source's shuffle scope, and drops one it could not have written", () => {
+    const storage = new MemoryStorage();
+    const source = { label: 'Album', href: '/library?album=a', shuffleScope: 'album:a' as const };
+    createPlaybackSnapshotStore(storage).write(snapshot({ source }));
+    expect(storage.reloaded().read()?.source).toEqual(source);
+
+    const bad = {
+      label: 'Album',
+      href: '/x',
+      shuffleScope: 'artist:y'
+    } as unknown as typeof source;
+    createPlaybackSnapshotStore(storage).write(snapshot({ source: bad }));
+    expect(storage.reloaded().read()?.source).toEqual({ label: 'Album', href: '/x' });
+  });
+
   it('restores playback without an external source link', () => {
     const storage = new MemoryStorage();
     createPlaybackSnapshotStore(storage).write(

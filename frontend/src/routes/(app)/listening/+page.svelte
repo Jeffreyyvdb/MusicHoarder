@@ -35,6 +35,7 @@
   } from '#lib/listening.ts';
   import { replaceUrl } from '#lib/navigation/replace-url.ts';
   import { playerStore } from '#lib/stores/player.svelte.ts';
+  import { shuffleScopes } from '#lib/shuffle-prefs.ts';
   import { songsStore } from '#lib/stores/songs.svelte.ts';
   import { tabMemory } from '#lib/stores/tab-memory.svelte.ts';
 
@@ -130,7 +131,9 @@
       void playerStore.startQueue(
         playable.map((s) => toPlayerSong(s, fallbackArtist(s))),
         playable.indexOf(target),
-        { source: { label: 'Listening', href: '/listening' } }
+        {
+          source: { label: 'Listening', href: '/listening', shuffleScope: shuffleScopes.library }
+        }
       );
     if (compact.current) activateTrack(target.id, start);
     else start();

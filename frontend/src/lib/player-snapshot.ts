@@ -1,4 +1,5 @@
 import type { QueuedBlock } from '#lib/player-queue.ts';
+import { isShuffleScope, type ShuffleScope } from '#lib/shuffle-prefs.ts';
 import type { PlayerSong } from '#lib/stores/player.svelte.ts';
 
 /**
@@ -20,7 +21,12 @@ import type { PlayerSong } from '#lib/stores/player.svelte.ts';
  * Kept as a plain module with the storage passed in, so the shape and its validation are
  * testable without a browser or the rune-backed store.
  */
-export type PlaybackSource = { label: string; href: string };
+export type PlaybackSource = {
+  label: string;
+  href: string;
+  /** The remembered shuffle setting this list starts in and writes back (see `#lib/shuffle-prefs`). */
+  shuffleScope?: ShuffleScope;
+};
 
 export interface PlaybackSnapshot {
   source?: PlaybackSource;
@@ -268,7 +274,8 @@ function sourceField(value: unknown): { source?: PlaybackSource } {
   const { label, href } = value;
   if (typeof label !== 'string' || !label.trim() || typeof href !== 'string') return {};
   if (!href.startsWith('/') || href.startsWith('//') || /[\\\r\n\t]/.test(href)) return {};
-  return { source: { label, href } };
+  const scope = isShuffleScope(value.shuffleScope) ? { shuffleScope: value.shuffleScope } : {};
+  return { source: { label, href, ...scope } };
 }
 
 /**

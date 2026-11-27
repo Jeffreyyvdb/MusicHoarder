@@ -14,6 +14,7 @@
   import { easeInOut, easeOut, prefersReducedMotion } from '#lib/motion.ts';
   import { toPlayerSong, type AlbumStatusInfo, type AlbumSummary } from '#lib/api-client.ts';
   import { playerStore } from '#lib/stores/player.svelte.ts';
+  import { shuffleScopes } from '#lib/shuffle-prefs.ts';
   import { cn } from '#lib/utils.ts';
   import { carryBuiltTiles, watchNearViewport } from '#lib/viewport-fill.ts';
 
@@ -82,13 +83,19 @@
     return null;
   }
 
-  // Play and Shuffle never pause — not even when the album's first track is the one playing.
-  function playAlbum(album: AlbumSummary, shuffled = false) {
+  // Play and Shuffle never pause — not even when the album's first track is the one playing. Play
+  // follows the album's remembered Shuffle; the menu's Shuffle plays it shuffled, which turns that on.
+  function playAlbum(album: AlbumSummary, shuffled?: boolean) {
     if (album.songs.length === 0) return;
     const ordered = album.songs.map((s) => toPlayerSong(s, album.artist));
+    const shuffleScope = shuffleScopes.album(album.key);
     void playerStore.startQueue(ordered, 0, {
-      shuffle: shuffled,
-      source: { label: album.title, href: `/library?album=${encodeURIComponent(album.key)}` }
+      shuffle: shuffled ?? playerStore.shuffleFor(shuffleScope),
+      source: {
+        label: album.title,
+        href: `/library?album=${encodeURIComponent(album.key)}`,
+        shuffleScope
+      }
     });
   }
 

@@ -32,6 +32,8 @@ import {
 import { describeDevice } from '#lib/playback-sync/device.ts';
 import { previousAction } from '#lib/player-seek.ts';
 import { shuffleUpcoming, startShuffled, unshuffle } from '#lib/player-shuffle.ts';
+import type { ShuffleScope } from '#lib/shuffle-prefs.ts';
+import { shufflePrefs } from '#lib/stores/shuffle-prefs.svelte.ts';
 import {
   NO_QUEUED,
   carryQueued,
@@ -107,10 +109,11 @@ let queue = $state.raw<PlayerSong[]>([]);
 let queueSource = $state.raw<PlaybackSource | null>(null);
 let queueIndex = $state(-1);
 /**
- * Shuffle, as a mode of the current queue (Now Playing's button, or a list's Shuffle): what follows
- * the playing song is in random order. It belongs to the queue, not to the account: a new list
- * started without asking for shuffle plays in its own order and turns it off, so an album's Play
- * (or an agent's "play these in order") never comes out scrambled by a setting left on.
+ * Shuffle, as a mode of the current queue: what follows the playing song is in random order. A
+ * list with a shuffle scope (an album, a playlist, Tracks) starts in the state that scope
+ * remembers, and the state its queue is left in is what the scope remembers next (`seedQueue`,
+ * `toggleShuffle`), so Now Playing's button and the list's own always agree. A list without one
+ * (an agent's "play these in order", a shelf) plays in its own order unless asked to shuffle.
  */
 let shuffleOn = $state(false);
 /**
@@ -1057,15 +1060,19 @@ function reportPlay(songId: number) {
 }
 
 /**
- * Make `contextQueue` (or just `song`) the queue, positioned at `song`. With `shuffle`, `song` plays
- * first and the rest of the list follows in random order; without it, shuffle goes off.
+ * Make `contextQueue` (or just `song`) the queue, positioned at `song`. Shuffled, `song` plays
+ * first and the rest of the list follows in random order. `shuffle` left out means what the
+ * source's scope remembers (off without one); either way the scope remembers what was played.
  */
 function seedQueue(
   song: PlayerSong,
   contextQueue?: PlayerSong[],
   index?: number,
-  { shuffle = false, source = null }: StartQueueOptions = {}
+  { shuffle: asked, source = null }: StartQueueOptions = {}
 ) {
+  const scope = source?.shuffleScope;
+  const shuffle = asked ?? (scope ? shufflePrefs.isOn(scope) : false);
+  if (scope) shufflePrefs.set(scope, shuffle);
   queueSource = source;
   // The songs added by hand and not yet played carry over to the new list (Spotify's queue does).
   const pending = queueIndex >= 0 ? queuedSongs(queue, queueIndex, queuedBlock) : [];
@@ -1154,8 +1161,10 @@ export interface StartQueueOptions {
    */
   resumeIfLoaded?: boolean;
   /**
-   * A Shuffle button: play the list in random order with shuffle on, starting at a random song
-   * (`index` is ignored). Turning shuffle off in Now Playing then carries on in the list's order.
+   * True: play the list in random order, starting at a random song (`index` is ignored); what a
+   * Play button asks for when the list's shuffle is on. False: in the list's order. Left out: the
+   * source's remembered setting decides, starting at `index` either way (a row tap). Turning
+   * shuffle off in Now Playing carries on in the list's order.
    */
   shuffle?: boolean;
 }
@@ -1291,9 +1300,21 @@ function toggleShuffle() {
     queue = shuffleUpcoming(queue, added.length > 0 ? live.end - 1 : queueIndex);
     shuffleOn = true;
   }
+  if (queueSource?.shuffleScope) shufflePrefs.set(queueSource.shuffleScope, shuffleOn);
   refreshActionHandlers(); // the device's own upcoming tracks follow the new order
   maybePrefetchRadio();
   sync?.changed(); // "up next" is news to a device that picks the session up
+}
+
+/**
+ * A list's own Shuffle toggle. Remembers `on` for the list's scope, and when the queue playing here
+ * came from that scope, shuffles it or puts it back in order as Now Playing's button would. It
+ * never starts anything: Play does, in the state the toggle shows.
+ */
+function setShuffleFor(scope: ShuffleScope, on: boolean) {
+  const playing = !remoteView() && queueIndex >= 0 && queueSource?.shuffleScope === scope;
+  if (playing && shuffleOn !== on) toggleShuffle();
+  else shufflePrefs.set(scope, on);
 }
 
 // ── The queue view ─────────────────────────────────────────────────────────
@@ -2097,6 +2118,7 @@ export function initPlayer(userId?: string): void {
   ensureAudioEl();
   if (!userId || !browser || persistUserId === userId) return;
   persistUserId = userId;
+  shufflePrefs.init(userId);
   restorePlayback(userId);
   startPersistence();
 }
@@ -2164,6 +2186,11 @@ export const playerStore = {
   get shuffleAvailable() {
     return remoteView() === null && queueIndex >= 0;
   },
+  /** A list's Shuffle toggle is lit: its scope's remembered setting (see {@link setShuffleFor}). */
+  shuffleFor(scope: ShuffleScope): boolean {
+    return shufflePrefs.isOn(scope);
+  },
+  setShuffleFor,
   /** AirPlay routes this device's element, which is not the one playing while another device is. */
   get airPlayAvailable() {
     return remoteView() ? false : airPlayAvailable;

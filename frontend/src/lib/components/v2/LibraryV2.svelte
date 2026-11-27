@@ -15,7 +15,6 @@
     Music2,
     Play,
     Search,
-    Shuffle,
     Sparkles,
     Users,
     Video,
@@ -23,6 +22,8 @@
   } from '@lucide/svelte';
   import { EmptyState } from '#lib/components/ui/empty-state/index.ts';
   import { Button } from '#lib/components/ui/button/index.ts';
+  import ShuffleToggle from '#lib/components/v2/ShuffleToggle.svelte';
+  import { shuffleScopes } from '#lib/shuffle-prefs.ts';
   import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
   import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
   import { SearchField } from '#lib/components/ui/search-field/index.ts';
@@ -430,21 +431,30 @@
   function fallbackArtist(s: ApiSong): string {
     return (s.albumArtist ?? s.artist ?? '').trim() || 'Unknown Artist';
   }
-  /** Plays `list` from `from`. Never pauses: every caller is labelled Play or Shuffle, or is a tap. */
-  function playQueue(list: ApiSong[], from = 0, shuffle = false) {
+  /**
+   * Plays `list` from `from`, in the remembered shuffle state Tracks and every artist share. Never
+   * pauses: every caller is labelled Play, or is a tap.
+   */
+  function playQueue(list: ApiSong[], from = 0) {
     void playerStore.startQueue(
       list.map((s) => toPlayerSong(s, fallbackArtist(s))),
       from,
-      { shuffle, source: playbackSource }
+      { source: playbackSource }
     );
   }
-  /** Plays exactly what the list is showing, in the order it is showing it. */
-  function playList() {
-    playQueue(listView.sorted);
+  /**
+   * A Play button: `list` from the top in its own order, or from a random song with Shuffle on.
+   * For Tracks that is exactly what the list is showing, filters and sort included.
+   */
+  function playAll(list: ApiSong[]) {
+    void playerStore.startQueue(
+      list.map((s) => toPlayerSong(s, fallbackArtist(s))),
+      0,
+      { shuffle: playerStore.shuffleFor(shuffleScopes.library), source: playbackSource }
+    );
   }
-  /** Shuffles exactly what the list is showing, filters and sort included. */
-  function shuffleList() {
-    playQueue(listView.sorted, 0, true);
+  function playList() {
+    playAll(listView.sorted);
   }
 
   const totalTracks = $derived(releaseScoped.length);
@@ -561,7 +571,7 @@
         : chips.length === 1
           ? CHIP_LABELS[chips[0]]
           : 'My tracks';
-    return { label, href: url.pathname + url.search };
+    return { label, href: url.pathname + url.search, shuffleScope: shuffleScopes.library };
   });
   // The artist's albums are the server-narrowed cards (a compilation shows only this artist's
   // tracks), and their songs, in album order, are the artist's song list.
@@ -1000,32 +1010,28 @@
   {/if}
 {/snippet}
 
-{#snippet playPills(onplay: () => void, onshuffle: () => void, className = '')}
+{#snippet playPills(onplay: () => void, className = '')}
   {#if compact}
-    <!-- Two equal gray capsules, tint glyph and label: Apple Music's Play / Shuffle. -->
+    <!-- Two equal capsules, tint glyph and label: Apple Music's Play / Shuffle. -->
     <div class={cn('flex shrink-0 gap-3 px-4', className)}>
       <Button variant="gray" size="pill" class="text-primary flex-1" onclick={onplay}>
         <Play fill="currentColor" /> Play
       </Button>
-      <Button variant="gray" size="pill" class="text-primary flex-1" onclick={onshuffle}>
-        <Shuffle /> Shuffle
-      </Button>
+      <ShuffleToggle scope={shuffleScopes.library} appearance="pill" class="flex-1" />
     </div>
   {:else}
-    {@render desktopPlayButtons(onplay, onshuffle)}
+    {@render desktopPlayButtons(onplay)}
   {/if}
 {/snippet}
 
-{#snippet desktopPlayButtons(onplay: () => void, onshuffle: () => void)}
+{#snippet desktopPlayButtons(onplay: () => void)}
   <!-- md+: one treatment on Tracks, an album and an artist — Play is the prominent button (the
-       view's one primary action), Shuffle the gray one beside it. -->
+       view's one primary action), the Shuffle toggle beside it. -->
   <div class="flex shrink-0 gap-2">
     <Button size="sm" class="h-8 gap-1.5 rounded-full px-3" onclick={onplay}>
       <Play class="size-4" fill="currentColor" /> Play
     </Button>
-    <Button variant="gray" size="sm" class="h-8 gap-1.5 rounded-full px-3" onclick={onshuffle}>
-      <Shuffle class="size-4" /> Shuffle
-    </Button>
+    <ShuffleToggle scope={shuffleScopes.library} appearance="sm" />
   </div>
 {/snippet}
 
@@ -1043,7 +1049,7 @@
       {#if !compact && listView.sorted.length > 0}
         <!-- Desktop: Play/Shuffle stay in the bar, labelled. On a phone they are the list's
              first row instead. They act on the filtered list, so they follow the filters. -->
-        {@render desktopPlayButtons(playList, shuffleList)}
+        {@render desktopPlayButtons(playList)}
       {/if}
       {@render tracksMenu()}
     {/snippet}
@@ -1077,7 +1083,7 @@
     </div>
   {/if}
   {#if compact && listView.sorted.length > 0}
-    {@render playPills(playList, shuffleList, 'pb-1')}
+    {@render playPills(playList, 'pb-1')}
   {/if}
 {/snippet}
 
@@ -1322,8 +1328,8 @@
         <ArtistActionsV2
           page={showCatalog ? artistPage : null}
           canPlay={artistSongs.length > 0}
-          onplay={() => playQueue(artistSongs)}
-          onshuffle={() => playQueue(artistSongs, 0, true)}
+          onplay={() => playAll(artistSongs)}
+          shuffleScope={shuffleScopes.library}
         />
       </div>
 
@@ -1359,7 +1365,7 @@
                   <button
                     type="button"
                     class="hover:bg-accent focus-visible:ring-ring -mx-2 flex w-[calc(100%+1rem)] items-center gap-4 rounded-xl p-2 text-left focus-visible:ring-2 focus-visible:outline-hidden"
-                    onclick={() => playQueue(likedArtistSongs)}
+                    onclick={() => playAll(likedArtistSongs)}
                     aria-label={`Play the ${likedArtistSongs.length} songs you liked by ${artistName}`}
                   >
                     <span class="relative shrink-0">
