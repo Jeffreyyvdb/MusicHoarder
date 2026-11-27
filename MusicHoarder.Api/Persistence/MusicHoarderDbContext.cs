@@ -134,6 +134,7 @@ public class MusicHoarderDbContext : DbContext
     public DbSet<AlbumCompletionState> AlbumCompletionStates { get; set; } = null!;
     public DbSet<SongMetadataChange> SongMetadataChanges { get; set; } = null!;
     public DbSet<SongQualityGrade> SongQualityGrades { get; set; } = null!;
+    public DbSet<CleanEditCheck> CleanEditChecks { get; set; } = null!;
     public DbSet<GraderComparisonRun> GraderComparisonRuns { get; set; } = null!;
     public DbSet<GraderTrialLabel> GraderTrialLabels { get; set; } = null!;
     public DbSet<DirectoryPreference> DirectoryPreferences { get; set; } = null!;
@@ -413,6 +414,20 @@ public class MusicHoarderDbContext : DbContext
 
             // Mirror Song's tenancy filter so this dependent is filtered exactly when its principal
             // would be. Background services bypass via .IgnoreQueryFilters().
+            entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == FilterUserId);
+        });
+
+        modelBuilder.Entity<CleanEditCheck>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.SongId).IsUnique();
+            entity.HasIndex(e => new { e.OwnerUserId, e.Verdict });
+
+            entity.HasOne(e => e.Song)
+                .WithMany()
+                .HasForeignKey(e => e.SongId)
+                .OnDelete(DeleteBehavior.Cascade);
+
             entity.HasQueryFilter(e => !hasUser || e.OwnerUserId == FilterUserId);
         });
 

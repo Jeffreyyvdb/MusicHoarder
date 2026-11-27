@@ -16,7 +16,7 @@ partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261126183039_AddSongShareSkin";
+    public override string LastMigrationId => "20261127181628_AddCleanEditChecks";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -740,6 +740,50 @@ partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("UserId");
 
                 b.ToTable("ChatParticipants");
+            });
+
+        modelBuilder.Entity("MusicHoarder.Api.Persistence.CleanEditCheck", b =>
+            {
+                var id = b.Property<int>("Id")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("integer");
+
+                NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(id);
+
+                b.Property<DateTime>("CheckedAtUtc")
+                    .HasColumnType("timestamp with time zone");
+
+                b.Property<double?>("EditedSeconds")
+                    .HasColumnType("double precision");
+
+                b.Property<string>("EvidenceJson")
+                    .HasColumnType("text");
+
+                b.Property<string>("FileStamp")
+                    .IsRequired()
+                    .HasMaxLength(2048)
+                    .HasColumnType("character varying(2048)");
+
+                b.Property<double?>("Margin")
+                    .HasColumnType("double precision");
+
+                b.Property<Guid>("OwnerUserId")
+                    .HasColumnType("uuid");
+
+                b.Property<int>("SongId")
+                    .HasColumnType("integer");
+
+                b.Property<int>("Verdict")
+                    .HasColumnType("integer");
+
+                b.HasKey("Id");
+
+                b.HasIndex("SongId")
+                    .IsUnique();
+
+                b.HasIndex("OwnerUserId", "Verdict");
+
+                b.ToTable("CleanEditChecks");
             });
 
         modelBuilder.Entity("MusicHoarder.Api.Persistence.DedupDismissal", b =>
@@ -3351,6 +3395,17 @@ partial class MusicHoarderDbContextModelSnapshot : ModelSnapshot
                     .IsRequired();
 
                 b.Navigation("Conversation");
+            });
+
+        modelBuilder.Entity("MusicHoarder.Api.Persistence.CleanEditCheck", b =>
+            {
+                b.HasOne("MusicHoarder.Api.Persistence.SongMetadata", "Song")
+                    .WithMany()
+                    .HasForeignKey("SongId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+
+                b.Navigation("Song");
             });
 
         modelBuilder.Entity("MusicHoarder.Api.Persistence.EnrichmentSnapshotSong", b =>
