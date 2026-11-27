@@ -200,12 +200,16 @@ public sealed class AuthService : IAuthService
                 .Where(s => s.RevokedAtUtc != null || s.ExpiresAtUtc <= nowUtc)
                 .Take(DemoTrimBatch)
                 .ToListAsync(ct).ConfigureAwait(false);
-            var overLimit = await demoSessions
-                .Where(s => s.RevokedAtUtc == null && s.ExpiresAtUtc > nowUtc && s.Id != keepId)
-                .OrderByDescending(s => s.IssuedAtUtc).ThenByDescending(s => s.Id)
-                .Skip(limit - 1)
-                .Take(DemoTrimBatch)
-                .ToListAsync(ct).ConfigureAwait(false);
+            // Every live session but the new one, which always stays: oldest first, so a backlog
+            // larger than one batch loses its oldest sessions and not its most recent ones.
+            var others = demoSessions.Where(s => s.RevokedAtUtc == null && s.ExpiresAtUtc > nowUtc && s.Id != keepId);
+            var excess = await others.CountAsync(ct).ConfigureAwait(false) - (limit - 1);
+            var overLimit = excess <= 0
+                ? []
+                : await others
+                    .OrderBy(s => s.IssuedAtUtc).ThenBy(s => s.Id)
+                    .Take(Math.Min(excess, DemoTrimBatch))
+                    .ToListAsync(ct).ConfigureAwait(false);
             if (ended.Count + overLimit.Count == 0) return;
 
             db.Sessions.RemoveRange(ended);
