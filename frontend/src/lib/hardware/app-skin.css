@@ -721,7 +721,9 @@
 }
 @media (hover: hover) and (pointer: fine) {
   :root[data-mh-skin='hardware'] [data-mh-cards] [data-slot='background-job']:hover {
-    background: color-mix(in srgb, var(--surface-sunken), var(--foreground) 4%);
+    box-shadow:
+      inset 0 0 0 1px var(--separator),
+      var(--mh-plate-shadow);
   }
 }
 :root[data-mh-skin='hardware'] [data-mh-cards] [data-slot='background-job']:focus-visible {
