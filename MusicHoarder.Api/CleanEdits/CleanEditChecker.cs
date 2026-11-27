@@ -42,7 +42,7 @@ internal sealed record CleanEditEvidence(
     }
 }
 
-/// <summary>Why a check failed: the file could not be read, or the catalogs did not fully answer.</summary>
+/// <summary>Why a check failed: something on this server (the file, a preview staged on disk), or the catalogs not fully answering.</summary>
 internal enum CheckFailure
 {
     None,
@@ -80,13 +80,16 @@ internal sealed class CleanEditChecker(
         var lookup = await references.FindAsync(new ReferenceQuery(subject.Artist, subject.Title, subject.Isrc, durations), ct);
 
         var located = new List<LocatedReference>();
-        var unreadable = 0;
+        int unreadable = 0, unstaged = 0;
         foreach (var reference in lookup.References)
         {
-            var preview = await LoadPreviewAsync(reference, ct);
+            var (preview, stagingFailed) = await LoadPreviewAsync(reference, ct);
             if (preview is null)
             {
-                unreadable++;
+                if (stagingFailed)
+                    unstaged++;
+                else
+                    unreadable++;
                 continue;
             }
             var alignment = EditionAligner.Locate(test, preview);
@@ -94,9 +97,13 @@ internal sealed class CleanEditChecker(
                 located.Add(new LocatedReference(reference.Edition, reference.Id, preview, found.OffsetFrames, found.Correlation));
         }
 
-        var analysis = CleanEditDecider.Analyze(test, located, [.. lookup.References.Select(r => r.Edition).Distinct()]);
-        var missingData = lookup.Incomplete || unreadable > 0;
-        if (missingData && analysis.Verdict is CleanEditVerdict.Inconclusive or CleanEditVerdict.NoCleanEdition or CleanEditVerdict.NoReference)
+        var analysis = CleanEditDecider.Analyze(test, located, lookup.ListedEditions);
+        var undecided = analysis.Verdict is CleanEditVerdict.Inconclusive or CleanEditVerdict.NoCleanEdition or CleanEditVerdict.NoReference;
+        // A preview this server could not write to its own disk is a local failure: it must not count
+        // toward the sweep's "the catalogs are not answering" stop.
+        if (undecided && unstaged > 0)
+            return CleanEditOutcome.UnreadableFile;
+        if (undecided && (lookup.Incomplete || unreadable > 0))
             return CleanEditOutcome.CatalogFailed;
 
         var evidence = new CleanEditEvidence(
@@ -120,27 +127,40 @@ internal sealed class CleanEditChecker(
         return bands.Frames > 0 ? (bands, (double)pcm.Length / BandSpectrogram.SampleRate) : null;
     }
 
-    private async Task<BandSpectrogram?> LoadPreviewAsync(EditionReference reference, CancellationToken ct)
+    /// <summary>The preview's spectrogram, or null; <c>StagingFailed</c> when the local disk, not the catalog, failed.</summary>
+    private async Task<(BandSpectrogram? Bands, bool StagingFailed)> LoadPreviewAsync(EditionReference reference, CancellationToken ct)
     {
         var bytes = await references.DownloadPreviewAsync(reference.PreviewUrl, ct);
         if (bytes is null)
-            return null;
+            return (null, false);
 
         // ffmpeg needs a seekable file: an m4a preview can keep its index at the end.
         var file = Path.Combine(Path.GetTempPath(), $"mh-preview-{Guid.NewGuid():N}");
         try
         {
-            await File.WriteAllBytesAsync(file, bytes, ct);
-            var pcm = await decoder.DecodeAsync(file, ct);
+            try
+            {
+                await File.WriteAllBytesAsync(file, bytes, ct);
+            }
+            catch (IOException ex)
+            {
+                logger.LogWarning(ex, "Could not stage preview {Reference} on the local disk", reference.Id);
+                return (null, true);
+            }
+            float[]? pcm;
+            try
+            {
+                pcm = await decoder.DecodeAsync(file, ct);
+            }
+            catch (IOException ex)
+            {
+                logger.LogDebug(ex, "Could not decode preview {Reference}", reference.Id);
+                return (null, false);
+            }
             if (pcm is null)
-                return null;
+                return (null, false);
             var bands = BandSpectrogram.FromPcm(pcm);
-            return bands.Frames > 0 ? bands : null;
-        }
-        catch (IOException ex)
-        {
-            logger.LogDebug(ex, "Could not stage preview {Reference}", reference.Id);
-            return null;
+            return (bands.Frames > 0 ? bands : null, false);
         }
         finally
         {

@@ -70,6 +70,18 @@ public class EditionReferenceClientTests
     }
 
     [Fact]
+    public async Task An_edition_listed_without_a_preview_still_counts_as_listed()
+    {
+        var lookup = await Client(url => url.StartsWith("https://itunes.apple.com")
+                ? (HttpStatusCode.OK, """{"results":[{"trackId":6,"artistName":"Kanye West","trackName":"Stronger","trackExplicitness":"cleaned","trackTimeMillis":311500}]}""")
+                : (HttpStatusCode.OK, """{"data":[]}"""))
+            .FindAsync(Query with { Isrc = null }, CancellationToken.None);
+
+        Assert.Empty(lookup.References);
+        Assert.Equal([Edition.Clean], lookup.ListedEditions);
+    }
+
+    [Fact]
     public async Task A_preview_may_match_the_length_asked_for_or_the_files()
     {
         var lookup = await Client(Healthy).FindAsync(Query with { DurationsSeconds = [200, 313] }, CancellationToken.None);
