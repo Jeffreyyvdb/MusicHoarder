@@ -20,12 +20,12 @@ public sealed class AudioAssetsInsight(
 {
     public string Id => BackgroundJobIds.AudioAssets;
 
-    private sealed record Data(DateTime Now, int Waiting, List<(DateTime Day, int Count, DateTime Last)> AssetsPerDay);
+    private sealed record Data(DateTime Now, int Waiting, DateTime? LastCreated, List<(DateTime Day, int Count, DateTime Last)> AssetsPerDay);
 
     private async Task<Data> LoadAsync(CancellationToken ct)
     {
         var now = time.GetUtcNow().UtcDateTime;
-        var waiting = await db.Songs.AsNoTracking().WhereAdoptable(options.Value).CountAsync(ct);
+        var waiting = await db.Songs.AsNoTracking().WhereAdoptable(options.Value, db.UpgradeRequests).CountAsync(ct);
         var since = TimeBuckets.Starts(now, hourly: false, TimeBuckets.TrendDays)[0];
         var perDay = (await db.AudioAssets.AsNoTracking()
                 .Where(a => a.CreatedAtUtc >= since)
@@ -34,7 +34,8 @@ public sealed class AudioAssetsInsight(
                 .ToListAsync(ct))
             .Select(g => (g.Day, g.Count, g.Last))
             .ToList();
-        return new Data(now, waiting, perDay);
+        var lastCreated = await db.AudioAssets.AsNoTracking().MaxAsync(a => (DateTime?)a.CreatedAtUtc, ct);
+        return new Data(now, waiting, lastCreated, perDay);
     }
 
     public async Task<BackgroundJobSummaryDto> SummarizeAsync(CancellationToken ct)
@@ -45,7 +46,7 @@ public sealed class AudioAssetsInsight(
             BackgroundJobDefinitions.AudioAssets,
             options.Value.EnableAudioAssetAdoption ? null : "Off: MusicEnricher:EnableAudioAssetAdoption is not set.",
             status.Get(Id),
-            d.AssetsPerDay.Count == 0 ? null : d.AssetsPerDay.Max(a => a.Last),
+            d.LastCreated,
             new BackgroundHeadlineDto(d.Waiting, null, BackgroundFormat.Count, "songs have a file not yet registered as a stored asset", null, null),
             TimeBuckets.DailyTotals(d.Now, TimeBuckets.TrendDays, d.AssetsPerDay.Select(a => (a.Day, (double)a.Count))),
             "stored files registered per day");

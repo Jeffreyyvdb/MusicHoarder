@@ -246,7 +246,7 @@ public sealed class HostedStorageTests : IDisposable
         await using (var db = NewContext())
             Assert.Null(await Adoption(db, options).AdoptNextPageAsync(page.LastSongId, default));
         await using (var db = NewContext())
-            Assert.Equal(1, await db.Songs.IgnoreQueryFilters().WhereAdoptable(options.Value).CountAsync());
+            Assert.Equal(1, await db.Songs.IgnoreQueryFilters().WhereAdoptable(options.Value, db.UpgradeRequests).CountAsync());
     }
 
     [Fact]
@@ -329,6 +329,108 @@ public sealed class HostedStorageTests : IDisposable
         Assert.Equal(0, (await ReleaseService(db, folders).PreviewAsync(Owner)).Eligible);
     }
 
+    [Fact]
+    public async Task In_hosted_mode_new_lyrics_do_not_take_a_built_song_out_of_the_library()
+    {
+        foreach (var (mode, staysBuilt) in new[] { (StorageMode.Hosted, true), (StorageMode.Folders, false) })
+        {
+            var options = new MusicEnricherOptions { StorageMode = mode, AutoStartPipeline = true };
+            var name = Guid.NewGuid().ToString("N");
+            DbContextOptions<MusicHoarderDbContext> Context() => new DbContextOptionsBuilder<MusicHoarderDbContext>()
+                .UseInMemoryDatabase(name)
+                .AddInterceptors(new MusicHoarder.Api.Persistence.Interceptors.RebuildOnMetadataChangeInterceptor(new StaticOptionsMonitor<MusicEnricherOptions>(options)))
+                .Options;
+            await using (var db = new MusicHoarderDbContext(Context()))
+            {
+                var song = AddSong(db, Path.Combine(Source, "a.flac"));
+                song.LibraryBuildStatus = LibraryBuildStatus.Done;
+                song.DestinationPath = mode == StorageMode.Folders ? Path.Combine(Destination, "a.flac") : null;
+                song.AudioAsset = new AudioAsset { Sha256 = new string('c', 64), StoragePath = song.SourcePath, SizeBytes = 1, Container = "flac" };
+                await db.SaveChangesAsync();
+            }
+            await using (var db = new MusicHoarderDbContext(Context()))
+            {
+                var song = await db.Songs.IgnoreQueryFilters().SingleAsync();
+                song.SyncedLyrics = "[00:01.00] words";
+                await db.SaveChangesAsync();
+                Assert.Equal(staysBuilt, song.IsBuilt);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task A_hosted_build_of_a_released_row_plays_its_old_library_copy()
+    {
+        var copy = CopyFixture("silence.flac", Path.Combine(Destination, "a.flac"));
+        await using (var db = NewContext())
+        {
+            var song = AddSong(db, Path.Combine(Downloads, "a.flac"));
+            song.EnrichmentStatus = EnrichmentStatus.Matched;
+            song.SourceReleasedAtUtc = DateTime.UtcNow;
+            song.PreviousDestinationPath = Normalize(copy);
+            await db.SaveChangesAsync();
+        }
+
+        Assert.Equal(1, (await HostedBuilder(Options(StorageMode.Hosted)).ProcessNextBatchAsync(Guid.NewGuid())).Done);
+
+        await using var check = NewContext();
+        var built = await check.Songs.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal(Normalize(copy), built.DestinationPath);
+        Assert.Null(built.PreviousDestinationPath);
+        Assert.True(built.IsBuilt);
+        Assert.Empty(await check.AudioAssets.ToListAsync());
+    }
+
+    [Fact]
+    public async Task A_file_another_song_plays_is_not_purged_and_a_purged_asset_comes_back_when_its_bytes_do()
+    {
+        var path = CopyFixture("silence.flac", Path.Combine(Downloads, "shared.flac"));
+        var registry = Registry(Options(StorageMode.Folders));
+        await using var db = NewContext();
+        var first = AddSong(db, path);
+        var second = AddSong(db, Path.Combine(Source, "same-bytes.flac"));
+        await db.SaveChangesAsync();
+        var facts = (await registry.ReadAsync(path, default))!;
+        var asset = await registry.LinkAsync(db, first, facts, default);
+        await registry.LinkAsync(db, second, facts, default);
+        await db.SaveChangesAsync();
+
+        Assert.False(await registry.TryPurgeForSongAsync(db, path, first.Id, default));
+        Assert.Null(asset.PurgedAtUtc);
+
+        second.SoftDelete();
+        await db.SaveChangesAsync();
+        Assert.True(await registry.TryPurgeForSongAsync(db, path, first.Id, default));
+        Assert.NotNull(asset.PurgedAtUtc);
+
+        var third = AddSong(db, Path.Combine(Source, "back.flac"));
+        await db.SaveChangesAsync();
+        await registry.LinkAsync(db, third, facts with { Path = Normalize(Path.Combine(Source, "back.flac")) }, default);
+        await db.SaveChangesAsync();
+        Assert.Null(asset.PurgedAtUtc);
+        Assert.Equal(Normalize(Path.Combine(Source, "back.flac")), asset.StoragePath);
+        Assert.Single(await db.AudioAssets.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Adoption_leaves_a_quality_upgrade_download_that_waits_to_be_merged()
+    {
+        var pending = CopyFixture("silence.flac", Path.Combine(Downloads, "upgrade.flac"), settled: true);
+        await using var db = NewContext();
+        AddSong(db, pending);
+        db.UpgradeRequests.Add(new UpgradeRequest
+        {
+            OwnerUserId = Owner,
+            SongId = 999,
+            Status = UpgradeRequestStatus.AwaitingIngest,
+            DownloadedFilePath = Normalize(pending),
+        });
+        await db.SaveChangesAsync();
+
+        var options = Options(StorageMode.Folders, adoption: true);
+        Assert.Equal(0, await db.Songs.IgnoreQueryFilters().WhereAdoptable(options.Value, db.UpgradeRequests).CountAsync());
+    }
+
     [PostgresFact]
     public async Task On_postgres_one_hash_is_one_row_and_the_hosted_queries_translate()
     {
@@ -342,13 +444,13 @@ public sealed class HostedStorageTests : IDisposable
             var song = AddSong(db, path);
             song.EnrichmentStatus = EnrichmentStatus.Matched;
             await db.SaveChangesAsync();
-            Assert.Equal(1, await db.Songs.IgnoreQueryFilters().WhereAdoptable(options.Value).CountAsync());
+            Assert.Equal(1, await db.Songs.IgnoreQueryFilters().WhereAdoptable(options.Value, db.UpgradeRequests).CountAsync());
             Assert.Equal(1, await HostedCandidates(db).CountAsync());
 
             await registry.LinkAsync(db, song, (await registry.ReadAsync(path, default))!, default);
             song.MarkBuiltInPlace();
             await db.SaveChangesAsync();
-            Assert.Equal(0, await db.Songs.IgnoreQueryFilters().WhereAdoptable(options.Value).CountAsync());
+            Assert.Equal(0, await db.Songs.IgnoreQueryFilters().WhereAdoptable(options.Value, db.UpgradeRequests).CountAsync());
             Assert.Equal(0, await HostedCandidates(db).CountAsync());
         }
 

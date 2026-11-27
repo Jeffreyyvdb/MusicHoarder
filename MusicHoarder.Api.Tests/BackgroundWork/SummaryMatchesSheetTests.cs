@@ -109,6 +109,10 @@ public class SummaryMatchesSheetTests
         db.Songs.AddRange(songs);
         db.SaveChanges();
 
+        db.AudioAssets.AddRange(
+            new AudioAsset { Sha256 = new string('a', 64), StoragePath = "/src/1.mp3", SizeBytes = 1000, Container = "mp3", CreatedAtUtc = now.AddDays(-2), LastReferencedAtUtc = now.AddDays(-2) },
+            new AudioAsset { Sha256 = new string('b', 64), StoragePath = "/src/2.mp3", SizeBytes = 1000, Container = "mp3", CreatedAtUtc = now.AddHours(-3), LastReferencedAtUtc = now.AddHours(-3) });
+
         db.TranscriptionAudioSpends.AddRange(
             new TranscriptionAudioSpend { AtUtc = now.AddDays(-2), AudioSeconds = 600, Purpose = TranscriptionPurpose.AutoSync },
             new TranscriptionAudioSpend { AtUtc = now.AddMinutes(-20), AudioSeconds = 30, Purpose = TranscriptionPurpose.TimingProbe });

@@ -52,20 +52,23 @@ public sealed class HostedLibraryBuilder(
 
         var done = 0;
         var failed = 0;
-        foreach (var song in songs)
+        using (await AudioAssetRegistry.ClaimAsync(ct))
         {
-            if (await LinkAsync(db, song, read.GetValueOrDefault(song.Id), ct))
+            foreach (var song in songs)
             {
-                song.MarkBuiltInPlace();
-                done++;
+                if (await LinkAsync(db, song, read.GetValueOrDefault(song.Id), ct))
+                {
+                    song.MarkBuiltInPlace();
+                    done++;
+                }
+                else
+                {
+                    song.MarkBuildFailed(MissingFileError);
+                    failed++;
+                }
             }
-            else
-            {
-                song.MarkBuildFailed(MissingFileError);
-                failed++;
-            }
+            await db.SaveChangesAsync(ct);
         }
-        await db.SaveChangesAsync(ct);
 
         var duration = DateTime.UtcNow - startedAt;
         logger.LogInformation(
@@ -97,7 +100,7 @@ public sealed class HostedLibraryBuilder(
         {
             if (await AudioAssetRegistry.FindAsync(db, sha, ct) is { } stored)
             {
-                registry.Link(song, stored);
+                registry.Link(song, stored, song.SourcePath);
                 return true;
             }
             facts = await registry.ReadAsync(song.SourcePath, ct);
@@ -112,6 +115,19 @@ public sealed class HostedLibraryBuilder(
         return HasDestinationCopy(song);
     }
 
+    /// <summary>
+    /// A released row's only file is the copy an earlier folder-mode build made. A reset moved that
+    /// path to <see cref="SongMetadata.PreviousDestinationPath"/>; it is the row's file again here.
+    /// </summary>
     private static bool HasDestinationCopy(SongMetadata song)
-        => !string.IsNullOrEmpty(song.DestinationPath) && File.Exists(song.DestinationPath);
+    {
+        if (!string.IsNullOrEmpty(song.DestinationPath))
+            return File.Exists(song.DestinationPath);
+        if (song.IsSourceReleased && !string.IsNullOrEmpty(song.PreviousDestinationPath) && File.Exists(song.PreviousDestinationPath))
+        {
+            song.DestinationPath = song.PreviousDestinationPath;
+            return true;
+        }
+        return false;
+    }
 }

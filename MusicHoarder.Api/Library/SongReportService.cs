@@ -71,6 +71,8 @@ public class SongReportService(
         var now = DateTime.UtcNow;
         var report = Snapshot(ownerId, song, fetcher, reason, note, now);
 
+        // Removal may delete a file an asset stores; hold the claim until the purge mark is saved.
+        using var assetClaim = remove ? await Assets.AudioAssetRegistry.ClaimAsync(ct) : null;
         if (remove)
         {
             var sourceIsManaged = IsManaged(song.SourcePath);

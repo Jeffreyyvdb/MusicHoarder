@@ -14,10 +14,12 @@ public static class AudioAssetAdoptionQueries
     /// Songs the adoption job still has to link: live, real, with no asset, and with a source file that
     /// is an untouched original, under the source share or the download folder. A row whose staged
     /// source was released has only its destination copy left, and that copy's tags are rewritten by
-    /// every build, so it is never adopted; nor is anything under the destination root.
+    /// every build, so it is never adopted; nor is anything under the destination root, nor a quality
+    /// upgrade's download still waiting to be merged (it is deleted if the merge is refused).
     /// The job takes its pages from this, and the Background work row counts with it.
     /// </summary>
-    public static IQueryable<SongMetadata> WhereAdoptable(this IQueryable<SongMetadata> songs, MusicEnricherOptions o)
+    public static IQueryable<SongMetadata> WhereAdoptable(
+        this IQueryable<SongMetadata> songs, MusicEnricherOptions o, IQueryable<UpgradeRequest> upgradeRequests)
     {
         var hasSource = !string.IsNullOrWhiteSpace(o.SourceDirectory);
         var source = hasSource ? IndexService.NormalizeRootPrefix(o.SourceDirectory) : "/";
@@ -30,7 +32,11 @@ public static class AudioAssetAdoptionQueries
             .Where(s => s.DeletedAtUtc == null && !s.IsSynthetic && s.AudioAssetId == null && s.SourceReleasedAtUtc == null)
             .ExcludingDemoTenant()
             .Where(s => (hasSource && s.SourcePath.StartsWith(source)) || (hasDownloads && s.SourcePath.StartsWith(downloads)))
-            .Where(s => !hasDestination || !s.SourcePath.StartsWith(destination));
+            .Where(s => !hasDestination || !s.SourcePath.StartsWith(destination))
+            .Where(s => !upgradeRequests.Any(r =>
+                r.Status == UpgradeRequestStatus.AwaitingIngest
+                && r.OwnerUserId == s.OwnerUserId
+                && r.DownloadedFilePath == s.SourcePath));
     }
 }
 
@@ -56,7 +62,7 @@ public sealed class AudioAssetAdoptionService(
         var opts = options.Value;
         var page = await db.Songs
             .IgnoreQueryFilters()
-            .WhereAdoptable(opts)
+            .WhereAdoptable(opts, db.UpgradeRequests.IgnoreQueryFilters())
             .Where(s => s.Id > afterSongId)
             .OrderBy(s => s.Id)
             .Take(opts.AudioAssetAdoptionBatchSize)
@@ -77,18 +83,38 @@ public sealed class AudioAssetAdoptionService(
                     read[song.Id] = facts;
             });
 
-        foreach (var song in page)
+        // Hashing a page over a network mount takes a while; the release sweep, an upgrade or a scan
+        // may have moved a row on meanwhile. Re-read under the claim, which the release also holds.
+        var linked = 0;
+        using (await AudioAssetRegistry.ClaimAsync(ct))
         {
-            if (read.TryGetValue(song.Id, out var facts))
-                await registry.LinkAsync(db, song, facts, ct);
+            var ids = read.Keys.ToList();
+            var stillAdoptable = (await db.Songs
+                    .IgnoreQueryFilters()
+                    .AsNoTracking()
+                    .WhereAdoptable(opts, db.UpgradeRequests.IgnoreQueryFilters())
+                    .Where(s => ids.Contains(s.Id))
+                    .Select(s => new { s.Id, s.SourcePath })
+                    .ToListAsync(ct))
+                .ToDictionary(s => s.Id, s => s.SourcePath);
+            foreach (var song in page)
+            {
+                if (read.TryGetValue(song.Id, out var facts)
+                    && stillAdoptable.TryGetValue(song.Id, out var path)
+                    && string.Equals(path, song.SourcePath, StringComparison.Ordinal))
+                {
+                    await registry.LinkAsync(db, song, facts, ct);
+                    linked++;
+                }
+            }
+            await db.SaveChangesAsync(ct);
         }
-        await db.SaveChangesAsync(ct);
 
-        if (read.Count < page.Count)
+        if (linked < page.Count)
             logger.LogInformation(
                 "Audio asset adoption left {Skipped} of {Count} songs for a later pass (missing, changed or still being written)",
-                page.Count - read.Count, page.Count);
-        return new AudioAssetAdoptionPage(page[^1].Id, page.Count, read.Count);
+                page.Count - linked, page.Count);
+        return new AudioAssetAdoptionPage(page[^1].Id, page.Count, linked);
     }
 
     /// <summary>

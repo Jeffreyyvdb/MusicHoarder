@@ -59,6 +59,7 @@ public class BackgroundWorkEndpointTests
     [InlineData(BackgroundJobIds.QualityGrading)]
     [InlineData(BackgroundJobIds.EnrichmentRetries)]
     [InlineData(BackgroundJobIds.AlbumFillAndFollows)]
+    [InlineData(BackgroundJobIds.AudioAssets)]
     public async Task A_job_on_an_empty_library_still_describes_itself_with_panels(string id)
     {
         using var harness = new BackgroundWorkHarness();

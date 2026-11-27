@@ -13,6 +13,9 @@ public record DirectoryAvailabilitySnapshot(
     DateTime CheckedAtUtc)
 {
     public bool AllAvailable => SourceAvailable && DestinationAvailable;
+
+    /// <summary>Whether a build can run: a hosted build reads only the source and never writes the destination.</summary>
+    public bool CanBuild(StorageMode mode) => mode == StorageMode.Hosted ? SourceAvailable : AllAvailable;
 }
 
 public interface IDirectoryAvailability

@@ -228,9 +228,9 @@ public static class EnrichmentEndpoints
             .WithSummary("Trigger the FingerprintService to fingerprint tracks with missing fingerprints.")
             .RequireAdmin();
 
-        group.MapPost("/build", (JobManager jobManager, IDirectoryAvailability availability) =>
+        group.MapPost("/build", (JobManager jobManager, IDirectoryAvailability availability, IOptions<MusicEnricherOptions> options) =>
             {
-                if (!availability.Current.AllAvailable)
+                if (!availability.Current.CanBuild(options.Value.StorageMode))
                     return Results.Conflict(new { message = "Source/destination directory is offline. Reconnect to your music library before building." });
 
                 if (!jobManager.TryStartJob(JobType.Build, out var jobId, out _))
@@ -605,12 +605,21 @@ public static class EnrichmentEndpoints
         // each batch as it completes so /api/enrichment/status reflects progress during the long run.
         foreach (var chunk in identityLookup.Keys.Chunk(200))
         {
+            // Rewriting tags changes a file's bytes, which an asset's file must keep: the claim stops
+            // one becoming an asset while this chunk writes.
+            using var assetClaim = await Assets.AudioAssetRegistry.ClaimAsync(ct);
             var songs = await db.Songs
                 .IgnoreQueryFilters()
                 .Include(s => s.ProviderAttempts)
                 .Where(s => chunk.Contains(s.Id) && s.OwnerUserId == ownerId
                     && s.DeletedAtUtc == null && !s.IsManuallyApproved)
                 .ToListAsync(ct);
+            var paths = songs.Select(s => s.SourcePath).ToList();
+            var storedPaths = (await db.AudioAssets
+                    .Where(a => a.PurgedAtUtc == null && paths.Contains(a.StoragePath))
+                    .Select(a => a.StoragePath)
+                    .ToListAsync(ct))
+                .ToHashSet(StringComparer.Ordinal);
 
             var batchRequeued = new List<int>();
             foreach (var song in songs)
@@ -626,13 +635,15 @@ public static class EnrichmentEndpoints
                 var album = DownloadTagWriter.ResolveAlbum(id.Album, id.Title);
 
                 // Rewrite the file tags (durable). Tolerant — a missing file (e.g. a prior build
-                // "file not found") still gets its DB identity fixed below.
-                if (DownloadTagWriter.Stamp(song.SourcePath, id.Artist, id.Title, album, id.Isrc, logger))
+                // "file not found") still gets its DB identity fixed below. A stored audio asset is
+                // never written to: its bytes are its name, and other songs may play it.
+                var stored = song.AudioAssetId is not null || storedPaths.Contains(song.SourcePath);
+                if (!stored && DownloadTagWriter.Stamp(song.SourcePath, id.Artist, id.Title, album, id.Isrc, logger))
                     fileStamped++;
 
                 // Backfill cover art for files downloaded before the downloader embedded any (no-op
                 // when the file already has art, the item has no image, or the file is gone).
-                if (await artworkEmbedder.EmbedAsync(song.SourcePath, id.AlbumArt, ct))
+                if (!stored && await artworkEmbedder.EmbedAsync(song.SourcePath, id.AlbumArt, ct))
                     song.HasCoverArt = true;
 
                 song.Artist = NullIfEmpty(id.Artist);

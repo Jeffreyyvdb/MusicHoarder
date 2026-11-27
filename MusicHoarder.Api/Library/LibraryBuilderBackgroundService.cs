@@ -36,7 +36,7 @@ public class LibraryBuilderBackgroundService(
             // The builder copies from source and writes to destination, so it needs both
             // reachable. When offline (e.g. travelling away from the home NAS) idle-wait
             // instead of failing every track.
-            var directoriesAvailable = directoryAvailability.Current.AllAvailable;
+            var directoriesAvailable = directoryAvailability.Current.CanBuild(opts.StorageMode);
 
             // 1. Check for a manual trigger from the HTTP endpoint first.
             if (jobManager.BuildTriggers.TryRead(out var manualJobId))

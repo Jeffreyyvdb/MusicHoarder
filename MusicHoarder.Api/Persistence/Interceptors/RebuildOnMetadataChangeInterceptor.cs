@@ -15,7 +15,8 @@ namespace MusicHoarder.Api.Persistence.Interceptors;
 ///
 /// Gated on <see cref="MusicEnricherOptions.AutoStartPipeline"/>: when auto-build is off the builder
 /// only runs on explicit triggers, so nulling <c>DestinationPath</c> here would strand the file out
-/// of the Destination view indefinitely.
+/// of the Destination view indefinitely. Off in <see cref="StorageMode.Hosted"/>: no file carries the
+/// tags there, and a reset would only take the song out of the library until the next build.
 /// </summary>
 public sealed class RebuildOnMetadataChangeInterceptor(IOptionsMonitor<MusicEnricherOptions> options)
     : SaveChangesInterceptor
@@ -82,7 +83,7 @@ public sealed class RebuildOnMetadataChangeInterceptor(IOptionsMonitor<MusicEnri
 
     private void ResetBuildsForChangedMetadata(DbContext? context)
     {
-        if (context is null || !options.CurrentValue.AutoStartPipeline)
+        if (context is null || !options.CurrentValue.AutoStartPipeline || options.CurrentValue.StorageMode == StorageMode.Hosted)
         {
             return;
         }

@@ -197,6 +197,8 @@ public class WishlistDownloadProcessor(
         // UpdatedAtUtc stamps reflect when each item actually finished, not when the batch started.
         var finishedAt = DateTime.UtcNow;
         var downloadedCount = 0;
+        // Hosted downloads link to assets: hold the claim from the first store to the save.
+        using var assetClaim = hosted && results.Count > 0 ? await AudioAssetRegistry.ClaimAsync(ct) : null;
         foreach (var item in toDownload)
         {
             if (!results.TryGetValue(item.Id, out var entry))
@@ -289,6 +291,8 @@ public class WishlistDownloadProcessor(
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             logger.LogWarning(ex, "Could not store hosted download {Path}", Logging.LogSanitizer.ForLog(staged.Path));
+            // The item is retried with a fresh download; a staged copy left behind would never be read.
+            try { File.Delete(staged.Path); } catch (Exception cleanup) when (cleanup is IOException or UnauthorizedAccessException) { }
             return null;
         }
     }

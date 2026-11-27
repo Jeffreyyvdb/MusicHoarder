@@ -179,7 +179,7 @@ public class UpgradeMergeService(
         if (musicVideo is not null)
             musicVideoChannel.Enqueue(new MusicVideoWorkItem(target.Id, MusicVideoWorkKind.Align));
 
-        await DeleteOldSourceFileAsync(oldSourcePath, ct);
+        await DeleteOldSourceFileAsync(oldSourcePath, target.Id, ct);
 
         if (jobManager.TryStartJob(JobType.Build, out var jobId, out _))
             logger.LogInformation("Upgrade merge triggered build {JobId}", jobId);
@@ -197,15 +197,7 @@ public class UpgradeMergeService(
         db.Songs.Remove(provisional);
         request.MarkTerminal(UpgradeRequestStatus.Failed, reason);
         await db.SaveChangesAsync(ct);
-        try
-        {
-            if (File.Exists(downloadedPath))
-                File.Delete(downloadedPath);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            logger.LogWarning(ex, "Failed to delete rejected upgrade download {Path}", LogSanitizer.ForLog(downloadedPath));
-        }
+        await DeleteUnlessSharedAsync(downloadedPath, provisional.Id, "rejected upgrade download", ct);
         logger.LogInformation("Upgrade for song {SongId} aborted: {Reason}", request.SongId, reason);
     }
 
@@ -279,15 +271,8 @@ public class UpgradeMergeService(
     /// builder's position guard prevents a destination collision). An asset's file is never deleted
     /// here either: other songs may play the same stored bytes.
     /// </summary>
-    private async Task DeleteOldSourceFileAsync(string sourcePath, CancellationToken ct)
+    private async Task DeleteOldSourceFileAsync(string sourcePath, int songId, CancellationToken ct)
     {
-        if (await assetRegistry.IsStoredAsync(db, sourcePath, ct))
-        {
-            logger.LogInformation(
-                "Old source file left in place (it is a stored audio asset): {Path}", LogSanitizer.ForLog(sourcePath));
-            return;
-        }
-
         var managedRoots = new[]
         {
             enricherOptions.Value.DownloadDirectory,
@@ -304,14 +289,31 @@ public class UpgradeMergeService(
             return;
         }
 
+        await DeleteUnlessSharedAsync(sourcePath, songId, "replaced source file", ct);
+    }
+
+    /// <summary>
+    /// Deletes a managed file, unless it is an asset another live song still plays: that file stays,
+    /// and its asset with it. An asset only this song used is marked purged as the file goes.
+    /// </summary>
+    private async Task DeleteUnlessSharedAsync(string path, int songId, string what, CancellationToken ct)
+    {
+        using var claim = await Assets.AudioAssetRegistry.ClaimAsync(ct);
+        if (!await assetRegistry.TryPurgeForSongAsync(db, path, songId, ct))
+        {
+            logger.LogInformation("Left {What} in place: another song plays the same stored file {Path}", what, LogSanitizer.ForLog(path));
+            return;
+        }
+        await db.SaveChangesAsync(ct);
+
         try
         {
-            if (File.Exists(sourcePath))
-                File.Delete(sourcePath);
+            if (File.Exists(path))
+                File.Delete(path);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            logger.LogWarning(ex, "Failed to delete replaced source file {Path}", LogSanitizer.ForLog(sourcePath));
+            logger.LogWarning(ex, "Failed to delete {What} {Path}", what, LogSanitizer.ForLog(path));
         }
     }
 }

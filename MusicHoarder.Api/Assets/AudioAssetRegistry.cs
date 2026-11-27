@@ -36,6 +36,31 @@ public sealed class AudioAssetRegistry(
     ILogger<AudioAssetRegistry> logger)
 {
     private const int ReadBufferSize = 1024 * 1024;
+    private static readonly SemaphoreSlim Claims = new(1, 1);
+
+    /// <summary>
+    /// Held by anything that links songs to assets and saves, or deletes a file an asset could store:
+    /// the hosted build, the adoption job, hosted downloads, the staged-source release, upgrade merges
+    /// and report removals. Two linkers then never insert the same hash, and a release never deletes a
+    /// file adoption is linking. The API runs as one process, so an in-process lock covers every writer.
+    /// Not re-entrant: take it once, around the read-check-save of one unit of work.
+    /// </summary>
+    public static async Task<IDisposable> ClaimAsync(CancellationToken ct)
+    {
+        await Claims.WaitAsync(ct);
+        return new Claim();
+    }
+
+    private sealed class Claim : IDisposable
+    {
+        private int _released;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _released, 1) == 0)
+                Claims.Release();
+        }
+    }
 
     /// <summary>Hashes and probes a file. Null when it does not exist.</summary>
     public async Task<AudioFileFacts?> ReadAsync(string path, CancellationToken ct)
@@ -81,19 +106,28 @@ public sealed class AudioAssetRegistry(
 
     /// <summary>
     /// Points <paramref name="song"/> at the asset for <paramref name="facts"/>, registering the file
-    /// where it is when no asset has these bytes yet. Does not save.
+    /// where it is when no asset has these bytes yet. Does not save; call it under <see cref="ClaimAsync"/>
+    /// and save before letting go.
     /// </summary>
     public async Task<AudioAsset> LinkAsync(
         MusicHoarderDbContext db, SongMetadata song, AudioFileFacts facts, CancellationToken ct)
     {
         var asset = await FindAsync(db, facts.Sha256, ct) ?? Add(db, facts, facts.Path);
-        Link(song, asset);
+        Link(song, asset, facts.Path);
         return asset;
     }
 
-    /// <summary>Points <paramref name="song"/> at an asset it is known to share bytes with. Does not save.</summary>
-    public void Link(SongMetadata song, AudioAsset asset)
+    /// <summary>
+    /// Points <paramref name="song"/> at an asset whose bytes are those of <paramref name="filePath"/>.
+    /// A purged asset is live again, stored at that file. Does not save.
+    /// </summary>
+    public void Link(SongMetadata song, AudioAsset asset, string filePath)
     {
+        if (asset.PurgedAtUtc is not null)
+        {
+            asset.PurgedAtUtc = null;
+            asset.StoragePath = NormalizePath(filePath);
+        }
         song.AudioAsset = asset;
         if (asset.Id != 0)
             song.AudioAssetId = asset.Id;
