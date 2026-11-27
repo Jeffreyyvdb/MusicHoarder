@@ -34,6 +34,7 @@ const APP_ROUTES: [path: string, group: NavGroupId][] = [
   ['/add', 'add'],
   ['/album-quality', 'manage'],
   ['/artists', 'listen'],
+  ['/clean-edits', 'manage'],
   ['/directories', 'manage'],
   ['/discover', 'add'],
   ['/grader-trial', 'manage'],
@@ -273,7 +274,13 @@ describe('what each account may see', () => {
     const all = NAV_GROUPS.flatMap((g) => g.items.map((i) => i.id));
     expect(all.filter((id) => !ids.includes(id)).sort()).toEqual([...DEMO_HIDDEN_ITEMS].sort());
 
-    for (const path of ['/grader-trial', '/performance', '/playlist-sync', '/performance/']) {
+    for (const path of [
+      '/grader-trial',
+      '/clean-edits',
+      '/performance',
+      '/playlist-sync',
+      '/performance/'
+    ]) {
       expect(allowed(path, demo)).toBe(false);
       expect(allowed(path, admin)).toBe(true);
     }
@@ -656,6 +663,7 @@ describe('surfaceFor', () => {
       '/quality?song=42',
       '/album-quality',
       '/grader-trial',
+      '/clean-edits',
       '/performance',
       '/stats',
       '/history',

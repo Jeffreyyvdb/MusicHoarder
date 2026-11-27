@@ -10,6 +10,24 @@ using MusicHoarder.Api.Options;
 
 namespace MusicHoarder.Api.Tests.AppleMusic;
 
+/// <summary>
+/// Tests that share iTunes's process-wide pace and backoff window run one at a time, at a pace that
+/// does not make each test wait two seconds for a permit.
+/// </summary>
+[CollectionDefinition(Name)]
+public sealed class ITunesThrottleCollection : ICollectionFixture<ITunesThrottleCollection.FastPace>
+{
+    public const string Name = "iTunes throttle";
+
+    public sealed class FastPace : IDisposable
+    {
+        public FastPace() => ITunesThrottle.PaceForTests = TimeSpan.FromMilliseconds(1);
+
+        public void Dispose() => ITunesThrottle.PaceForTests = null;
+    }
+}
+
+[Collection(ITunesThrottleCollection.Name)]
 public class AppleMusicCatalogServiceTests
 {
     public AppleMusicCatalogServiceTests() => AppleMusicCatalogService.ResetBackoffForTests();

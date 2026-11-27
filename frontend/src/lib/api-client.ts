@@ -1792,6 +1792,81 @@ export async function fetchAlbumQualityProgress(): Promise<QualityProgress> {
   return requestJson<QualityProgress>('/api/albums/quality/progress');
 }
 
+// ---------------------------------------------------------------- clean edits (admin)
+// Built songs checked against the free previews of the explicit and the clean edition of the same
+// song. See MusicHoarder.Api/CleanEdits.
+
+export type CleanEditVerdict =
+  | 'explicit'
+  | 'cleanMaster'
+  | 'mutedWords'
+  | 'inconclusive'
+  | 'noCleanEdition'
+  | 'noReference'
+  | 'failed';
+
+export interface CleanEditReference {
+  edition: 'explicit' | 'clean';
+  id: string;
+  correlation: number;
+}
+
+export interface CleanEditItem {
+  songId: number;
+  artist?: string | null;
+  title?: string | null;
+  album?: string | null;
+  verdict: CleanEditVerdict;
+  margin?: number | null;
+  editedSeconds?: number | null;
+  references: CleanEditReference[];
+  mutedAtSeconds: number[];
+  checkedAtUtc: string;
+}
+
+export interface CleanEditList {
+  counts: Record<CleanEditVerdict, number>;
+  /** Built songs that can be checked. */
+  eligible: number;
+  /** Songs found clean or muted, over every page. */
+  foundTotal: number;
+  items: CleanEditItem[];
+}
+
+export interface CleanEditProgress {
+  running: boolean;
+  stopping: boolean;
+  total: number;
+  processed: number;
+  checked: number;
+  skipped: number;
+  failed: number;
+  current?: string | null;
+  stoppedReason?: string | null;
+  startedAtUtc?: string | null;
+  completedAtUtc?: string | null;
+}
+
+export async function fetchCleanEdits(limit?: number, offset?: number): Promise<CleanEditList> {
+  const qs = new URLSearchParams();
+  if (limit !== undefined) qs.set('limit', String(limit));
+  if (offset !== undefined) qs.set('offset', String(offset));
+  const query = qs.toString();
+  return requestJson<CleanEditList>(`/api/clean-edits${query ? `?${query}` : ''}`);
+}
+
+export async function startCleanEditCheck(): Promise<CleanEditProgress> {
+  return requestJson<CleanEditProgress>('/api/clean-edits/check', { method: 'POST' });
+}
+
+export async function stopCleanEditCheck(): Promise<CleanEditProgress> {
+  return requestJson<CleanEditProgress>('/api/clean-edits/stop', { method: 'POST' });
+}
+
+export async function fetchCleanEditProgress(): Promise<CleanEditProgress> {
+  return requestJson<CleanEditProgress>('/api/clean-edits/progress');
+}
+
 // ---------------------------------------------------------------- grader trial (admin)
 // The chat grader against decision models (Jev) on the same dossiers. Nothing here changes a
 // song's or album's grade; see MusicHoarder.Api/Quality/Jev.

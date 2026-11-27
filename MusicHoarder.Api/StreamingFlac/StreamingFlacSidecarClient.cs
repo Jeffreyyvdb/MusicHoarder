@@ -89,10 +89,12 @@ public sealed class StreamingFlacSidecarClient(
     /// <summary>
     /// Asks the sidecar to acquire <paramref name="spotifyUrl"/> as a single lossless file named
     /// <c>{filenameStem}.flac</c> inside <paramref name="outputDir"/> (the shared staging dir, mounted
-    /// into the sidecar at the same absolute path). Maps a downed/timing-out sidecar to
-    /// <see cref="AcquireStatus.Error"/> and "no lossless source" to <see cref="AcquireStatus.NotFound"/>.
+    /// into the sidecar at the same absolute path). <paramref name="isrc"/>, when known, is that track's
+    /// ISRC, for the sidecar to use when it cannot resolve one itself. Maps a downed/timing-out sidecar
+    /// to <see cref="AcquireStatus.Error"/> and "no lossless source" to <see cref="AcquireStatus.NotFound"/>.
     /// </summary>
-    public async Task<AcquireResult> AcquireAsync(string spotifyUrl, string outputDir, string filenameStem, CancellationToken ct)
+    public async Task<AcquireResult> AcquireAsync(
+        string spotifyUrl, string? isrc, string outputDir, string filenameStem, CancellationToken ct)
     {
         var opts = options.CurrentValue;
         if (!opts.IsConfigured)
@@ -102,6 +104,7 @@ public sealed class StreamingFlacSidecarClient(
         var payload = JsonSerializer.Serialize(new
         {
             spotify_url = spotifyUrl,
+            isrc,
             quality = string.IsNullOrWhiteSpace(opts.Quality) ? "LOSSLESS" : opts.Quality,
             services = opts.Services is { Length: > 0 } ? opts.Services : ["qobuz", "tidal"],
             output_dir = outputDir,

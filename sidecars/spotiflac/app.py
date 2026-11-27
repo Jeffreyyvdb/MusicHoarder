@@ -19,10 +19,12 @@ so a malformed/hostile request can't traverse out of the staging volume, and err
 carry raw exception text.
 """
 import asyncio
+import contextvars
 import os
 import re
 import time
 import logging
+import threading
 from typing import Optional
 
 from fastapi import FastAPI
@@ -47,6 +49,30 @@ STAGING_ROOT = os.path.realpath(os.environ.get("SPOTIFLAC_STAGING_DIR", "/data/d
 # path separators, "..", NUL, etc. before the value is ever used to build a filesystem path.
 _STEM_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
+_ISRC_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$")
+_SPOTIFY_TRACK_RE = re.compile(r"^https://open\.spotify\.com/track/([A-Za-z0-9]{22})(?:[?#].*)?$")
+
+# How much an explicit Qobuz hit gains in the module's title search when Spotify marks the requested
+# track explicit. More than the album and hi-res bonuses together (135), so the explicit edition wins
+# a tie with the clean one; less than the artist match (180), so a wrong artist's explicit track
+# still loses.
+_EXPLICIT_BONUS = 150
+# A credit or an edition label in brackets, unless the bracket also names another recording:
+# "(Live Version)" or "(Remix)" must not match the studio song.
+_LABEL_RE = re.compile(
+    r"\s*[\(\[](?![^\)\]]*\b(?:live|remix|mix|acoustic|demo|instrumental|karaoke|sped|slowed|remaster(?:ed)?)\b)"
+    r"[^\)\]]*?\b(?:feat|with|ft|explicit|clean|edit|edited|version)\b[^\)\]]*[\)\]]",
+    re.IGNORECASE,
+)
+
+# Per acquire: the (Spotify id, ISRC) the API sent, and the requested track's title when Spotify marks
+# it explicit. Context variables, because acquires run concurrently in threads, each with the module's
+# own event loop, whose tasks copy the thread's context.
+_sent_isrc: contextvars.ContextVar[Optional[tuple[str, str]]] = contextvars.ContextVar("sent_isrc", default=None)
+_explicit_title: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("explicit_title", default=None)
+_module_hooks_lock = threading.Lock()
+_module_hooks_installed = False
+
 # The provider probe is real network I/O against the upstream backends, but /health is polled every 30s
 # by the Docker HEALTHCHECK. Cache it so liveness never depends on how fast a third party answers, and
 # bound each probe well under the healthcheck's own 10s timeout. A failed/empty probe is cached only
@@ -68,6 +94,8 @@ class AcquireRequest(BaseModel):
     output_dir: str
     filename_stem: str
     timeout_s: int = 120
+    # The track's ISRC as MusicHoarder knows it. Older API versions do not send it.
+    isrc: Optional[str] = None
 
 
 def _safe_output_path(output_dir: str, filename_stem: str) -> Optional[str]:
@@ -188,6 +216,15 @@ async def acquire(req: AcquireRequest):
 
 
 def _run_spotiflac(req: AcquireRequest, services: list[str], output_path: str) -> None:
+    _install_module_hooks()
+    token = _sent_isrc.set(_sent_isrc_for(req.spotify_url, req.isrc))
+    try:
+        _download(req, services, output_path)
+    finally:
+        _sent_isrc.reset(token)
+
+
+def _download(req: AcquireRequest, services: list[str], output_path: str) -> None:
     from SpotiFLAC import SpotiFLAC
 
     SpotiFLAC(
@@ -204,6 +241,90 @@ def _run_spotiflac(req: AcquireRequest, services: list[str], output_path: str) -
         tidal_custom_api=TIDAL_CUSTOM_API,
         qobuz_local_api_url=QOBUZ_LOCAL_API_URL,
     )
+
+
+def _sent_isrc_for(spotify_url: str, isrc: Optional[str]) -> Optional[tuple[str, str]]:
+    """The (Spotify id, ISRC) pair to answer the module's ISRC lookup with, when both are valid."""
+    match = _SPOTIFY_TRACK_RE.match(spotify_url)
+    normalized = (isrc or "").strip().upper().replace("-", "")
+    if match is None or not _ISRC_RE.fullmatch(normalized):
+        return None
+    return match.group(1), normalized
+
+
+def _install_module_hooks() -> None:
+    """
+    Two corrections to the pinned module, installed once:
+
+    - Its ISRC lookup answers with the ISRC the API sent for that Spotify id. The module looks the
+      ISRC up through third-party services, and when they come back empty it searches the store by
+      title, which can pick the clean edition of an explicit track.
+    - Its Qobuz title search, that fallback, prefers an explicit hit with the requested title when
+      Spotify marks the track explicit. The search scores artist and album but rarely the title, so
+      the bonus goes only to a candidate whose title is the requested one.
+
+    Both wrap private names of the pinned version. If an upgrade renames them, that correction is
+    skipped with a warning instead of failing downloads.
+    """
+    global _module_hooks_installed
+    with _module_hooks_lock:
+        if _module_hooks_installed:
+            return
+        _module_hooks_installed = True
+        _hook_isrc_lookup()
+        _hook_qobuz_title_search()
+
+
+def _hook_isrc_lookup() -> None:
+    try:
+        from SpotiFLAC.core.isrc_helper import IsrcHelper
+
+        lookup = IsrcHelper.get_isrc_async
+    except (ImportError, AttributeError):
+        logger.warning("SpotiFLAC changed; the ISRC the API sends is not used")
+        return
+
+    async def lookup_preferring_sent(self, track_id: str, *args, **kwargs) -> str:
+        sent = _sent_isrc.get()
+        if sent is not None and sent[0] == track_id:
+            return sent[1]
+        return await lookup(self, track_id, *args, **kwargs)
+
+    IsrcHelper.get_isrc_async = lookup_preferring_sent
+
+
+def _hook_qobuz_title_search() -> None:
+    try:
+        from SpotiFLAC.providers import qobuz
+
+        score = qobuz._score_track_candidate
+        normalize = qobuz._normalize_search_text
+        download = qobuz.QobuzProvider.download_track_async
+    except (ImportError, AttributeError):
+        logger.warning("SpotiFLAC changed; Qobuz title searches will not prefer explicit editions")
+        return
+
+    def title_key(title: str) -> str:
+        return normalize(_LABEL_RE.sub("", title or ""))
+
+    def score_preferring_explicit(query, track, *args, **kwargs):
+        wanted = _explicit_title.get()
+        explicit_match = (
+            wanted and isinstance(track, dict) and track.get("parental_warning")
+            and title_key(track.get("title", "")) == wanted
+        )
+        return score(query, track, *args, **kwargs) + (_EXPLICIT_BONUS if explicit_match else 0)
+
+    async def download_preferring_explicit(self, metadata, *args, **kwargs):
+        explicit = bool(getattr(metadata, "is_explicit", False))
+        token = _explicit_title.set(title_key(getattr(metadata, "title", "")) if explicit else None)
+        try:
+            return await download(self, metadata, *args, **kwargs)
+        finally:
+            _explicit_title.reset(token)
+
+    qobuz._score_track_candidate = score_preferring_explicit
+    qobuz.QobuzProvider.download_track_async = download_preferring_explicit
 
 
 def _looks_like_no_source(message: str) -> bool:
