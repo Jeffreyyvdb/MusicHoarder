@@ -294,13 +294,13 @@ def _hook_qobuz_title_search() -> None:
     def title_key(title: str) -> str:
         return normalize(_BRACKETED_RE.sub("", title or ""))
 
-    def score_preferring_explicit(query: str, track: dict) -> int:
+    def score_preferring_explicit(query, track, *args, **kwargs):
         wanted = _explicit_title.get()
         explicit_match = (
-            wanted and track and track.get("parental_warning")
+            wanted and isinstance(track, dict) and track.get("parental_warning")
             and title_key(track.get("title", "")) == wanted
         )
-        return score(query, track) + (_EXPLICIT_BONUS if explicit_match else 0)
+        return score(query, track, *args, **kwargs) + (_EXPLICIT_BONUS if explicit_match else 0)
 
     async def download_preferring_explicit(self, metadata, *args, **kwargs):
         explicit = bool(getattr(metadata, "is_explicit", False))
