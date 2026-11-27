@@ -16,10 +16,10 @@ export const CSP_REPORT_PATH = '/api/csp-report';
 export const CSP_REPORT_GROUP = 'csp-endpoint';
 
 /**
- * Starts short on purpose: a long HSTS max-age is hard to undo if the site ever has to serve plain
- * HTTP. Raise it to a year (31536000) once this has run in production for a while.
+ * One year. It started at five minutes, because a long max-age is hard to undo if a site ever has
+ * to serve plain HTTP again, and five minutes protects nobody between two visits.
  */
-const HSTS = 'max-age=300';
+const HSTS = 'max-age=31536000';
 
 // `tools` (WebMCP, `#lib/webmcp`) is left out on purpose: its default allowlist is 'self', which is
 // exactly what the app needs — its own pages register tools, and no frame may.

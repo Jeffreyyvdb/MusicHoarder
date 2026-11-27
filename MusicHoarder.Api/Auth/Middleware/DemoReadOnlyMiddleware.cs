@@ -28,26 +28,27 @@ public sealed class DemoReadOnlyMiddleware
     // them turned "Try the demo, then sign in with an emailed link" into "Sign-in didn't go
     // through". They grant nothing an anonymous caller lacks. The owner-only register/* routes are
     // deliberately NOT here. Everything else that mutates state is off-limits.
-    private static readonly string[] AllowlistedWritePaths =
+    // Each is one whole path, never a prefix: a prefix would hand the demo any route added later
+    // whose path merely starts like one of these.
+    private static readonly Regex[] AllowlistedWritePatterns =
     [
-        "/api/auth/demo-login",
-        "/api/auth/logout",
-        "/api/auth/switch",
-        "/api/auth/request-link",
-        "/api/auth/consume",
-        "/api/auth/webauthn/authenticate",
-        "/api/invite/accept",
-    ];
-
+        Exact("/api/auth/demo-login"),
+        Exact("/api/auth/logout"),
+        Exact("/api/auth/switch"),
+        Exact("/api/auth/request-link"),
+        Exact("/api/auth/consume"),
+        Exact("/api/auth/webauthn/authenticate/begin"),
+        Exact("/api/auth/webauthn/authenticate/complete"),
+        Exact("/api/invite/accept"),
     // A public share link's open/play beacons: someone who tried the demo on this instance and later
     // opens a share link carries the demo cookie along. The token-scoped /api/share/ surface is
     // anonymous (RequireAuthMiddleware), so allowing it here grants the demo nothing a stranger lacks.
-    // Anchored per shape, never a prefix: it must not also cover the owner-only /api/shares.
-    private static readonly Regex[] AllowlistedWritePatterns =
-    [
-        new(@"^/api/share/[^/]+/visit/?$", RegexOptions.IgnoreCase),
-        new(@"^/api/share/[^/]+/songs/\d+/play/?$", RegexOptions.IgnoreCase),
+    // Anchored per shape: it must not also cover the owner-only /api/shares.
+        new(@"^/api/share/[^/]+/visit/?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant),
+        new(@"^/api/share/[^/]+/songs/\d+/play/?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant),
     ];
+
+    private static Regex Exact(string path) => new($"^{Regex.Escape(path)}/?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private readonly RequestDelegate _next;
 
@@ -66,7 +67,8 @@ public sealed class DemoReadOnlyMiddleware
             return;
         }
 
-        if (IsSafeMethod(context.Request.Method) || IsAllowlistedWrite(context.Request.Path.Value))
+        if (IsSafeMethod(context.Request.Method)
+            || (HttpMethods.IsPost(context.Request.Method) && IsAllowlistedWrite(context.Request.Path.Value)))
         {
             await _next(context);
             return;
@@ -82,11 +84,6 @@ public sealed class DemoReadOnlyMiddleware
     private static bool IsAllowlistedWrite(string? path)
     {
         if (string.IsNullOrEmpty(path)) return false;
-        foreach (var allowed in AllowlistedWritePaths)
-        {
-            if (path.StartsWith(allowed, StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
         foreach (var pattern in AllowlistedWritePatterns)
         {
             if (pattern.IsMatch(path))

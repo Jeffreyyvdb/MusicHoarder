@@ -1,5 +1,7 @@
 using MusicHoarder.Api.Endpoints;
+using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Tests.Auth;
 
 namespace MusicHoarder.Api.Tests.Endpoints;
 
@@ -175,5 +177,40 @@ public class DirectoryMatchTreeTests
         string sourcePath, string prefix, bool expected)
     {
         Assert.Equal(expected, DashboardEndpoints.IsDirectChild(sourcePath, prefix));
+    }
+
+    [Fact]
+    public void BuildMatchTree_DoesNotRelativizeASiblingDirectoryThatSharesTheRootAsAPrefix()
+    {
+        var rows = new[]
+        {
+            Row("/root/music/Kanye West/Donda/01.mp3", EnrichmentStatus.Matched),
+            Row("/root/music-demo/Frank Ocean/channel ORANGE/Bad Religion.flac", EnrichmentStatus.NeedsReview),
+        };
+
+        var root = DashboardEndpoints.BuildMatchTree(rows, "/root/music");
+
+        Assert.Equal("Kanye West", root.Children.Single(c => c.Name == "Kanye West").Path);
+        Assert.DoesNotContain(root.Children, c => c.Name == "-demo");
+    }
+
+    [Fact]
+    public void SourceRootFor_starts_the_demo_account_at_its_own_media_folder()
+    {
+        var options = new MusicEnricherOptions { SourceDirectory = "/root/music", DemoMediaDirectory = "/root/music-demo" };
+
+        var demoRoot = DashboardEndpoints.SourceRootFor(TestCurrentUserAccessor.DemoUser, options);
+        var tree = DashboardEndpoints.BuildMatchTree(
+            [Row("/root/music-demo/Frank Ocean/channel ORANGE/Bad Religion.flac", EnrichmentStatus.Matched)], demoRoot);
+
+        Assert.Equal("Frank Ocean", tree.Children.Single().Path);
+        Assert.Equal(
+            "/root/music-demo/Frank Ocean",
+            EnrichmentEndpoints.ResolveFolderPrefix(demoRoot, tree.Children.Single().Path));
+        Assert.Equal("/root/music", DashboardEndpoints.SourceRootFor(TestCurrentUserAccessor.OwnerUser, options));
+        Assert.Equal("/root/music", DashboardEndpoints.SourceRootFor(TestCurrentUserAccessor.FriendUser, options));
+        Assert.Equal(
+            "/root/music",
+            DashboardEndpoints.SourceRootFor(TestCurrentUserAccessor.DemoUser, new MusicEnricherOptions { SourceDirectory = "/root/music" }));
     }
 }

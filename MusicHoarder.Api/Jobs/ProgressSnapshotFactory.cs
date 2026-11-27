@@ -7,6 +7,16 @@ namespace MusicHoarder.Api.Jobs;
 
 public static class ProgressSnapshotFactory
 {
+    private static readonly StepSnapshot IdleStep = new("Idle", false);
+
+    /// <summary>
+    /// What an account that is not an admin reads: a pipeline at rest. The trackers and the job
+    /// manager are process-wide, so their counters describe the library owner's files, and the
+    /// pages that read them are open to every account.
+    /// </summary>
+    public static ProgressSnapshot Idle { get; } = new(
+        "Idle", null, null, null, true, 0, 0, 0, 0, 0, 0, 0, IdleStep, IdleStep, IdleStep, IdleStep, 0, IdleStep);
+
     public static ProgressSnapshot Create(
         JobManager jobManager,
         ScanProgressTracker scanTracker,

@@ -6,12 +6,22 @@ namespace MusicHoarder.Api.Auth.Middleware;
 /// </summary>
 public sealed class RequireAuthMiddleware
 {
+    // Whole surfaces that work without a session.
     private static readonly string[] AllowlistedPrefixes =
     [
         "/api/auth/",
         "/api/share/", // anonymous shared-song links — token-scoped, does NOT cover the owner-only /api/shares
         "/api/invite/", // anonymous friend-invite peek/accept — token-scoped, does NOT cover the owner-only /api/friends/invites
-        "/api/version", // prefix match — also covers /api/version/latest (the update-check endpoint)
+        "/openapi/",
+        "/scalar/",
+    ];
+
+    // Single routes. Each is that path and nothing below or beside it, so a route added later is
+    // never anonymous because its path starts like one of these.
+    private static readonly string[] AllowlistedPaths =
+    [
+        "/api/version",
+        "/api/version/latest", // the update-check endpoint
         // Machine-to-machine instance sync: no cookie session exists on these requests. The
         // allowlist entry is NOT the gate — SyncApiKeyFilter on the endpoints enforces the shared
         // X-Sync-Key (and 404s unless this instance is a configured receiver). /api/sync/status is
@@ -21,7 +31,6 @@ public sealed class RequireAuthMiddleware
         "/api/sync/like",
         "/health",
         "/alive",
-        "/openapi",
         "/scalar",
     ];
 
@@ -57,6 +66,13 @@ public sealed class RequireAuthMiddleware
         foreach (var prefix in AllowlistedPrefixes)
         {
             if (path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        var exact = path.Length > 1 && path.EndsWith('/') ? path.AsSpan(0, path.Length - 1) : path.AsSpan();
+        foreach (var allowed in AllowlistedPaths)
+        {
+            if (exact.Equals(allowed, StringComparison.OrdinalIgnoreCase))
                 return true;
         }
         return false;

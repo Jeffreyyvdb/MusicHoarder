@@ -29,7 +29,8 @@ public static class LegacyScanEndpoints
                 return Results.Ok(state);
             })
             .WithName("GetScanProgress")
-            .WithSummary("Get a snapshot of scan progress by scan ID.");
+            .WithSummary("Get a snapshot of scan progress by scan ID.")
+            .RequireAdmin();
 
         return app;
     }

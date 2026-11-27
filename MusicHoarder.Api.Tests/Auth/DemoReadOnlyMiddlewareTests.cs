@@ -20,6 +20,8 @@ public class DemoReadOnlyMiddlewareTests
     [InlineData("POST", "/api/quality/grade-all")]
     [InlineData("PUT", "/api/settings")]
     [InlineData("PATCH", "/api/auth/me")] // rename-self is owner-only
+    [InlineData("DELETE", "/api/auth/logout")] // the allowance is for POST only
+    [InlineData("PUT", "/api/share/tok/visit")]
     public async Task demo_unsafe_request_is_rejected_with_403(string method, string path)
     {
         var (ctx, nextCalled) = await InvokeAsync(Demo(), method, path);
@@ -53,6 +55,34 @@ public class DemoReadOnlyMiddlewareTests
     [InlineData("/api/auth/webauthn/authenticate/complete")]
     [InlineData("/api/invite/accept")]
     public async Task demo_may_post_to_allowlisted_auth_endpoints(string path)
+    {
+        var (_, nextCalled) = await InvokeAsync(Demo(), "POST", path);
+
+        Assert.True(nextCalled());
+    }
+
+    [Theory]
+    [InlineData("/api/auth/logout-extra")]
+    [InlineData("/api/auth/logout/everywhere")]
+    [InlineData("/api/auth/demo-loginX")]
+    [InlineData("/api/auth/switch-owner")]
+    [InlineData("/api/auth/consume/batch")]
+    [InlineData("/api/auth/webauthn/authenticate")]
+    [InlineData("/api/auth/webauthn/authenticate-as")]
+    [InlineData("/api/auth/webauthn/authenticate/begin/extra")]
+    [InlineData("/api/invite/accept-all")]
+    public async Task demo_auth_allowance_does_not_reach_a_path_that_only_starts_like_one(string path)
+    {
+        var (ctx, nextCalled) = await InvokeAsync(Demo(), "POST", path);
+
+        Assert.False(nextCalled());
+        Assert.Equal(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("/api/auth/logout/")]
+    [InlineData("/API/Auth/Logout")]
+    public async Task demo_auth_allowance_ignores_case_and_a_trailing_slash(string path)
     {
         var (_, nextCalled) = await InvokeAsync(Demo(), "POST", path);
 

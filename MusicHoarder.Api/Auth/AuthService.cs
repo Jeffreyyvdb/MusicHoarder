@@ -21,6 +21,9 @@ public sealed class AuthService : IAuthService
 
     private readonly ConcurrentDictionary<Guid, (Session Session, User User, DateTime CachedAtUtc)> _sessionCache = new();
 
+    private const int DemoTrimBatch = 500;
+    private readonly SemaphoreSlim _demoLoginLock = new(1, 1);
+
     // Bumped by every invalidation. A resolution only goes into the cache when no invalidation
     // happened while it was reading: otherwise a read that saw the session just before a revoke
     // could put it back right after the revoke cleared it.
@@ -171,8 +174,88 @@ public sealed class AuthService : IAuthService
         demo.LastLoginAtUtc = nowUtc;
         var session = CreateSession(demo.Id, ip, userAgent, nowUtc);
         db.Sessions.Add(session);
-        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+
+        // One demo login at a time, insert and trim together: a second login trimming between this
+        // one's insert and its own trim would otherwise remove the session about to be returned.
+        await _demoLoginLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            try
+            {
+                // Not the request's token: the session is saved, so a caller that hangs up here
+                // must not leave the trim undone.
+                await TrimDemoSessionsAsync(db, session.Id, nowUtc, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // The sign-in itself succeeded; the next demo login trims again.
+                _logger.LogWarning(ex, "Trimming demo sessions failed.");
+            }
+        }
+        finally
+        {
+            _demoLoginLock.Release();
+        }
         return session;
+    }
+
+    /// <summary>
+    /// Bounds the demo account's session rows: ended ones go, and so does every live one past the
+    /// newest <see cref="AuthOptions.DemoSessionLimit"/>. Anyone can start a demo session without
+    /// signing in, so without this the table grows for as long as someone keeps asking. It removes
+    /// at most <see cref="DemoTrimBatch"/> rows of each kind, so a backlog is worked off over
+    /// several logins instead of holding one up.
+    /// </summary>
+    private async Task TrimDemoSessionsAsync(MusicHoarderDbContext db, Guid keepId, DateTime nowUtc, CancellationToken ct)
+    {
+        var limit = Math.Max(1, _options.CurrentValue.DemoSessionLimit);
+        var demoSessions = db.Sessions.Where(s => s.UserId == WellKnownUsers.DemoId);
+
+        var ended = await demoSessions
+            .Where(s => s.RevokedAtUtc != null || s.ExpiresAtUtc <= nowUtc)
+            .Take(DemoTrimBatch)
+            .ToListAsync(ct).ConfigureAwait(false);
+        // Every live session but the new one, which always stays: oldest first, so a backlog
+        // larger than one batch loses its oldest sessions and not its most recent ones.
+        var others = demoSessions.Where(s => s.RevokedAtUtc == null && s.ExpiresAtUtc > nowUtc && s.Id != keepId);
+        var excess = await others.CountAsync(ct).ConfigureAwait(false) - (limit - 1);
+        var overLimit = excess <= 0
+            ? []
+            : await others
+                .OrderBy(s => s.IssuedAtUtc).ThenBy(s => s.Id)
+                .Take(Math.Min(excess, DemoTrimBatch))
+                .ToListAsync(ct).ConfigureAwait(false);
+        if (ended.Count + overLimit.Count == 0) return;
+
+        db.Sessions.RemoveRange(ended);
+        db.Sessions.RemoveRange(overLimit);
+        await SaveSkippingVanishedRowsAsync(db, ct).ConfigureAwait(false);
+
+        // A dropped session must stop working on its next request, not after the cache TTL.
+        foreach (var session in overLimit) InvalidateSession(session.Id);
+    }
+
+    /// <summary>
+    /// Saves, leaving out any row another writer removed first. A demo session can be trimmed
+    /// while a logout or another process holds it, and that must not undo the rest of the save.
+    /// </summary>
+    private static async Task SaveSkippingVanishedRowsAsync(MusicHoarderDbContext db, CancellationToken ct)
+    {
+        // Postgres names one vanished row per failed save, so this goes round once per such row.
+        // It ends because every round takes at least one tracked row out.
+        while (true)
+        {
+            try
+            {
+                await db.SaveChangesAsync(ct).ConfigureAwait(false);
+                return;
+            }
+            catch (DbUpdateConcurrencyException ex) when (ex.Entries.Count > 0)
+            {
+                foreach (var entry in ex.Entries) entry.State = EntityState.Detached;
+            }
+        }
     }
 
     public async Task<(Session Session, User User)?> ResolveSessionAsync(Guid sessionId, CancellationToken ct)
@@ -207,7 +290,16 @@ public sealed class AuthService : IAuthService
         if (remaining < SlidingExtensionThreshold)
         {
             session.ExpiresAtUtc = nowUtc.AddDays(_options.CurrentValue.SessionLifetimeDays);
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            try
+            {
+                await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                // The row went while this request held it (a demo session trimmed past the limit).
+                _sessionCache.TryRemove(sessionId, out _);
+                return null;
+            }
         }
 
         // The entities outlive the scope that loaded them; nothing mutates them after this point
@@ -308,7 +400,9 @@ public sealed class AuthService : IAuthService
         {
             session.RevokedAtUtc = nowUtc;
         }
-        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        // A row that went while this request held it (a demo session trimmed past the limit) is
+        // ended just as well, and must not undo the other rows of this save.
+        await SaveSkippingVanishedRowsAsync(db, ct).ConfigureAwait(false);
 
         // A revoked session must stop working on its very next request, not after the cache TTL.
         InvalidateSession(sessionId);
