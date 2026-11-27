@@ -24,7 +24,8 @@ internal static class ITunesThrottle
     /// </summary>
     public static async ValueTask<RateLimitLease> AcquireAsync(MusicEnricherOptions options, CancellationToken ct)
     {
-        var lease = await Limiter.AcquireAsync(1, TimeSpan.FromSeconds(60.0 / Math.Clamp(options.AppleMusicApiRequestsPerMinute, 1, 30)), ct);
+        var interval = PaceForTests ?? TimeSpan.FromSeconds(60.0 / Math.Clamp(options.AppleMusicApiRequestsPerMinute, 1, 30));
+        var lease = await Limiter.AcquireAsync(1, interval, ct);
         var wait = BackoffUntil - DateTime.UtcNow;
         if (wait <= TimeSpan.Zero)
             return lease;
@@ -47,4 +48,7 @@ internal static class ITunesThrottle
     }
 
     internal static void ResetBackoffForTests() => Interlocked.Exchange(ref _backoffUntilUtcTicks, 0);
+
+    /// <summary>Tests that never reach iTunes need not wait out its real pace.</summary>
+    internal static TimeSpan? PaceForTests { get; set; }
 }
