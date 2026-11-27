@@ -19,10 +19,12 @@ so a malformed/hostile request can't traverse out of the staging volume, and err
 carry raw exception text.
 """
 import asyncio
+import contextvars
 import os
 import re
 import time
 import logging
+import threading
 from typing import Optional
 
 from fastapi import FastAPI
@@ -47,6 +49,18 @@ STAGING_ROOT = os.path.realpath(os.environ.get("SPOTIFLAC_STAGING_DIR", "/data/d
 # path separators, "..", NUL, etc. before the value is ever used to build a filesystem path.
 _STEM_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
+_ISRC_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$")
+_SPOTIFY_TRACK_RE = re.compile(r"^https://open\.spotify\.com/track/([A-Za-z0-9]{22})(?:[?#].*)?$")
+
+# How much an explicit Qobuz hit gains in the module's title search when Spotify marks the requested
+# track explicit. More than the album and hi-res bonuses together (135), so the explicit edition wins
+# a tie with the clean one; less than the artist match (180), so a wrong artist's explicit track
+# still loses.
+_EXPLICIT_BONUS = 150
+_wants_explicit: contextvars.ContextVar[bool] = contextvars.ContextVar("wants_explicit", default=False)
+_explicit_preference_lock = threading.Lock()
+_explicit_preference_installed = False
+
 # The provider probe is real network I/O against the upstream backends, but /health is polled every 30s
 # by the Docker HEALTHCHECK. Cache it so liveness never depends on how fast a third party answers, and
 # bound each probe well under the healthcheck's own 10s timeout. A failed/empty probe is cached only
@@ -68,6 +82,8 @@ class AcquireRequest(BaseModel):
     output_dir: str
     filename_stem: str
     timeout_s: int = 120
+    # The track's ISRC as MusicHoarder knows it. Older API versions do not send it.
+    isrc: Optional[str] = None
 
 
 def _safe_output_path(output_dir: str, filename_stem: str) -> Optional[str]:
@@ -190,6 +206,8 @@ async def acquire(req: AcquireRequest):
 def _run_spotiflac(req: AcquireRequest, services: list[str], output_path: str) -> None:
     from SpotiFLAC import SpotiFLAC
 
+    _install_explicit_preference()
+    _seed_isrc(req.spotify_url, req.isrc)
     SpotiFLAC(
         url=req.spotify_url,
         output_dir=os.path.dirname(output_path),
@@ -204,6 +222,65 @@ def _run_spotiflac(req: AcquireRequest, services: list[str], output_path: str) -
         tidal_custom_api=TIDAL_CUSTOM_API,
         qobuz_local_api_url=QOBUZ_LOCAL_API_URL,
     )
+
+
+def _seed_isrc(spotify_url: str, isrc: Optional[str]) -> None:
+    """
+    Give the module the ISRC MusicHoarder holds. The module looks the ISRC up itself, and when that
+    comes back empty it searches the store by title, which can pick the clean edition of an explicit
+    track. Its own lookups are cached per Spotify id, so a cached value wins over the caller's.
+    """
+    match = _SPOTIFY_TRACK_RE.match(spotify_url)
+    normalized = (isrc or "").strip().upper().replace("-", "")
+    if match is None or not _ISRC_RE.fullmatch(normalized):
+        return
+
+    from SpotiFLAC.core.isrc_cache import get_cached_isrc_async, put_cached_isrc_async
+
+    async def seed() -> None:
+        if not await get_cached_isrc_async(match.group(1)):
+            await put_cached_isrc_async(match.group(1), normalized)
+
+    try:
+        asyncio.run(seed())
+    except Exception:  # noqa: BLE001 — the module can still resolve the ISRC itself.
+        logger.warning("could not seed ISRC %s for %s", normalized, spotify_url, exc_info=True)
+
+
+def _install_explicit_preference() -> None:
+    """
+    Make the module's Qobuz title search prefer explicit hits for an explicit Spotify track. The search
+    is its fallback when the ISRC lookup finds nothing, and it scores titles only, so the clean single
+    can outrank the explicit one. Wraps two private names of the pinned module version; if an upgrade
+    renames them, the preference is skipped with a warning rather than failing downloads.
+    """
+    global _explicit_preference_installed
+    with _explicit_preference_lock:
+        if _explicit_preference_installed:
+            return
+        _explicit_preference_installed = True
+        try:
+            from SpotiFLAC.providers import qobuz
+
+            score = qobuz._score_track_candidate
+            download = qobuz.QobuzProvider.download_track_async
+        except (ImportError, AttributeError):
+            logger.warning("SpotiFLAC changed; Qobuz title searches will not prefer explicit editions")
+            return
+
+        def score_preferring_explicit(query: str, track: dict) -> int:
+            bonus = _EXPLICIT_BONUS if _wants_explicit.get() and track and track.get("parental_warning") else 0
+            return score(query, track) + bonus
+
+        async def download_preferring_explicit(self, metadata, *args, **kwargs):
+            token = _wants_explicit.set(bool(getattr(metadata, "is_explicit", False)))
+            try:
+                return await download(self, metadata, *args, **kwargs)
+            finally:
+                _wants_explicit.reset(token)
+
+        qobuz._score_track_candidate = score_preferring_explicit
+        qobuz.QobuzProvider.download_track_async = download_preferring_explicit
 
 
 def _looks_like_no_source(message: str) -> bool:

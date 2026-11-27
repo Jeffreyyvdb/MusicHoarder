@@ -25,7 +25,7 @@ vendor their source. All acquisition logic lives in that module — this folder 
 | `GET /health` | `{"status":"ok","providers":["qobuz","tidal"]}` |
 | `POST /acquire` | `{"status":"ok","file":"<abs path>","provider":"qobuz"}` · `{"status":"not_found","error":...}` · `{"status":"error","error":...}` |
 
-`POST /acquire` body: `{spotify_url, quality, services, output_dir, filename_stem, timeout_s}`. The file
+`POST /acquire` body: `{spotify_url, quality, services, output_dir, filename_stem, timeout_s, isrc}` (`isrc` optional). The file
 is written to `{output_dir}/{filename_stem}.flac` — `output_dir` is the shared staging volume, mounted
 into **both** containers at the same absolute path so the returned path resolves on the API side too.
 
@@ -100,6 +100,11 @@ Instead of the built-in community relay, point at your own instances:
   file exists and is non-empty. If the module API changes, adjust `_run_spotiflac` / `_looks_like_no_source`.
 - Amazon is out of scope (needs CENC decryption) — stick to Tidal/Qobuz (and Deezer if you want a third).
 - **Explicit vs clean.** The module resolves the Spotify track to Tidal/Qobuz by its ISRC, so it fetches
-  exactly the edition that Spotify id names: a clean edit's id yields a clean file. Choosing the edition
-  is MusicHoarder's job, not this wrapper's: with `StreamingFlac:PreferExplicit` (on by default) the API
-  swaps a clean edit's id for its explicit edition's before calling `/acquire`.
+  the edition that Spotify id names: a clean edit's id yields a clean file. Choosing the edition is
+  MusicHoarder's job: with `StreamingFlac:PreferExplicit` (on by default) the API swaps a clean edit's id
+  for its explicit edition's before calling `/acquire`, and sends that track's ISRC as `isrc`. The
+  module's own ISRC lookup can come back empty, and it then searches by title, which picked the clean
+  single of an explicit track. So the wrapper seeds the module's ISRC cache with the sent ISRC (a value
+  the module cached itself wins), and makes Qobuz's title search prefer explicit hits for an explicit
+  Spotify track. The second wraps private names of the pinned module; check it still applies when you
+  bump `requirements.txt` (a warning is logged at the first download when it does not).
