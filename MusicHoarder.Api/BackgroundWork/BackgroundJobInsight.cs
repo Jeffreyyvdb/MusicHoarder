@@ -34,7 +34,7 @@ public static class BackgroundJobDefinitions
     public static readonly BackgroundJobDefinition MusicVideos = new(
         BackgroundJobIds.MusicVideos,
         "Music video search",
-        "Searches YouTube for every song's music video, newest first, and again on a schedule, so choosing one opens on a measured list.");
+        "Searches YouTube for every song's music video, My tracks first, and again on a schedule, so choosing one opens on a measured list.");
 
     public static readonly BackgroundJobDefinition MusicVideoDownloads = new(
         BackgroundJobIds.MusicVideoDownloads,

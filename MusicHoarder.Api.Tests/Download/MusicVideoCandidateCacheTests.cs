@@ -8,6 +8,7 @@ using MusicHoarder.Api.Download;
 using MusicHoarder.Api.Endpoints;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Sync;
 
 namespace MusicHoarder.Api.Tests.Download;
 
@@ -59,16 +60,20 @@ public class MusicVideoCandidateCacheTests
     };
 
     private MusicVideoCandidateCache Cache() => new(
-        _downloader, _probe, Microsoft.Extensions.Options.Options.Create(_options), _clock, new MusicVideoOutcomeMemo(),
+        _downloader, _probe, Microsoft.Extensions.Options.Options.Create(_options), _clock, _memo,
         NullLogger<MusicVideoCandidateCache>.Instance);
 
     private readonly MusicVideoChannel _channel = new();
     private readonly FakeFreeDiskSpace _disk = new();
     private readonly FakeRuntimeSettings _settings = new();
+    private readonly SyncOptions _syncOptions = new();
+    private readonly MusicVideoOutcomeMemo _memo = new();
 
     private MusicVideoCandidatePrefetch Prefetch(MusicHoarderDbContext db) => new(
         db, Cache(), _channel, _downloader, _disk, _settings,
-        Microsoft.Extensions.Options.Options.Create(_options), _clock,
+        Microsoft.Extensions.Options.Options.Create(_options),
+        Microsoft.Extensions.Options.Options.Create(_syncOptions),
+        _memo, _clock,
         NullLogger<MusicVideoCandidatePrefetch>.Instance);
 
     private List<MusicVideoWorkItem> Queued()
@@ -796,5 +801,614 @@ public class MusicVideoCandidateCacheTests
         Assert.Equal(
             MusicVideoPick.Requested,
             (await db.SongMusicVideos.IgnoreQueryFilters().SingleAsync(v => v.SongId == 1)).Pick);
+    }
+
+    private static SongMetadata BuiltSong(
+        int id,
+        DateTime acquired,
+        string? sourcePath = null,
+        SongAcquisitionIntent intent = SongAcquisitionIntent.Explicit,
+        DateTime? likedAt = null) => new()
+    {
+        Id = id,
+        OwnerUserId = Admin,
+        SourcePath = sourcePath ?? $"/src/{id}.opus",
+        DestinationPath = $"/dst/Artist/Album/{id}.opus",
+        LibraryBuildStatus = LibraryBuildStatus.Done,
+        FileName = $"{id}.opus",
+        Extension = ".opus",
+        FileSizeBytes = 1,
+        LastModifiedUtc = Now,
+        IndexedAtUtc = acquired,
+        AcquiredAtUtc = acquired,
+        EnrichmentStatus = EnrichmentStatus.Matched,
+        AcquisitionIntent = intent,
+        LikedAtUtc = likedAt,
+        Artist = "Artist",
+        Title = $"Title {id}",
+        DurationSeconds = 200,
+    };
+
+    private static SongVideoCandidateSet StoredConfidentSet(
+        SongMetadata song, DateTime searchedAt, DateTime nextSearchAt, long estimatedBytes = 50_000_000) => new()
+    {
+        SongId = song.Id,
+        QueryKey = MusicVideoCandidateCache.QueryKeyFor(song),
+        SearchedAtUtc = searchedAt,
+        NextSearchAtUtc = nextSearchAt,
+        CandidatesJson = System.Text.Json.JsonSerializer.Serialize(
+            new[]
+            {
+                new CachedVideoCandidate(
+                    $"vid-{song.Id:00000}", "Song (Official Video)", "Artist", 200, 90, true,
+                    MusicVideoMotion.RealVideo, estimatedBytes, false),
+            },
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)),
+    };
+
+    private static SongVideoCandidateSet StoredUnconfidentSet(
+        SongMetadata song, DateTime searchedAt, DateTime nextSearchAt, MusicVideoMotion motion = MusicVideoMotion.Static) => new()
+    {
+        SongId = song.Id,
+        QueryKey = MusicVideoCandidateCache.QueryKeyFor(song),
+        SearchedAtUtc = searchedAt,
+        NextSearchAtUtc = nextSearchAt,
+        CandidatesJson = System.Text.Json.JsonSerializer.Serialize(
+            new[]
+            {
+                new CachedVideoCandidate(
+                    $"vid-{song.Id:00000}", "Song (Official Video)", "Artist", 200, 90, true,
+                    motion, motion == MusicVideoMotion.Unknown ? null : 50_000_000, false),
+            },
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)),
+    };
+
+    [Fact]
+    public async Task Prefetch_skips_duplicate_and_synthetic_songs()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+        var dup = Song(1);
+        dup.IsDuplicate = true;
+        var synth = Song(2);
+        synth.IsSynthetic = true;
+        db.Songs.AddRange(dup, synth, Song(3));
+        await db.SaveChangesAsync();
+
+        Assert.Equal(1, await Prefetch(db).RunAsync(default));
+        Assert.Equal(["Title 3"], _downloader.SuggestCalls.Select(c => c.Title));
+    }
+
+    [Fact]
+    public async Task Prefetch_prioritizes_my_tracks_ahead_of_other_built_tracks_then_unbuilt_and_respects_in_flight_cap()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+        _options.DownloadDirectory = "/dl";
+        _syncOptions.SyncedSourceDirectory = "/sync";
+
+        var playlist = new WishlistSource
+        {
+            OwnerUserId = Admin,
+            SourceType = WishlistSourceType.Playlist,
+            Name = "Mix",
+            CreatedAtUtc = Now,
+        };
+        db.WishlistSources.Add(playlist);
+        await db.SaveChangesAsync();
+
+        // Older My tracks (including scanned NeedsReview and Spotify-liked matched via SpotifyId)
+        // run ahead of much newer collection/album-fill/synced/unbuilt tracks.
+        var oldLocal = BuiltSong(1, Now.AddYears(-3), sourcePath: "/src/1.opus");
+        var scannedNeedsReview = Song(2, acquired: Now.AddDays(-10), status: EnrichmentStatus.NeedsReview);
+        scannedNeedsReview.SourcePath = "/src/2.opus";
+        var likedAlbumFill = BuiltSong(3, Now.AddYears(-2), sourcePath: "/dl/3.opus", intent: SongAcquisitionIntent.AlbumFill, likedAt: Now.AddDays(-5));
+        var spotifyLikedBySpotifyId = BuiltSong(4, Now.AddYears(-4), sourcePath: "/dl/4.opus");
+        spotifyLikedBySpotifyId.SpotifyId = "sp-track-4";
+        var unlikedAlbumFill = BuiltSong(5, Now.AddHours(-1), sourcePath: "/dl/5.opus", intent: SongAcquisitionIntent.AlbumFill);
+        var unlikedPlaylist = BuiltSong(6, Now.AddHours(-2), sourcePath: "/dl/6.opus");
+        var syncedTrack = BuiltSong(7, Now.AddHours(-3), sourcePath: "/sync/7.opus");
+        var unbuiltDownload = Song(8, acquired: Now.AddMinutes(-5), status: EnrichmentStatus.NeedsReview);
+        unbuiltDownload.SourcePath = "/dl/8.opus";
+
+        db.Songs.AddRange(oldLocal, scannedNeedsReview, likedAlbumFill, spotifyLikedBySpotifyId, unlikedAlbumFill, unlikedPlaylist, syncedTrack, unbuiltDownload);
+        db.WishlistItems.AddRange(
+            new WishlistItem { OwnerUserId = Admin, WishlistSourceId = playlist.Id, Title = "Title 4", Artist = "Artist", DownloadedSongId = 4 },
+            new WishlistItem { OwnerUserId = Admin, WishlistSourceId = playlist.Id, Title = "Title 6", Artist = "Artist", DownloadedSongId = 6 });
+        // Matched via SpotifyTrackId only (MatchedSongId is null).
+        db.SpotifyTrackLibraryMatches.Add(new SpotifyTrackLibraryMatch
+        {
+            OwnerUserId = Admin,
+            SpotifyTrackId = "sp-track-4",
+            MatchedSongId = null,
+            Source = MusicHoarder.Api.Spotify.SpotifyLibraryComparisonService.SourceLikedSync,
+            SpotifyAddedAtUtc = Now.AddDays(-20),
+            UpdatedAtUtc = Now,
+        });
+        await db.SaveChangesAsync();
+
+        _options.MusicVideoCandidatePrefetchBatchSize = 4;
+        _settings.AutoDownloadMusicVideos = true;
+
+        // Pass 1: all 4 My tracks, newest first (2, 3, 1, 4).
+        Assert.Equal(4, await Prefetch(db).RunAsync(default));
+        Assert.Equal(["Title 2", "Title 3", "Title 1", "Title 4"], _downloader.SuggestCalls.Select(c => c.Title));
+        Assert.Equal([2, 3, 1, 4], Queued().Select(w => w.SongId));
+
+        // Pass 2 while those 4 are still Fetching: searches the next 4 in priority order (5, 6, 7, 8)
+        // for the picker, but queues ZERO new downloads because the shared in-flight cap (4) is full.
+        Assert.Equal(4, await Prefetch(db).RunAsync(default));
+        Assert.Equal(["Title 5", "Title 6", "Title 7", "Title 8"], _downloader.SuggestCalls.Skip(4).Select(c => c.Title));
+        Assert.Empty(Queued());
+
+        // Once the first 4 finish, Pass 3 drains the stored picks in exact priority order (5, 6, 7, 8).
+        foreach (var v in await db.SongMusicVideos.IgnoreQueryFilters().Where(v => v.SongId <= 4).ToListAsync())
+        {
+            v.Status = MusicVideoStatus.Ready;
+            v.FilePath = $"/v/{v.SongId}.mp4";
+        }
+        await db.SaveChangesAsync();
+
+        Assert.Equal(0, await Prefetch(db).RunAsync(default));
+        Assert.Equal([5, 6, 7, 8], Queued().Select(w => w.SongId));
+    }
+
+    [Fact]
+    public async Task Mixed_pass_enqueues_in_strict_priority_and_recency_order_across_searches_and_stored_picks()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+        _options.DownloadDirectory = "/dl";
+
+        // Batch of 2:
+        // - Song 1: due My track (PriorityMyTracks)
+        // - Song 2: stored other-built track (PriorityOtherBuilt)
+        // - Song 3: due unbuilt download (PriorityUnbuilt)
+        // Expected download order: Song 1, then Song 2 — Song 3 is searched (budget=2) but waits behind Song 2.
+        var dueMyTrack = BuiltSong(1, Now.AddDays(-2), sourcePath: "/src/1.opus");
+        var storedOtherBuilt = BuiltSong(2, Now.AddDays(-1), sourcePath: "/dl/2.opus", intent: SongAcquisitionIntent.AlbumFill);
+        var dueUnbuilt = Song(3, acquired: Now.AddMinutes(-1), status: EnrichmentStatus.NeedsReview);
+        dueUnbuilt.SourcePath = "/dl/3.opus";
+
+        db.Songs.AddRange(dueMyTrack, storedOtherBuilt, dueUnbuilt);
+        db.SongVideoCandidateSets.Add(StoredConfidentSet(storedOtherBuilt, Now.AddDays(-1), Now.AddDays(180)));
+        await db.SaveChangesAsync();
+
+        _options.MusicVideoCandidatePrefetchBatchSize = 2;
+        _settings.AutoDownloadMusicVideos = true;
+
+        Assert.Equal(2, await Prefetch(db).RunAsync(default));
+        Assert.Equal(["Title 1", "Title 3"], _downloader.SuggestCalls.Select(c => c.Title));
+        Assert.Equal([1, 2], Queued().Select(w => w.SongId));
+        Assert.False(await db.SongMusicVideos.IgnoreQueryFilters().AnyAsync(v => v.SongId == 3));
+    }
+
+    [Fact]
+    public async Task Within_one_tier_a_newer_due_track_queues_before_an_older_stored_pick()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+
+        var newerDue = BuiltSong(1, Now.AddDays(-1), sourcePath: "/src/1.opus");
+        var olderStored = BuiltSong(2, Now.AddDays(-10), sourcePath: "/src/2.opus");
+        db.Songs.AddRange(newerDue, olderStored);
+        db.SongVideoCandidateSets.Add(StoredConfidentSet(olderStored, Now.AddDays(-1), Now.AddDays(180)));
+        await db.SaveChangesAsync();
+
+        _options.MusicVideoCandidatePrefetchBatchSize = 2;
+        _settings.AutoDownloadMusicVideos = true;
+
+        Assert.Equal(1, await Prefetch(db).RunAsync(default));
+        Assert.Equal([1, 2], Queued().Select(w => w.SongId));
+    }
+
+    [Fact]
+    public async Task Early_stop_after_three_empty_searches_does_not_drain_lower_tier_stored_picks()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+        _options.DownloadDirectory = "/dl";
+
+        for (var i = 1; i <= 4; i++)
+            db.Songs.Add(BuiltSong(i, Now.AddDays(-i), sourcePath: $"/src/{i}.opus"));
+        var storedFill = BuiltSong(5, Now.AddHours(-1), sourcePath: "/dl/5.opus", intent: SongAcquisitionIntent.AlbumFill);
+        db.Songs.Add(storedFill);
+        db.SongVideoCandidateSets.Add(StoredConfidentSet(storedFill, Now.AddDays(-1), Now.AddDays(180)));
+        await db.SaveChangesAsync();
+
+        _downloader.OnSuggest = _ => [];
+        _options.MusicVideoCandidatePrefetchBatchSize = 4;
+        _settings.AutoDownloadMusicVideos = true;
+
+        Assert.Equal(0, await Prefetch(db).RunAsync(default));
+        Assert.Equal(3, _downloader.SuggestCalls.Count);
+        Assert.Empty(Queued());
+        Assert.False(await db.SongMusicVideos.IgnoreQueryFilters().AnyAsync(v => v.SongId == 5));
+    }
+
+    [Fact]
+    public async Task Another_accounts_spotify_like_does_not_promote_an_admins_unhearted_playlist_track()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+        _options.DownloadDirectory = "/dl";
+        var secondAdmin = new Guid("22222222-2222-2222-2222-222222222222");
+        db.Users.Add(new User { Id = secondAdmin, Email = "b@example.com", EmailNormalized = "B@EXAMPLE.COM", Role = UserRole.Admin });
+        var playlist = new WishlistSource { OwnerUserId = Admin, SourceType = WishlistSourceType.Playlist, Name = "Mix", CreatedAtUtc = Now };
+        db.WishlistSources.Add(playlist);
+        await db.SaveChangesAsync();
+
+        // Admin A's older local track vs Admin A's newer playlist track whose SpotifyId was liked ONLY by Admin B.
+        var myLocal = BuiltSong(1, Now.AddYears(-2), sourcePath: "/src/1.opus");
+        var playlistTrack = BuiltSong(2, Now.AddHours(-1), sourcePath: "/dl/2.opus");
+        playlistTrack.SpotifyId = "sp-shared";
+        db.Songs.AddRange(myLocal, playlistTrack);
+        db.WishlistItems.Add(new WishlistItem { OwnerUserId = Admin, WishlistSourceId = playlist.Id, Title = "Title 2", Artist = "Artist", DownloadedSongId = 2 });
+        db.SpotifyTrackLibraryMatches.Add(new SpotifyTrackLibraryMatch
+        {
+            OwnerUserId = secondAdmin,
+            SpotifyTrackId = "sp-shared",
+            MatchedSongId = null,
+            Source = MusicHoarder.Api.Spotify.SpotifyLibraryComparisonService.SourceLikedSync,
+            SpotifyAddedAtUtc = Now.AddDays(-5),
+            UpdatedAtUtc = Now,
+        });
+        await db.SaveChangesAsync();
+
+        _options.MusicVideoCandidatePrefetchBatchSize = 1;
+        Assert.Equal(1, await Prefetch(db).RunAsync(default));
+        Assert.Equal(["Title 1"], _downloader.SuggestCalls.Select(c => c.Title));
+    }
+
+    [Fact]
+    public async Task Turning_on_automatic_downloads_drains_stored_confident_picks_my_tracks_first_even_when_nothing_is_due()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+        _options.DownloadDirectory = "/dl";
+
+        var oldMyTrack = BuiltSong(1, Now.AddYears(-2), sourcePath: "/src/1.opus");
+        var newerMyTrack = BuiltSong(2, Now.AddDays(-10), sourcePath: "/src/2.opus");
+        var newestFill = BuiltSong(3, Now.AddHours(-1), sourcePath: "/dl/3.opus", intent: SongAcquisitionIntent.AlbumFill);
+        var failedMyTrack = BuiltSong(4, Now.AddDays(-1), sourcePath: "/src/4.opus");
+        db.Songs.AddRange(oldMyTrack, newerMyTrack, newestFill, failedMyTrack);
+        // Already searched (not due for 180 days), e.g. from when automatic downloads were off.
+        db.SongVideoCandidateSets.AddRange(
+            StoredConfidentSet(oldMyTrack, Now.AddDays(-1), Now.AddDays(180)),
+            StoredConfidentSet(newerMyTrack, Now.AddDays(-1), Now.AddDays(180)),
+            StoredConfidentSet(newestFill, Now.AddDays(-1), Now.AddDays(180)),
+            StoredConfidentSet(failedMyTrack, Now.AddDays(-1), Now.AddDays(180)));
+        // A song whose earlier video failed must still never be queued automatically.
+        db.SongMusicVideos.Add(new SongMusicVideo { SongId = 4, Status = MusicVideoStatus.Failed, LastError = "403" });
+        await db.SaveChangesAsync();
+
+        _options.MusicVideoCandidatePrefetchBatchSize = 2;
+        _settings.AutoDownloadMusicVideos = true;
+
+        // Pass 1: drains the 2 My tracks picks first (2, 1), zero YouTube searches.
+        Assert.Equal(0, await Prefetch(db).RunAsync(default));
+        Assert.Empty(_downloader.SuggestCalls);
+        Assert.Equal([2, 1], Queued().Select(w => w.SongId));
+
+        // Simulate those two finishing so in-flight slots open up.
+        foreach (var v in await db.SongMusicVideos.IgnoreQueryFilters().Where(v => v.SongId == 1 || v.SongId == 2).ToListAsync())
+        {
+            v.Status = MusicVideoStatus.Ready;
+            v.FilePath = $"/v/{v.SongId}.mp4";
+        }
+        await db.SaveChangesAsync();
+
+        // Pass 2: now drains the album fill (3); failed song (4) is still left alone.
+        Assert.Equal(0, await Prefetch(db).RunAsync(default));
+        Assert.Equal([3], Queued().Select(w => w.SongId));
+        Assert.Equal(MusicVideoStatus.Failed, (await db.SongMusicVideos.IgnoreQueryFilters().SingleAsync(v => v.SongId == 4)).Status);
+    }
+
+    [Fact]
+    public async Task Stored_collection_picks_wait_while_my_tracks_still_have_searches_due()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+        _options.DownloadDirectory = "/dl";
+
+        // Two unsearched My tracks (batchSize = 1, so song 2 stays due after Pass 1), plus an already-searched album fill.
+        var myTrack1 = BuiltSong(1, Now.AddDays(-1), sourcePath: "/src/1.opus");
+        var myTrack2 = BuiltSong(2, Now.AddDays(-2), sourcePath: "/src/2.opus");
+        var searchedFill = BuiltSong(3, Now.AddHours(-1), sourcePath: "/dl/3.opus", intent: SongAcquisitionIntent.AlbumFill);
+        db.Songs.AddRange(myTrack1, myTrack2, searchedFill);
+        db.SongVideoCandidateSets.Add(StoredConfidentSet(searchedFill, Now.AddDays(-1), Now.AddDays(180)));
+        await db.SaveChangesAsync();
+
+        _options.MusicVideoCandidatePrefetchBatchSize = 1;
+        _settings.AutoDownloadMusicVideos = true;
+
+        // Pass 1: searches and queues My track 1; My track 2 is past the search frontier, so album fill 3 waits.
+        Assert.Equal(1, await Prefetch(db).RunAsync(default));
+        Assert.Equal([1], Queued().Select(w => w.SongId));
+
+        // Mark song 1 Ready so in-flight drops to 0.
+        var v1 = await db.SongMusicVideos.IgnoreQueryFilters().SingleAsync(v => v.SongId == 1);
+        v1.Status = MusicVideoStatus.Ready;
+        v1.FilePath = "/v/1.mp4";
+        await db.SaveChangesAsync();
+
+        // Pass 2: searches and queues My track 2 (filling the in-flight slot of 1, so album fill 3 waits on the cap).
+        Assert.Equal(1, await Prefetch(db).RunAsync(default));
+        Assert.Equal([2], Queued().Select(w => w.SongId));
+
+        var v2 = await db.SongMusicVideos.IgnoreQueryFilters().SingleAsync(v => v.SongId == 2);
+        v2.Status = MusicVideoStatus.Ready;
+        v2.FilePath = "/v/2.mp4";
+        await db.SaveChangesAsync();
+
+        // Pass 3: all My tracks are done and a slot is free, so album fill 3's stored pick is drained now.
+        Assert.Equal(0, await Prefetch(db).RunAsync(default));
+        Assert.Equal([3], Queued().Select(w => w.SongId));
+    }
+
+    [Fact]
+    public async Task Lower_tier_searches_do_not_queue_downloads_ahead_of_capped_my_tracks_waiting_picks()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+        _options.DownloadDirectory = "/dl";
+
+        // Two My tracks with stored confident picks (batchSize = 1 so one remains waiting), plus one unsearched album fill.
+        var myTrack1 = BuiltSong(1, Now.AddDays(-1), sourcePath: "/src/1.opus");
+        var myTrack2 = BuiltSong(2, Now.AddDays(-2), sourcePath: "/src/2.opus");
+        var dueFill = BuiltSong(3, Now.AddHours(-1), sourcePath: "/dl/3.opus", intent: SongAcquisitionIntent.AlbumFill);
+        db.Songs.AddRange(myTrack1, myTrack2, dueFill);
+        db.SongVideoCandidateSets.AddRange(
+            StoredConfidentSet(myTrack1, Now.AddDays(-1), Now.AddDays(180)),
+            StoredConfidentSet(myTrack2, Now.AddDays(-1), Now.AddDays(180)));
+        await db.SaveChangesAsync();
+
+        _options.MusicVideoCandidatePrefetchBatchSize = 1;
+        _settings.AutoDownloadMusicVideos = true;
+
+        // Pass 1: drains My track 1 (using the single download slot) and searches album fill 3,
+        // without queueing album fill 3 while My track 2 is still waiting.
+        Assert.Equal(1, await Prefetch(db).RunAsync(default));
+        Assert.Equal([1], Queued().Select(w => w.SongId));
+        Assert.False(await db.SongMusicVideos.IgnoreQueryFilters().AnyAsync(v => v.SongId == 3));
+        Assert.True(await db.SongVideoCandidateSets.AnyAsync(c => c.SongId == 3));
+    }
+
+    [Fact]
+    public async Task A_persons_in_flight_request_counts_toward_the_download_cap_while_a_soft_deleted_song_does_not()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+
+        var deleted = BuiltSong(1, Now.AddDays(-1), sourcePath: "/src/1.opus");
+        deleted.DeletedAtUtc = Now;
+        var requested = BuiltSong(2, Now.AddDays(-2), sourcePath: "/src/2.opus");
+        var waiting = BuiltSong(3, Now.AddDays(-3), sourcePath: "/src/3.opus");
+        db.Songs.AddRange(deleted, requested, waiting);
+        db.SongMusicVideos.AddRange(
+            new SongMusicVideo { SongId = 1, Status = MusicVideoStatus.Fetching, Pick = MusicVideoPick.Automatic },
+            new SongMusicVideo { SongId = 2, Status = MusicVideoStatus.Fetching, Pick = MusicVideoPick.Requested });
+        db.SongVideoCandidateSets.Add(StoredConfidentSet(waiting, Now.AddDays(-1), Now.AddDays(180)));
+        await db.SaveChangesAsync();
+
+        _options.MusicVideoCandidatePrefetchBatchSize = 1;
+        _settings.AutoDownloadMusicVideos = true;
+
+        // Song 2 (live manual request) fills the cap of 1, so song 3 waits.
+        Assert.Equal(0, await Prefetch(db).RunAsync(default));
+        Assert.Empty(Queued());
+
+        // Once song 2 finishes, song 1 (soft-deleted Fetching) does NOT block song 3.
+        (await db.SongMusicVideos.IgnoreQueryFilters().SingleAsync(v => v.SongId == 2)).Status = MusicVideoStatus.Ready;
+        await db.SaveChangesAsync();
+
+        Assert.Equal(0, await Prefetch(db).RunAsync(default));
+        Assert.Equal([3], Queued().Select(w => w.SongId));
+    }
+
+    [Fact]
+    public async Task Outstanding_downloads_reserve_their_disk_headroom_across_passes()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+
+        var song1 = BuiltSong(1, Now.AddDays(-1), sourcePath: "/src/1.opus");
+        var song2 = BuiltSong(2, Now.AddDays(-2), sourcePath: "/src/2.opus");
+        db.Songs.AddRange(song1, song2);
+        db.SongVideoCandidateSets.AddRange(
+            StoredConfidentSet(song1, Now.AddDays(-1), Now.AddDays(180), estimatedBytes: 60_000_000),
+            StoredConfidentSet(song2, Now.AddDays(-1), Now.AddDays(180), estimatedBytes: 60_000_000));
+        await db.SaveChangesAsync();
+
+        _options.MusicVideoCandidatePrefetchBatchSize = 4;
+        _settings.AutoDownloadMusicVideos = true;
+        // 80 MB above the floor: room for one 60 MB clip, not two.
+        _disk.Available = _options.MusicVideoAutoDownloadMinFreeGb * 1024L * 1024L * 1024L + 80_000_000;
+
+        // Pass 1: queues song 1 (reserving 60 MB); song 2 would drop below the floor and stops the drain.
+        Assert.Equal(0, await Prefetch(db).RunAsync(default));
+        Assert.Equal([1], Queued().Select(w => w.SongId));
+
+        // Pass 2 while song 1 is still Fetching (file not written yet, disk still reports +80 MB):
+        // the reservation carries over, so song 2 is still NOT queued.
+        Assert.Equal(0, await Prefetch(db).RunAsync(default));
+        Assert.Empty(Queued());
+
+        // Once song 1 finishes and enough space is free again, song 2 queues.
+        var v1 = await db.SongMusicVideos.IgnoreQueryFilters().SingleAsync(v => v.SongId == 1);
+        v1.Status = MusicVideoStatus.Ready;
+        v1.FilePath = "/v/1.mp4";
+        await db.SaveChangesAsync();
+
+        Assert.Equal(0, await Prefetch(db).RunAsync(default));
+        Assert.Equal([2], Queued().Select(w => w.SongId));
+    }
+
+    [Fact]
+    public async Task A_picker_probe_invalidates_the_shared_memo_so_the_next_pass_downloads_the_pick()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+
+        var unprobed = BuiltSong(1, Now.AddDays(-1), sourcePath: "/src/1.opus");
+        var knownStatic = BuiltSong(2, Now.AddDays(-2), sourcePath: "/src/2.opus");
+        db.Songs.AddRange(unprobed, knownStatic);
+        db.SongVideoCandidateSets.AddRange(
+            StoredUnconfidentSet(unprobed, Now.AddDays(-1), Now.AddDays(180), MusicVideoMotion.Unknown),
+            StoredUnconfidentSet(knownStatic, Now.AddDays(-1), Now.AddDays(180), MusicVideoMotion.Static));
+        await db.SaveChangesAsync();
+
+        _settings.AutoDownloadMusicVideos = true;
+
+        // Pass 1: neither is confident yet; both NoClip verdicts are remembered in the shared memo.
+        Assert.Equal(0, await Prefetch(db).RunAsync(default));
+        Assert.Empty(Queued());
+
+        // A picker probe measures song 1's candidate as a real moving video and forgets song 1 in _memo.
+        await MusicVideoEndpoints.ProbeVideoCandidate(1, "vid-00001", db, _probe, Cache(), default);
+
+        // Pass 2: song 1 is now re-evaluated and queued; song 2 stays skipped via the memo.
+        Assert.Equal(0, await Prefetch(db).RunAsync(default));
+        Assert.Equal([1], Queued().Select(w => w.SongId));
+    }
+
+    [Fact]
+    public async Task Background_worker_settles_orphaned_fetching_rows_for_soft_deleted_songs_preserving_existing_files()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+
+        var tempFile = Path.Combine(Path.GetTempPath(), $"mh-video-settle-{Guid.NewGuid():N}.mp4");
+        await File.WriteAllBytesAsync(tempFile, [1, 2, 3]);
+        try
+        {
+            var deletedWithoutFile = BuiltSong(1, Now.AddDays(-1), sourcePath: "/src/1.opus");
+            deletedWithoutFile.DeletedAtUtc = Now;
+            var deletedWithFile = BuiltSong(2, Now.AddDays(-2), sourcePath: "/src/2.opus");
+            deletedWithFile.DeletedAtUtc = Now;
+            db.Songs.AddRange(deletedWithoutFile, deletedWithFile);
+            db.SongMusicVideos.AddRange(
+                new SongMusicVideo { SongId = 1, Status = MusicVideoStatus.Fetching, Pick = MusicVideoPick.Automatic },
+                new SongMusicVideo { SongId = 2, Status = MusicVideoStatus.Fetching, Pick = MusicVideoPick.Requested, FilePath = tempFile });
+            await db.SaveChangesAsync();
+            _channel.ReserveBytes(1, 50_000_000);
+
+            var worker = new MusicVideoBackgroundService(
+                scopeFactory: null!, _channel, _downloader, fileAnalyzer: null!, httpClientFactory: null!,
+                NullLogger<MusicVideoBackgroundService>.Instance);
+            await worker.ProcessAsync(db, alignment: null!, new MusicVideoWorkItem(1, MusicVideoWorkKind.Fetch), default);
+            await worker.ProcessAsync(db, alignment: null!, new MusicVideoWorkItem(2, MusicVideoWorkKind.Fetch), default);
+
+            var row1 = await db.SongMusicVideos.IgnoreQueryFilters().SingleAsync(v => v.SongId == 1);
+            Assert.Equal(MusicVideoStatus.Failed, row1.Status);
+            Assert.NotNull(row1.LastError);
+
+            var row2 = await db.SongMusicVideos.IgnoreQueryFilters().SingleAsync(v => v.SongId == 2);
+            Assert.Equal(MusicVideoStatus.Ready, row2.Status);
+            Assert.Equal(tempFile, row2.FilePath);
+            Assert.Equal(0, _channel.ReservedBytes);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public async Task Active_worker_reservation_survives_soft_delete_until_fetch_ends()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+
+        var activeDeleted = BuiltSong(1, Now.AddDays(-1), sourcePath: "/src/1.opus");
+        activeDeleted.DeletedAtUtc = Now;
+        var waiting = BuiltSong(2, Now.AddDays(-2), sourcePath: "/src/2.opus");
+        db.Songs.AddRange(activeDeleted, waiting);
+        db.SongMusicVideos.Add(new SongMusicVideo { SongId = 1, Status = MusicVideoStatus.Fetching, Pick = MusicVideoPick.Automatic });
+        db.SongVideoCandidateSets.Add(StoredConfidentSet(waiting, Now.AddDays(-1), Now.AddDays(180), estimatedBytes: 60_000_000));
+        await db.SaveChangesAsync();
+
+        _channel.ReserveBytes(1, 60_000_000);
+        _channel.BeginFetch(1);
+        _options.MusicVideoCandidatePrefetchBatchSize = 2;
+        _settings.AutoDownloadMusicVideos = true;
+        _disk.Available = _options.MusicVideoAutoDownloadMinFreeGb * 1024L * 1024L * 1024L + 80_000_000;
+
+        // Song 1 is actively downloading (still writing up to 60 MB), so song 2 (60 MB) cannot spend the same 80 MB headroom.
+        Assert.Equal(0, await Prefetch(db).RunAsync(default));
+        Assert.Empty(Queued());
+
+        _channel.EndFetch(1);
+        Assert.Equal(0, await Prefetch(db).RunAsync(default));
+        Assert.Equal([2], Queued().Select(w => w.SongId));
+    }
+
+    [Fact]
+    public async Task Restart_reservation_recovery_uses_pinned_video_id_even_if_score_threshold_increased()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+
+        var inFlight = BuiltSong(1, Now.AddDays(-1), sourcePath: "/src/1.opus");
+        var waiting = BuiltSong(2, Now.AddDays(-2), sourcePath: "/src/2.opus");
+        db.Songs.AddRange(inFlight, waiting);
+        // Song 1 was already queued (pinned to vid-00001, 60 MB, score 90); then the operator raised MinScore to 95.
+        db.SongMusicVideos.Add(new SongMusicVideo
+        {
+            SongId = 1, Status = MusicVideoStatus.Fetching, Pick = MusicVideoPick.Automatic, YouTubeVideoId = "vid-00001",
+        });
+        db.SongVideoCandidateSets.AddRange(
+            StoredConfidentSet(inFlight, Now.AddDays(-1), Now.AddDays(180), estimatedBytes: 60_000_000),
+            new SongVideoCandidateSet
+            {
+                SongId = 2,
+                QueryKey = MusicVideoCandidateCache.QueryKeyFor(waiting),
+                SearchedAtUtc = Now.AddDays(-1),
+                NextSearchAtUtc = Now.AddDays(180),
+                CandidatesJson = System.Text.Json.JsonSerializer.Serialize(
+                    new[] { new CachedVideoCandidate("vid-00002", "Song (Official Video)", "Artist", 200, 99, true, MusicVideoMotion.RealVideo, 60_000_000, false) },
+                    new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)),
+            });
+        await db.SaveChangesAsync();
+
+        _options.MusicVideoAutoDownloadMinScore = 95;
+        _options.MusicVideoCandidatePrefetchBatchSize = 4;
+        _settings.AutoDownloadMusicVideos = true;
+        _disk.Available = _options.MusicVideoAutoDownloadMinFreeGb * 1024L * 1024L * 1024L + 80_000_000;
+
+        // Fresh channel (simulating a restart with no in-memory reservations): song 1's 60 MB is
+        // recovered by its pinned video id, so song 2 (60 MB) cannot exceed the 80 MB headroom.
+        Assert.Equal(0, await Prefetch(db).RunAsync(default));
+        Assert.Empty(Queued());
+    }
+
+    [Fact]
+    public async Task Manual_request_arriving_mid_search_blocks_automatic_enqueue_at_capacity()
+    {
+        await using var db = NewContext();
+        await SeedUsersAsync(db);
+
+        db.Songs.AddRange(
+            BuiltSong(1, Now.AddDays(-1), sourcePath: "/src/1.opus"),
+            BuiltSong(2, Now.AddDays(-2), sourcePath: "/src/2.opus"));
+        await db.SaveChangesAsync();
+
+        // While song 1 is being searched, a person queues song 2 manually, taking the single slot.
+        _downloader.OnSuggest = _ =>
+        {
+            if (!db.SongMusicVideos.IgnoreQueryFilters().Any(v => v.SongId == 2))
+            {
+                db.SongMusicVideos.Add(new SongMusicVideo { SongId = 2, Status = MusicVideoStatus.Fetching, Pick = MusicVideoPick.Requested });
+                db.SaveChanges();
+            }
+            return [new MusicVideoCandidate("vid-aaaaa", "Song (Official Video)", "Artist", 200, 90, "https://t/1.jpg")];
+        };
+
+        _options.MusicVideoCandidatePrefetchBatchSize = 1;
+        _settings.AutoDownloadMusicVideos = true;
+
+        Assert.Equal(1, await Prefetch(db).RunAsync(default));
+        Assert.Empty(Queued());
+        Assert.False(await db.SongMusicVideos.IgnoreQueryFilters().AnyAsync(v => v.SongId == 1));
     }
 }

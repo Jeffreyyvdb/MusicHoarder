@@ -103,12 +103,15 @@ public class MusicVideosInsightTests
         using (var scope = h.Scope())
         {
             var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+            var memo = scope.ServiceProvider.GetRequiredService<MusicVideoOutcomeMemo>();
             var cache = new MusicVideoCandidateCache(
-                downloader, probe, Microsoft.Extensions.Options.Options.Create(h.Enricher), clock, new MusicVideoOutcomeMemo(),
+                downloader, probe, Microsoft.Extensions.Options.Options.Create(h.Enricher), clock, memo,
                 NullLogger<MusicVideoCandidateCache>.Instance);
             var prefetch = new MusicVideoCandidatePrefetch(
                 db, cache, new MusicVideoChannel(), downloader, h.Disk, h.Settings,
-                Microsoft.Extensions.Options.Options.Create(h.Enricher), clock,
+                Microsoft.Extensions.Options.Options.Create(h.Enricher),
+                Microsoft.Extensions.Options.Options.Create(h.Sync),
+                memo, clock,
                 NullLogger<MusicVideoCandidatePrefetch>.Instance);
             await prefetch.RunAsync(CancellationToken.None);
 
@@ -468,5 +471,46 @@ public class MusicVideosInsightTests
         var idle = await h.SummarizeAsync(BackgroundJobIds.MusicVideos);
         Assert.Equal(BackgroundJobState.Idle, idle.State);
         Assert.Equal(h.Now.AddMinutes(5), idle.NextRunAtUtc);
+    }
+
+    [Fact]
+    public async Task The_map_marks_the_next_due_my_tracks_song_ahead_of_newer_album_fills_and_excludes_duplicates()
+    {
+        using var h = new BackgroundWorkHarness();
+        h.Enricher.DownloadDirectory = "/dl";
+        SeedLibrary(h, db =>
+        {
+            // Overdue My track (already searched earlier, now due again) vs newer unsearched album fill vs duplicate with video.
+            var overdueMyTrack = Add(db, 10, s =>
+            {
+                s.SourcePath = "/src/10.mp3";
+                s.DestinationPath = "/dst/Artist/Album/10.mp3";
+                s.LibraryBuildStatus = LibraryBuildStatus.Done;
+                s.AcquiredAtUtc = h.Now.AddDays(-20);
+            });
+            db.SongVideoCandidateSets.Add(Found(overdueMyTrack, h.Now.AddDays(-10), h.Now.AddHours(-1), Weak()));
+            Add(db, 11, s =>
+            {
+                s.SourcePath = "/dl/11.mp3";
+                s.DestinationPath = "/dst/Artist/Album/11.mp3";
+                s.LibraryBuildStatus = LibraryBuildStatus.Done;
+                s.AcquisitionIntent = SongAcquisitionIntent.AlbumFill;
+                s.AcquiredAtUtc = h.Now.AddHours(-1);
+            });
+            var dup = Add(db, 12, s => s.IsDuplicate = true);
+            db.SongMusicVideos.Add(Video(dup, MusicVideoStatus.Ready, MusicVideoPick.Automatic, h.Now));
+        });
+
+        var search = await h.DescribeAsync(BackgroundJobIds.MusicVideos);
+        var downloads = await h.DescribeAsync(BackgroundJobIds.MusicVideoDownloads);
+
+        var map = search.Panel<LibraryMapPanelDto>("Where the search has reached");
+        Assert.Equal(1, map.Bins.Sum(b => b.Waiting)); // only album fill (11) never searched; duplicate (12) excluded
+        var marker = Assert.Single(map.Markers);
+        Assert.Equal("Next in line (My tracks)", marker.Label);
+        Assert.Equal(h.Now.AddDays(-20), marker.AtUtc);
+        // Duplicate's video is excluded on both sheets so they stay in step.
+        Assert.Equal(0, search.Panel<BreakdownPanelDto>("What the last search found").Segment("video-automatic"));
+        Assert.Equal(0, downloads.Panel<BreakdownPanelDto>("Where every video stands").Segment("ready-automatic"));
     }
 }

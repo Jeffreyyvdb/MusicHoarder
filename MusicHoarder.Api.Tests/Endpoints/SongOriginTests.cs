@@ -448,6 +448,57 @@ public class SongOriginTests
         Assert.False(GetProperty<bool>(Songs(result).Single(), "HasMusicVideo"));
     }
 
+    [Fact]
+    public void IsFetchedForCollection_DecidesEveryOriginSource()
+    {
+        foreach (var source in Enum.GetValues<SongOriginSource>())
+        {
+            var isCollection = SongOriginResolver.IsFetchedForCollection(source);
+            var expected = source is SongOriginSource.SpotifyPlaylist
+                or SongOriginSource.DeezerPlaylist
+                or SongOriginSource.YouTubePlaylist
+                or SongOriginSource.AlbumCompletion
+                or SongOriginSource.ArtistRequest
+                or SongOriginSource.FollowedArtist;
+            Assert.Equal(expected, isCollection);
+        }
+    }
+
+    [Fact]
+    public void IsInMyTracks_MatchesTrackListRules()
+    {
+        var scanned = new SongOrigin(SongOriginKind.Scanned, SongOriginSource.None, null, null);
+        Assert.True(SongOriginResolver.IsInMyTracks(scanned, SongAcquisitionIntent.Explicit, isBuilt: true, EnrichmentStatus.Matched, false, false));
+        Assert.True(SongOriginResolver.IsInMyTracks(scanned, SongAcquisitionIntent.Explicit, isBuilt: false, EnrichmentStatus.NeedsReview, false, false));
+        Assert.False(SongOriginResolver.IsInMyTracks(scanned, SongAcquisitionIntent.Explicit, isBuilt: false, EnrichmentStatus.Failed, false, false));
+
+        var downloadedNone = new SongOrigin(SongOriginKind.Downloaded, SongOriginSource.None, null, null);
+        Assert.True(SongOriginResolver.IsInMyTracks(downloadedNone, SongAcquisitionIntent.Explicit, isBuilt: true, EnrichmentStatus.Matched, false, false));
+        Assert.False(SongOriginResolver.IsInMyTracks(downloadedNone, SongAcquisitionIntent.Explicit, isBuilt: false, EnrichmentStatus.NeedsReview, true, true));
+        Assert.False(SongOriginResolver.IsInMyTracks(downloadedNone, SongAcquisitionIntent.AlbumFill, isBuilt: true, EnrichmentStatus.Matched, false, false));
+        Assert.True(SongOriginResolver.IsInMyTracks(downloadedNone, SongAcquisitionIntent.AlbumFill, isBuilt: true, EnrichmentStatus.Matched, isLiked: true, false));
+        Assert.True(SongOriginResolver.IsInMyTracks(downloadedNone, SongAcquisitionIntent.AlbumFill, isBuilt: true, EnrichmentStatus.Matched, false, isSpotifyLiked: true));
+
+        var directUrl = new SongOrigin(SongOriginKind.Downloaded, SongOriginSource.DirectUrl, "youtube.com", null);
+        Assert.True(SongOriginResolver.IsInMyTracks(directUrl, SongAcquisitionIntent.Explicit, isBuilt: true, EnrichmentStatus.Matched, false, false));
+
+        foreach (var collection in new[]
+        {
+            SongOriginSource.SpotifyPlaylist, SongOriginSource.DeezerPlaylist, SongOriginSource.YouTubePlaylist,
+            SongOriginSource.AlbumCompletion, SongOriginSource.ArtistRequest, SongOriginSource.FollowedArtist,
+        })
+        {
+            var origin = new SongOrigin(SongOriginKind.Downloaded, collection, "Some collection", null);
+            Assert.False(SongOriginResolver.IsInMyTracks(origin, SongAcquisitionIntent.Explicit, isBuilt: true, EnrichmentStatus.Matched, false, false));
+            Assert.True(SongOriginResolver.IsInMyTracks(origin, SongAcquisitionIntent.Explicit, isBuilt: true, EnrichmentStatus.Matched, isLiked: true, false));
+            Assert.True(SongOriginResolver.IsInMyTracks(origin, SongAcquisitionIntent.Explicit, isBuilt: true, EnrichmentStatus.Matched, false, isSpotifyLiked: true));
+        }
+
+        var synced = new SongOrigin(SongOriginKind.Synced, SongOriginSource.None, null, null);
+        Assert.False(SongOriginResolver.IsInMyTracks(synced, SongAcquisitionIntent.Explicit, isBuilt: true, EnrichmentStatus.Matched, false, false));
+        Assert.True(SongOriginResolver.IsInMyTracks(synced, SongAcquisitionIntent.Explicit, isBuilt: true, EnrichmentStatus.Matched, isLiked: true, false));
+    }
+
     private static SpotifyTrackLibraryMatch NewMatch(string spotifyId, int songId, DateTime addedAt, string source) => new()
     {
         OwnerUserId = WellKnownUsers.OwnerId,

@@ -128,7 +128,10 @@ public sealed class MusicVideoDownloadsInsight(
             ]);
 
         var waiting = b.Songs
-            .Where(s => s.InScope && !s.HasVideoRow && !s.OutOfDate && s.Verdict is { Outcome: MusicVideoSearchOutcome.Clip })
+            .Where(s => s.Set is not null
+                && MusicVideoPrefetchScope.IsWaitingStoredPickCandidate(
+                    s.InScope, s.HasVideoRow, s.Due, s.Set.HasError, s.Set.EmptySearches)
+                && s.Verdict is { Outcome: MusicVideoSearchOutcome.Clip })
             .ToList();
         var waitingBytes = waiting.Sum(s => s.Verdict!.PickBytes ?? 0);
         var floorLabel = $"the floor is {BackgroundText.Bytes(d.FloorBytes)}";

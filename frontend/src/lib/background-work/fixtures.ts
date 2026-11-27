@@ -494,12 +494,12 @@ function videoSearchMap(): LibraryMapPanel {
     kind: 'library-map',
     title: 'Where the search has reached',
     caption:
-      'The songs the search considers, oldest addition on the left. The pass takes the newest first, so the searched stretch grows from the right.',
+      'The songs the search considers, oldest addition on the left. The pass takes My tracks first (newest first), then the rest of the library.',
     doneLabel: 'Searched',
     waitingLabel: 'Not searched yet',
     excludedLabel: 'Has a video',
     bins,
-    markers: [{ label: 'Next in line, newest first', atUtc: bins[56].toUtc }]
+    markers: [{ label: 'Next in line (My tracks)', atUtc: bins[56].toUtc }]
   };
 }
 
@@ -507,7 +507,7 @@ const videosSummary: BackgroundJobSummary = {
   id: 'music-videos',
   title: 'Music video search',
   description:
-    "Searches YouTube for every song's music video, newest first, and again on a schedule, so choosing one opens on a measured list.",
+    "Searches YouTube for every song's music video, My tracks first, and again on a schedule, so choosing one opens on a measured list.",
   state: 'working',
   stateLabel: 'Working through a pass now.',
   lastWorkedAtUtc: '2026-11-25T10:27:00Z',

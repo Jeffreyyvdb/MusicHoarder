@@ -148,11 +148,18 @@ public sealed class MusicVideosInsight(
             .Select(s => new MapItem(s.AddedAt, !s.InScope ? MapState.Excluded : s.Set is null ? MapState.Waiting : MapState.Done))
             .ToList();
         var markers = new List<LibraryMapMarkerDto>();
-        if (LibraryMapBinner.WaitingFrontier(items) is { } frontier)
-            markers.Add(new("Next in line, newest first", frontier.Newest));
+        var nextDue = MusicVideoPrefetchScope.OrderByPriority(
+            b.Songs.Where(s => s.Due), s => s.Priority, s => s.AddedAt, s => s.Id).FirstOrDefault();
+        if (nextDue is not null)
+        {
+            var label = nextDue.Priority == MusicVideoPrefetchScope.PriorityMyTracks
+                ? "Next in line (My tracks)"
+                : "Next in line, newest first";
+            markers.Add(new(label, nextDue.AddedAt));
+        }
         var map = new LibraryMapPanelDto(
             "Where the search has reached",
-            "The songs the search considers, oldest addition on the left. The pass takes the newest first, so the searched stretch grows from the right.",
+            "The songs the search considers, oldest addition on the left. The pass takes My tracks first (newest first), then the rest of the library.",
             "Searched", "Not searched yet", "Has a video",
             LibraryMapBinner.Bin(items), markers);
 
