@@ -1,5 +1,10 @@
 using System.Globalization;
+using System.Net;
 using System.Text.Json;
+using Microsoft.Extensions.Options;
+using MusicHoarder.Api.AppleMusic;
+using MusicHoarder.Api.Enrichment;
+using MusicHoarder.Api.Options;
 using MusicHoarder.Api.RateLimiting;
 
 namespace MusicHoarder.Api.CleanEdits;
@@ -34,19 +39,27 @@ internal interface IEditionReferenceClient
 /// so a live cut or a remix is never a reference. Paced politely and never throws: a failure marks the
 /// lookup incomplete.
 /// </summary>
-internal sealed class EditionReferenceClient(HttpClient http, ILogger<EditionReferenceClient> logger) : IEditionReferenceClient
+internal sealed class EditionReferenceClient(
+    HttpClient http,
+    IOptions<MusicEnricherOptions> options,
+    ILogger<EditionReferenceClient> logger) : IEditionReferenceClient
 {
     public const string HttpClientName = "edition-references";
     public const double DurationToleranceSeconds = 4;
 
-    internal static readonly TimeSpan ITunesInterval = TimeSpan.FromSeconds(3);
     internal static readonly TimeSpan DeezerInterval = TimeSpan.FromMilliseconds(350);
+
+    /// <summary>Deezer's quota is 50 calls per 5 seconds; after a quota error, wait out one window.</summary>
+    private static readonly TimeSpan DeezerQuotaBackoff = TimeSpan.FromSeconds(5);
+
+    /// <summary>The whole preview download, body included: a stalled body must not hold the run.</summary>
+    internal static readonly TimeSpan PreviewTimeout = TimeSpan.FromSeconds(30);
 
     private const int MaxPreviewBytes = 4 * 1024 * 1024;
     private const int DeezerQuotaErrorCode = 4;
 
-    private readonly RequestRateGate _iTunesGate = new();
     private readonly RequestRateGate _deezerGate = new();
+    private long _deezerBackoffUntilUtcTicks;
 
     public async Task<ReferenceLookup> FindAsync(ReferenceQuery query, CancellationToken ct)
     {
@@ -83,16 +96,18 @@ internal sealed class EditionReferenceClient(HttpClient http, ILogger<EditionRef
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
             return null;
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(PreviewTimeout);
         try
         {
-            using var response = await http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct);
+            using var response = await http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
             if (!response.IsSuccessStatusCode || response.Content.Headers.ContentLength > MaxPreviewBytes)
                 return null;
-            await using var body = await response.Content.ReadAsStreamAsync(ct);
+            await using var body = await response.Content.ReadAsStreamAsync(deadline.Token);
             using var buffer = new MemoryStream();
             var chunk = new byte[16 * 1024];
             int read;
-            while ((read = await body.ReadAsync(chunk, ct)) > 0)
+            while ((read = await body.ReadAsync(chunk, deadline.Token)) > 0)
             {
                 if (buffer.Length + read > MaxPreviewBytes)
                     return null;
@@ -110,8 +125,7 @@ internal sealed class EditionReferenceClient(HttpClient http, ILogger<EditionRef
     private async Task<List<EditionReference>> SearchITunesAsync(ReferenceQuery query, string wanted, CancellationToken ct)
     {
         var term = Uri.EscapeDataString($"{ReferenceTitle.LeadArtist(query.Artist)} {ReferenceTitle.WithoutBrackets(query.Title)}");
-        using var json = await GetJsonAsync(
-            $"https://itunes.apple.com/search?term={term}&entity=song&limit=50&country=US", _iTunesGate, ITunesInterval, ct);
+        using var json = await GetITunesJsonAsync($"https://itunes.apple.com/search?term={term}&entity=song&limit=50&country=US", ct);
 
         var found = new List<EditionReference>();
         if (!json.RootElement.TryGetProperty("results", out var results) || results.ValueKind != JsonValueKind.Array)
@@ -137,6 +151,9 @@ internal sealed class EditionReferenceClient(HttpClient http, ILogger<EditionRef
     private async Task<(List<EditionReference> References, bool Complete)> SearchDeezerAsync(
         ReferenceQuery query, string wanted, CancellationToken ct)
     {
+        if (Interlocked.Read(ref _deezerBackoffUntilUtcTicks) > DateTime.UtcNow.Ticks)
+            return ([], false);
+
         var tracks = new List<JsonElement>();
         var documents = new List<JsonDocument>();
         var complete = true;
@@ -178,6 +195,8 @@ internal sealed class EditionReferenceClient(HttpClient http, ILogger<EditionRef
                     continue;
                 found.Add(new EditionReference(edition.Value, $"deezer:{id}", preview));
             }
+            if (!complete)
+                Interlocked.Exchange(ref _deezerBackoffUntilUtcTicks, (DateTime.UtcNow + DeezerQuotaBackoff).Ticks);
             return (found, complete);
         }
         finally
@@ -185,6 +204,28 @@ internal sealed class EditionReferenceClient(HttpClient http, ILogger<EditionRef
             foreach (var document in documents)
                 document.Dispose();
         }
+    }
+
+    /// <summary>An iTunes call on the pace and backoff window every iTunes caller shares.</summary>
+    private async Task<JsonDocument> GetITunesJsonAsync(string url, CancellationToken ct)
+    {
+        var wait = ITunesThrottle.BackoffUntil - DateTime.UtcNow;
+        if (wait > TimeSpan.Zero)
+            throw new ProviderRateLimitedException(wait);
+
+        using var lease = await ITunesThrottle.AcquireAsync(options.Value, ct);
+        if (!lease.IsAcquired)
+            throw new InvalidOperationException("the iTunes pace granted no permit");
+
+        using var response = await http.GetAsync(url, ct);
+        if (response.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden)
+        {
+            var retryAfter = RetryAfterHeader.Read(response, DateTimeOffset.UtcNow) ?? ITunesThrottle.DefaultBackoff;
+            ITunesThrottle.ExtendBackoff(retryAfter);
+            throw new ProviderRateLimitedException(retryAfter);
+        }
+        response.EnsureSuccessStatusCode();
+        return await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
     }
 
     private async Task<JsonDocument> GetJsonAsync(string url, RequestRateGate gate, TimeSpan interval, CancellationToken ct)

@@ -471,6 +471,7 @@ public static class ServiceCollectionExtensions
         });
         services.AddSingleton<IEditionReferenceClient>(sp => new EditionReferenceClient(
             sp.GetRequiredService<IHttpClientFactory>().CreateClient(EditionReferenceClient.HttpClientName),
+            sp.GetRequiredService<IOptions<MusicEnricherOptions>>(),
             sp.GetRequiredService<ILogger<EditionReferenceClient>>()));
         services.AddSingleton<IMonoDecoder, FfmpegMonoDecoder>();
         services.AddSingleton<CleanEditChecker>();

@@ -24,19 +24,10 @@ public sealed class AppleMusicCatalogService(
 {
     private const string SearchUrl = "https://itunes.apple.com/search";
     private const string LookupUrl = "https://itunes.apple.com/lookup";
-    // No Retry-After header means we've likely blown the per-minute budget; back off a full minute
-    // so the quota resets before we resume (server-provided Retry-After is honored when present).
-    private static readonly TimeSpan RateLimitDefaultDelay = TimeSpan.FromSeconds(60);
     // One in-process retry covers a transient blip; an IP-wide throttle storm is handled by the
     // shared backoff window + the orchestrator's deferred RetryAfterUtc re-sweep, not by grinding here.
     private const int MaxRetries = 2;
 
-    private static readonly ReconfigurableRateLimiter RateLimiter = new();
-
-    // Shared backoff window across all instances: iTunes throttles by IP, so once one call is
-    // rate-limited every concurrent/subsequent call would be too. Short-circuit them instead of
-    // each grinding through in-process retries — the orchestrator defers them via RetryAfterUtc.
-    private static long _backoffUntilUtcTicks;
 
     public async Task<IReadOnlyList<AppleMusicCatalogTrack>> SearchTracksAsync(string query, CancellationToken ct = default)
     {
@@ -52,12 +43,12 @@ public sealed class AppleMusicCatalogService(
             return cached;
 
         // Inside an active throttle window: bail out without an HTTP call or any delay.
-        var backoffUntil = BackoffUntil;
+        var backoffUntil = ITunesThrottle.BackoffUntil;
         var now = DateTime.UtcNow;
         if (backoffUntil > now)
             throw new ProviderRateLimitedException(backoffUntil - now);
 
-        using var lease = await RateLimiter.AcquireAsync(1, RequestInterval(opts), ct);
+        using var lease = await ITunesThrottle.AcquireAsync(opts, ct);
         if (!lease.IsAcquired)
         {
             logger.LogWarning("Apple Music rate limiter could not grant a permit (disposed or canceled)");
@@ -76,9 +67,9 @@ public sealed class AppleMusicCatalogService(
             // iTunes throttles with 403 as well as the standard 429; treat both as rate-limited.
             if (response.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden)
             {
-                var retryAfter = RetryAfterHeader.Read(response, DateTimeOffset.UtcNow) ?? RateLimitDefaultDelay;
+                var retryAfter = RetryAfterHeader.Read(response, DateTimeOffset.UtcNow) ?? ITunesThrottle.DefaultBackoff;
                 // Open the shared backoff window so concurrent/subsequent callers short-circuit.
-                ExtendBackoff(retryAfter);
+                ITunesThrottle.ExtendBackoff(retryAfter);
                 logger.LogWarning("Apple Music rate limited ({Status}). Retry after {Delay}s (attempt {Attempt}/{Max})",
                     (int)response.StatusCode, retryAfter.TotalSeconds, attempt, MaxRetries);
                 if (attempt < MaxRetries && retryAfter <= RetryAfterHeader.MaxInlineWait)
@@ -226,12 +217,12 @@ public sealed class AppleMusicCatalogService(
     /// <summary>Rate-limited iTunes GET sharing the backoff window; returns the JSON body or null.</summary>
     private async Task<string?> FetchJsonAsync(string url, CancellationToken ct)
     {
-        var backoffUntil = BackoffUntil;
+        var backoffUntil = ITunesThrottle.BackoffUntil;
         var now = DateTime.UtcNow;
         if (backoffUntil > now)
             throw new ProviderRateLimitedException(backoffUntil - now);
 
-        using var lease = await RateLimiter.AcquireAsync(1, RequestInterval(options.Value), ct);
+        using var lease = await ITunesThrottle.AcquireAsync(options.Value, ct);
         if (!lease.IsAcquired)
             return null;
 
@@ -244,8 +235,8 @@ public sealed class AppleMusicCatalogService(
 
             if (response.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden)
             {
-                var retryAfter = RetryAfterHeader.Read(response, DateTimeOffset.UtcNow) ?? RateLimitDefaultDelay;
-                ExtendBackoff(retryAfter);
+                var retryAfter = RetryAfterHeader.Read(response, DateTimeOffset.UtcNow) ?? ITunesThrottle.DefaultBackoff;
+                ITunesThrottle.ExtendBackoff(retryAfter);
                 if (attempt < MaxRetries && retryAfter <= RetryAfterHeader.MaxInlineWait)
                 {
                     await Task.Delay(retryAfter, ct);
@@ -268,24 +259,7 @@ public sealed class AppleMusicCatalogService(
 
     // Strictly smooth spacing (1 permit per interval) rather than a per-minute burst — a burst of
     // N then idle would still trip iTunes' per-minute throttle.
-    private static TimeSpan RequestInterval(MusicEnricherOptions opts)
-        => TimeSpan.FromSeconds(60.0 / Math.Clamp(opts.AppleMusicApiRequestsPerMinute, 1, 30));
-
-    private static DateTime BackoffUntil => new(Interlocked.Read(ref _backoffUntilUtcTicks), DateTimeKind.Utc);
-
-    internal static void ResetBackoffForTests() => Interlocked.Exchange(ref _backoffUntilUtcTicks, 0);
-
-    private static void ExtendBackoff(TimeSpan retryAfter)
-    {
-        var candidate = (DateTime.UtcNow + retryAfter).Ticks;
-        long current;
-        do
-        {
-            current = Interlocked.Read(ref _backoffUntilUtcTicks);
-            if (candidate <= current)
-                return;
-        } while (Interlocked.CompareExchange(ref _backoffUntilUtcTicks, candidate, current) != current);
-    }
+    internal static void ResetBackoffForTests() => ITunesThrottle.ResetBackoffForTests();
 
     private static string BuildSearchCacheKey(string query, int limit, string country)
     {

@@ -1,11 +1,22 @@
 using System.Net;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using MusicHoarder.Api.AppleMusic;
 using MusicHoarder.Api.CleanEdits;
+using MusicHoarder.Api.Options;
+using MusicHoarder.Api.Tests.AppleMusic;
 
 namespace MusicHoarder.Api.Tests.CleanEdits;
 
+[Collection(ITunesThrottleCollection.Name)]
 public class EditionReferenceClientTests
 {
+    public EditionReferenceClientTests() => ITunesThrottle.ResetBackoffForTests();
+
+    // The fastest pace the shared iTunes throttle allows.
+    private static readonly IOptions<MusicEnricherOptions> Options =
+        Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions { AppleMusicApiRequestsPerMinute = 30 });
+
     private const string ITunesSearch = """
         {"results":[
           {"trackId":1,"trackName":"Stronger","trackExplicitness":"explicit","trackTimeMillis":311500,"previewUrl":"https://a/1.m4a"},
@@ -31,7 +42,7 @@ public class EditionReferenceClientTests
     private static readonly ReferenceQuery Query = new("Kanye West", "Stronger", "USUM70741299", [313]);
 
     private static EditionReferenceClient Client(Func<string, (HttpStatusCode, string)> respond) =>
-        new(new HttpClient(new StubHandler(respond)), NullLogger<EditionReferenceClient>.Instance);
+        new(new HttpClient(new StubHandler(respond)), Options, NullLogger<EditionReferenceClient>.Instance);
 
     private static (HttpStatusCode, string) Healthy(string url) => url switch
     {
@@ -105,10 +116,32 @@ public class EditionReferenceClientTests
     }
 
     [Fact]
+    public async Task A_throttled_itunes_is_left_alone_for_the_window_it_names()
+    {
+        var iTunesCalls = 0;
+        var client = Client(url =>
+        {
+            if (!url.StartsWith("https://itunes.apple.com"))
+                return Healthy(url);
+            iTunesCalls++;
+            return (HttpStatusCode.Forbidden, "");
+        });
+
+        var first = await client.FindAsync(Query, CancellationToken.None);
+        var second = await client.FindAsync(Query, CancellationToken.None);
+
+        Assert.True(first.Incomplete);
+        Assert.True(second.Incomplete);
+        Assert.Equal(1, iTunesCalls);
+        Assert.True(ITunesThrottle.BackoffUntil > DateTime.UtcNow.AddSeconds(30));
+    }
+
+    [Fact]
     public async Task An_unreachable_catalog_never_throws()
     {
         var client = new EditionReferenceClient(
             new HttpClient(new StubHandler(_ => throw new HttpRequestException("no route"))),
+            Options,
             NullLogger<EditionReferenceClient>.Instance);
 
         var lookup = await client.FindAsync(Query, CancellationToken.None);
