@@ -69,7 +69,7 @@ public static class SharesEndpoints
         return app;
     }
 
-    public sealed record CreateShareRequest(int SongId, string? Scope);
+    public sealed record CreateShareRequest(int SongId, string? Scope, string? Skin = null);
 
     internal static async Task<IResult> CreateShare(
         CreateShareRequest body,
@@ -85,7 +85,8 @@ public static class SharesEndpoints
         if (song is null)
             return Results.NotFound(new { message = $"Song with id {body.SongId} not found." });
 
-        var share = await SongShareFactory.GetOrCreateAsync(db, currentUser.UserId, body.SongId, scope, DateTime.UtcNow, ct);
+        var share = await SongShareFactory.GetOrCreateAsync(
+            db, currentUser.UserId, body.SongId, scope, DateTime.UtcNow, ct, body.Skin, updateSkin: true);
         return Results.Ok(ToShareView(share, song));
     }
 
@@ -100,6 +101,7 @@ public static class SharesEndpoints
                 s.Token,
                 Scope = s.Scope.ToString(),
                 s.SongId,
+                s.Skin,
                 s.CreatedAtUtc,
                 Title = s.Song!.Title ?? s.Song.FileName,
                 s.Song.Artist,
@@ -313,6 +315,7 @@ public static class SharesEndpoints
         share.Token,
         Scope = share.Scope.ToString(),
         share.SongId,
+        share.Skin,
         share.CreatedAtUtc,
         Title = song.Title ?? song.FileName,
         song.Artist,
@@ -345,6 +348,7 @@ public static class SharesEndpoints
         {
             Scope = share.Scope.ToString(),
             SharedSongId = share.SongId,
+            Skin = share.Skin,
             Album = new
             {
                 Title = shared.Album,
@@ -362,6 +366,8 @@ public static class SharesEndpoints
                     s.TrackNumber,
                     s.DiscNumber,
                     DurationMs = s.DurationMs ?? s.DurationSeconds * 1000,
+                    s.Extension,
+                    BitRate = s.Bitrate,
                     s.HasCoverArt,
                     HasSyncedLyrics = !string.IsNullOrWhiteSpace(s.DisplaySyncedLyrics),
                     HasPlainLyrics = !string.IsNullOrWhiteSpace(s.DisplayPlainLyrics),

@@ -79,8 +79,16 @@ function withPageFills(
     resolve(event, {
       ...opts,
       transformPageChunk: async (chunk) => {
-        const html = opts?.transformPageChunk ? await opts.transformPageChunk(chunk) : chunk.html;
-        return html?.replace(SKIN_STYLESHEET_PLACEHOLDER, SKIN_STYLESHEET_HREF);
+        let html = opts?.transformPageChunk ? await opts.transformPageChunk(chunk) : chunk.html;
+        if (!html) return html;
+        html = html.replace(SKIN_STYLESHEET_PLACEHOLDER, SKIN_STYLESHEET_HREF);
+        // A share link created with SPEC-01 on emits `data-mh-share-skin="hardware"` on its SSR
+        // stylesheet link; hoist `data-mh-skin="hardware"` onto <html> so the first paint (and
+        // no-JS visitors) render the hardware skin immediately with no layout flash.
+        if (html.includes('data-mh-share-skin="hardware"')) {
+          html = html.replace('<html ', '<html data-mh-skin="hardware" ');
+        }
+        return html;
       }
     });
 }

@@ -23,15 +23,27 @@ public static class SongShareFactory
         int songId,
         ShareScope scope,
         DateTime nowUtc,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? skin = null,
+        bool updateSkin = false)
     {
+        var normalizedSkin = NormalizeSkin(skin);
         var existing = await db.SongShares.IgnoreQueryFilters()
             .FirstOrDefaultAsync(s => s.OwnerUserId == ownerUserId
                 && s.SongId == songId
                 && s.Scope == scope
                 && s.RevokedAtUtc == null, ct);
         if (existing is not null)
+        {
+            // Only overwrite the stored skin when the caller explicitly passed one ("hardware" or
+            // "default"/empty). Omitting `skin` (null — e.g. older clients) preserves the link as-is.
+            if (updateSkin && skin is not null && existing.Skin != normalizedSkin)
+            {
+                existing.Skin = normalizedSkin;
+                await db.SaveChangesAsync(ct);
+            }
             return existing;
+        }
 
         var share = new SongShare
         {
@@ -39,6 +51,7 @@ public static class SongShareFactory
             SongId = songId,
             Token = WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(16)),
             Scope = scope,
+            Skin = normalizedSkin,
             CreatedAtUtc = nowUtc,
         };
         db.SongShares.Add(share);
@@ -48,4 +61,8 @@ public static class SongShareFactory
 
     public static ShareScope ParseScope(string? scope) =>
         string.Equals(scope, "album", StringComparison.OrdinalIgnoreCase) ? ShareScope.Album : ShareScope.Song;
+
+    /// <summary>Only known presentation skins are persisted; anything else clears to the default.</summary>
+    public static string? NormalizeSkin(string? skin) =>
+        string.Equals(skin, "hardware", StringComparison.OrdinalIgnoreCase) ? "hardware" : null;
 }

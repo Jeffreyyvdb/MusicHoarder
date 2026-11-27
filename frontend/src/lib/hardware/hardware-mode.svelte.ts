@@ -14,7 +14,7 @@
  * page-wide haptics and sounds check that attribute before they do anything
  * (behaviors/active.ts).
  */
-import type { Snippet } from 'svelte';
+import { getContext, setContext, untrack, type Snippet } from 'svelte';
 import { isNativeShell } from '#lib/native/shell.ts';
 import { ensureSkinStylesheet } from './skin-stylesheet.ts';
 
@@ -126,13 +126,18 @@ function write(v: 'on' | 'off'): void {
 
 let unlocked = $state(false);
 let enabled = $state(false);
+let forcedCount = $state(0);
 let sounds = $state(false);
 let initialised = false;
+
+function isActive(): boolean {
+  return enabled || forcedCount > 0;
+}
 
 function apply(): void {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
-  if (enabled) {
+  if (isActive()) {
     // Usually there already (app.html adds it on a reload); without it the attribute styles nothing,
     // so the page stays plain until it lands rather than half-dressed.
     ensureSkinStylesheet();
@@ -143,12 +148,69 @@ function apply(): void {
   }
 }
 
-export function skinLook<T extends string | number | undefined>(plain: T, skinned: T): T {
-  return enabled ? skinned : plain;
+const SKIN_OVERRIDE_KEY = Symbol('mh:hardware-skin-override');
+
+export function skinLook<T extends string | number | undefined>(
+  plain: T,
+  skinned: T,
+  forced = false
+): T {
+  return forced || isActive() ? skinned : plain;
 }
 
-export function skinHousing<A extends unknown[]>(frame: Snippet<A>): Snippet<A> | undefined {
-  return enabled ? frame : undefined;
+export function skinHousing<A extends unknown[]>(
+  frame: Snippet<A>,
+  forced = false
+): Snippet<A> | undefined {
+  return forced || isActive() ? frame : undefined;
+}
+
+/**
+ * Per-component-tree override for SSR (used by `/share/[token]` when `payload.skin === 'hardware'`),
+ * so server-rendered HTML already emits the MH-1 console and skin look values on byte 1 without
+ * sharing module-level state across concurrent SSR requests.
+ */
+export function provideHardwareSkin(active: () => boolean): void {
+  setContext(SKIN_OVERRIDE_KEY, active);
+}
+
+/** Read the enclosing SSR/share skin override (must be called during component initialisation). */
+export function useSkinOverride(): () => boolean {
+  try {
+    return getContext<(() => boolean) | undefined>(SKIN_OVERRIDE_KEY) ?? (() => false);
+  } catch {
+    return () => false;
+  }
+}
+
+/**
+ * The skin to stamp on a newly created or re-shared link: reflects the sharer's own preference
+ * (`enabled`), never a temporary share-page claim.
+ */
+export function shareSkin(): 'hardware' | 'default' {
+  return enabled ? 'hardware' : 'default';
+}
+
+/**
+ * Temporarily turn the hardware skin on for the lifetime of a surface (a share link whose sharer
+ * had SPEC-01 enabled), without unlocking or persisting it in this visitor's localStorage.
+ * Browser-only (SSR no-op so concurrent server renders cannot share module state).
+ */
+export function claimHardwareSkin(): () => void {
+  if (typeof window === 'undefined') return () => {};
+  untrack(() => {
+    forcedCount += 1;
+    apply();
+  });
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    untrack(() => {
+      forcedCount = Math.max(0, forcedCount - 1);
+      apply();
+    });
+  };
 }
 
 /**
@@ -156,8 +218,8 @@ export function skinHousing<A extends unknown[]>(frame: Snippet<A>): Snippet<A> 
  * menus opened from it: `'dark'`, or nothing under the skin, where Now Playing sits on the skin's
  * desk in the app's own theme (SongDetailHost). Reactive: read it in markup.
  */
-export function mediaAppearance(): 'dark' | undefined {
-  return skinLook('dark', undefined);
+export function mediaAppearance(forced = false): 'dark' | undefined {
+  return skinLook('dark', undefined, forced);
 }
 
 export const hardwareMode = {
@@ -165,8 +227,13 @@ export const hardwareMode = {
   get unlocked(): boolean {
     return unlocked;
   },
+  /** The user's own stored preference (for the account menu switch). */
   get enabled(): boolean {
     return enabled;
+  },
+  /** Effective state: either the user turned it on, or the active page claimed it (a shared link). */
+  get active(): boolean {
+    return isActive();
   },
   /** Key sounds (synthesized clicks). Off unless turned on; see behaviors/sound.ts for why. */
   get sounds(): boolean {

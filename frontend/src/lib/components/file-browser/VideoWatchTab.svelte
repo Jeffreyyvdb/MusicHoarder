@@ -54,6 +54,8 @@
     offsetMs,
     title,
     artist,
+    streamUrl,
+    isCurrent,
     fallbackDuration = 0,
     generation = 0,
     caption,
@@ -68,6 +70,10 @@
     offsetMs: number;
     title: string;
     artist: string;
+    /** Override the stream URL (used by the anonymous share page). */
+    streamUrl?: string;
+    /** Override whether this song is the active player stream (share links match streamUrl too). */
+    isCurrent?: boolean;
     /** Track length in seconds, used for the timeline before the song is loaded. */
     fallbackDuration?: number;
     /** Bumped when a refetched file lands, so a failed or ended clip gets a clean slate. */
@@ -204,7 +210,7 @@
     });
   });
 
-  const isCurrentSong = $derived(playerStore.currentSong?.id === songId);
+  const isCurrentSong = $derived(isCurrent ?? playerStore.currentSong?.id === songId);
   const isPlaying = $derived(isCurrentSong && playerStore.isPlaying);
   const effectiveDuration = $derived(
     isCurrentSong && playerStore.duration > 0 ? playerStore.duration : fallbackDuration
@@ -497,7 +503,7 @@
     <!-- Muted on purpose: the player's audio element carries the sound, in sync. -->
     <video
       bind:this={videoEl}
-      src={getSongVideoStreamUrl(songId)}
+      src={streamUrl ?? getSongVideoStreamUrl(songId)}
       muted
       playsinline
       preload="auto"

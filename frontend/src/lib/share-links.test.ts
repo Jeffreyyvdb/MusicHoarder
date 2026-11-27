@@ -64,7 +64,9 @@ describe('findShareLink', () => {
     api.listSongShares.mockResolvedValue([view({ songId: 48, token: 'abc' })]);
     expect(await findShareLink([48], 'song')).toEqual({
       url: 'https://mh.test/share/abc',
-      title: 'Nightswim — Aurora Vale'
+      title: 'Nightswim — Aurora Vale',
+      songId: 48,
+      skin: null
     });
   });
 
@@ -147,7 +149,7 @@ describe('shareLink', () => {
   it('creates the link only when Share… is picked and nothing exists yet', async () => {
     api.createSongShare.mockResolvedValue(view({ songId: 48, token: 'new' }));
     shareLink({ known: null, songId: 48, scope: 'song' });
-    expect(api.createSongShare).toHaveBeenCalledWith(48, 'song');
+    expect(api.createSongShare).toHaveBeenCalledWith(48, 'song', 'default');
     // No promise-valued ClipboardItem here (as in an older browser): the toast shows the link, and
     // the share sheet is one activated tap away on it.
     await vi.waitFor(() => expect(toast.info).toHaveBeenCalled());
@@ -157,6 +159,22 @@ describe('shareLink', () => {
     expect(opts?.description).toBe('https://mh.test/share/new');
     expect((opts?.action as { label: string }).label).toBe('Share…');
     expect(share).not.toHaveBeenCalled();
+  });
+
+  it('syncs the skin on the matched album track token and does not repeat on a second tap', () => {
+    api.createSongShare.mockResolvedValue(
+      view({ songId: 7, token: 'tok', scope: 'Album', skin: null })
+    );
+    const known = { url: 'u', title: 't', songId: 7, skin: 'hardware' as string | null };
+    // AlbumPage passes track 1 (songId: 3), while the existing album token belongs to track 2 (songId: 7).
+    shareLink({ known, songId: 3, scope: 'album' });
+    expect(share).toHaveBeenCalledWith({ url: 'u', title: 't' });
+    expect(api.createSongShare).toHaveBeenCalledTimes(1);
+    expect(api.createSongShare).toHaveBeenCalledWith(7, 'album', 'default');
+
+    // A second tap on the same known link sees the updated skin and does not re-POST.
+    shareLink({ known, songId: 3, scope: 'album' });
+    expect(api.createSongShare).toHaveBeenCalledTimes(1);
   });
 
   it('says so when the link cannot be created', async () => {

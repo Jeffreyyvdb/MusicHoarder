@@ -226,7 +226,7 @@ public sealed class ChatService(
         if (!limiter.TryAcquire(me.Id))
             return new ChatError(429, "chat_rate_limited", "You are sending messages too quickly. Wait a moment.");
 
-        var built = await BuildAsync(me, request.Text, request.Url, request.SongId, request.Scope, ct);
+        var built = await BuildAsync(me, request.Text, request.Url, request.SongId, request.Scope, request.Skin, ct);
         if (built.Error is { } error) return error;
 
         var message = built.Value!.CreateFor(conversationId, me.Id, Now());
@@ -256,7 +256,7 @@ public sealed class ChatService(
         if (!limiter.TryAcquire(me.Id, recipients.Count))
             return new ChatError(429, "chat_rate_limited", "You are sending messages too quickly. Wait a moment.");
 
-        var built = await BuildAsync(me, request.Text, request.Url, request.SongId, request.Scope, ct);
+        var built = await BuildAsync(me, request.Text, request.Url, request.SongId, request.Scope, request.Skin, ct);
         if (built.Error is { } error) return error;
 
         var sent = new List<(ChatMessage Message, List<Guid> Participants)>();
@@ -404,7 +404,7 @@ public sealed class ChatService(
     }
 
     private async Task<ChatOutcome<Draft>> BuildAsync(
-        CurrentUser me, string? rawText, string? rawUrl, int? songId, string? scope, CancellationToken ct)
+        CurrentUser me, string? rawText, string? rawUrl, int? songId, string? scope, string? skin, CancellationToken ct)
     {
         var text = string.IsNullOrWhiteSpace(rawText) ? null : rawText.Trim();
         if (text is { Length: > MaxTextLength })
@@ -418,7 +418,8 @@ public sealed class ChatService(
                 .AnyAsync(s => s.Id == id && s.OwnerUserId == me.Id && s.DeletedAtUtc == null, ct);
             if (!owned) return ChatError.NotFound("Song");
 
-            var share = await SongShareFactory.GetOrCreateAsync(db, me.Id, id, SongShareFactory.ParseScope(scope), Now(), ct);
+            var share = await SongShareFactory.GetOrCreateAsync(
+                db, me.Id, id, SongShareFactory.ParseScope(scope), Now(), ct, skin, updateSkin: true);
             return new Draft(ChatMessageKind.Share, text, share.Id, null, null);
         }
 

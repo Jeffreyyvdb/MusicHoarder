@@ -203,6 +203,46 @@ describe('hardwareMode', () => {
     const hw = await load();
     expect(hw.sounds).toBe(true);
   });
+
+  it('claims the skin temporarily without unlocking or persisting, and releases cleanly', async () => {
+    const mod = await import('./hardware-mode.svelte.ts');
+    mod.hardwareMode.init();
+    expect(mod.hardwareMode.active).toBe(false);
+    expect(mod.skinLook('plain', 'hw')).toBe('plain');
+
+    const releaseA = mod.claimHardwareSkin();
+    const releaseB = mod.claimHardwareSkin();
+    expect(mod.hardwareMode.active).toBe(true);
+    expect(mod.hardwareMode.enabled).toBe(false);
+    expect(mod.hardwareMode.unlocked).toBe(false);
+    expect(mod.shareSkin()).toBe('default');
+    expect(mod.skinLook('plain', 'hw')).toBe('hw');
+    expect(root.dataset.mhSkin).toBe('hardware');
+    expect(localStorage.getItem('mh:hardware')).toBeNull();
+    expect(doc.links).toHaveLength(1);
+
+    // Releasing one overlapping claim (or calling release twice) keeps the skin active.
+    releaseA();
+    releaseA();
+    expect(mod.hardwareMode.active).toBe(true);
+    expect(root.dataset.mhSkin).toBe('hardware');
+
+    releaseB();
+    expect(mod.hardwareMode.active).toBe(false);
+    expect(mod.skinLook('plain', 'hw')).toBe('plain');
+    expect(root.dataset.mhSkin).toBeUndefined();
+  });
+
+  it('keeps the skin active after releasing a claim when the user enabled it themselves', async () => {
+    localStorage.setItem('mh:hardware', 'on');
+    const mod = await import('./hardware-mode.svelte.ts');
+    mod.hardwareMode.init();
+    expect(mod.shareSkin()).toBe('hardware');
+    const release = mod.claimHardwareSkin();
+    release();
+    expect(mod.hardwareMode.active).toBe(true);
+    expect(root.dataset.mhSkin).toBe('hardware');
+  });
 });
 
 describe('page-wide haptics', () => {

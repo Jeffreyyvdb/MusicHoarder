@@ -50,6 +50,85 @@ public class SharesEndpointsTests
     }
 
     [Fact]
+    public async Task CreateShare_PersistsKnownSkin_UpdatesOnReshare_AndExposesOnPayload()
+    {
+        var options = NewOptions();
+        await using (var seed = new MusicHoarderDbContext(options))
+        {
+            var song = Song(1, TestUsers.OwnerId, "Discovery", "Daft Punk", title: "One More Time");
+            song.Extension = ".flac";
+            song.Bitrate = 1042;
+            seed.Songs.Add(song);
+            await seed.SaveChangesAsync();
+        }
+
+        await using var db = OwnerContext(options);
+        var accessor = new TestCurrentUserAccessor(TestCurrentUserAccessor.OwnerUser);
+
+        // Creating with hardware skin persists it and returns it on the share view and public payload.
+        var created = Value(await SharesEndpoints.CreateShare(
+            new SharesEndpoints.CreateShareRequest(1, "song", "hardware"), db, accessor, CancellationToken.None));
+        var token = GetProperty<string>(created, "Token");
+        Assert.Equal("hardware", GetProperty<string?>(created, "Skin"));
+
+        await using (var anon = AnonymousContext(options))
+        {
+            var payload = Value(await SharesEndpoints.GetSharePayload(token, anon, CancellationToken.None));
+            Assert.Equal("hardware", GetProperty<string?>(payload, "Skin"));
+            var track = Assert.Single(Tracks(payload));
+            Assert.Equal(".flac", GetProperty<string?>(track, "Extension"));
+            Assert.Equal(1042, GetProperty<int?>(track, "BitRate"));
+        }
+
+        // Omitting skin (null, e.g. older clients) preserves the existing stored skin on the token.
+        var omitted = Value(await SharesEndpoints.CreateShare(
+            new SharesEndpoints.CreateShareRequest(1, "song", null), db, accessor, CancellationToken.None));
+        Assert.Equal(token, GetProperty<string>(omitted, "Token"));
+        Assert.Equal("hardware", GetProperty<string?>(omitted, "Skin"));
+
+        // Re-sharing with explicit "default" (or any unknown value) clears it back to default on the same token.
+        var cleared = Value(await SharesEndpoints.CreateShare(
+            new SharesEndpoints.CreateShareRequest(1, "song", "default"), db, accessor, CancellationToken.None));
+        Assert.Equal(token, GetProperty<string>(cleared, "Token"));
+        Assert.Null(GetProperty<string?>(cleared, "Skin"));
+
+        await using (var anon = AnonymousContext(options))
+        {
+            var payload = Value(await SharesEndpoints.GetSharePayload(token, anon, CancellationToken.None));
+            Assert.Null(GetProperty<string?>(payload, "Skin"));
+
+            // Pin the anonymous payload's exact property set so private SongMetadata fields cannot leak.
+            var payloadKeys = payload.GetType().GetProperties(BindingFlags.Instance | BindingFlags.Public)
+                .Select(p => p.Name).Order().ToArray();
+            Assert.Equal(["Album", "Scope", "SharedSongId", "Skin", "Tracks"], payloadKeys);
+
+            var track = Assert.Single(Tracks(payload));
+            var trackKeys = track.GetType().GetProperties(BindingFlags.Instance | BindingFlags.Public)
+                .Select(p => p.Name).Order().ToArray();
+            Assert.Equal(
+            [
+                "Artist",
+                "BitRate",
+                "DiscNumber",
+                "DurationMs",
+                "Extension",
+                "HasCoverArt",
+                "HasPlainLyrics",
+                "HasSyncedLyrics",
+                "HasVideo",
+                "Id",
+                "IsInstrumental",
+                "Title",
+                "TrackNumber",
+                "VideoDurationSeconds",
+                "VideoLetterbox",
+                "VideoOffsetMs",
+                "VideoPillarbox",
+            ], trackKeys);
+        }
+    }
+
+    [Fact]
     public async Task CreateShare_AnotherUsersSong_NotFound()
     {
         var options = NewOptions();

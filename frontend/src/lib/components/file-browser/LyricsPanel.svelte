@@ -60,6 +60,8 @@
      * on it while no panel is mounted). Without one the panel makes its own from the props above.
      */
     doc?: LyricsDoc;
+    /** Hide owner-only mutation controls (LRCLIB recheck) — used on the public share page. */
+    readOnly?: boolean;
   };
 
   const {
@@ -77,7 +79,8 @@
     secondarySynced,
     secondaryPlain,
     provenance: provenanceFromProps,
-    doc: docFromProps
+    doc: docFromProps,
+    readOnly = false
   }: Props = $props();
 
   const theater = $derived(variant === 'theater');
@@ -239,8 +242,8 @@
 </script>
 
 {#snippet recheckButton(label: string)}
-  <!-- Re-checking LRCLIB is a server write on the owner's row — hidden for friend/demo views. -->
-  {#if isAdmin(page.data.user)}
+  <!-- Re-checking LRCLIB is a server write on the owner's row — hidden for friend/demo/share views. -->
+  {#if !readOnly && isAdmin(page.data.user)}
     <Button
       variant="subtle"
       size="sm"

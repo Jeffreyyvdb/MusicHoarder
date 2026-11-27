@@ -1,7 +1,6 @@
 <script lang="ts">
   import {
     Airplay,
-    ChevronDown,
     ChevronRight,
     Heart,
     Info,
@@ -16,14 +15,15 @@
   import { goto } from '$app/navigation';
   import { toast } from 'svelte-sonner';
   import { Button } from '#lib/components/ui/button/index.ts';
-  import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
   import SongTransport from '#lib/components/file-browser/SongTransport.svelte';
   import VideoWatchTab, {
     type VideoHousing
   } from '#lib/components/file-browser/VideoWatchTab.svelte';
-  import NowPlayingArt from '#lib/components/file-browser/now-playing/NowPlayingArt.svelte';
   import { skinHousing } from '#lib/hardware/hardware-mode.svelte.ts';
   import NowPlayingInfo from '#lib/components/file-browser/now-playing/NowPlayingInfo.svelte';
+  import NowPlayingLayout, {
+    type QueuePreviewEntry
+  } from '#lib/components/file-browser/now-playing/NowPlayingLayout.svelte';
   import VideoLyricsOverlay from '#lib/components/file-browser/now-playing/VideoLyricsOverlay.svelte';
   import NowPlayingLyrics from '#lib/components/file-browser/now-playing/NowPlayingLyrics.svelte';
   import NowPlayingMoreMenu from '#lib/components/file-browser/now-playing/NowPlayingMoreMenu.svelte';
@@ -36,12 +36,7 @@
     videoAvailability,
     type MediaAvailability
   } from '#lib/components/file-browser/now-playing/media-availability.ts';
-  import VolumeControl from '#lib/components/file-browser/now-playing/VolumeControl.svelte';
-  import {
-    arrive,
-    glide,
-    type Stage
-  } from '#lib/components/file-browser/now-playing/mode-motion.ts';
+  import type { Stage } from '#lib/components/file-browser/now-playing/mode-motion.ts';
   import DevicePicker from '#lib/components/playback-sync/DevicePicker.svelte';
   import { DEVICE_ICONS } from '#lib/components/playback-sync/device-icons.ts';
   import {
@@ -131,9 +126,6 @@
   // The two-column layout is genuinely wider work (lyrics beside the art), so it waits for lg;
   // md–lg keeps the phone layout, centred.
   const wide = new MediaQuery('(min-width: 1024px)');
-  // A phone in landscape: the manifest does not lock orientation, and the portrait stack (art,
-  // title, a 190pt transport) overflows 393pt of height.
-  const sideways = new MediaQuery('(orientation: landscape) and (max-height: 500px)');
 
   // ── Lyrics state ────────────────────────────────────────────────────────────
   // The AI subsystem (transcribe/re-sync + pronunciation/translation, the LRCLIB-vs-AI default,
@@ -271,11 +263,6 @@
             : 'player'
         : mode
   );
-  const playerOnly = $derived(wide.current && content === 'player');
-
-  // Mode changes, choreographed (`now-playing/mode-motion.ts`). At lg the player glides between
-  // centred and left and the right column's view arrives. On a phone, and a phone on its side, the
-  // new middle arrives, and the cover shrinks into the top bar's thumbnail or grows back out of it.
   const stage = $derived<Stage>(
     content === 'player' || content === 'artwork'
       ? null
@@ -283,45 +270,6 @@
         ? 'video'
         : content
   );
-  let asideEl = $state<HTMLElement>();
-  let playerBlockEl = $state<HTMLElement>();
-  let columnEl = $state<HTMLElement>();
-  let middleEl = $state<HTMLElement>();
-  let artEl = $state<HTMLElement>();
-  let readoutEl = $state<HTMLElement>();
-  let thumbEl = $state<HTMLElement>();
-  let moveFrom: DOMRect | undefined;
-  let shownStage: Stage | undefined;
-  let shownWide: boolean | undefined;
-  $effect.pre(() => {
-    const next = stage;
-    untrack(() => {
-      moveFrom = undefined;
-      if (shownWide !== wide.current || next === shownStage) return;
-      const from = shownStage === null ? (wide.current ? playerBlockEl : artEl) : undefined;
-      const to = next === null ? (wide.current ? playerBlockEl : thumbEl) : undefined;
-      moveFrom = (from ?? to)?.getBoundingClientRect();
-    });
-  });
-  $effect(() => {
-    const isWide = wide.current;
-    const next = stage;
-    untrack(() => {
-      const changed = shownWide === isWide && next !== shownStage;
-      if (isWide) {
-        if (moveFrom && asideEl && playerBlockEl) glide(asideEl, playerBlockEl, moveFrom);
-        if (changed && next && columnEl) arrive(columnEl, shownStage === null);
-      } else if (changed) {
-        const cover = next === null ? artEl : thumbEl;
-        if (moveFrom && cover) glide(cover, cover, moveFrom);
-        if (next === null && moveFrom && readoutEl) arrive(readoutEl, false);
-        else if (middleEl) arrive(middleEl, false);
-      }
-      moveFrom = undefined;
-      shownStage = next;
-      shownWide = isWide;
-    });
-  });
 
   // Behind the watch view the backdrop plays the same clip; sharp, it reads as the video twice.
   $effect(() => {
@@ -548,6 +496,18 @@
       return { text: videoSyncLabel(video.info), tone: 'muted' as const };
     return null;
   });
+
+  const queuePreview = $derived<QueuePreviewEntry[]>(
+    isCurrentlyLoaded && queueAvailable
+      ? playerStore.upNext.slice(0, wide.current ? 5 : 3).map((entry, index) => ({
+          id: entry.id,
+          title: entry.title,
+          artist: entry.artist,
+          durationSeconds: songsStore.songsById.get(entry.id)?.durationSeconds,
+          onSelect: () => playerStore.skipToInQueue(index)
+        }))
+      : []
+  );
 </script>
 
 <!-- `relative z-10` on the top bar's controls: the grabber's 44pt hit strip reaches down into the
@@ -569,19 +529,6 @@
       )}
       fill={isLiked ? 'currentColor' : 'none'}
     />
-  </Button>
-{/snippet}
-
-{#snippet closeButton()}
-  <Button
-    variant="ghost"
-    size="icon"
-    onclick={onClose}
-    class="focus-visible:ring-ring relative z-10 size-11 shrink-0 rounded-full hover:bg-transparent focus-visible:ring-2"
-    aria-label="Close"
-    title="Close (Esc)"
-  >
-    <ChevronDown class="size-7" />
   </Button>
 {/snippet}
 
@@ -781,78 +728,13 @@
   />
 {/snippet}
 
-{#snippet coverArt(size: number, className: string, playing = artPlaying)}
-  <NowPlayingArt
-    artist={trackArtist}
-    title={album.title}
-    {coverUrl}
-    {size}
-    corner={12}
-    {playing}
-    class={className}
-  />
+{#snippet consoleLike()}
+  {@render heart('lg')}
+  <small aria-hidden="true">Like</small>
 {/snippet}
 
-{#snippet playerDevice(art: Snippet, volumeClass: string)}
-  {@const elapsed =
-    isCurrentlyLoaded && playerStore.currentTime > 0
-      ? formatDuration(playerStore.currentTime)
-      : '0:00'}
-  {@const upcoming =
-    isCurrentlyLoaded && queueAvailable ? playerStore.upNext.slice(0, wide.current ? 5 : 3) : []}
-  <section data-mh-console aria-label="MH-1 Player">
-    <div data-mh-console-plate data-playing={isCurrentlyPlaying || undefined} aria-hidden="true">
-      <strong>MH-1</strong> Player
-    </div>
-    {#snippet layout(scrubber: Snippet, times: Snippet, buttons: Snippet)}
-      <div data-mh-console-art>{@render art()}</div>
-      <div data-mh-np="readout">
-        {#if metaLine}<p data-mh-console-meta>{metaLine}</p>{/if}
-        {@render titleBlock(false)}
-        <span data-mh-console-clock aria-hidden="true">{elapsed}</span>
-      </div>
-      <div data-mh-console-rocker>{@render buttons()}</div>
-      <div data-mh-console-like>
-        {@render heart('lg')}
-        <small aria-hidden="true">Like</small>
-        {#if !elsewhere}
-          <div class={volumeClass} data-mh-np="volume">
-            <VolumeControl />
-          </div>
-        {/if}
-      </div>
-      <div data-mh-console-scrub data-drag-ignore>
-        {@render scrubber()}
-        {@render times()}
-      </div>
-    {/snippet}
-    <div data-mh-np="keys">{@render transport(layout)}</div>
-    {#if isCurrentlyLoaded}
-      <div data-mh-console-queue>
-        <div aria-hidden="true"><span>No</span><span>Title</span><span>Time</span></div>
-        <ol aria-label="Queue preview">
-          <li aria-current="true">
-            <span>01</span><span>{trackTitle}</span><span
-              >{formatDuration(song.durationSeconds)}</span
-            >
-          </li>
-          {#each upcoming as entry, index (`${entry.id}:${index}`)}
-            <li>
-              <button
-                type="button"
-                onclick={() => playerStore.skipToInQueue(index)}
-                aria-label={`Play ${entry.title} by ${entry.artist} now`}
-              >
-                <span>{String(index + 2).padStart(2, '0')}</span>
-                <span>{entry.title} <small>{entry.artist}</small></span>
-                <span>{formatDuration(songsStore.songsById.get(entry.id)?.durationSeconds)}</span>
-              </button>
-            </li>
-          {/each}
-        </ol>
-      </div>
-    {/if}
-  </section>
+{#snippet condensedRight()}
+  {@render heart('md')}
 {/snippet}
 
 {#snippet videoCaption()}
@@ -963,231 +845,32 @@
   {/if}
 {/snippet}
 
-<!-- Compact top bar, where a mouse can drag Now Playing down (a touch can anywhere): the grabber
-     (a tap closes too), ⌄, and the ⋯ menu.
-     Outside the artwork the song is condensed into the bar — tap it to go back to the art. -->
-{#snippet topBar()}
-  <div class="shrink-0 touch-none select-none" data-drag-handle>
-    <!-- 12pt tall with a 44pt hit strip (16pt above and below). It fades while a sheet is up
-         over Now Playing, so two grabbers never stack (see the style block). -->
-    <button
-      type="button"
-      tabindex="-1"
-      aria-hidden="true"
-      class="np-grabber relative mx-auto flex h-3 w-24 justify-center transition-opacity duration-200 after:absolute after:inset-x-0 after:-top-4 after:-bottom-4 focus-visible:outline-hidden"
-      onclick={onClose}
-    >
-      <span class="bg-foreground/35 mt-1.5 block h-[5px] w-9 rounded-full"></span>
-    </button>
-    <div class="flex h-14 items-center gap-1 px-2">
-      {@render closeButton()}
-      {#if content !== 'player'}
-        <button
-          type="button"
-          class="focus-visible:ring-ring relative z-10 flex min-w-0 flex-1 items-center gap-3 rounded-lg py-1 text-left focus-visible:ring-2 focus-visible:outline-hidden"
-          aria-label={`${trackTitle} by ${trackArtist}. Show the artwork`}
-          onclick={() => (mode = 'player')}
-        >
-          <span class="flex shrink-0" bind:this={thumbEl}>
-            <NowPlayingArt
-              artist={trackArtist}
-              title={album.title}
-              {coverUrl}
-              size={44}
-              corner={6}
-              class="shrink-0 !shadow-[0_2px_8px_rgb(0_0_0/0.35)]"
-            />
-          </span>
-          <span class="flex min-w-0 flex-col">
-            <span class="text-headline truncate">{trackTitle}</span>
-            <span class="text-subheadline text-muted-foreground truncate">{trackArtist}</span>
-          </span>
-        </button>
-        {@render heart('md')}
-      {:else}
-        {@render sourceLink()}
-      {/if}
-      {@render moreMenu()}
-    </div>
-  </div>
-{/snippet}
-
-<!-- A window wide enough for two columns is not dragged down, as on an iPad's full screen. -->
-<div class="flex h-full max-h-full min-h-0 flex-col" data-drag-ignore={wide.current || undefined}>
-  {#if wide.current}
-    {@const mh1 = skinHousing(playerDevice)}
-    <!-- lg: close and ⋯ in a bar; art, title and transport on the left; the mode on the right. -->
-    <header class="flex shrink-0 items-center justify-between px-5 pt-3 pb-1">
-      {@render closeButton()}
-      {@render sourceLink()}
-      {@render moreMenu()}
-    </header>
-    <div
-      class={cn(
-        'grid min-h-0 flex-1 gap-12 px-12 pb-8 xl:gap-16',
-        playerOnly
-          ? 'grid-cols-[minmax(0,560px)] justify-center'
-          : 'grid-cols-[minmax(300px,380px)_minmax(0,1fr)] xl:grid-cols-[400px_minmax(0,1fr)]'
-      )}
-      data-mh-np-layout={playerOnly ? 'solo' : 'split'}
-    >
-      <!-- The column scrolls only when the window is too short even for the smaller art. Its box
-           reaches 48px past the column on either side and down into the grid's bottom padding —
-           a scroll container clips its contents, and the art's 60px shadow would otherwise end
-           in hard edges at the column's sides. `my-auto` (not justify-center) centres the block
-           while it fits and lets it overflow downward only, so its top is never unreachable —
-           which is why the ScrollArea's content element is made a flex column. -->
-      <aside class="-mx-12 -mb-8 flex min-h-0 flex-col" bind:this={asideEl}>
-        <ScrollArea
-          class="min-h-0 flex-1 [&>[data-slot=scroll-area-viewport]>*]:flex [&>[data-slot=scroll-area-viewport]>*]:flex-col"
-          viewportClass="px-12 pt-6 pb-8"
-        >
-          {#if mh1}
-            <div class="my-auto" bind:this={playerBlockEl}>
-              {#snippet art()}{@render coverArt(400, 'w-full', true)}{/snippet}
-              {@render mh1(art, 'hidden pointer-fine:block')}
-              <div class="mt-4" data-mh-np="modes">{@render bottomRow()}</div>
-            </div>
-          {:else}
-            <div
-              class="my-auto flex w-full flex-col"
-              data-mh-np="body"
-              data-playing={isCurrentlyPlaying || undefined}
-              bind:this={playerBlockEl}
-            >
-              <!-- The art gives way first on a short window (the transport, title and volume below it
-                 need ~430px), and never shrinks under 200px. -->
-              <div data-mh-np="screen">
-                {@render coverArt(
-                  400,
-                  cn(
-                    'mx-auto w-full',
-                    playerOnly
-                      ? 'max-w-[min(100%,56vh,max(200px,calc(100svh-var(--mh-np-chrome,460px))))]'
-                      : 'max-w-[min(100%,46vh,max(200px,calc(100svh-var(--mh-np-chrome,460px))))]'
-                  )
-                )}
-              </div>
-              <div class="mt-6" data-mh-np="readout">
-                {@render titleBlock()}
-                {#if metaLine}
-                  <p class="text-footnote text-muted-foreground mt-1.5 tabular-nums">{metaLine}</p>
-                {/if}
-              </div>
-              <div class="mt-5" data-mh-np="keys">{@render transport()}</div>
-              <div class="mt-2" data-mh-np="modes">{@render bottomRow()}</div>
-              {#if !elsewhere}
-                <div class="mt-4 hidden pointer-fine:block" data-mh-np="volume">
-                  <VolumeControl />
-                </div>
-              {/if}
-            </div>
-          {/if}
-        </ScrollArea>
-      </aside>
-      <div class={cn('flex min-h-0 flex-col pt-2', playerOnly && 'hidden')} bind:this={columnEl}>
-        {@render modeContent()}
-      </div>
-    </div>
-  {:else if sideways.current}
-    <!-- A phone on its side: the middle on the left, the title block and the transport on the
-         right. Same top bar, same modes. -->
-    <div
-      class="flex h-full min-h-0 w-full flex-col"
-      data-mh-np="body"
-      data-playing={isCurrentlyPlaying || undefined}
-    >
-      {@render topBar()}
-      <div class="flex min-h-0 flex-1 gap-6 pr-6 pl-4">
-        <div class="flex min-h-0 min-w-0 flex-1 flex-col" bind:this={middleEl}>
-          {#if content === 'player'}
-            <div
-              class="flex min-h-0 flex-1 touch-none items-center justify-center pb-3 select-none"
-              data-drag-handle
-            >
-              <div class="w-[min(100%,calc(100svh-120px))]" data-mh-np="screen" bind:this={artEl}>
-                <NowPlayingArt
-                  artist={trackArtist}
-                  title={album.title}
-                  {coverUrl}
-                  size={360}
-                  corner={12}
-                  playing={artPlaying}
-                  class="w-full"
-                />
-              </div>
-            </div>
-          {/if}
-          {@render modeContent()}
-        </div>
-        <!-- Scrolls only if the title block carries chips on the shortest phones. -->
-        <div class="no-scrollbar flex w-[min(360px,46%)] shrink-0 flex-col overflow-y-auto pb-2">
-          <div class="my-auto">
-            {#if content === 'player'}
-              <div class="mb-3" data-mh-np="readout" bind:this={readoutEl}>
-                {@render titleBlock()}
-              </div>
-            {/if}
-            <div data-mh-np="keys">{@render transport()}</div>
-            <div class="mt-1" data-mh-np="modes">{@render bottomRow()}</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  {:else}
-    {@const device = content === 'player' ? skinHousing(playerDevice) : undefined}
-    <div
-      class="mx-auto flex h-full min-h-0 w-full max-w-xl flex-col"
-      data-mh-np="body"
-      data-playing={isCurrentlyPlaying || undefined}
-    >
-      {@render topBar()}
-
-      <div class="flex min-h-0 flex-1 flex-col" bind:this={middleEl}>
-        {#if device}
-          <div class="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-3">
-            <div class="my-auto">
-              {#snippet art()}{@render coverArt(360, 'w-full', true)}{/snippet}
-              {@render device(art, 'hidden md:pointer-fine:block')}
-            </div>
-          </div>
-        {:else if content === 'player'}
-          <!-- The artwork and title, where a mouse can drag Now Playing down too. -->
-          <div
-            class="flex min-h-0 flex-1 touch-none flex-col justify-center px-8 select-none"
-            data-drag-handle
-          >
-            <div
-              class="mx-auto flex w-full max-w-[min(100%,40svh,329px)] flex-col md:max-w-[min(100%,40svh,440px)]"
-            >
-              <div data-mh-np="screen" bind:this={artEl}>
-                {@render coverArt(360, 'w-full')}
-              </div>
-              <div class="mt-7" data-mh-np="readout" bind:this={readoutEl}>
-                {@render titleBlock()}
-              </div>
-            </div>
-          </div>
-        {/if}
-        {@render modeContent()}
-      </div>
-
-      <footer class="shrink-0 px-7 pt-3 pb-2">
-        {#if !device}
-          <div data-mh-np="keys">{@render transport()}</div>
-        {/if}
-        <div class="mt-1" data-mh-np="modes">{@render bottomRow()}</div>
-        <!-- md–lg with a mouse (a narrow desktop window, an iPad with a trackpad): Now Playing hides
-             the mini player that holds the volume, so it needs its own here too. -->
-        {#if !elsewhere && !device}
-          <div class="mt-3 hidden md:pointer-fine:block" data-mh-np="volume">
-            <VolumeControl />
-          </div>
-        {/if}
-      </footer>
-    </div>
-  {/if}
-</div>
+<NowPlayingLayout
+  wide={wide.current}
+  {stage}
+  {trackTitle}
+  {trackArtist}
+  albumTitle={album.title}
+  {coverUrl}
+  {isCurrentlyLoaded}
+  {isCurrentlyPlaying}
+  {artPlaying}
+  durationSeconds={song.durationSeconds}
+  {metaLine}
+  {elsewhere}
+  showQueuePreview={isCurrentlyLoaded}
+  {queuePreview}
+  {onClose}
+  onShowArtwork={() => (mode = 'player')}
+  headerCenter={sourceLink}
+  headerRight={moreMenu}
+  {condensedRight}
+  {titleBlock}
+  {consoleLike}
+  {transport}
+  {bottomRow}
+  {modeContent}
+/>
 
 {#if !wide.current && ai.canCompare}
   <LyricsCompareSheet
@@ -1225,13 +908,3 @@
   />
   <ManageVideoSheet bind:open={manageVideoOpen} {video} title={`${trackTitle} — ${trackArtist}`} />
 {/if}
-
-<style>
-  /* While a sheet is up over Now Playing (compare, manage video, a confirmation), it stops 12pt
-     short of the top, and the overlay's own grabber would peek out above the sheet's. Every sheet
-     that can be open while this overlay is up is nested over it, and sheets are portaled to the
-     body, so ask the body. */
-  :global(body:has([data-slot='bottom-sheet-content'][data-state='open'])) .np-grabber {
-    opacity: 0;
-  }
-</style>

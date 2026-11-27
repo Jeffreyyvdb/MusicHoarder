@@ -14,6 +14,8 @@ export interface ShareTrack {
   trackNumber?: number | null;
   discNumber?: number | null;
   durationMs?: number | null;
+  extension?: string | null;
+  bitRate?: number | null;
   hasCoverArt: boolean;
   hasSyncedLyrics: boolean;
   hasPlainLyrics: boolean;
@@ -31,6 +33,8 @@ export interface ShareTrack {
 export interface SharePayload {
   scope: 'Song' | 'Album';
   sharedSongId: number;
+  /** Presentation skin active when the owner shared the link (e.g. `'hardware'` for SPEC-01). */
+  skin?: string | null;
   album: { title?: string | null; artist?: string | null; year?: number | null };
   tracks: ShareTrack[];
 }

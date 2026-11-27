@@ -687,3 +687,40 @@ body:has(.mh-np[data-state='open']) [data-sonner-toast]:not([data-visible='false
     var(--mh-page-surface, var(--background)) calc(100% - env(safe-area-inset-bottom))
   );
 }
+
+/* Now Playing's vibrancy tokens — shared by SongDetailHost and the public /share/[token] player.
+   The dim layer keeps the BRIGHTEST part of the wash at or below ~70/255 grey (cover-dim.ts), so
+   white clears 9.4:1, the 72% secondary tone 5.8:1 and the 55% inactive lyric lines 4.2:1; on a
+   white-8% cell the 72% tone still clears 4.8:1. Menus and sheets opened from here are portaled
+   out of this element and keep the plain dark tokens on their solid surfaces. The `.dark.mh-np`
+   pair outranks the plain `.dark` block. */
+.dark.mh-np {
+  color-scheme: dark;
+  --np-secondary: rgb(255 255 255 / 0.72);
+  --np-fill: rgb(255 255 255 / 0.12);
+  --np-liked: #4ce070;
+  --primary: #ffffff;
+  --primary-foreground: #000000;
+  --ring: #ffffff;
+  --warning-text: #ffc266;
+  --destructive-text: #ffc2be;
+  --muted-foreground: var(--np-secondary);
+  --muted-foreground-dim: var(--np-secondary);
+  --secondary: rgb(255 255 255 / 0.14);
+  --secondary-hover: rgb(255 255 255 / 0.2);
+  --muted: rgb(255 255 255 / 0.1);
+  --accent: rgb(255 255 255 / 0.1);
+  --input: rgb(255 255 255 / 0.12);
+  --card: rgb(255 255 255 / 0.08);
+  --separator: rgb(255 255 255 / 0.14);
+  --border: rgb(255 255 255 / 0.16);
+  --segmented-thumb: rgb(255 255 255 / 0.28);
+}
+@media (prefers-contrast: more) {
+  .dark.mh-np {
+    --np-secondary: rgb(255 255 255 / 0.86);
+    --np-fill: rgb(255 255 255 / 0.2);
+    --separator: rgb(255 255 255 / 0.4);
+    --border: rgb(255 255 255 / 0.45);
+  }
+}

@@ -527,50 +527,8 @@
 {/if}
 
 <style>
-  /* Now Playing's vibrancy tokens — the one sanctioned use of alpha text. The dim
-     layer keeps the BRIGHTEST part of the wash at or below ~70/255 grey (cover-dim.ts), so white
-     clears 9.4:1, the 72% secondary tone 5.8:1 and the 55% inactive lyric lines 4.2:1; on a
-     white-8% cell the 72% tone still clears 4.8:1. Secondary and tertiary text both map to the 72%
-     tone (the tertiary grey would sit too low on a coloured wash); fills and hairlines are white
-     washes that pick up the cover instead of a grey that reads as a smudge on colour.
-     Colour over an arbitrary cover is the one thing no dim can promise: the brand green lands at
-     ~2.5:1 on a magenta wash. So, as in Apple Music, what you tap here is white (the tint becomes
-     the label colour — liked state is carried by the heart's fill, in a light green of its own),
-     and the warning / destructive text tones lift to pastel variants that hold ≥ 4.5:1 on a cell
-     over the wash. The focus ring is solid white: a 70% ring drawn at /50 was ~1.8:1.
-     Menus and sheets opened from here are portaled out of this element and keep the plain dark
-     tokens on their solid surfaces. The `.dark.mh-np` pair outranks the plain `.dark` block. */
-  :global(.dark.mh-np) {
-    --np-secondary: rgb(255 255 255 / 0.72);
-    --np-fill: rgb(255 255 255 / 0.12);
-    --np-liked: #4ce070;
-    --primary: #ffffff;
-    --primary-foreground: #000000;
-    --ring: #ffffff;
-    --warning-text: #ffc266;
-    --destructive-text: #ffc2be;
-    --muted-foreground: var(--np-secondary);
-    --muted-foreground-dim: var(--np-secondary);
-    --secondary: rgb(255 255 255 / 0.14);
-    --secondary-hover: rgb(255 255 255 / 0.2);
-    --muted: rgb(255 255 255 / 0.1);
-    --accent: rgb(255 255 255 / 0.1);
-    --input: rgb(255 255 255 / 0.12);
-    --card: rgb(255 255 255 / 0.08);
-    --separator: rgb(255 255 255 / 0.14);
-    --border: rgb(255 255 255 / 0.16);
-    --segmented-thumb: rgb(255 255 255 / 0.28);
-  }
-  @media (prefers-contrast: more) {
-    :global(.dark.mh-np) {
-      --np-secondary: rgb(255 255 255 / 0.86);
-      --np-fill: rgb(255 255 255 / 0.2);
-      --separator: rgb(255 255 255 / 0.4);
-      --border: rgb(255 255 255 / 0.45);
-    }
-  }
-
-  /* The slide is a transition between bits-ui's presence states rather than keyframes, so a close
+  /* Now Playing's vibrancy tokens (`.dark.mh-np`) live in app.css so the public share player shares them.
+     The slide is a transition between bits-ui's presence states rather than keyframes, so a close
      during the rise, or an open during the fall, turns round where the panel is instead of first
      jumping to the far end. bits-ui marks the first frame `data-starting-style` and the close
      `data-ending-style`, and unmounts once the transition has finished. Drag-to-dismiss holds the

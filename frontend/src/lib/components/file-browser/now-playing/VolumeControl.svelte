@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Volume1, Volume2, VolumeX } from '@lucide/svelte';
-  import { skinLook } from '#lib/hardware/hardware-mode.svelte.ts';
+  import { skinLook, useSkinOverride } from '#lib/hardware/hardware-mode.svelte.ts';
   import { playerStore } from '#lib/stores/player.svelte.ts';
   import { cn } from '#lib/utils.ts';
 
@@ -19,8 +19,9 @@
 
   let dragging = $state(false);
   let turn: Turn | null = null;
+  const skinForced = useSkinOverride();
   const level = $derived(Math.max(0, Math.min(1, playerStore.volume)));
-  const feel = $derived(skinLook<'slide' | 'turn'>('slide', 'turn'));
+  const feel = $derived(skinLook<'slide' | 'turn'>('slide', 'turn', skinForced()));
 
   function setFromX(target: HTMLElement, clientX: number) {
     const rect = target.getBoundingClientRect();
