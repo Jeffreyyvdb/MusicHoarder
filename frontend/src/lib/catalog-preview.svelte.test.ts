@@ -182,6 +182,23 @@ describe('the full song', () => {
     expect(api.resolve).toHaveBeenLastCalledWith(one.deezerId);
   });
 
+  it('keeps a found full song when an older lookup for it fails late', async () => {
+    let failFirst!: () => void;
+    api.resolve.mockImplementationOnce(
+      () => new Promise((_, reject) => (failFirst = () => reject(new Error('late'))))
+    );
+    preview.toggle(one);
+    reach(2);
+    preview.toggle(two);
+    preview.toggle(one);
+    reach(2);
+    await settle();
+    expect(preview.full.status).toBe('ready');
+    failFirst();
+    await settle();
+    expect(preview.full.status).toBe('ready');
+  });
+
   it('ignores a lookup that finishes after another track took over', async () => {
     let finish!: () => void;
     api.resolve.mockImplementationOnce(

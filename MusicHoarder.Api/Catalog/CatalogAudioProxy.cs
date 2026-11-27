@@ -73,6 +73,8 @@ internal static class CatalogAudioProxy
             logger.LogWarning(ex, "Could not reach googlevideo for catalog track {DeezerId}", LogSanitizer.ForLog(deezerId));
             if (context.Response.HasStarted)
                 return Results.Empty;
+            // The audio's length and range may already be set; the error body must not carry them.
+            context.Response.Clear();
             return Results.Json(new { error = "upstream_failed", message = "YouTube would not serve the audio." }, statusCode: StatusCodes.Status502BadGateway);
         }
         finally

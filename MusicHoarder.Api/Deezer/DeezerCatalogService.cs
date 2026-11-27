@@ -60,7 +60,10 @@ public sealed class DeezerCatalogService(
 
         var url = $"{BaseUrl}/search?q={Uri.EscapeDataString(query)}&limit={limit}";
         var json = await GetAsync(url, ct);
-        var tracks = json is null ? [] : DeezerCatalogJson.ParseSearchResponse(json);
+        // A failed request reads as no hits here, but is not remembered as one.
+        if (json is null)
+            return [];
+        var tracks = DeezerCatalogJson.ParseSearchResponse(json);
         cache.Set(cacheKey, tracks, new MemoryCacheEntryOptions
         {
             AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(Math.Max(1, opts.DeezerApiSearchCacheMinutes)),

@@ -431,6 +431,10 @@
             bind:this={catalogResults}
             query={catalogQuery}
             onhighlight={(value) => (highlighted = value)}
+            onclear={() => {
+              query = '';
+              catalogQuery = null;
+            }}
           />
         {/if}
 

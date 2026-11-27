@@ -68,6 +68,40 @@ public class CatalogAudioProxyTests
     }
 
     [Fact]
+    public async Task AStreamThatFailsBeforeTheFirstByte_Answers502_WithoutTheAudiosHeaders()
+    {
+        var resolver = new FakeResolver(_ => CatalogTestData.Audio());
+        var handler = new FakeHandler(_ =>
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.PartialContent) { Content = new StreamContent(new FailingStream()) };
+            response.Content.Headers.ContentLength = 5000;
+            response.Content.Headers.ContentRange = ContentRangeHeaderValue.Parse("bytes 0-4999/9000");
+            return response;
+        });
+        var context = CatalogTestData.ContextWithBody("bytes=0-4999");
+
+        var result = await Stream(context, resolver, handler);
+
+        Assert.Equal(StatusCodes.Status502BadGateway, Assert.IsAssignableFrom<IStatusCodeHttpResult>(result).StatusCode);
+        Assert.Null(context.Response.ContentLength);
+        Assert.Equal(0, context.Response.Headers.ContentRange.Count);
+    }
+
+    private sealed class FailingStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => 0; set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw new IOException("connection reset");
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    [Fact]
     public async Task AnUnsatisfiableRange_PassesThroughAs416()
     {
         var resolver = new FakeResolver(_ => CatalogTestData.Audio());

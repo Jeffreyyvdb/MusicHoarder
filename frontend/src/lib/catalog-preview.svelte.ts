@@ -139,7 +139,8 @@ function warmFull(forTrack: PreviewTrack): void {
       if (track?.deezerId === forTrack.deezerId) full = { status: 'ready' };
     },
     (err: unknown) => {
-      if (track?.deezerId === forTrack.deezerId)
+      // A second lookup for the track may already have succeeded; a late failure changes nothing.
+      if (track?.deezerId === forTrack.deezerId && !resolved.has(forTrack.deezerId))
         full = { status: 'failed', reason: failureReason(err) };
     }
   );

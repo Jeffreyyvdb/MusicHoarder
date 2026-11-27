@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CircleCheck, Pause, Play, RotateCw, TriangleAlert } from '@lucide/svelte';
+  import { CircleCheck, Pause, Play, RotateCw, TriangleAlert, X } from '@lucide/svelte';
   import * as Command from '#lib/components/ui/command/index.ts';
   import { Spinner } from '#lib/components/ui/spinner/index.ts';
   import Cover from '#lib/components/file-browser/Cover.svelte';
@@ -20,11 +20,14 @@
 
   let {
     query,
-    onhighlight
+    onhighlight,
+    onclear
   }: {
     query: string;
     /** The row to highlight once the search answers: the row the palette highlighted is gone. */
     onhighlight: (value: string) => void;
+    /** Empties the palette's field, offered when the catalog has nothing for the query. */
+    onclear: () => void;
   } = $props();
 
   const VALUE_PREFIX = 'catalog-track-';
@@ -48,7 +51,7 @@
         if (controller.signal.aborted) return;
         search = { status: 'ready', tracks };
         catalogAdds.remember(tracks);
-        if (tracks.length > 0) onhighlight(VALUE_PREFIX + tracks[0].deezerId);
+        onhighlight(tracks.length > 0 ? VALUE_PREFIX + tracks[0].deezerId : 'catalog-clear');
       },
       (err: unknown) => {
         if (controller.signal.aborted) return;
@@ -106,6 +109,10 @@
   {:else if search.tracks.length === 0}
     <Command.Item value="catalog-none" disabled>
       <span class="text-muted-foreground">Nothing in the catalog for “{query}”.</span>
+    </Command.Item>
+    <Command.Item value="catalog-clear" onSelect={onclear}>
+      <X class="text-muted-foreground" />
+      <span class="min-w-0 flex-1 truncate">Clear search</span>
     </Command.Item>
   {:else}
     <!-- Bounded by the server: a catalog search answers at most 25 tracks. -->

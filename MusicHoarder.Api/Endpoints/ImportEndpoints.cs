@@ -279,7 +279,22 @@ public static class ImportEndpoints
             db.WishlistItems.Add(item);
         }
 
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException) when (deezerTrackId is not null && existing is null)
+        {
+            // Another import of this Deezer track saved first (the id is unique per owner): that row
+            // is the answer.
+            db.ChangeTracker.Clear();
+            var winner = await db.WishlistItems.AsNoTracking().FirstOrDefaultAsync(w => w.DeezerTrackId == deezerTrackId, ct);
+            if (winner is null)
+                throw;
+            return Results.Json(
+                new { wishlistItemId = winner.Id, jobStarted = false, jobId = (Guid?)null, status = winner.Status.ToString() },
+                statusCode: StatusCodes.Status202Accepted);
+        }
 
         // Kick a download sweep now. If another job is running, TryStartJob fails and the item
         // stays Pending — it's picked up when the current job finishes (auto-sweep) or on the
