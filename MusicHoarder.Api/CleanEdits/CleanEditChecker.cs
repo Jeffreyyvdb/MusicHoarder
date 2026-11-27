@@ -4,8 +4,12 @@ using MusicHoarder.Api.Persistence;
 
 namespace MusicHoarder.Api.CleanEdits;
 
-/// <summary>The song as the check needs it. <see cref="DurationSeconds"/> falls back to the decoded length.</summary>
-internal sealed record CleanEditSubject(string Artist, string Title, string? Isrc, double? DurationSeconds, string Path);
+/// <summary>
+/// The song as the check needs it. <see cref="RequestedDurationSeconds"/> is the length of the track that
+/// was asked for, when it was a download: a YouTube copy can be a cut of another length, and the
+/// catalogs list the release.
+/// </summary>
+internal sealed record CleanEditSubject(string Artist, string Title, string? Isrc, double? RequestedDurationSeconds, string Path);
 
 /// <summary>One preview the verdict rests on, and where it sits in the file.</summary>
 internal sealed record ReferenceUsed(Edition Edition, string Id, double OffsetSeconds, double Correlation);
@@ -65,8 +69,10 @@ internal sealed class CleanEditChecker(
         if (test.Frames == 0)
             return CleanEditOutcome.Failed;
 
-        var duration = subject.DurationSeconds ?? (double)pcm.Length / BandSpectrogram.SampleRate;
-        var lookup = await references.FindAsync(new ReferenceQuery(subject.Artist, subject.Title, subject.Isrc, duration), ct);
+        double[] durations = subject.RequestedDurationSeconds is { } requested
+            ? [requested, (double)pcm.Length / BandSpectrogram.SampleRate]
+            : [(double)pcm.Length / BandSpectrogram.SampleRate];
+        var lookup = await references.FindAsync(new ReferenceQuery(subject.Artist, subject.Title, subject.Isrc, durations), ct);
 
         var located = new List<LocatedReference>();
         var unreadable = 0;

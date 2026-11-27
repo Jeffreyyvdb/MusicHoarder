@@ -104,13 +104,26 @@ public class CleanEditCheckerTests
     }
 
     [Fact]
-    public async Task The_catalogs_are_asked_for_the_length_of_the_file_when_the_song_has_no_duration()
+    public async Task The_catalogs_are_asked_for_the_files_length_when_nothing_was_requested()
     {
         var references = Catalog(ExplicitPreview, CleanPreview);
 
-        await Checker(Clean, references, Previews()).CheckAsync(Song with { DurationSeconds = null }, CancellationToken.None);
+        await Checker(Clean, references, Previews()).CheckAsync(Song with { RequestedDurationSeconds = null }, CancellationToken.None);
 
-        Assert.Equal(60, references.Asked.Single().DurationSeconds, 1);
+        Assert.Equal(60, references.Asked.Single().DurationsSeconds.Single(), 1);
+    }
+
+    [Fact]
+    public async Task The_catalogs_are_asked_for_the_requested_length_and_the_files()
+    {
+        var references = Catalog(ExplicitPreview, CleanPreview);
+
+        await Checker(Clean, references, Previews()).CheckAsync(Song with { RequestedDurationSeconds = 313 }, CancellationToken.None);
+
+        var asked = references.Asked.Single().DurationsSeconds;
+        Assert.Equal(2, asked.Count);
+        Assert.Equal(313, asked[0], 1);
+        Assert.Equal(60, asked[1], 1);
     }
 
     private sealed class FakeReferences(ReferenceLookup lookup) : IEditionReferenceClient

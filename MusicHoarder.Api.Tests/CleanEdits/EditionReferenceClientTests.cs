@@ -28,7 +28,7 @@ public class EditionReferenceClientTests
         ]}
         """;
 
-    private static readonly ReferenceQuery Query = new("Kanye West", "Stronger", "USUM70741299", 313);
+    private static readonly ReferenceQuery Query = new("Kanye West", "Stronger", "USUM70741299", [313]);
 
     private static EditionReferenceClient Client(Func<string, (HttpStatusCode, string)> respond) =>
         new(new HttpClient(new StubHandler(respond)), NullLogger<EditionReferenceClient>.Instance);
@@ -55,6 +55,16 @@ public class EditionReferenceClientTests
                 (Edition.Clean, "deezer:11"),
             ],
             lookup.References.Select(r => (r.Edition, r.Id)).ToArray());
+    }
+
+    [Fact]
+    public async Task A_preview_may_match_the_length_asked_for_or_the_files()
+    {
+        var lookup = await Client(Healthy).FindAsync(Query with { DurationsSeconds = [200, 313] }, CancellationToken.None);
+
+        Assert.Equal(
+            ["itunes:1", "itunes:2", "deezer:10", "deezer:11", "deezer:13"],
+            lookup.References.Select(r => r.Id).ToArray());
     }
 
     [Fact]

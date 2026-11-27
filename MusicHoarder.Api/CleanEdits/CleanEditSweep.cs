@@ -86,7 +86,12 @@ internal sealed class CleanEditSweep(
                 .Where(s => s.OwnerUserId == ownerUserId && s.DeletedAtUtc == null
                     && s.DestinationPath != null && s.Artist != null && s.Title != null)
                 .OrderByDescending(s => s.Id)
-                .Select(s => new Candidate(s.Id, s.Artist!, s.Title!, s.Isrc, s.DurationSeconds, s.DestinationPath!))
+                .Select(s => new Candidate(s.Id, s.Artist!, s.Title!, s.Isrc,
+                    db.WishlistItems.IgnoreQueryFilters()
+                        .Where(w => w.DownloadedSongId == s.Id && w.DurationMs > 0)
+                        .Select(w => (int?)w.DurationMs)
+                        .FirstOrDefault(),
+                    s.DestinationPath!))
                 .ToListAsync(ct);
             var checks = await db.CleanEditChecks.IgnoreQueryFilters().AsNoTracking()
                 .Where(c => c.OwnerUserId == ownerUserId)
@@ -146,7 +151,7 @@ internal sealed class CleanEditSweep(
         try
         {
             return await checker.CheckAsync(
-                new CleanEditSubject(song.Artist, song.Title, song.Isrc, song.DurationSeconds, song.Path), ct);
+                new CleanEditSubject(song.Artist, song.Title, song.Isrc, song.RequestedDurationMs / 1000.0, song.Path), ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -203,5 +208,5 @@ internal sealed class CleanEditSweep(
             _progress = change(_progress);
     }
 
-    private sealed record Candidate(int Id, string Artist, string Title, string? Isrc, int? DurationSeconds, string Path);
+    private sealed record Candidate(int Id, string Artist, string Title, string? Isrc, int? RequestedDurationMs, string Path);
 }

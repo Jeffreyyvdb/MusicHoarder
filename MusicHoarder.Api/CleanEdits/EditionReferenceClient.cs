@@ -4,7 +4,12 @@ using MusicHoarder.Api.RateLimiting;
 
 namespace MusicHoarder.Api.CleanEdits;
 
-internal sealed record ReferenceQuery(string Artist, string Title, string? Isrc, double DurationSeconds);
+/// <summary>A reference may match any of <paramref name="DurationsSeconds"/>: a download can be a longer or
+/// shorter cut than the track that was asked for.</summary>
+internal sealed record ReferenceQuery(string Artist, string Title, string? Isrc, IReadOnlyList<double> DurationsSeconds)
+{
+    public bool Fits(double seconds) => DurationsSeconds.Any(d => Math.Abs(seconds - d) <= EditionReferenceClient.DurationToleranceSeconds);
+}
 
 /// <summary>A free 30 s preview of one edition of the song.</summary>
 internal sealed record EditionReference(Edition Edition, string Id, string PreviewUrl);
@@ -24,7 +29,8 @@ internal interface IEditionReferenceClient
 /// <summary>
 /// iTunes Search and Deezer as reference catalogs. Both flag every edition ("explicit" / "cleaned",
 /// "explicit_content_lyrics" 1 / 3) and give a free preview. A result counts only when its
-/// normalized title equals the song's and its length is within <see cref="DurationToleranceSeconds"/>,
+/// normalized title equals the song's and its length is within <see cref="DurationToleranceSeconds"/> of a
+/// length the song is known by,
 /// so a live cut or a remix is never a reference. Paced politely and never throws: a failure marks the
 /// lookup incomplete.
 /// </summary>
@@ -121,7 +127,7 @@ internal sealed class EditionReferenceClient(HttpClient http, ILogger<EditionRef
             var preview = Text(track, "previewUrl");
             if (edition is null || string.IsNullOrEmpty(preview)
                 || ReferenceTitle.Normalize(Text(track, "trackName") ?? "") != wanted
-                || Math.Abs(Number(track, "trackTimeMillis") / 1000 - query.DurationSeconds) > DurationToleranceSeconds)
+                || !query.Fits(Number(track, "trackTimeMillis") / 1000))
                 continue;
             found.Add(new EditionReference(edition.Value, $"itunes:{Number(track, "trackId").ToString("0", CultureInfo.InvariantCulture)}", preview));
         }
@@ -167,7 +173,7 @@ internal sealed class EditionReferenceClient(HttpClient http, ILogger<EditionRef
                     _ => null,
                 };
                 if (!seen.Add(id) || string.IsNullOrEmpty(preview) || edition is null
-                    || Math.Abs(Number(track, "duration") - query.DurationSeconds) > DurationToleranceSeconds
+                    || !query.Fits(Number(track, "duration"))
                     || ReferenceTitle.Normalize(Text(track, "title") ?? "") != wanted)
                     continue;
                 found.Add(new EditionReference(edition.Value, $"deezer:{id}", preview));
