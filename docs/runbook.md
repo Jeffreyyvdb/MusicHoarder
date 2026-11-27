@@ -99,20 +99,44 @@ Two named volumes hold state worth backing up:
 docker compose exec postgres pg_dump -U postgres musichoarderdb > backup.sql
 ```
 
-Your **source** library is mounted read-only and never modified; the
-**destination** library is fully regenerable from source + catalog, so neither
-strictly needs backing up (though there is no harm in copying the destination).
+Your **source** library is mounted read-only and never modified. The **destination** library is
+regenerable from source + catalog only for tracks that came from the source — tracks the download
+chain acquired (wishlist, YouTube, Soulseek) never had a source file, and once staged-source
+release is enabled their staged copy is deleted after the library copy is verified
+(`Download/StagedSourceReleaseService.cs`), leaving the destination as the only copy. **Back the
+destination library up alongside the database** (and the download staging dir if you want
+crash-recovery for in-flight downloads).
 
 ### Restore
 
 Restore the Postgres dump into a fresh `postgres-data` volume and restore the
-`musichoarder-dpkeys` volume, then `docker compose up -d`:
+`musichoarder-dpkeys` volume, then bring the stack up. Start Postgres alone first: after
+`docker compose down` the `postgres` container is gone, so `exec` would fail, and booting the
+whole stack would start the API against an empty database:
 
 ```bash
-docker compose down            # keep volumes
+docker compose down                 # keep volumes
 docker volume rm <project>_postgres-data
 docker volume create <project>_postgres-data
-cat backup.sql | docker compose exec -T postgres psql -U postgres musichoarderdb
+
+# Postgres only — never start the API against an empty volume.
+docker compose up -d postgres
+until docker compose exec -T postgres pg_isready -U postgres -q; do sleep 2; done
+
+# A fresh volume has no database yet; create it, then restore. Both connect with password auth
+# (scram even on the local socket), so pass POSTGRES_PASSWORD from your .env.
+set -e
+docker compose exec -e PGPASSWORD="${POSTGRES_PASSWORD:?source .env first}" postgres \
+  createdb -U postgres musichoarderdb
+docker compose exec -e PGPASSWORD="${POSTGRES_PASSWORD:?source .env first}" -T postgres \
+  psql -U postgres -d musichoarderdb -v ON_ERROR_STOP=1 < backup.sql
+```
+
+If `psql` fails, **stop here** — fix the dump (or pick an earlier one) and re-run the steps above
+before letting the API start. Only once the restore exits clean, restore the `musichoarder-dpkeys`
+volume contents and start the rest of the stack:
+
+```bash
 docker compose up -d
 ```
 

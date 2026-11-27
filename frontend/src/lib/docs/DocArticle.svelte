@@ -23,9 +23,12 @@
   let article = $state<HTMLElement | null>(null);
   let activeHeading = $state<string>('');
 
-  // Diagrams hydrate after mount, and re-render when the reader flips light/dark.
+  // Diagrams hydrate after mount and after navigation (SvelteKit reuses this component across
+  // slug pages, so the effect must track the new HTML, not just mount once), and re-render when
+  // the reader flips light/dark.
   $effect(() => {
     if (!mermaid || !article) return;
+    void html;
     void renderMermaidDiagrams(article, mode.current === 'dark');
   });
 

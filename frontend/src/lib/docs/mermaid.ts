@@ -19,7 +19,11 @@ function loadMermaid(): Promise<MermaidApi> {
 
 export async function renderMermaidDiagrams(root: HTMLElement, dark: boolean): Promise<void> {
   const theme = dark ? 'dark' : 'neutral';
-  const fences = [...root.querySelectorAll<HTMLElement>('pre > code.language-mermaid')];
+  // Fences a failed render already wrapped in a .docs-mermaid fallback holder are skipped here;
+  // the stale-holders loop below re-renders them from data-code.
+  const fences = [...root.querySelectorAll<HTMLElement>('pre > code.language-mermaid')].filter(
+    (code) => !code.closest('.docs-mermaid')
+  );
   const stale = [...root.querySelectorAll<HTMLElement>(`div.docs-mermaid[data-theme]`)].filter(
     (holder) => holder.dataset.theme !== theme
   );
@@ -58,7 +62,14 @@ async function stamp(
     holder.innerHTML = svg;
     holder.dataset.theme = theme;
   } catch {
-    // A diagram mermaid can't parse stays as the raw fence — the source is the fallback.
+    // A diagram mermaid can't parse falls back to its readable source: put the original fence
+    // back inside the holder (keeping data-code for a later theme re-render attempt).
+    const pre = document.createElement('pre');
+    const code = document.createElement('code');
+    code.className = 'language-mermaid';
+    code.textContent = source;
+    pre.appendChild(code);
+    holder.replaceChildren(pre);
     holder.dataset.theme = theme;
   }
 }

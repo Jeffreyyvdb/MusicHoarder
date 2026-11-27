@@ -230,7 +230,7 @@ erDiagram
     WISHLIST_SOURCE ||--o{ WISHLIST_SOURCE_TRACK : "Cascade"
     WISHLIST_ITEM |o--o| WISHLIST_SOURCE : "SetNull"
     WISHLIST_SOURCE_TRACK }o--|| WISHLIST_ITEM : "Cascade"
-    WISHLIST_SOURCE |o--o|| PLAYLIST : "SetNull"
+    WISHLIST_SOURCE |o--o| PLAYLIST : "SetNull"
     PLAYLIST ||--o{ PLAYLIST_ENTRY : "Cascade"
 
     FOLLOWED_ARTIST ||--o{ FOLLOWED_ARTIST_RELEASE : "Cascade"
@@ -387,9 +387,13 @@ slskd-downloads-directory/      slskd's completed-downloads dir; finished files 
 /data/dpkeys             ASP.NET DataProtection keys (session cookies + Spotify token encryption)
 ```
 
-Per `docs/SELF_HOSTING.md`, the source mount is read-only by design and the destination library
-is fully regenerable from source + catalog, so only the database and the DataProtection keys
-volumes need backing up.
+Per `docs/SELF_HOSTING.md`, the source mount is read-only by design. The destination library is
+regenerable from source + catalog **only for tracks that came from the source library**: tracks
+acquired by the download chain (wishlist, YouTube, Soulseek) never existed there, and once
+staged-source release is enabled their staged copy is deleted as soon as the library copy is
+verified (`Download/StagedSourceReleaseService.cs`) — the destination then holds the only copy, and
+the catalog row's `SourcePath` points at a deleted file. Back up the database, the DataProtection
+keys, **and the destination library** (at least its downloaded tracks).
 
 Inside the destination library, `MusicHoarder.Api/Library/DestinationPathResolver.cs` computes a
 deterministic layout:

@@ -21,8 +21,11 @@ This document is the entry point to the architecture documentation. Each area ha
 ## System context
 
 A single deployment is one API process, one web frontend, one PostgreSQL database, and the
-operator's music storage. Everything runs on hardware the operator controls; music files never
-leave the machine.
+operator's music storage. Your originals never leave the machine: the source library is read-only
+and stays on hardware the operator controls, and the cleaned destination library is written next to
+it. The app does serve audio over HTTP — the streaming endpoint plays the destination library to
+the operator's own browsers, and share links and invited members stream it remotely — so put a
+deployment you care about behind TLS and share deliberately.
 
 ```
                        ┌────────────────────────────────────────────┐

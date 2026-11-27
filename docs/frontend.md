@@ -141,7 +141,7 @@ Proxy details worth knowing (`+server.ts`):
 `frontend/src/hooks.server.ts` composes (by hand, not `sequence`, so it stays unit-testable) several concerns on every response:
 
 1. **Request IDs** — `#lib/server/looping` assigns `x-request-id` to every request and logs errors with it (`handleError`).
-2. **Security headers** — `#lib/server/security-headers` sets nosniff, `Referrer-Policy`, `frame-ancestors 'none'` + `X-Frame-Options`, COOP, `Permissions-Policy`, and one-year HSTS. The CSP itself is configured **report-only, nonce mode** in `vite.config.ts`; inline scripts must carry the nonce (only `app.html`'s script gets `%sveltekit.nonce%`), and `style-src` keeps `'unsafe-inline'` because Svelte and bits-ui write style attributes.
+2. **Security headers** — `#lib/server/security-headers` sets nosniff, `Referrer-Policy`, `frame-ancestors 'none'` + `X-Frame-Options`, COOP, `Permissions-Policy`, and one-year HSTS. The CSP itself is configured **report-only, `auto` mode** in `vite.config.ts`: dynamically rendered pages get a nonce on their inline scripts, prerendered pages (the `/docs` section) ship none — nonce mode cannot prerender. The two inline scripts in `app.html` therefore carry no nonce, which is fine while the policy is report-only (a switch to enforcing needs a hash for them — noted in `app.html`). `style-src` keeps `'unsafe-inline'` because Svelte and bits-ui write style attributes.
 3. **Content negotiation** — some documentation-ish URLs can return `text/markdown` instead of HTML (`#lib/server/content-negotiation`, `#lib/content/site-markdown`).
 4. **Library preload** — emits `Link: <…>; rel=preload` headers for exactly the two requests the library store makes on a cold start (`#lib/server/library-preload`, with the request URLs pinned in `#lib/library-requests` so the preload and the store can't drift).
 5. **Page fills** — fills placeholders in `app.html`, e.g. the hardware skin's stylesheet URL (`#lib/hardware/skin-stylesheet`).
@@ -161,7 +161,7 @@ Key dependencies (`frontend/package.json`):
 | --- | --- |
 | `bits-ui` + `tailwind-variants` + `clsx` + `tailwind-merge` | Headless UI primitives (shadcn-style; see `components.json`) and class utilities |
 | `svelte-sonner` | Toasts |
-| `mode-watcher` | Light/dark mode (its head-script injection is disabled; the theme marker lives in `app.html` for CSP nonce reasons) |
+| `mode-watcher` | Light/dark mode (its head-script injection is disabled; the first-paint theme marker lives in `app.html`'s inline script) |
 | `@lucide/svelte` | Icons |
 | `@ui-sdk/svelte` / `@ui-sdk/core` (beta) | Kit ports used by the "hardware skin" easter egg (`#lib/hardware`) |
 | `@opentelemetry/*` | Server-side tracing (see above) |
