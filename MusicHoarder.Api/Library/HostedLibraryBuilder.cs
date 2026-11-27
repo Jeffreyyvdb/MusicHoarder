@@ -149,7 +149,15 @@ public sealed class HostedLibraryBuilder(
                 registry.Link(song, stored, song.SourcePath);
                 return true;
             }
-            facts = await registry.ReadAsync(song.SourcePath, ct);
+            try
+            {
+                facts = await registry.ReadAsync(song.SourcePath, ct);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                logger.LogWarning(ex, "Hosted build could not read song {SongId}", song.Id);
+                return false;
+            }
         }
 
         if (facts is not null)

@@ -126,7 +126,7 @@ public sealed class AudioAssetRegistry(
     {
         var asset = await FindAsync(db, facts.Sha256, ct);
         // A file registered in place may have changed since; the file being linked has these bytes now.
-        if (asset is { PurgedAtUtc: null, Id: > 0 } && !await StillHoldsAsync(asset, ct))
+        if (asset is { PurgedAtUtc: null, Id: > 0 } && !await StillHoldsAsync(asset, ct) && Unchanged(facts))
             asset.StoragePath = facts.Path;
         asset ??= Add(db, facts, facts.Path);
         Link(song, asset, facts.Path);

@@ -360,6 +360,9 @@ public class IndexService(
 
     private async Task FlushBatchAsync(List<SongMetadata> batch, CancellationToken ct)
     {
+        // Re-indexing a changed file clears its asset link; under the claim, so adoption or a hosted
+        // build cannot save a link to the old bytes after this batch has cleared it.
+        using var assetClaim = await Assets.AudioAssetRegistry.ClaimAsync(ct);
         var ownerId = ownerLookup.OwnerUserId;
         var paths = new HashSet<string>(batch.Select(m => m.SourcePath), StringComparer.Ordinal);
 
