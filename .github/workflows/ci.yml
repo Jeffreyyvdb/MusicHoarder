@@ -83,9 +83,11 @@ jobs:
         env:
           MUSICHOARDER_TEST_POSTGRES: Host=127.0.0.1;Port=5432;Username=postgres;Password=postgres
 
+      # 200 since the clean-edit check (PR #805): main already ran 165-170 s, and the check adds a
+      # migration snapshot to build and spectrogram tests to run, about 15 s together.
       - uses: ./.github/actions/budget
         with:
-          seconds: 180
+          seconds: 200
 
   frontend:
     runs-on: ubuntu-latest

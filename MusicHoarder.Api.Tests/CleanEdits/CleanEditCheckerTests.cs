@@ -8,9 +8,9 @@ namespace MusicHoarder.Api.Tests.CleanEdits;
 public class CleanEditCheckerTests
 {
     private static readonly double[] Words = [14, 20, 26, 32, 38];
-    private static readonly float[] Bed = SyntheticSong.Bed(60);
+    private static readonly float[] Bed = SyntheticSong.Bed(46);
 
-    private static readonly CleanEditSubject Song = new("Kanye West", "Stronger", "USUM70741299", 60, "/music/stronger.flac");
+    private static readonly CleanEditSubject Song = new("Kanye West", "Stronger", "USUM70741299", 46, "/music/stronger.flac");
 
     private static readonly EditionReference ExplicitPreview = new(Edition.Explicit, "deezer:1", "https://p/explicit");
     private static readonly EditionReference CleanPreview = new(Edition.Clean, "itunes:2", "https://p/clean");
@@ -110,7 +110,7 @@ public class CleanEditCheckerTests
 
         await Checker(Clean, references, Previews()).CheckAsync(Song with { RequestedDurationSeconds = null }, CancellationToken.None);
 
-        Assert.Equal(60, references.Asked.Single().DurationsSeconds.Single(), 1);
+        Assert.Equal(46, references.Asked.Single().DurationsSeconds.Single(), 1);
     }
 
     [Fact]
@@ -123,7 +123,7 @@ public class CleanEditCheckerTests
         var asked = references.Asked.Single().DurationsSeconds;
         Assert.Equal(2, asked.Count);
         Assert.Equal(313, asked[0], 1);
-        Assert.Equal(60, asked[1], 1);
+        Assert.Equal(46, asked[1], 1);
     }
 
     private sealed class FakeReferences(ReferenceLookup lookup) : IEditionReferenceClient

@@ -39,10 +39,12 @@ internal interface IEditionReferenceClient
 /// so a live cut or a remix is never a reference. Paced politely and never throws: a failure marks the
 /// lookup incomplete.
 /// </summary>
+/// <param name="deezerInterval">Deezer's pace; tests that never reach Deezer need not wait it out.</param>
 internal sealed class EditionReferenceClient(
     HttpClient http,
     IOptions<MusicEnricherOptions> options,
-    ILogger<EditionReferenceClient> logger) : IEditionReferenceClient
+    ILogger<EditionReferenceClient> logger,
+    TimeSpan? deezerInterval = null) : IEditionReferenceClient
 {
     public static HttpClient CreateHttpClient()
     {
@@ -55,7 +57,8 @@ internal sealed class EditionReferenceClient(
     }
     public const double DurationToleranceSeconds = 4;
 
-    internal static readonly TimeSpan DeezerInterval = TimeSpan.FromMilliseconds(350);
+    private static readonly TimeSpan DefaultDeezerInterval = TimeSpan.FromMilliseconds(350);
+    private readonly TimeSpan _deezerInterval = deezerInterval ?? DefaultDeezerInterval;
 
     /// <summary>Deezer's quota is 50 calls per 5 seconds; after a quota error, wait out one window.</summary>
     private static readonly TimeSpan DeezerQuotaBackoff = TimeSpan.FromSeconds(5);
@@ -176,7 +179,7 @@ internal sealed class EditionReferenceClient(
             if (!string.IsNullOrWhiteSpace(query.Isrc))
             {
                 var byIsrc = await GetJsonAsync(
-                    $"https://api.deezer.com/track/isrc:{Uri.EscapeDataString(query.Isrc)}", _deezerGate, DeezerInterval, ct);
+                    $"https://api.deezer.com/track/isrc:{Uri.EscapeDataString(query.Isrc)}", _deezerGate, _deezerInterval, ct);
                 documents.Add(byIsrc);
                 if (IsQuotaError(byIsrc.RootElement))
                 {
@@ -189,7 +192,7 @@ internal sealed class EditionReferenceClient(
 
             var q = Uri.EscapeDataString(
                 $"artist:\"{Unquoted(ReferenceTitle.LeadArtist(query.Artist))}\" track:\"{Unquoted(ReferenceTitle.WithoutBrackets(query.Title)).Trim()}\"");
-            var search = await GetJsonAsync($"https://api.deezer.com/search?q={q}", _deezerGate, DeezerInterval, ct);
+            var search = await GetJsonAsync($"https://api.deezer.com/search?q={q}", _deezerGate, _deezerInterval, ct);
             documents.Add(search);
             complete &= !IsQuotaError(search.RootElement);
             if (search.RootElement.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array)

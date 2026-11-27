@@ -5,10 +5,10 @@ namespace MusicHoarder.Api.Tests.CleanEdits;
 
 public class CleanEditDeciderTests
 {
-    private const double SongSeconds = 60;
+    private const double SongSeconds = 46;
     private const double PreviewFrom = 10;
     private static readonly double[] WordsInPreview = [14, 20, 26, 32, 38];
-    private static readonly double[] WordsOutsidePreview = [50, 54];
+    private static readonly double[] WordsOutsidePreview = [41.5, 43.5];
 
     private static readonly float[] Bed = SyntheticSong.Bed(SongSeconds);
 

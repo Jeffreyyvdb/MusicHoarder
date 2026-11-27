@@ -43,7 +43,7 @@ public class EditionReferenceClientTests
     private static readonly ReferenceQuery Query = new("Kanye West", "Stronger", "USUM70741299", [313]);
 
     private static EditionReferenceClient Client(Func<string, (HttpStatusCode, string)> respond) =>
-        new(new HttpClient(new StubHandler(respond)), Options, NullLogger<EditionReferenceClient>.Instance);
+        new(new HttpClient(new StubHandler(respond)), Options, NullLogger<EditionReferenceClient>.Instance, TimeSpan.Zero);
 
     private static (HttpStatusCode, string) Healthy(string url) => url switch
     {
@@ -143,7 +143,8 @@ public class EditionReferenceClientTests
         var client = new EditionReferenceClient(
             new HttpClient(new StubHandler(_ => throw new HttpRequestException("no route"))),
             Options,
-            NullLogger<EditionReferenceClient>.Instance);
+            NullLogger<EditionReferenceClient>.Instance,
+            TimeSpan.Zero);
 
         var lookup = await client.FindAsync(Query, CancellationToken.None);
 
