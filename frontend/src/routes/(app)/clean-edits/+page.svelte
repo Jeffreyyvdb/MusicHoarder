@@ -100,9 +100,20 @@
         await load(Math.max(PAGE, list?.items.length ?? 0));
         if (!latest.running) stopPolling();
       } catch {
-        stopPolling();
+        // A failed poll is tried again on the next tick; giving up would leave Stop showing for a
+        // run that has long finished.
       }
     }, 3000);
+  }
+
+  async function refresh() {
+    try {
+      progress = await fetchCleanEditProgress();
+    } catch {
+      // The list below still refreshes; the next poll catches the progress up.
+    }
+    await load(Math.max(PAGE, list?.items.length ?? 0));
+    if (!destroyed && progress?.running) follow();
   }
 
   onMount(() => {
@@ -199,9 +210,7 @@
         {/if}
       {/snippet}
       {#snippet more()}
-        <DropdownMenu.Item onSelect={() => load(Math.max(PAGE, list?.items.length ?? 0))}>
-          Refresh
-        </DropdownMenu.Item>
+        <DropdownMenu.Item onSelect={refresh}>Refresh</DropdownMenu.Item>
       {/snippet}
     </PageToolbarV2>
 
