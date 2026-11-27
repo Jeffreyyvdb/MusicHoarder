@@ -17,7 +17,8 @@ public sealed record AudioFileFacts(
     string? Codec,
     int? Bitrate,
     int? SampleRate,
-    int? DurationMs);
+    int? DurationMs,
+    DateTime LastWriteUtc);
 
 /// <summary>
 /// Registers audio files as <see cref="AudioAsset"/>s and links songs to them. Two ways in:
@@ -68,6 +69,7 @@ public sealed class AudioAssetRegistry(
         if (!File.Exists(path))
             return null;
 
+        var lastWrite = File.GetLastWriteTimeUtc(path);
         string sha;
         long size;
         await using (var stream = new FileStream(
@@ -80,7 +82,17 @@ public sealed class AudioAssetRegistry(
 
         var (codec, bitrate, sampleRate, durationMs) = Probe(path);
         return new AudioFileFacts(
-            NormalizePath(path), sha, size, ContainerOf(path), codec, bitrate, sampleRate, durationMs);
+            NormalizePath(path), sha, size, ContainerOf(path), codec, bitrate, sampleRate, durationMs, lastWrite);
+    }
+
+    /// <summary>
+    /// Whether the file is still the one <see cref="ReadAsync"/> hashed: there, with the same size and
+    /// modification time. Linkers check it under <see cref="ClaimAsync"/>, after hashing outside it.
+    /// </summary>
+    public static bool Unchanged(AudioFileFacts facts)
+    {
+        var file = new FileInfo(facts.Path);
+        return file.Exists && file.Length == facts.SizeBytes && file.LastWriteTimeUtc == facts.LastWriteUtc;
     }
 
     /// <summary>
@@ -145,7 +157,7 @@ public sealed class AudioAssetRegistry(
     public async Task<string> StoreDownloadAsync(MusicHoarderDbContext db, AudioFileFacts staged, CancellationToken ct)
     {
         var existing = await FindAsync(db, staged.Sha256, ct);
-        if (existing is { PurgedAtUtc: null } && File.Exists(existing.StoragePath))
+        if (existing is { PurgedAtUtc: null } && await StillHoldsAsync(existing, ct))
         {
             DeleteStaged(staged.Path);
             existing.LastReferencedAtUtc = time.GetUtcNow().UtcDateTime;
@@ -206,6 +218,26 @@ public sealed class AudioAssetRegistry(
         foreach (var asset in assets)
             asset.PurgedAtUtc = now;
         return true;
+    }
+
+    /// <summary>
+    /// Whether the asset's file still has its bytes. A content-store file is never written to, so being
+    /// there is enough; a file registered in place may have been changed since, so it is hashed again.
+    /// </summary>
+    private async Task<bool> StillHoldsAsync(AudioAsset asset, CancellationToken ct)
+    {
+        if (!File.Exists(asset.StoragePath))
+            return false;
+        if (ContentStoreSha(asset.StoragePath) == asset.Sha256)
+            return true;
+        try
+        {
+            return (await ReadAsync(asset.StoragePath, ct))?.Sha256 == asset.Sha256;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     /// <summary>Where the content store keeps a file with this hash.</summary>

@@ -25,9 +25,9 @@ public sealed class AudioAssetAdoptionBackgroundService(
             return;
 
         var delay = InitialDelay;
+        status.Idle(BackgroundJobIds.AudioAssets, DateTime.UtcNow + delay);
         while (!stoppingToken.IsCancellationRequested)
         {
-            status.Idle(BackgroundJobIds.AudioAssets, DateTime.UtcNow + delay);
             try
             {
                 await Task.Delay(delay, stoppingToken);

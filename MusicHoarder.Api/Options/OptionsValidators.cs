@@ -40,6 +40,9 @@ public sealed class MusicEnricherOptionsValidator : IValidateOptions<MusicEnrich
             yield return "MusicEnricher:ContentStoreDirectory must be a folder under DownloadDirectory in Hosted storage mode: the scanner indexes stored files from there.";
         else if (Scanner.IndexService.HasHiddenSegment(store + "x", downloads))
             yield return "MusicEnricher:ContentStoreDirectory must not be inside a folder whose name starts with a dot: the scanner skips those.";
+        else if (Download.MusicVideoDownloader.ResolveVideoDirectory(o) is { Length: > 0 } videos
+            && store.StartsWith(Scanner.IndexService.NormalizeRootPrefix(videos), StringComparison.Ordinal))
+            yield return "MusicEnricher:ContentStoreDirectory must not be inside the music-video directory: the scanner skips it.";
     }
 }
 

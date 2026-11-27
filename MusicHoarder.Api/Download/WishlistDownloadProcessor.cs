@@ -188,7 +188,16 @@ public class WishlistDownloadProcessor(
                     // Hosted storage: hash the finished file here, in parallel; storing it needs the database.
                     AudioFileFacts? staged = null;
                     if (hosted && result.Success && result.FilePath is not null)
-                        staged = await assetRegistry.ReadAsync(result.FilePath, token);
+                    {
+                        try
+                        {
+                            staged = await assetRegistry.ReadAsync(result.FilePath, token);
+                        }
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                        {
+                            logger.LogWarning(ex, "Could not hash hosted download {Path}", Logging.LogSanitizer.ForLog(result.FilePath));
+                        }
+                    }
                     lock (resultsLock) results[item.Id] = (result, providerName, unavailableProvider, video, staged);
                 });
         }

@@ -22,6 +22,7 @@ public sealed class HostedLibraryBuilder(
     ILogger<HostedLibraryBuilder> logger) : ILibraryBuilderService
 {
     internal const string MissingFileError = "The audio file is missing.";
+    internal const string UnreadableFileError = "The audio file could not be read.";
 
     public async Task<LibraryBuildBatchResult> ProcessNextBatchAsync(Guid runId, CancellationToken ct = default)
     {
@@ -45,18 +46,61 @@ public sealed class HostedLibraryBuilder(
 
         // Hashing reads the whole file; do it in parallel, off the context.
         var read = new ConcurrentDictionary<int, AudioFileFacts?>();
+        var unreadable = new ConcurrentDictionary<int, bool>();
         await Parallel.ForEachAsync(
             songs.Where(NeedsRead),
             new ParallelOptions { MaxDegreeOfParallelism = opts.LibraryBuilderWorkerConcurrency, CancellationToken = ct },
-            async (song, token) => read[song.Id] = await registry.ReadAsync(song.SourcePath, token));
+            async (song, token) =>
+            {
+                try
+                {
+                    read[song.Id] = await registry.ReadAsync(song.SourcePath, token);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    logger.LogWarning(ex, "Hosted build could not read song {SongId}", song.Id);
+                    unreadable[song.Id] = true;
+                }
+            });
 
         var done = 0;
         var failed = 0;
         using (await AudioAssetRegistry.ClaimAsync(ct))
         {
+            // Hashing ran outside the claim. A report, an upgrade or a scan may have moved a row on
+            // since: build only rows that are still candidates with the same file, and leave the rest
+            // untouched for the next batch.
+            var ids = songs.Select(s => s.Id).ToList();
+            var current = (await LibraryBuildQuery.BuildCandidates(
+                        db.Songs.IgnoreQueryFilters().AsNoTracking(),
+                        LibraryBuildQuery.LyricsWaitCutoff(opts),
+                        opts.MaxLibraryBuildAttempts,
+                        opts.EnableBuildNeedsReview,
+                        db.UpgradeRequests.IgnoreQueryFilters(),
+                        hostedStorage: true)
+                    .Where(s => ids.Contains(s.Id))
+                    .Select(s => new { s.Id, s.SourcePath, s.FileSizeBytes, s.LastModifiedUtc, s.AudioAssetId, s.SourceReleasedAtUtc })
+                    .ToListAsync(ct))
+                .ToDictionary(s => s.Id);
             foreach (var song in songs)
             {
-                if (await LinkAsync(db, song, read.GetValueOrDefault(song.Id), ct))
+                if (!current.TryGetValue(song.Id, out var now)
+                    || now.SourcePath != song.SourcePath
+                    || now.FileSizeBytes != song.FileSizeBytes
+                    || now.LastModifiedUtc != song.LastModifiedUtc
+                    || now.AudioAssetId != song.AudioAssetId
+                    || now.SourceReleasedAtUtc != song.SourceReleasedAtUtc
+                    || (read.GetValueOrDefault(song.Id) is { } hashed && !AudioAssetRegistry.Unchanged(hashed)))
+                {
+                    continue;
+                }
+
+                if (unreadable.ContainsKey(song.Id))
+                {
+                    song.MarkBuildFailed(UnreadableFileError);
+                    failed++;
+                }
+                else if (await LinkAsync(db, song, read.GetValueOrDefault(song.Id), ct))
                 {
                     song.MarkBuiltInPlace();
                     done++;

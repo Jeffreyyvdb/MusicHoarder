@@ -294,6 +294,7 @@ public sealed class HostedStorageTests : IDisposable
     [InlineData(StorageMode.Hosted, "/elsewhere/content", false)]
     [InlineData(StorageMode.Hosted, "/data/downloads", false)]
     [InlineData(StorageMode.Hosted, "/data/downloads/.store", false)]
+    [InlineData(StorageMode.Hosted, "/data/downloads/videos/content", false)]
     public void Hosted_mode_requires_the_content_store_under_the_download_folder(StorageMode mode, string store, bool valid)
     {
         var result = new MusicEnricherOptionsValidator().Validate(null, new MusicEnricherOptions
@@ -431,6 +432,91 @@ public sealed class HostedStorageTests : IDisposable
         Assert.Equal(0, await db.Songs.IgnoreQueryFilters().WhereAdoptable(options.Value, db.UpgradeRequests).CountAsync());
     }
 
+    [Fact]
+    public async Task Adoption_waits_for_the_scanner_when_a_file_changed_without_changing_size()
+    {
+        var path = CopyFixture("silence.flac", Path.Combine(Source, "retagged.flac"), settled: true);
+        await using (var db = NewContext())
+        {
+            AddSong(db, path).LastModifiedUtc = File.GetLastWriteTimeUtc(path).AddMinutes(-5);
+            await db.SaveChangesAsync();
+        }
+
+        var options = Options(StorageMode.Folders, adoption: true);
+        await using (var db = NewContext())
+            Assert.Equal(0, (await Adoption(db, options).AdoptNextPageAsync(0, default))!.Linked);
+        await using var check = NewContext();
+        Assert.Empty(await check.AudioAssets.ToListAsync());
+    }
+
+    [Fact]
+    public async Task A_download_is_kept_when_the_in_place_file_with_its_hash_has_since_changed()
+    {
+        var options = Options(StorageMode.Hosted);
+        var provider = new CopyingProvider("silence.opus");
+        await using (var db = NewContext())
+        {
+            db.WishlistItems.Add(Pending("track-1"));
+            await db.SaveChangesAsync();
+            await Processor(provider, options).ProcessBatchAsync(db, Owner, default);
+        }
+
+        // The same bytes registered where they were, then changed by something outside the app.
+        var inPlace = Normalize(Path.Combine(Source, "original.opus"));
+        await using (var db = NewContext())
+        {
+            var asset = await db.AudioAssets.SingleAsync();
+            File.Move(asset.StoragePath, inPlace);
+            asset.StoragePath = inPlace;
+            await db.SaveChangesAsync();
+        }
+        File.AppendAllText(inPlace, "changed outside the app");
+
+        await using (var db = NewContext())
+        {
+            db.WishlistItems.Add(Pending("track-2"));
+            await db.SaveChangesAsync();
+            await Processor(provider, options).ProcessBatchAsync(db, Owner, default);
+        }
+
+        await using var check = NewContext();
+        var stored = await check.AudioAssets.SingleAsync();
+        var item = await check.WishlistItems.IgnoreQueryFilters().SingleAsync(i => i.SpotifyTrackId == "track-2");
+        Assert.StartsWith(Normalize(Path.Combine(Downloads, "content")), stored.StoragePath);
+        Assert.Equal(stored.StoragePath, item.DownloadedFilePath);
+        Assert.Equal(stored.Sha256, Sha256Of(stored.StoragePath));
+    }
+
+    [Fact]
+    public async Task A_hosted_build_fails_an_unreadable_file_and_builds_the_rest()
+    {
+        if (OperatingSystem.IsWindows() || Environment.UserName == "root")
+            return;
+        var locked = CopyFixture("silence.flac", Path.Combine(Source, "locked.flac"));
+        var open = CopyFixture("silence.mp3", Path.Combine(Source, "open.mp3"));
+        File.SetUnixFileMode(locked, UnixFileMode.None);
+        try
+        {
+            await using (var db = NewContext())
+            {
+                AddSong(db, locked).EnrichmentStatus = EnrichmentStatus.Matched;
+                AddSong(db, open).EnrichmentStatus = EnrichmentStatus.Matched;
+                await db.SaveChangesAsync();
+            }
+
+            var result = await HostedBuilder(Options(StorageMode.Hosted)).ProcessNextBatchAsync(Guid.NewGuid());
+
+            Assert.Equal((1, 1), (result.Done, result.Failed));
+            await using var check = NewContext();
+            var failed = await check.Songs.IgnoreQueryFilters().SingleAsync(s => s.SourcePath == Normalize(locked));
+            Assert.Equal(HostedLibraryBuilder.UnreadableFileError, failed.LibraryBuildError);
+        }
+        finally
+        {
+            File.SetUnixFileMode(locked, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+    }
+
     [PostgresFact]
     public async Task On_postgres_one_hash_is_one_row_and_the_hosted_queries_translate()
     {
@@ -539,7 +625,7 @@ public sealed class HostedStorageTests : IDisposable
             FileName = Path.GetFileName(normalized),
             Extension = Path.GetExtension(normalized),
             FileSizeBytes = File.Exists(path) ? new FileInfo(path).Length : 1,
-            LastModifiedUtc = DateTime.UtcNow,
+            LastModifiedUtc = File.Exists(path) ? File.GetLastWriteTimeUtc(path) : DateTime.UtcNow,
             IndexedAtUtc = DateTime.UtcNow,
             Title = "Title",
             Artist = "Artist",

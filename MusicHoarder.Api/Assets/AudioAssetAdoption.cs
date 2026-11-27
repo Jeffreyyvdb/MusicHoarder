@@ -79,8 +79,15 @@ public sealed class AudioAssetAdoptionService(
             {
                 if (!IsSettledAndIndexed(song, settledBefore))
                     return;
-                if (await registry.ReadAsync(song.SourcePath, token) is { } facts && facts.SizeBytes == song.FileSizeBytes)
-                    read[song.Id] = facts;
+                try
+                {
+                    if (await registry.ReadAsync(song.SourcePath, token) is { } facts && facts.SizeBytes == song.FileSizeBytes)
+                        read[song.Id] = facts;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    logger.LogWarning(ex, "Audio asset adoption could not read song {SongId}", song.Id);
+                }
             });
 
         // Hashing a page over a network mount takes a while; the release sweep, an upgrade or a scan
@@ -94,14 +101,17 @@ public sealed class AudioAssetAdoptionService(
                     .AsNoTracking()
                     .WhereAdoptable(opts, db.UpgradeRequests.IgnoreQueryFilters())
                     .Where(s => ids.Contains(s.Id))
-                    .Select(s => new { s.Id, s.SourcePath })
+                    .Select(s => new { s.Id, s.SourcePath, s.FileSizeBytes, s.LastModifiedUtc })
                     .ToListAsync(ct))
-                .ToDictionary(s => s.Id, s => s.SourcePath);
+                .ToDictionary(s => s.Id);
             foreach (var song in page)
             {
                 if (read.TryGetValue(song.Id, out var facts)
-                    && stillAdoptable.TryGetValue(song.Id, out var path)
-                    && string.Equals(path, song.SourcePath, StringComparison.Ordinal))
+                    && stillAdoptable.TryGetValue(song.Id, out var now)
+                    && string.Equals(now.SourcePath, song.SourcePath, StringComparison.Ordinal)
+                    && now.FileSizeBytes == song.FileSizeBytes
+                    && now.LastModifiedUtc == song.LastModifiedUtc
+                    && AudioAssetRegistry.Unchanged(facts))
                 {
                     await registry.LinkAsync(db, song, facts, ct);
                     linked++;
@@ -119,11 +129,15 @@ public sealed class AudioAssetAdoptionService(
 
     /// <summary>
     /// The file is there, untouched for <see cref="MusicEnricherOptions.ScanSettleSeconds"/>, and still
-    /// the size the scanner indexed. A file that changed since is left for the scanner to re-index first.
+    /// the size and modification time the scanner indexed (to the microsecond Postgres keeps). A file that
+    /// changed since is left for the scanner to re-index first.
     /// </summary>
     private static bool IsSettledAndIndexed(SongMetadata song, DateTime settledBefore)
     {
         var file = new FileInfo(song.SourcePath);
-        return file.Exists && file.LastWriteTimeUtc <= settledBefore && file.Length == song.FileSizeBytes;
+        return file.Exists
+            && file.LastWriteTimeUtc <= settledBefore
+            && file.Length == song.FileSizeBytes
+            && Math.Abs((file.LastWriteTimeUtc - song.LastModifiedUtc).Ticks) < TimeSpan.TicksPerMicrosecond;
     }
 }

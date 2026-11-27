@@ -153,29 +153,38 @@ public class UpgradeMergeService(
         db.Songs.Remove(provisional);
         await db.SaveChangesAsync(ct);
 
-        var oldSourcePath = target.SourcePath;
-        target.ApplySourceUpgrade(
-            facts.SourcePath, facts.FileSizeBytes, facts.FileName, facts.Extension,
-            facts.LastModifiedUtc, facts.Bitrate, facts.Fingerprint,
-            facts.DurationSeconds, facts.DurationMs);
-        // The duplicate flags referenced the old fingerprint pairing; the next dedup run recomputes.
-        if (target.IsDuplicate)
-            target.ClearDuplicate();
-        target.ResetLibraryBuild();
-        // The song's audio is now a different recording, so any music-video sync offset — including a
-        // Manual one, which was nudged against the OLD audio — is stale. Reset and re-align against
-        // the fingerprint ApplySourceUpgrade just installed.
-        var musicVideo = await db.SongMusicVideos
-            .IgnoreQueryFilters()
-            .FirstOrDefaultAsync(v => v.SongId == target.Id, ct);
-        if (musicVideo is not null)
+        // The file swap holds the claim adoption links under, so the two cannot interleave.
+        string oldSourcePath;
+        SongMusicVideo? musicVideo;
+        using (await Assets.AudioAssetRegistry.ClaimAsync(ct))
         {
-            musicVideo.SyncOffsetMs = 0;
-            musicVideo.SyncSource = MusicVideoSyncSource.Unaligned;
-            musicVideo.SyncConfidence = null;
+            oldSourcePath = target.SourcePath;
+            target.ApplySourceUpgrade(
+                facts.SourcePath, facts.FileSizeBytes, facts.FileName, facts.Extension,
+                facts.LastModifiedUtc, facts.Bitrate, facts.Fingerprint,
+                facts.DurationSeconds, facts.DurationMs);
+            // The duplicate flags referenced the old fingerprint pairing; the next dedup run recomputes.
+            if (target.IsDuplicate)
+                target.ClearDuplicate();
+            target.ResetLibraryBuild();
+            // ApplySourceUpgrade clears the asset link; write it even when it already reads null here,
+            // so a link adoption saved since this row was loaded cannot outlive the file it was hashed from.
+            db.Entry(target).Property(s => s.AudioAssetId).IsModified = true;
+            // The song's audio is now a different recording, so any music-video sync offset — including a
+            // Manual one, which was nudged against the OLD audio — is stale. Reset and re-align against
+            // the fingerprint ApplySourceUpgrade just installed.
+            musicVideo = await db.SongMusicVideos
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(v => v.SongId == target.Id, ct);
+            if (musicVideo is not null)
+            {
+                musicVideo.SyncOffsetMs = 0;
+                musicVideo.SyncSource = MusicVideoSyncSource.Unaligned;
+                musicVideo.SyncConfidence = null;
+            }
+            request.MarkTerminal(UpgradeRequestStatus.Completed);
+            await db.SaveChangesAsync(ct);
         }
-        request.MarkTerminal(UpgradeRequestStatus.Completed);
-        await db.SaveChangesAsync(ct);
         if (musicVideo is not null)
             musicVideoChannel.Enqueue(new MusicVideoWorkItem(target.Id, MusicVideoWorkKind.Align));
 
