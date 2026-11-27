@@ -19,8 +19,11 @@ export default defineConfig({
       // origins (runtime env) and the Reporting-Endpoints header that `report-to` names.
       // 'unsafe-inline' stays on style-src because Svelte and bits-ui write style attributes; with
       // it there, SvelteKit adds no style nonce (a nonce would void it).
+      // `auto` (not `nonce`) because the /docs pages are prerendered: nonce mode cannot prerender
+      // (SvelteKit's prerender_nonce error). Dynamic pages still get a nonce; prerendered ones,
+      // which ship no endpoints, do not.
       csp: {
-        mode: 'nonce',
+        mode: 'auto',
         reportOnly: {
           'default-src': ['self'],
           'script-src': ['self'],

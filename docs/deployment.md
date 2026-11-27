@@ -112,7 +112,7 @@ Four images, published to GHCR under `ghcr.io/jeffreyyvdb/musichoarder/…`:
 | `api` | `Dockerfile` | Multi-stage .NET build + `aspnet:11.0` runtime. Bakes in `fpcalc` (`libchromaprint-tools`), `ffmpeg`, `yt-dlp` and `deno` (yt-dlp's JS runtime for YouTube's player challenge). Entrypoint is `docker/api-entrypoint.sh`, health-checked at `/alive`. |
 | `api-base` | `Dockerfile.api-base` | The runtime-deps layer only. Aspire builds the API image through the .NET SDK container target (`dotnet publish -t:PublishContainer`), which cannot `apt-get`, so the deps are baked into this base and referenced via `<ContainerBaseImage>`. CI rebuilds and pushes it (`:latest`) before `aspire do push`. |
 | `frontend` | `frontend/Dockerfile` | SvelteKit + Bun + adapter-node; runs as a non-root `svelte` user, health-checked at `/api/health`. |
-| `spotiflac` | `sidecars/spotiflac/Dockerfile` | Opt-in lossless-FLAC sidecar (see [Sidecars](#sidecars-spotiflac)); versioned on its own scheme. |
+| `spotiflac` | `sidecars/spotiflac/Dockerfile` | Opt-in lossless-FLAC sidecar (see [Sidecars](#sidecars-sidecarsspotiflac)); versioned on its own scheme. |
 
 The pinned tool versions (`ARG YTDLP_VERSION` / `DENO_VERSION` + SHA-256
 checksums, verified at build) are **kept identical in both API Dockerfiles** by

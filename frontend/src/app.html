@@ -7,7 +7,7 @@
          runtime env) AND this device holds a reporter key (`?looping=<key>` once, or a search for
          `looping:<key>`). On a phone or a touch screen the floating button would cover the tab
          bar's search circle, so it is hidden there; the account menu opens the reporter instead. -->
-    <script nonce="%sveltekit.nonce%">
+    <script>
       (function () {
         try {
           var inbox = '%sveltekit.env.PUBLIC_LOOPING_URL%'.replace(/\/+$/, '');
@@ -36,7 +36,7 @@
          (surfaceFor + the theme-surface store) — so a cold load of a grouped page shows one white
          status-bar frame, accepted like the light launch. -->
     <meta name="theme-color" content="#ffffff" />
-    <script nonce="%sveltekit.nonce%">
+    <script>
       try {
         var mode = localStorage.getItem('mode-watcher-mode');
         var dark =
@@ -54,8 +54,10 @@
         // first paint too, so they don't render light inside a dark shell until mode-watcher runs.
         document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
         // The `dark` class mode-watcher's own head script would set. That script is turned off
-        // (`disableHeadScriptInjection` in the root layout) because it is inline without a nonce,
-        // which the Content-Security-Policy refuses; this one carries the nonce.
+        // (`disableHeadScriptInjection` in the root layout) because it duplicates this one; this
+        // script is inline without a nonce, which is fine while the CSP is report-only — if the
+        // policy ever switches to enforcing, these template scripts need a hash or the policy
+        // needs 'unsafe-inline' for script-src.
         document.documentElement.classList.toggle('dark', dark);
         // The hardware skin (an easter egg, #lib/hardware/hardware-mode.svelte.ts) before the first
         // frame, so a reload never shows the plain skin first. Its paper and graphite are mirrored
