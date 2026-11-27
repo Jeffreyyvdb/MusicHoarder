@@ -172,7 +172,45 @@ public sealed class AuthService : IAuthService
         var session = CreateSession(demo.Id, ip, userAgent, nowUtc);
         db.Sessions.Add(session);
         await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        await TrimDemoSessionsAsync(db, nowUtc, ct).ConfigureAwait(false);
         return session;
+    }
+
+    /// <summary>
+    /// Bounds the demo account's session rows: ended ones go, and so does every live one past the
+    /// newest <see cref="AuthOptions.DemoSessionLimit"/>. Anyone can start a demo session without
+    /// signing in, so without this the table grows for as long as someone keeps asking.
+    /// </summary>
+    private async Task TrimDemoSessionsAsync(MusicHoarderDbContext db, DateTime nowUtc, CancellationToken ct)
+    {
+        var limit = Math.Max(1, _options.CurrentValue.DemoSessionLimit);
+        var demoSessions = db.Sessions.Where(s => s.UserId == WellKnownUsers.DemoId);
+
+        var newestDropped = await demoSessions
+            .Where(s => s.RevokedAtUtc == null && s.ExpiresAtUtc > nowUtc)
+            .OrderByDescending(s => s.IssuedAtUtc).ThenByDescending(s => s.Id)
+            .Skip(limit)
+            .Select(s => (DateTime?)s.IssuedAtUtc)
+            .FirstOrDefaultAsync(ct).ConfigureAwait(false);
+
+        var dropped = await demoSessions
+            .Where(s => s.RevokedAtUtc != null || s.ExpiresAtUtc <= nowUtc
+                || (newestDropped != null && s.IssuedAtUtc <= newestDropped))
+            .ToListAsync(ct).ConfigureAwait(false);
+        if (dropped.Count == 0) return;
+
+        db.Sessions.RemoveRange(dropped);
+        try
+        {
+            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // Another demo login trimmed the same rows first; the next one picks up what is left.
+        }
+
+        // A dropped session must stop working on its next request, not after the cache TTL.
+        if (newestDropped != null) InvalidateUser(WellKnownUsers.DemoId);
     }
 
     public async Task<(Session Session, User User)?> ResolveSessionAsync(Guid sessionId, CancellationToken ct)
