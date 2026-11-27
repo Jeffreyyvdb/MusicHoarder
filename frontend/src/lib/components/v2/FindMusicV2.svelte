@@ -299,10 +299,12 @@
   </div>
 
   {#if current}
+    <!-- bottom-2, not the content pad: a sticky child is offset from inside the scroller's padding,
+         which already clears the tab bar and mini player. -->
     <div
       role="region"
       aria-label="Preview"
-      class="bg-card border-border sticky bottom-(--mh-content-pad) z-10 mx-4 mt-4 flex flex-col gap-2 rounded-xl border p-3 md:mx-auto md:w-full md:max-w-3xl"
+      class="bg-card border-border sticky bottom-2 z-10 mx-4 mt-4 flex flex-col gap-2 rounded-xl border p-3 md:mx-auto md:w-full md:max-w-3xl"
       data-elevated=""
     >
       <div class="flex items-center gap-2">
