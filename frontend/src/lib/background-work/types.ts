@@ -6,7 +6,8 @@ export type BackgroundJobId =
   | 'music-video-downloads'
   | 'quality-grading'
   | 'enrichment-retries'
-  | 'album-fill-follows';
+  | 'album-fill-follows'
+  | 'audio-assets';
 
 export type BackgroundJobState = 'off' | 'idle' | 'working' | 'waiting' | 'failing' | 'unknown';
 

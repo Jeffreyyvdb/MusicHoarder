@@ -363,6 +363,7 @@ public static class SongsEndpoints
                 s.LibraryBuildStatus,
                 s.LibraryBuiltAtUtc,
                 s.DestinationPath,
+                s.AudioAssetId,
                 s.LyricsStatus,
                 s.HasSyncedLyrics,
                 s.HasPlainLyrics,
@@ -506,7 +507,7 @@ public static class SongsEndpoints
             // Store can be newer than the self-hosted server it talks to. Those fallbacks can go once
             // no supported server predates this field.
             IsAlbumFill = s.AcquisitionIntent == SongAcquisitionIntent.AlbumFill,
-            IsBuilt = s.LibraryBuildStatus == LibraryBuildStatus.Done && s.DestinationPath != null,
+            IsBuilt = s.LibraryBuildStatus == LibraryBuildStatus.Done && (s.DestinationPath != null || s.AudioAssetId != null),
         };
         }).ToList();
 

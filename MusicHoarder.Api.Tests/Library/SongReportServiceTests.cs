@@ -163,18 +163,23 @@ public class SongReportServiceTests
             Owner, removed.Id, SongReportReason.WrongSong, null, true, CancellationToken.None)).Outcome);
     }
 
-    private static SongReportService Service(MusicHoarderDbContext db, MockFileSystem fs) => new(
-        db,
-        fs,
-        new LibraryDestinationCleaner(fs),
-        Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
+    private static SongReportService Service(MusicHoarderDbContext db, MockFileSystem fs)
+    {
+        var options = Microsoft.Extensions.Options.Options.Create(new MusicEnricherOptions
         {
             SourceDirectory = "/source",
             DestinationDirectory = "/dest",
             DownloadDirectory = "/downloads",
-        }),
-        new StaticOptionsMonitor<SlskdOptions>(new SlskdOptions()),
-        NullLogger<SongReportService>.Instance);
+        });
+        return new(
+            db,
+            fs,
+            new LibraryDestinationCleaner(fs),
+            options,
+            new StaticOptionsMonitor<SlskdOptions>(new SlskdOptions()),
+            new MusicHoarder.Api.Assets.AudioAssetRegistry(options, TimeProvider.System, NullLogger<MusicHoarder.Api.Assets.AudioAssetRegistry>.Instance),
+            NullLogger<SongReportService>.Instance);
+    }
 
     private static SongMetadata Song(string sourcePath) => new()
     {

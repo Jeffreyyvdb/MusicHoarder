@@ -294,7 +294,14 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IPcmDecoder, FfmpegPcmDecoder>();
         services.AddScoped<ILibraryTagWriter, TagLibLibraryTagWriter>();
         services.AddScoped<ILibraryDestinationCleaner, LibraryDestinationCleaner>();
-        services.AddScoped<ILibraryBuilderService, LibraryBuilderService>();
+        services.AddScoped<LibraryBuilderService>();
+        services.AddScoped<HostedLibraryBuilder>();
+        // Hosted storage builds a song by registering its file as an asset; folder mode copies and tags.
+        services.AddScoped<ILibraryBuilderService>(sp =>
+            sp.GetRequiredService<IOptions<MusicEnricherOptions>>().Value.StorageMode == StorageMode.Hosted
+                ? sp.GetRequiredService<HostedLibraryBuilder>()
+                : sp.GetRequiredService<LibraryBuilderService>());
+        services.AddSingleton<Assets.AudioAssetRegistry>();
         services.AddScoped<IPipelinePurgeService, PipelinePurgeService>();
 
         // Demo seeder runs first so its data is in place before background workers (which are
@@ -383,6 +390,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<StagedSourceReleaseTracker>();
         services.AddScoped<StagedSourceReleaseService>();
         services.AddHostedService<StagedSourceReleaseBackgroundService>();
+        // Audio assets: registers the files songs already have, in place. Off unless
+        // MusicEnricher:EnableAudioAssetAdoption is set; it reads every file once.
+        services.AddScoped<Assets.AudioAssetAdoptionService>();
+        services.AddHostedService<Assets.AudioAssetAdoptionBackgroundService>();
         // Storage usage: a background walk of every managed root, cached for the sidebar's storage bar
         // and its breakdown. The endpoints only read the store or ask it to refresh.
         services.AddScoped<Storage.StorageUsageCalculator>();

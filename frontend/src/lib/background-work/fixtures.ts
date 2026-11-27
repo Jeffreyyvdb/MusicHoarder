@@ -979,6 +979,60 @@ const followsDetail: BackgroundJobDetail = {
   ]
 };
 
+const assetsSummary: BackgroundJobSummary = {
+  id: 'audio-assets',
+  title: 'Stored files',
+  description:
+    'Reads the files songs already have and registers each as a stored file, named by its hash, without moving or changing it.',
+  state: 'working',
+  stateLabel: 'Working through a pass now.',
+  lastWorkedAtUtc: '2026-11-25T09:40:00Z',
+  nextRunAtUtc: null,
+  headline: {
+    value: 14_210,
+    of: null,
+    format: 'count',
+    caption: 'songs have a file not yet registered as a stored asset',
+    etaUtc: null,
+    etaLabel: null
+  },
+  trend: trend(1_500, 600, 211),
+  trendLabel: 'stored files registered per day'
+};
+
+const assetsDetail: BackgroundJobDetail = {
+  summary: assetsSummary,
+  panels: [
+    {
+      kind: 'breakdown',
+      title: 'Songs by stored file',
+      caption: null,
+      total: 21_000,
+      unit: 'songs',
+      segments: [
+        { key: 'linked', label: 'Linked to a stored file', count: 6_420, tone: 'good', note: null },
+        { key: 'waiting', label: 'Waiting to be read', count: 14_210, tone: 'pending', note: null },
+        {
+          key: 'other',
+          label: 'Not adopted',
+          count: 370,
+          tone: 'muted',
+          note: 'Released downloads and files outside the source and download folders'
+        }
+      ]
+    },
+    {
+      kind: 'figures',
+      title: 'Stored files',
+      items: [
+        { label: 'Stored files', value: 6_390, format: 'count', tone: 'neutral' },
+        { label: 'Their size', value: 168_000_000_000, format: 'bytes', tone: 'neutral' },
+        { label: 'Purged', value: 0, format: 'count', tone: 'neutral' }
+      ]
+    }
+  ]
+};
+
 export const FIXTURE_DETAILS: Record<BackgroundJobId, BackgroundJobDetail> = {
   lyrics: lyricsDetail,
   'transcription-allowance': allowanceDetail,
@@ -987,7 +1041,8 @@ export const FIXTURE_DETAILS: Record<BackgroundJobId, BackgroundJobDetail> = {
   'music-video-downloads': downloadsDetail,
   'quality-grading': qualityDetail,
   'enrichment-retries': retriesDetail,
-  'album-fill-follows': followsDetail
+  'album-fill-follows': followsDetail,
+  'audio-assets': assetsDetail
 };
 
 export const FIXTURE_SUMMARY: BackgroundWorkSummary = {

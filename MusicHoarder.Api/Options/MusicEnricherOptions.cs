@@ -1212,6 +1212,52 @@ public class MusicEnricherOptions
     [Range(1, 1440)]
     public int StagedSourceReleaseSweepIntervalMinutes { get; set; } = 60;
 
+    // ── Storage mode and audio assets ───────────────────────────────────────
+
+    /// <summary>
+    /// <see cref="Options.StorageMode.Folders"/> (the default) keeps today's behaviour: downloads stay
+    /// in the download folder and the build writes a tagged copy into the destination tree.
+    /// <see cref="Options.StorageMode.Hosted"/> stores each new download once in the content store,
+    /// named by its SHA-256, and builds a song by registering its file as an
+    /// <see cref="Persistence.AudioAsset"/> with no copy and no tag writing; the tags live in the
+    /// database. For an instance with no media server reading a tagged folder.
+    /// </summary>
+    public StorageMode StorageMode { get; set; } = StorageMode.Folders;
+
+    /// <summary>
+    /// Where hosted mode stores downloads, as <c>ab/cd/&lt;sha256&gt;.&lt;ext&gt;</c>. Empty resolves to
+    /// <c>&lt;DownloadDirectory&gt;/content</c>. In hosted mode it must lie under
+    /// <see cref="DownloadDirectory"/>: the scanner indexes stored files from there, and every rule that
+    /// treats a file as a download (origin labels, enrichment, album completion) keys on that root.
+    /// </summary>
+    public string ContentStoreDirectory { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Runs the job that hashes the files songs already point at (their <see cref="Persistence.SongMetadata.SourcePath"/>
+    /// under <see cref="SourceDirectory"/> or <see cref="DownloadDirectory"/>) and links them to assets
+    /// where they are. Nothing is moved or changed, and a destination copy is never read. Default OFF: on
+    /// a large library over a network mount it reads every file once.
+    /// </summary>
+    public bool EnableAudioAssetAdoption { get; set; } = false;
+
+    /// <summary>Files the adoption job hashes at once. Keep it low on a slow network mount.</summary>
+    [Range(1, 16)]
+    public int AudioAssetAdoptionConcurrency { get; set; } = 2;
+
+    /// <summary>Songs the adoption job reads per page and links per database write.</summary>
+    [Range(1, 5000)]
+    public int AudioAssetAdoptionBatchSize { get; set; } = 200;
+
+    /// <summary>Minutes the adoption job waits after a pass before it looks for new files again.</summary>
+    [Range(1, 10080)]
+    public int AudioAssetAdoptionIntervalMinutes { get; set; } = 60;
+
+    /// <summary>The content store as configured, or its default under <see cref="DownloadDirectory"/>; empty when neither is set.</summary>
+    public string ResolvedContentStoreDirectory =>
+        !string.IsNullOrWhiteSpace(ContentStoreDirectory) ? ContentStoreDirectory
+        : string.IsNullOrWhiteSpace(DownloadDirectory) ? string.Empty
+        : Path.Combine(DownloadDirectory, "content");
+
     // ── Storage usage ───────────────────────────────────────────────────────
 
     /// <summary>

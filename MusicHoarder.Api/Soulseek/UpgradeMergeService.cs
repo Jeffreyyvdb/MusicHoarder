@@ -29,6 +29,7 @@ public class UpgradeMergeService(
     ILibraryDestinationCleaner destinationCleaner,
     IOptionsMonitor<SlskdOptions> slskdOptions,
     IOptions<MusicEnricherOptions> enricherOptions,
+    Assets.AudioAssetRegistry assetRegistry,
     ILogger<UpgradeMergeService> logger)
 {
     /// <summary>Processes every AwaitingIngest request whose provisional row is ready. Returns how
@@ -178,7 +179,7 @@ public class UpgradeMergeService(
         if (musicVideo is not null)
             musicVideoChannel.Enqueue(new MusicVideoWorkItem(target.Id, MusicVideoWorkKind.Align));
 
-        DeleteOldSourceFile(oldSourcePath);
+        await DeleteOldSourceFileAsync(oldSourcePath, ct);
 
         if (jobManager.TryStartJob(JobType.Build, out var jobId, out _))
             logger.LogInformation("Upgrade merge triggered build {JobId}", jobId);
@@ -275,10 +276,18 @@ public class UpgradeMergeService(
     /// The replaced source file is deleted only when it lives under a writable managed directory
     /// (the download staging dir or the synced-source dir). Files in the read-only source library
     /// are left in place — the scanner will re-index them as a new row (accepted v1 behavior; the
-    /// builder's position guard prevents a destination collision).
+    /// builder's position guard prevents a destination collision). An asset's file is never deleted
+    /// here either: other songs may play the same stored bytes.
     /// </summary>
-    private void DeleteOldSourceFile(string sourcePath)
+    private async Task DeleteOldSourceFileAsync(string sourcePath, CancellationToken ct)
     {
+        if (await assetRegistry.IsStoredAsync(db, sourcePath, ct))
+        {
+            logger.LogInformation(
+                "Old source file left in place (it is a stored audio asset): {Path}", LogSanitizer.ForLog(sourcePath));
+            return;
+        }
+
         var managedRoots = new[]
         {
             enricherOptions.Value.DownloadDirectory,

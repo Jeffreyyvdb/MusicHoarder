@@ -56,8 +56,13 @@ public static class BackgroundJobDefinitions
         "Album completion and follows",
         "Queues the missing tracks of albums you part-own, and the new releases of artists you follow.");
 
+    public static readonly BackgroundJobDefinition AudioAssets = new(
+        BackgroundJobIds.AudioAssets,
+        "Stored files",
+        "Reads the files songs already have and registers each as a stored file, named by its hash, without moving or changing it.");
+
     public static readonly IReadOnlyList<BackgroundJobDefinition> All =
-        [Lyrics, TranscriptionAllowance, CoverArt, MusicVideos, MusicVideoDownloads, QualityGrading, EnrichmentRetries, AlbumFillAndFollows];
+        [Lyrics, TranscriptionAllowance, CoverArt, MusicVideos, MusicVideoDownloads, QualityGrading, EnrichmentRetries, AlbumFillAndFollows, AudioAssets];
 }
 
 public static class BackgroundJobSummaries

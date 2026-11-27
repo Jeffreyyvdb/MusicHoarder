@@ -19,7 +19,27 @@ public sealed class MusicEnricherOptionsValidator : IValidateOptions<MusicEnrich
         if (o.DownloadMaxSleepSeconds > 0 && o.DownloadMaxSleepSeconds < o.DownloadSleepSeconds)
             errors.Add("MusicEnricher:DownloadMaxSleepSeconds must be >= DownloadSleepSeconds (it's the upper bound of the randomized pre-download wait).");
 
+        if (o.StorageMode == StorageMode.Hosted)
+            errors.AddRange(HostedStorageErrors(o));
+
         return errors.Count > 0 ? ValidateOptionsResult.Fail(errors) : ValidateOptionsResult.Success;
+    }
+
+    private static IEnumerable<string> HostedStorageErrors(MusicEnricherOptions o)
+    {
+        if (string.IsNullOrWhiteSpace(o.DownloadDirectory))
+        {
+            if (!string.IsNullOrWhiteSpace(o.ContentStoreDirectory))
+                yield return "MusicEnricher:ContentStoreDirectory needs a DownloadDirectory to lie under in Hosted storage mode.";
+            yield break;
+        }
+
+        var downloads = Scanner.IndexService.NormalizeRootPrefix(o.DownloadDirectory);
+        var store = Scanner.IndexService.NormalizeRootPrefix(o.ResolvedContentStoreDirectory);
+        if (!store.StartsWith(downloads, StringComparison.Ordinal) || store == downloads)
+            yield return "MusicEnricher:ContentStoreDirectory must be a folder under DownloadDirectory in Hosted storage mode: the scanner indexes stored files from there.";
+        else if (Scanner.IndexService.HasHiddenSegment(store + "x", downloads))
+            yield return "MusicEnricher:ContentStoreDirectory must not be inside a folder whose name starts with a dot: the scanner skips those.";
     }
 }
 

@@ -237,6 +237,7 @@ public class WishlistDownloadProcessorChainTests
             new FakeMusicVideoDownloader(),
             new MusicVideoChannel(),
             new FakeDownloadArtworkEmbedder(),
+            new MusicHoarder.Api.Assets.AudioAssetRegistry(options, TimeProvider.System, NullLogger<MusicHoarder.Api.Assets.AudioAssetRegistry>.Instance),
             options,
             NullLogger<WishlistDownloadProcessor>.Instance);
     }

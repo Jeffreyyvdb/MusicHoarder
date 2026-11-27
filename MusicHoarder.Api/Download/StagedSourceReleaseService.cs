@@ -37,6 +37,9 @@ public sealed record StagedSourceReleaseResult(
     /// <summary>The download and destination roots nest, so "under staging" and "in the library" overlap.</summary>
     public const string IdleRootsNested = "roots-nested";
 
+    /// <summary>Hosted storage keeps no destination copy, so a download's file is its only copy.</summary>
+    public const string IdleHostedStorage = "hosted-storage";
+
     public static StagedSourceReleaseResult Idle(string reason) => new(0, 0, 0, 0, 0, 0, 0, reason);
 }
 
@@ -79,6 +82,8 @@ public class StagedSourceReleaseService(
     public string? UnavailableReason()
     {
         var opts = options.Value;
+        if (opts.StorageMode == StorageMode.Hosted)
+            return StagedSourceReleaseResult.IdleHostedStorage;
         if (!opts.EnableWishlistDownloads)
             return StagedSourceReleaseResult.IdleDownloadsDisabled;
         if (string.IsNullOrWhiteSpace(opts.DownloadDirectory))
@@ -285,6 +290,7 @@ public class StagedSourceReleaseService(
         && song.DestinationPath is not null
         && song.PreviousDestinationPath is null
         && !song.IsSourceReleased
+        && song.AudioAssetId is null
         && song.DeletedAtUtc is null
         && string.Equals(song.SourcePath, c.SourcePath, StringComparison.Ordinal);
 
@@ -359,6 +365,8 @@ public class StagedSourceReleaseService(
                 && s.DeletedAtUtc == null
                 && !s.IsSynthetic
                 && s.SourceReleasedAtUtc == null
+                // An asset's file is the stored copy other libraries may point at; it is never released.
+                && s.AudioAssetId == null
                 && s.LibraryBuildStatus == LibraryBuildStatus.Done
                 && s.DestinationPath != null
                 && s.PreviousDestinationPath == null

@@ -13,9 +13,10 @@ public static class BackgroundJobIds
     public const string QualityGrading = "quality-grading";
     public const string EnrichmentRetries = "enrichment-retries";
     public const string AlbumFillAndFollows = "album-fill-follows";
+    public const string AudioAssets = "audio-assets";
 
     public static readonly IReadOnlyList<string> All =
-        [Lyrics, TranscriptionAllowance, CoverArt, MusicVideos, MusicVideoDownloads, QualityGrading, EnrichmentRetries, AlbumFillAndFollows];
+        [Lyrics, TranscriptionAllowance, CoverArt, MusicVideos, MusicVideoDownloads, QualityGrading, EnrichmentRetries, AlbumFillAndFollows, AudioAssets];
 }
 
 /// <summary>What a job is doing right now, as its service last reported it.</summary>

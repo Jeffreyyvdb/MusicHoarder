@@ -396,6 +396,9 @@ public class IndexService(
                 existing.DeletedAtUtc = null;
                 // A file is back at a path whose staged copy had been released: it is a source again.
                 existing.ClearSourceRelease();
+                // The bytes the asset was hashed from may be gone; the next hosted build or adoption
+                // pass links the file as it is now.
+                existing.AudioAssetId = null;
 
                 // File content changed — clear stale downstream state so fingerprint
                 // and enrichment re-run for this track.
