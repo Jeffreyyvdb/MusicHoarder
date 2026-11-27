@@ -86,8 +86,10 @@ const MAX_TIMES_SHOWN = 4;
 export function evidenceLine(item: CleanEditItem): string {
   const parts: string[] = [];
   if (item.verdict === 'mutedWords') {
-    const shown = item.mutedAtSeconds.slice(0, MAX_TIMES_SHOWN).map(clock).join(', ');
-    const more = item.mutedAtSeconds.length - MAX_TIMES_SHOWN;
+    // Two muted words in one second read the same on a clock.
+    const times = [...new Set(item.mutedAtSeconds.map(clock))];
+    const shown = times.slice(0, MAX_TIMES_SHOWN).join(', ');
+    const more = times.length - MAX_TIMES_SHOWN;
     parts.push(`Muted at ${shown}${more > 0 ? ` and ${more} more` : ''}`);
   } else {
     parts.push('Follows the clean edition');

@@ -37,7 +37,7 @@ describe('clean edits', () => {
     );
   });
 
-  it('lists where words are muted and counts the ones it leaves out', () => {
+  it('lists where words are muted once per second and counts the ones it leaves out', () => {
     const muted = item({
       verdict: 'mutedWords',
       references: [{ edition: 'explicit', id: 'deezer:4232303', correlation: 0.96 }],
@@ -45,7 +45,7 @@ describe('clean edits', () => {
     });
 
     expect(evidenceLine(muted)).toBe(
-      'Muted at 0:53, 0:53, 1:04, 1:10 and 2 more · Deezer previews'
+      'Muted at 0:53, 1:04, 1:10, 1:20 and 1 more · Deezer previews'
     );
   });
 
