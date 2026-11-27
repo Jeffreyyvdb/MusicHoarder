@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.Logging.Abstractions;
 using MusicHoarder.Api.Catalog;
 using MusicHoarder.Api.Endpoints;
@@ -52,6 +53,18 @@ public class CatalogAudioProxyTests
         Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
         Assert.Equal("bytes", context.Response.Headers.AcceptRanges.ToString());
         Assert.Equal(new byte[] { 1, 2, 3, 4, 5 }, CatalogTestData.BodyOf(context));
+    }
+
+    [Fact]
+    public async Task GooglevideoTimingOut_Answers502_NotAnUnhandledError()
+    {
+        var resolver = new FakeResolver(_ => CatalogTestData.Audio());
+        var handler = new FakeHandler(_ => throw new TaskCanceledException("no headers in time"));
+        var context = CatalogTestData.ContextWithBody();
+
+        var result = await Stream(context, resolver, handler);
+
+        Assert.Equal(StatusCodes.Status502BadGateway, Assert.IsAssignableFrom<IStatusCodeHttpResult>(result).StatusCode);
     }
 
     [Fact]
@@ -153,7 +166,7 @@ public class CatalogAudioProxyTests
     {
         public Task<ResolvedAudio> ResolveAsync(string deezerId, CancellationToken ct) => throw failure;
 
-        public void Invalidate(string deezerId)
+        public void Invalidate(string deezerId, string staleUrl)
         {
         }
     }

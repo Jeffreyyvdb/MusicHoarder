@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Auth.EndpointFilters;
+using MusicHoarder.Api.Catalog;
 using MusicHoarder.Api.Deezer;
 using MusicHoarder.Api.Discover;
 using MusicHoarder.Api.Download;
@@ -146,14 +147,14 @@ public static class ImportEndpoints
         DeezerCatalogTrack? deezerTrack = null;
         if (deezerTrackId is not null)
         {
-            if (!deezerTrackId.All(char.IsAsciiDigit))
+            if (!CatalogIds.IsValid(deezerTrackId))
                 return Results.BadRequest(new { error = "invalid_deezer_id", message = "A Deezer track id is digits only." });
 
             try
             {
                 deezerTrack = await deezer.LookupByIdAsync(deezerTrackId, ct);
             }
-            catch (Exception ex) when (ex is HttpRequestException or ProviderRateLimitedException)
+            catch (Exception ex) when (ex is HttpRequestException or ProviderRateLimitedException or OperationCanceledException && !ct.IsCancellationRequested)
             {
                 return Results.Json(
                     new { error = "catalog_unavailable", message = "Deezer could not be reached. Try again in a moment." },
@@ -202,12 +203,21 @@ public static class ImportEndpoints
         // Idempotent: re-importing the same track requeues the existing row instead of piling up
         // duplicates (matches the wishlist's per-track dedupe on sync) — including a video a
         // synced YouTube playlist already put on the wishlist.
-        var existing = await db.WishlistItems.FirstOrDefaultAsync(w =>
+        // The Deezer id is unique per owner, so the row holding it wins: requeueing another match
+        // and giving it this id would collide with that row. An ISRC is only a fallback key.
+        var candidates = await db.WishlistItems.Where(w =>
             (sourceUrl != null && w.SourceUrl == sourceUrl) ||
             (youTubeVideoId != null && w.YouTubeVideoId == youTubeVideoId) ||
             (spotifyTrackId != null && w.SpotifyTrackId == spotifyTrackId) ||
             (deezerTrackId != null && w.DeezerTrackId == deezerTrackId) ||
-            (dedupeIsrc != null && w.Isrc == dedupeIsrc), ct);
+            (dedupeIsrc != null && w.Isrc == dedupeIsrc)).ToListAsync(ct);
+        var existing =
+            candidates.FirstOrDefault(w => deezerTrackId != null && w.DeezerTrackId == deezerTrackId)
+            ?? candidates.FirstOrDefault(w =>
+                (sourceUrl != null && w.SourceUrl == sourceUrl) ||
+                (youTubeVideoId != null && w.YouTubeVideoId == youTubeVideoId) ||
+                (spotifyTrackId != null && w.SpotifyTrackId == spotifyTrackId))
+            ?? candidates.FirstOrDefault();
 
         WishlistItem item;
         if (existing is not null)

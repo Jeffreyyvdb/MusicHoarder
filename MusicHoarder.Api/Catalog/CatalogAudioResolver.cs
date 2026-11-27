@@ -3,6 +3,7 @@ using System.Web;
 using Microsoft.Extensions.Caching.Memory;
 using MusicHoarder.Api.Deezer;
 using MusicHoarder.Api.Download;
+using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Logging;
 
 namespace MusicHoarder.Api.Catalog;
@@ -13,8 +14,8 @@ public interface ICatalogAudioResolver
     /// <exception cref="CatalogResolveException">Nothing usable, or yt-dlp failed or is missing.</exception>
     Task<ResolvedAudio> ResolveAsync(string deezerId, CancellationToken ct);
 
-    /// <summary>Forgets a stream the CDN has stopped honouring.</summary>
-    void Invalidate(string deezerId);
+    /// <summary>Forgets <paramref name="staleUrl"/> if it is still the cached stream; a newer one stays.</summary>
+    void Invalidate(string deezerId, string staleUrl);
 }
 
 /// <summary>Finds an audio stream on YouTube for a track.</summary>
@@ -38,6 +39,10 @@ public sealed class CatalogAudioResolver(
 {
     private static readonly TimeSpan ResolveBudget = TimeSpan.FromSeconds(90);
 
+    // Skimming results starts a resolve per track; each is a yt-dlp search plus an extraction
+    // against YouTube, which also serves the wishlist downloads.
+    private readonly SemaphoreSlim ytDlpSlots = new(2);
+
     private readonly ConcurrentDictionary<string, Lazy<Task<ResolvedAudio>>> inflight = new(StringComparer.Ordinal);
 
     public Task<ResolvedAudio> ResolveAsync(string deezerId, CancellationToken ct)
@@ -46,11 +51,23 @@ public sealed class CatalogAudioResolver(
             return Task.FromResult(hit);
 
         // A caller that leaves does not cancel the shared run; the next caller still wants it.
-        var run = inflight.GetOrAdd(deezerId, id => new Lazy<Task<ResolvedAudio>>(() => ResolveCoreAsync(id))).Value;
+        var run = inflight.GetOrAdd(deezerId, id => new Lazy<Task<ResolvedAudio>>(() => StartResolve(id))).Value;
         return run.WaitAsync(ct);
     }
 
-    public void Invalidate(string deezerId) => cache.Remove(CacheKey(deezerId));
+    public void Invalidate(string deezerId, string staleUrl)
+    {
+        if (cache.TryGetValue(CacheKey(deezerId), out ResolvedAudio? hit) && hit?.StreamUrl == staleUrl)
+            cache.Remove(CacheKey(deezerId));
+    }
+
+    private Task<ResolvedAudio> StartResolve(string deezerId)
+    {
+        var run = ResolveCoreAsync(deezerId);
+        // Every waiter may have left before it fails; observe the fault so it is not reported unobserved.
+        _ = run.ContinueWith(t => _ = t.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
+        return run;
+    }
 
     private async Task<ResolvedAudio> ResolveCoreAsync(string deezerId)
     {
@@ -58,11 +75,30 @@ public sealed class CatalogAudioResolver(
         {
             using var budget = new CancellationTokenSource(ResolveBudget);
 
-            var track = await deezer.LookupByIdAsync(deezerId, budget.Token)
-                ?? throw new CatalogResolveException(CatalogResolveFailure.NotFound, "Deezer has no such track.");
+            DeezerCatalogTrack? track;
+            try
+            {
+                track = await deezer.LookupByIdAsync(deezerId, budget.Token);
+            }
+            catch (Exception ex) when (ex is HttpRequestException or ProviderRateLimitedException or TimeoutException)
+            {
+                logger.LogWarning(ex, "Deezer lookup failed for catalog track {DeezerId}", LogSanitizer.ForLog(deezerId));
+                throw new CatalogResolveException(CatalogResolveFailure.CatalogUnavailable, "Deezer could not be reached. Try again in a moment.");
+            }
+            if (track is null)
+                throw new CatalogResolveException(CatalogResolveFailure.NotFound, "Deezer has no such track.");
 
             var request = new DownloadRequest(track.Artist, track.Title, track.AlbumName, track.Isrc, track.DurationMs, DestinationDirectory: "");
-            var audio = await locator.LocateAsync(request, budget.Token);
+            ResolvedAudio audio;
+            await ytDlpSlots.WaitAsync(budget.Token);
+            try
+            {
+                audio = await locator.LocateAsync(request, budget.Token);
+            }
+            finally
+            {
+                ytDlpSlots.Release();
+            }
 
             var lifetime = AudioUrlExpiry.CacheLifetime(audio.StreamUrl, time.GetUtcNow());
             if (lifetime > TimeSpan.Zero)

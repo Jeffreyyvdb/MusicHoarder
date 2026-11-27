@@ -20,12 +20,13 @@ internal sealed class FakeHandler(Func<HttpRequestMessage, HttpResponseMessage> 
 
 internal sealed class FakeLocator(Func<DownloadRequest, ResolvedAudio> locate) : ICatalogAudioLocator
 {
-    public int Calls { get; private set; }
+    private int calls;
+    public int Calls => calls;
     public TaskCompletionSource? Gate { get; init; }
 
     public async Task<ResolvedAudio> LocateAsync(DownloadRequest track, CancellationToken ct)
     {
-        Calls++;
+        Interlocked.Increment(ref calls);
         if (Gate is not null)
             await Gate.Task;
         return locate(track);
@@ -39,7 +40,7 @@ internal sealed class FakeResolver(Func<int, ResolvedAudio> resolve) : ICatalogA
 
     public Task<ResolvedAudio> ResolveAsync(string deezerId, CancellationToken ct) => Task.FromResult(resolve(Resolves++));
 
-    public void Invalidate(string deezerId) => Invalidations++;
+    public void Invalidate(string deezerId, string staleUrl) => Invalidations++;
 }
 
 internal static class CatalogTestData

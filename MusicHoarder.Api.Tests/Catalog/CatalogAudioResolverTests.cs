@@ -5,15 +5,17 @@ using Microsoft.Extensions.Logging.Abstractions;
 using MusicHoarder.Api.Catalog;
 using MusicHoarder.Api.Deezer;
 using MusicHoarder.Api.Endpoints;
+using MusicHoarder.Api.Enrichment;
 using MusicHoarder.Api.Tests.Deezer;
 
 namespace MusicHoarder.Api.Tests.Catalog;
 
 public class CatalogAudioResolverTests
 {
-    private static (CatalogAudioResolver Resolver, FakeLocator Locator) Build(FakeLocator? locator = null, bool knownTrack = true)
+    private static (CatalogAudioResolver Resolver, FakeLocator Locator) Build(
+        FakeLocator? locator = null, bool knownTrack = true, Exception? lookupFailure = null)
     {
-        var deezer = new FakeDeezerCatalogService();
+        var deezer = new FakeDeezerCatalogService { LookupFailure = lookupFailure };
         if (knownTrack)
             deezer.TracksById["42"] = new DeezerCatalogTrack("42", "Harder", "Daft Punk", "Discovery", 2001, 4, 224_000, "GBDUW0000059");
         locator ??= new FakeLocator(_ => CatalogTestData.Audio());
@@ -68,11 +70,70 @@ public class CatalogAudioResolverTests
     {
         var (resolver, locator) = Build();
 
-        await resolver.ResolveAsync("42", default);
-        resolver.Invalidate("42");
+        var stale = await resolver.ResolveAsync("42", default);
+        resolver.Invalidate("42", stale.StreamUrl);
         await resolver.ResolveAsync("42", default);
 
         Assert.Equal(2, locator.Calls);
+    }
+
+    [Fact]
+    public async Task InvalidatingAnOlderUrl_KeepsTheNewerStream()
+    {
+        var (resolver, locator) = Build();
+
+        await resolver.ResolveAsync("42", default);
+        resolver.Invalidate("42", "https://rr9.googlevideo.com/videoplayback?id=old");
+        await resolver.ResolveAsync("42", default);
+
+        Assert.Equal(1, locator.Calls);
+    }
+
+    [Theory]
+    [InlineData("rate-limited")]
+    [InlineData("unreachable")]
+    public async Task DeezerFailingTheLookup_IsReportedAsCatalogUnavailable(string how)
+    {
+        Exception failure = how == "rate-limited"
+            ? new ProviderRateLimitedException(TimeSpan.FromSeconds(5))
+            : new HttpRequestException("connection refused");
+        var (resolver, locator) = Build(lookupFailure: failure);
+
+        var ex = await Assert.ThrowsAsync<CatalogResolveException>(() => resolver.ResolveAsync("42", default));
+
+        Assert.Equal(CatalogResolveFailure.CatalogUnavailable, ex.Kind);
+        Assert.Equal(0, locator.Calls);
+        var result = Assert.IsAssignableFrom<IStatusCodeHttpResult>(CatalogEndpoints.ResolveFailure(ex));
+        Assert.Equal(StatusCodes.Status502BadGateway, result.StatusCode);
+    }
+
+    [Fact]
+    public async Task AtMostTwoYtDlpRuns_GoAtOnce()
+    {
+        var gate = new TaskCompletionSource();
+        var running = 0;
+        var peak = 0;
+        var locator = new FakeLocator(_ =>
+        {
+            peak = Math.Max(peak, Interlocked.Increment(ref running));
+            gate.Task.Wait();
+            Interlocked.Decrement(ref running);
+            return CatalogTestData.Audio();
+        });
+        var deezer = new FakeDeezerCatalogService();
+        foreach (var id in new[] { "1", "2", "3", "4" })
+            deezer.TracksById[id] = new DeezerCatalogTrack(id, "Song " + id, "Artist", "Album", 2001, 1, 200_000, null);
+        var resolver = new CatalogAudioResolver(deezer, locator, new MemoryCache(new MemoryCacheOptions()), TimeProvider.System,
+            NullLogger<CatalogAudioResolver>.Instance);
+
+        var calls = new[] { "1", "2", "3", "4" }.Select(id => Task.Run(() => resolver.ResolveAsync(id, default))).ToList();
+        await Task.Delay(300);
+        var peakWhileBlocked = peak;
+        gate.SetResult();
+        await Task.WhenAll(calls);
+
+        Assert.Equal(2, peakWhileBlocked);
+        Assert.Equal(4, locator.Calls);
     }
 
     [Fact]

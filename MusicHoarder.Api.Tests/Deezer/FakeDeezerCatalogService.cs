@@ -49,8 +49,11 @@ public sealed class FakeDeezerCatalogService : IDeezerCatalogService
         return Task.FromResult(PreviewUrls.GetValueOrDefault(id));
     }
 
+    /// <summary>Thrown by a lookup by id when set, as a transport failure or rate limit would.</summary>
+    public Exception? LookupFailure { get; set; }
+
     public Task<DeezerCatalogTrack?> LookupByIdAsync(string id, CancellationToken ct = default) =>
-        Task.FromResult(TracksById.GetValueOrDefault(id));
+        LookupFailure is { } failure ? Task.FromException<DeezerCatalogTrack?>(failure) : Task.FromResult(TracksById.GetValueOrDefault(id));
 
     public Task<IReadOnlyList<DeezerAlbumCandidate>> SearchAlbumCandidatesAsync(string artist, string album, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<DeezerAlbumCandidate>>([]);

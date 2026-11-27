@@ -87,6 +87,7 @@ public class ImportDeezerTrackTests
     [InlineData("12ab")]
     [InlineData("1.5")]
     [InlineData("../1")]
+    [InlineData("12345678901234567890")]
     public async Task ANonNumericDeezerId_Answers400(string id)
     {
         await using var db = NewContext();
@@ -131,6 +132,31 @@ public class ImportDeezerTrackTests
         Assert.Equal("3135556", only.DeezerTrackId);
         Assert.Equal("spotify1", only.SpotifyTrackId);
         Assert.Equal(WishlistItemStatus.Pending, only.Status);
+    }
+
+    [Fact]
+    public async Task TheRowHoldingTheDeezerId_IsRequeued_NotAnotherRowWithTheSameIsrc()
+    {
+        await using var db = NewContext();
+        db.WishlistItems.Add(new WishlistItem
+        {
+            OwnerUserId = WellKnownUsers.OwnerId, SpotifyTrackId = "spotify1", Isrc = "GBDUW0000059",
+            Title = "Harder", Artist = "Daft Punk", Status = WishlistItemStatus.Downloaded,
+        });
+        db.WishlistItems.Add(new WishlistItem
+        {
+            OwnerUserId = WellKnownUsers.OwnerId, DeezerTrackId = "3135556", Isrc = "GBDUW0000059",
+            Title = "Harder", Artist = "Daft Punk", Status = WishlistItemStatus.Failed,
+        });
+        await db.SaveChangesAsync();
+
+        await Import(Body("3135556"), db, DeezerWith());
+
+        var spotifyRow = await db.WishlistItems.SingleAsync(w => w.SpotifyTrackId == "spotify1");
+        var deezerRow = await db.WishlistItems.SingleAsync(w => w.DeezerTrackId == "3135556");
+        Assert.Null(spotifyRow.DeezerTrackId);
+        Assert.Equal(WishlistItemStatus.Downloaded, spotifyRow.Status);
+        Assert.Equal(WishlistItemStatus.Pending, deezerRow.Status);
     }
 
     [Fact]

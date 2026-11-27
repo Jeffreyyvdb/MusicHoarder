@@ -100,7 +100,7 @@ public static class CatalogEndpoints
         {
             clip = await previews.GetClipAsync(deezerId, ct);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or ProviderRateLimitedException && !ct.IsCancellationRequested)
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or ProviderRateLimitedException && !ct.IsCancellationRequested)
         {
             logger.LogWarning(ex, "Could not fetch the preview clip for {DeezerId}", LogSanitizer.ForLog(deezerId));
             return Results.Json(
@@ -149,6 +149,8 @@ public static class CatalogEndpoints
     {
         CatalogResolveFailure.NotFound =>
             Results.NotFound(new { error = "not_found", message = ex.Message }),
+        CatalogResolveFailure.CatalogUnavailable =>
+            Results.Json(new { error = "catalog_unavailable", message = ex.Message }, statusCode: StatusCodes.Status502BadGateway),
         CatalogResolveFailure.YtDlpMissing =>
             Results.Json(new { error = "youtube_unavailable", message = ex.Message }, statusCode: StatusCodes.Status503ServiceUnavailable),
         _ =>

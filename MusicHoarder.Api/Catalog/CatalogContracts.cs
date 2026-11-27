@@ -49,6 +49,8 @@ public enum CatalogResolveFailure
     NotFound,
     /// <summary>yt-dlp ran and failed.</summary>
     YtDlpFailed,
+    /// <summary>Deezer could not be reached or refused the lookup.</summary>
+    CatalogUnavailable,
     /// <summary>The yt-dlp binary is not there.</summary>
     YtDlpMissing,
 }

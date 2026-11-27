@@ -42,7 +42,7 @@ internal static class CatalogAudioProxy
                     logger.LogInformation("googlevideo answered {Status} for catalog track {DeezerId}; resolving again", (int)upstream.StatusCode, LogSanitizer.ForLog(deezerId));
                     upstream.Dispose();
                     upstream = null;
-                    resolver.Invalidate(deezerId);
+                    resolver.Invalidate(deezerId, audio.StreamUrl);
                     continue;
                 }
 
@@ -68,7 +68,7 @@ internal static class CatalogAudioProxy
             // The listener skipped or left; nothing to answer.
             return Results.Empty;
         }
-        catch (HttpRequestException ex)
+        catch (Exception ex) when (ex is HttpRequestException or IOException or OperationCanceledException)
         {
             logger.LogWarning(ex, "Could not reach googlevideo for catalog track {DeezerId}", LogSanitizer.ForLog(deezerId));
             if (context.Response.HasStarted)
