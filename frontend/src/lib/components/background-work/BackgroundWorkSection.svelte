@@ -27,6 +27,7 @@
     : undefined}
   contentClass={isMobile.current ? undefined : 'overflow-visible rounded-none bg-transparent'}
   data-slot="background-work"
+  data-mh-cards={isMobile.current ? undefined : ''}
 >
   {#if summary}
     {#if isMobile.current}
