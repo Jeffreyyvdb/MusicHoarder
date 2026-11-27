@@ -1,3 +1,4 @@
+using MusicHoarder.Api.BackgroundWork;
 using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 
@@ -77,4 +78,27 @@ public static class MusicVideoAutoPick
         => hasError || emptySearches > 0 || candidates.Count == 0
             ? MusicVideoSearchOutcome.Empty
             : OutcomeOf(candidates, artist, durationMs, durationSeconds, gates);
+
+    /// <summary>
+    /// Evaluates a stored candidate list once, returning both the chosen clip (if any) and the
+    /// <see cref="MusicVideoVerdict"/> remembered in <see cref="MusicVideoOutcomeMemo"/>. Shared by
+    /// the prefetch drain and the Background work sheet so their cached verdicts can never drift.
+    /// </summary>
+    public static (CachedVideoCandidate? Pick, MusicVideoVerdict Verdict) Evaluate(
+        IReadOnlyList<CachedVideoCandidate> candidates,
+        string? artist,
+        int? durationMs,
+        int? durationSeconds,
+        MusicVideoPickGates gates)
+    {
+        if (candidates.Count == 0)
+            return (null, new MusicVideoVerdict(MusicVideoSearchOutcome.Empty, null, null));
+
+        var pick = Choose(candidates, artist, durationMs, durationSeconds, gates);
+        var verdict = new MusicVideoVerdict(
+            pick is null ? MusicVideoSearchOutcome.NoClip : MusicVideoSearchOutcome.Clip,
+            candidates.Max(c => c.Score),
+            pick?.EstimatedBytes);
+        return (pick, verdict);
+    }
 }

@@ -150,4 +150,51 @@ public static class SongOriginResolver
             })
             .ThenBy(l => l.SpotifyAddedAtUtc ?? DateTime.MaxValue)
             .First();
+
+    /// <summary>
+    /// Whether this song belongs in "My tracks" — the music the owner chose directly rather than what
+    /// the pipeline fetched for a collection (playlists, album completion, artist discographies,
+    /// followed artists' releases) or synced from another instance.
+    /// <para>
+    /// Mirrors <c>isTrackListSong</c> in <c>frontend/src/lib/track-list-view.svelte.ts</c> for
+    /// owner-owned rows: local files count once built or while waiting in Tag review; downloads and
+    /// synced rows must be built and either hearted/Spotify-liked or not fetched for a collection.
+    /// </para>
+    /// </summary>
+    public static bool IsInMyTracks(
+        SongOrigin origin,
+        SongAcquisitionIntent acquisitionIntent,
+        bool isBuilt,
+        EnrichmentStatus enrichmentStatus,
+        bool isLiked,
+        bool isSpotifyLiked)
+    {
+        if (origin.Kind == SongOriginKind.Scanned)
+            return isBuilt || enrichmentStatus == EnrichmentStatus.NeedsReview;
+        if (!isBuilt)
+            return false;
+        if (isLiked || isSpotifyLiked)
+            return true;
+        if (origin.Kind == SongOriginKind.Synced || acquisitionIntent == SongAcquisitionIntent.AlbumFill)
+            return false;
+        return !IsFetchedForCollection(origin.Source);
+    }
+
+    /// <summary>
+    /// Whether <paramref name="source"/> is a pipeline collection rather than an individual track the
+    /// owner chose. <c>SongOriginTests.IsFetchedForCollection_DecidesEveryOriginSource</c> pins every
+    /// <see cref="SongOriginSource"/> value so adding a new origin forces a decision here.
+    /// </summary>
+    public static bool IsFetchedForCollection(SongOriginSource source) => source switch
+    {
+        SongOriginSource.None or SongOriginSource.SpotifyLiked or SongOriginSource.DirectUrl => false,
+        SongOriginSource.SpotifyPlaylist
+            or SongOriginSource.DeezerPlaylist
+            or SongOriginSource.YouTubePlaylist
+            or SongOriginSource.AlbumCompletion
+            or SongOriginSource.ArtistRequest
+            or SongOriginSource.FollowedArtist => true,
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(source), source, "Decide whether this origin belongs in My tracks."),
+    };
 }

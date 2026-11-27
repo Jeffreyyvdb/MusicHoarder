@@ -11,6 +11,7 @@ using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
 using MusicHoarder.Api.Settings;
 using MusicHoarder.Api.Storage;
+using MusicHoarder.Api.Sync;
 using MusicHoarder.Api.Tests.Auth;
 using MusicHoarder.Api.Tests.Download;
 
@@ -24,6 +25,7 @@ internal sealed class BackgroundWorkHarness : IDisposable
     public LyricsTimingOptions Lyrics { get; } = new();
     public LyricsTranscriptionOptions Transcription { get; } = new();
     public MusicEnricherOptions Enricher { get; } = new() { SourceDirectory = "/src", DestinationDirectory = "/dst" };
+    public SyncOptions Sync { get; } = new();
     public QualityGradingOptions Grading { get; } = new() { ApiKey = "key" };
     public StubSettings Settings { get; } = new();
     public StubTranscriber Transcriber { get; } = new();
@@ -47,8 +49,10 @@ internal sealed class BackgroundWorkHarness : IDisposable
         services.AddSingleton<IOptionsMonitor<LyricsTimingOptions>>(new FixedMonitor<LyricsTimingOptions>(Lyrics));
         services.AddSingleton<IOptionsMonitor<LyricsTranscriptionOptions>>(new FixedMonitor<LyricsTranscriptionOptions>(Transcription));
         services.AddSingleton<IOptionsMonitor<MusicEnricherOptions>>(new FixedMonitor<MusicEnricherOptions>(Enricher));
+        services.AddSingleton<IOptionsMonitor<SyncOptions>>(new FixedMonitor<SyncOptions>(Sync));
         services.AddSingleton<IOptionsMonitor<QualityGradingOptions>>(new FixedMonitor<QualityGradingOptions>(Grading));
         services.AddSingleton<IOptions<MusicEnricherOptions>>(Microsoft.Extensions.Options.Options.Create(Enricher));
+        services.AddSingleton<IOptions<SyncOptions>>(Microsoft.Extensions.Options.Options.Create(Sync));
         services.AddSingleton<IRuntimeSettingsService>(Settings);
         services.AddSingleton<IFreeDiskSpace>(Disk);
         services.AddSingleton(Storage);

@@ -46,8 +46,51 @@ public class MusicVideoBackgroundService(
             catch (Exception ex)
             {
                 logger.LogError(ex, "Music video worker failed for song {SongId} ({Kind})", work.SongId, work.Kind);
+                if (work.Kind == MusicVideoWorkKind.Fetch)
+                    await TrySettleFailedFetchAsync(work.SongId, ex.Message, stoppingToken);
                 status?.Failing(BackgroundJobIds.MusicVideoDownloads, ex, null);
             }
+        }
+    }
+
+    /// <summary>
+    /// Settles a <see cref="MusicVideoStatus.Fetching"/> row that will not finish (song soft-deleted,
+    /// or an unhandled failure mid-fetch): preserves any existing playable file as Ready so an
+    /// interrupted refetch neither strands the MP4 on disk nor loses a restored song's video, and
+    /// marks rows without a file Failed so they stop holding a download slot or re-enqueuing on startup.
+    /// </summary>
+    internal static void SettleInterruptedFetch(SongMusicVideo row, string reason)
+    {
+        if (row.FilePath is not null && File.Exists(row.FilePath))
+        {
+            row.Status = MusicVideoStatus.Ready;
+            row.LastError = reason;
+        }
+        else
+        {
+            row.Status = MusicVideoStatus.Failed;
+            row.LastError = reason;
+        }
+    }
+
+    private async Task TrySettleFailedFetchAsync(int songId, string error, CancellationToken ct)
+    {
+        try
+        {
+            using var scope = scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
+            var row = await db.SongMusicVideos
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(v => v.SongId == songId && v.Status == MusicVideoStatus.Fetching, ct);
+            if (row is null)
+                return;
+
+            SettleInterruptedFetch(row, error.Length > 2048 ? error[..2048] : error);
+            await db.SaveChangesAsync(ct);
+        }
+        catch (Exception settleEx) when (settleEx is not OperationCanceledException)
+        {
+            logger.LogWarning(settleEx, "Could not settle failed music video fetch row for song {SongId}", songId);
         }
     }
 
@@ -62,17 +105,34 @@ public class MusicVideoBackgroundService(
             using var scope = scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<MusicHoarderDbContext>();
             // IgnoreQueryFilters: background scope → the tenant filter resolves to Guid.Empty and
-            // would hide every row.
+            // would hide every row. Settle any Fetching row left behind on a soft-deleted song
+            // (preserving an existing file if present) so it does not re-enqueue on every restart.
             var stale = await db.SongMusicVideos
                 .IgnoreQueryFilters()
                 .Where(v => v.Status == MusicVideoStatus.Fetching)
-                .Select(v => new { v.SongId, v.YouTubeVideoId })
+                .Select(v => new { v.Id, v.SongId, v.YouTubeVideoId, Deleted = v.Song.DeletedAtUtc != null })
                 .ToListAsync(ct);
             if (stale.Count == 0)
                 return;
 
-            logger.LogInformation("Re-enqueued {Count} unfinished music video fetch(es) on startup", stale.Count);
-            foreach (var row in stale)
+            var deletedIds = stale.Where(r => r.Deleted).Select(r => r.Id).ToList();
+            if (deletedIds.Count > 0)
+            {
+                var toSettle = await db.SongMusicVideos
+                    .IgnoreQueryFilters()
+                    .Where(v => deletedIds.Contains(v.Id))
+                    .ToListAsync(ct);
+                foreach (var row in toSettle)
+                    SettleInterruptedFetch(row, "song was removed before fetch finished");
+                await db.SaveChangesAsync(ct);
+            }
+
+            var live = stale.Where(r => !r.Deleted).ToList();
+            if (live.Count == 0)
+                return;
+
+            logger.LogInformation("Re-enqueued {Count} unfinished music video fetch(es) on startup", live.Count);
+            foreach (var row in live)
             {
                 var url = row.YouTubeVideoId is null ? null : ImportUrlParser.YouTubeWatchUrl(row.YouTubeVideoId);
                 channel.Enqueue(new MusicVideoWorkItem(row.SongId, MusicVideoWorkKind.Fetch, url));
@@ -120,7 +180,7 @@ public class MusicVideoBackgroundService(
         }
     }
 
-    private async Task ProcessAsync(
+    internal async Task ProcessAsync(
         MusicHoarderDbContext db, MusicVideoAlignmentService alignment, MusicVideoWorkItem work, CancellationToken ct)
     {
         var song = await db.Songs
@@ -128,6 +188,17 @@ public class MusicVideoBackgroundService(
             .FirstOrDefaultAsync(s => s.Id == work.SongId && s.DeletedAtUtc == null, ct);
         if (song is null)
         {
+            // Settle any Fetching row left behind when the song was soft-deleted after enqueue,
+            // preserving an existing playable file rather than stranding it on disk.
+            var orphaned = await db.SongMusicVideos
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(v => v.SongId == work.SongId && v.Status == MusicVideoStatus.Fetching, ct);
+            if (orphaned is not null)
+            {
+                SettleInterruptedFetch(orphaned, "song was removed before fetch finished");
+                await db.SaveChangesAsync(ct);
+            }
+            channel.EndFetch(work.SongId);
             logger.LogInformation("Skipping music video work for missing/deleted song {SongId}", work.SongId);
             return;
         }
@@ -139,7 +210,15 @@ public class MusicVideoBackgroundService(
         switch (work.Kind)
         {
             case MusicVideoWorkKind.Fetch:
-                await FetchAsync(db, alignment, song, video, work.ExplicitUrl, ct);
+                channel.BeginFetch(work.SongId);
+                try
+                {
+                    await FetchAsync(db, alignment, song, video, work.ExplicitUrl, ct);
+                }
+                finally
+                {
+                    channel.EndFetch(work.SongId);
+                }
                 break;
 
             case MusicVideoWorkKind.Align:

@@ -28,15 +28,18 @@ public sealed class SpotifySaveDates
     private readonly Dictionary<int, WishlistLink> _links;
     private readonly Dictionary<int, DateTime> _bySongId;
     private readonly Dictionary<string, DateTime> _bySpotifyId;
+    private readonly Dictionary<(Guid OwnerId, string SpotifyTrackId), DateTime> _byOwnerAndSpotifyId;
 
     private SpotifySaveDates(
         Dictionary<int, WishlistLink> links,
         Dictionary<int, DateTime> bySongId,
-        Dictionary<string, DateTime> bySpotifyId)
+        Dictionary<string, DateTime> bySpotifyId,
+        Dictionary<(Guid OwnerId, string SpotifyTrackId), DateTime> byOwnerAndSpotifyId)
     {
         _links = links;
         _bySongId = bySongId;
         _bySpotifyId = bySpotifyId;
+        _byOwnerAndSpotifyId = byOwnerAndSpotifyId;
     }
 
     /// <summary>
@@ -89,7 +92,7 @@ public sealed class SpotifySaveDates
         var likedRows = await matchRows
             .Where(m => m.Source == SpotifyLibraryComparisonService.SourceLikedSync
                 && m.SpotifyAddedAtUtc != null)
-            .Select(m => new { m.SpotifyTrackId, m.MatchedSongId, AddedAt = m.SpotifyAddedAtUtc!.Value })
+            .Select(m => new { m.OwnerUserId, m.SpotifyTrackId, m.MatchedSongId, AddedAt = m.SpotifyAddedAtUtc!.Value })
             .ToListAsync(ct);
 
         var bySongId = likedRows
@@ -99,8 +102,11 @@ public sealed class SpotifySaveDates
         var bySpotifyId = likedRows
             .GroupBy(m => m.SpotifyTrackId, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.Min(m => m.AddedAt), StringComparer.OrdinalIgnoreCase);
+        var byOwnerAndSpotifyId = likedRows
+            .GroupBy(m => (m.OwnerUserId, m.SpotifyTrackId), OwnerSpotifyKeyComparer.Instance)
+            .ToDictionary(g => g.Key, g => g.Min(m => m.AddedAt), OwnerSpotifyKeyComparer.Instance);
 
-        return new SpotifySaveDates(links, bySongId, bySpotifyId);
+        return new SpotifySaveDates(links, bySongId, bySpotifyId, byOwnerAndSpotifyId);
     }
 
     /// <summary>The wishlist link that best describes a song, for provenance resolution. Null when
@@ -126,6 +132,34 @@ public sealed class SpotifySaveDates
         return Earliest(Earliest(linkAdded, bySong), byId);
     }
 
+    /// <summary>
+    /// Owner-scoped counterpart to <see cref="SaveDateFor(int, string?, DateTime?)"/> for callers
+    /// that loaded with <c>allTenants: true</c>: matches by <paramref name="spotifyId"/> only against
+    /// <paramref name="ownerUserId"/>'s own liked-songs rows, so one account's like cannot spill onto
+    /// another account's copy of the same recording.
+    /// </summary>
+    public DateTime? SaveDateFor(Guid ownerUserId, int songId, string? spotifyId, DateTime? linkAdded)
+    {
+        var bySong = _bySongId.TryGetValue(songId, out var songDate) ? songDate : (DateTime?)null;
+        var byId = spotifyId is not null
+            && _byOwnerAndSpotifyId.TryGetValue((ownerUserId, spotifyId), out var idDate)
+            ? idDate
+            : (DateTime?)null;
+        return Earliest(Earliest(linkAdded, bySong), byId);
+    }
+
     private static DateTime? Earliest(DateTime? a, DateTime? b) =>
         a is null ? b : b is null ? a : a < b ? a : b;
+
+    private sealed class OwnerSpotifyKeyComparer : IEqualityComparer<(Guid OwnerId, string SpotifyTrackId)>
+    {
+        public static readonly OwnerSpotifyKeyComparer Instance = new();
+
+        public bool Equals((Guid OwnerId, string SpotifyTrackId) x, (Guid OwnerId, string SpotifyTrackId) y) =>
+            x.OwnerId == y.OwnerId
+            && string.Equals(x.SpotifyTrackId, y.SpotifyTrackId, StringComparison.OrdinalIgnoreCase);
+
+        public int GetHashCode((Guid OwnerId, string SpotifyTrackId) obj) =>
+            HashCode.Combine(obj.OwnerId, StringComparer.OrdinalIgnoreCase.GetHashCode(obj.SpotifyTrackId));
+    }
 }

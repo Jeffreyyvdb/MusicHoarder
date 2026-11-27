@@ -155,13 +155,15 @@ public class MusicVideoDownloadsInsightTests
             var hasVideo = Add(db, 5);
             var renamed = Found(Add(db, 6), at, null, Confident());
             renamed.QueryKey = "an older search";
+            var overdue = Found(Add(db, 7), at, h.Now.AddHours(-1), Confident());
             db.SongVideoCandidateSets.AddRange(
                 Found(Add(db, 1), at, null, Confident(bytes: 100_000_000)),
                 Found(Add(db, 2), at, null, Confident(bytes: 50_000_000)),
                 Found(Add(db, 3), at, null, Weak()),
                 Found(failedVideo, at, null, Confident()),
                 Found(hasVideo, at, null, Confident()),
-                renamed);
+                renamed,
+                overdue);
             db.SongMusicVideos.AddRange(
                 Video(failedVideo, MusicVideoStatus.Failed, MusicVideoPick.Automatic),
                 Video(hasVideo, MusicVideoStatus.Ready, MusicVideoPick.Requested, h.Now));
