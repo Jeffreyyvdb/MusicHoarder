@@ -159,6 +159,31 @@ public class ImportDeezerTrackTests
         Assert.Equal(WishlistItemStatus.Pending, deezerRow.Status);
     }
 
+    [Theory]
+    [InlineData(WishlistItemStatus.Pending)]
+    [InlineData(WishlistItemStatus.Downloading)]
+    [InlineData(WishlistItemStatus.Downloaded)]
+    [InlineData(WishlistItemStatus.SkippedOwned)]
+    public async Task ARecordingAlreadyOnTheWishlistByIsrc_IsLeftAsItIs_AndGainsTheDeezerId(WishlistItemStatus status)
+    {
+        await using var db = NewContext();
+        var updated = new DateTime(2026, 11, 1, 0, 0, 0, DateTimeKind.Utc);
+        db.WishlistItems.Add(new WishlistItem
+        {
+            OwnerUserId = WellKnownUsers.OwnerId, SpotifyTrackId = "spotify1", Isrc = "GBDUW0000059",
+            Title = "Harder", Artist = "Daft Punk", Status = status, UpdatedAtUtc = updated,
+        });
+        await db.SaveChangesAsync();
+
+        var result = await Import(Body("3135556"), db, DeezerWith());
+
+        var only = await db.WishlistItems.SingleAsync();
+        Assert.Equal(status, only.Status);
+        Assert.Equal(updated, only.UpdatedAtUtc);
+        Assert.Equal("3135556", only.DeezerTrackId);
+        Assert.Equal(StatusCodes.Status200OK, Assert.IsAssignableFrom<IStatusCodeHttpResult>(result).StatusCode);
+    }
+
     [Fact]
     public async Task AnIsrcTheClientTyped_IsNotADedupeKey()
     {

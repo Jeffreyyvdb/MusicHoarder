@@ -219,6 +219,22 @@ public static class ImportEndpoints
                 (spotifyTrackId != null && w.SpotifyTrackId == spotifyTrackId))
             ?? candidates.FirstOrDefault();
 
+        // A row found only through the ISRC is another import of the same recording (a Spotify like,
+        // a playlist). Requeueing it would restart a download in progress or fetch a finished one
+        // again, so it is only taken over when its download came to nothing.
+        var matchedByIsrcOnly = existing is not null
+            && !(deezerTrackId != null && existing.DeezerTrackId == deezerTrackId)
+            && !(sourceUrl != null && existing.SourceUrl == sourceUrl)
+            && !(youTubeVideoId != null && existing.YouTubeVideoId == youTubeVideoId)
+            && !(spotifyTrackId != null && existing.SpotifyTrackId == spotifyTrackId);
+        if (existing is not null && matchedByIsrcOnly
+            && existing.Status is not (WishlistItemStatus.Failed or WishlistItemStatus.NotFound))
+        {
+            existing.DeezerTrackId ??= deezerTrackId;
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new { wishlistItemId = existing.Id, jobStarted = false, jobId = (Guid?)null, status = existing.Status.ToString() });
+        }
+
         WishlistItem item;
         if (existing is not null)
         {
@@ -271,7 +287,7 @@ public static class ImportEndpoints
         var jobStarted = jobManager.TryStartJob(JobType.Download, out var jobId, out _);
 
         return Results.Json(
-            new { wishlistItemId = item.Id, jobStarted, jobId = jobStarted ? jobId : (Guid?)null },
+            new { wishlistItemId = item.Id, jobStarted, jobId = jobStarted ? jobId : (Guid?)null, status = item.Status.ToString() },
             statusCode: StatusCodes.Status202Accepted);
     }
 

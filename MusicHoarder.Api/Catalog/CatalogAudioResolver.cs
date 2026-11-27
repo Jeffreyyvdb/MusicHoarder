@@ -80,7 +80,9 @@ public sealed class CatalogAudioResolver(
             {
                 track = await deezer.LookupByIdAsync(deezerId, budget.Token);
             }
-            catch (Exception ex) when (ex is HttpRequestException or ProviderRateLimitedException or TimeoutException)
+            // The Deezer client's own timeout surfaces as a cancellation that is not this run's budget.
+            catch (Exception ex) when (ex is HttpRequestException or ProviderRateLimitedException or TimeoutException
+                || ex is OperationCanceledException && !budget.IsCancellationRequested)
             {
                 logger.LogWarning(ex, "Deezer lookup failed for catalog track {DeezerId}", LogSanitizer.ForLog(deezerId));
                 throw new CatalogResolveException(CatalogResolveFailure.CatalogUnavailable, "Deezer could not be reached. Try again in a moment.");

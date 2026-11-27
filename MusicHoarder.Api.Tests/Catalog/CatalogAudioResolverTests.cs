@@ -92,11 +92,15 @@ public class CatalogAudioResolverTests
     [Theory]
     [InlineData("rate-limited")]
     [InlineData("unreachable")]
+    [InlineData("timed-out")]
     public async Task DeezerFailingTheLookup_IsReportedAsCatalogUnavailable(string how)
     {
-        Exception failure = how == "rate-limited"
-            ? new ProviderRateLimitedException(TimeSpan.FromSeconds(5))
-            : new HttpRequestException("connection refused");
+        Exception failure = how switch
+        {
+            "rate-limited" => new ProviderRateLimitedException(TimeSpan.FromSeconds(5)),
+            "timed-out" => new TaskCanceledException("HttpClient.Timeout elapsed", new TimeoutException()),
+            _ => new HttpRequestException("connection refused"),
+        };
         var (resolver, locator) = Build(lookupFailure: failure);
 
         var ex = await Assert.ThrowsAsync<CatalogResolveException>(() => resolver.ResolveAsync("42", default));

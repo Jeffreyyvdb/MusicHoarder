@@ -100,7 +100,7 @@ public static class CatalogEndpoints
         {
             clip = await previews.GetClipAsync(deezerId, ct);
         }
-        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or ProviderRateLimitedException && !ct.IsCancellationRequested)
+        catch (Exception ex) when (ex is HttpRequestException or IOException or OperationCanceledException or ProviderRateLimitedException && !ct.IsCancellationRequested)
         {
             logger.LogWarning(ex, "Could not fetch the preview clip for {DeezerId}", LogSanitizer.ForLog(deezerId));
             return Results.Json(

@@ -123,6 +123,16 @@ public class CatalogPreviewTests
     }
 
     [Fact]
+    public async Task TheEndpoint_Answers502_WhenTheCdnDropsTheClipMidway()
+    {
+        var (service, _, _) = Build(_ => throw new IOException("connection reset"));
+
+        var result = await CatalogEndpoints.Preview("42", new DefaultHttpContext(), service, NullLogger<CatalogPreviewService>.Instance, default);
+
+        Assert.Equal(StatusCodes.Status502BadGateway, ((IStatusCodeHttpResult)result).StatusCode);
+    }
+
+    [Fact]
     public async Task TheEndpoint_Answers404NoPreview_WhenThereIsNoClip()
     {
         var (service, _, _) = Build(previewUrl: null);
