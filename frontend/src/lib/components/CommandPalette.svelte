@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import {
@@ -18,7 +18,7 @@
   import * as Command from '#lib/components/ui/command/index.ts';
   import CatalogPaletteResults from '#lib/components/CatalogPaletteResults.svelte';
   import CatalogPreviewBar from '#lib/components/CatalogPreviewBar.svelte';
-  import { catalogPreview } from '#lib/catalog-preview.svelte.ts';
+  import { catalogPreview, previewAvailable } from '#lib/catalog-preview.svelte.ts';
   import { localPlayback } from '#lib/stores/player.svelte.ts';
   import * as Dialog from '#lib/components/ui/dialog/index.ts';
   import { navGroupsFor, tabsFor } from '#lib/nav.ts';
@@ -106,6 +106,8 @@
   function handleOpenChange(value: boolean) {
     dialogOpen = value;
     commandPalette.setOpen(value);
+    // Escape and the backdrop close without dismiss(); a reopen must not search the catalog again.
+    if (!value) catalogQuery = null;
   }
 
   let query = $state('');
@@ -116,12 +118,17 @@
   // because every catalog search is a call to an outside service.
   const canSearchCatalog = $derived(isAdmin(page.data.user));
   const MIN_CATALOG_QUERY = 2;
-  const offersCatalog = $derived(canSearchCatalog && query.trim().length >= MIN_CATALOG_QUERY);
+  // Never for the easter egg or a `looping:<key>` query: the key must not leave the device.
+  const offersCatalog = $derived.by(
+    () => canSearchCatalog && query.trim().length >= MIN_CATALOG_QUERY && !secret && !loopingCommand
+  );
   /** The query the catalog was searched for; its results show only while the field still says it. */
   let catalogQuery = $state<string | null>(null);
   const catalogShown = $derived(catalogQuery !== null && catalogQuery === query.trim());
   let highlighted = $state('');
   let catalogResults = $state<ReturnType<typeof CatalogPaletteResults> | null>(null);
+  let listEl = $state<HTMLElement | null>(null);
+  const canPreview = previewAvailable();
 
   const modifierHint = $derived(
     typeof navigator !== 'undefined' && /mac|iphone|ipad|ipod/i.test(navigator.platform)
@@ -133,6 +140,9 @@
     if (!offersCatalog) return;
     rememberSearch();
     catalogQuery = query.trim();
+    // The results open at the top of the list, and the row that asked for them may have been at
+    // the bottom of a long one.
+    void tick().then(() => listEl?.scrollTo({ top: 0 }));
   }
 
   // ⌘↵ / Ctrl+↵ is the catalog key: on a catalog row it adds that track, anywhere else it searches
@@ -149,6 +159,7 @@
   $effect(() => {
     if (!dialogOpen) untrack(() => catalogPreview.release());
   });
+  $effect(() => () => catalogPreview.release());
   $effect(() => {
     if (localPlayback.isPlaying) untrack(() => catalogPreview.yieldToMainPlayer());
   });
@@ -342,7 +353,7 @@
     showCloseButton={false}
     overlayClass="z-[75] data-open:animate-none! data-closed:animate-none!"
     class={cn(
-      'z-[75] gap-0 overflow-hidden p-0 data-closed:animate-none! data-open:animate-none!',
+      'z-[75] flex flex-col gap-0 overflow-hidden p-0 data-closed:animate-none! data-open:animate-none!',
       // Desktop: the panel, high enough that the whole list fits under it.
       'md:top-[10vh] md:max-w-2xl md:translate-y-0',
       // Phone: the whole screen, a plain page rather than a floating card.
@@ -357,7 +368,7 @@
       shouldFilter={false}
       bind:value={highlighted}
       onkeydowncapture={onKeydownCapture}
-      class="max-md:bg-background max-md:rounded-none! max-md:p-0 md:max-h-[80vh]"
+      class="max-md:bg-background h-auto min-h-0 flex-1 max-md:rounded-none! max-md:p-0 md:max-h-[80vh]"
     >
       <div class="flex items-center gap-2 max-md:px-3 max-md:pt-2 max-md:pb-1">
         <div class="min-w-0 flex-1">
@@ -380,6 +391,7 @@
            in the palette is checkable — and its `ml-auto` fought the trailing meta column's own
            auto margin, leaving each row's group label at a different x. -->
       <Command.List
+        bind:ref={listEl}
         class="max-md:[&_[data-slot=command-item]]:text-body max-md:[&_[data-command-group-heading]]:text-footnote max-md:max-h-none max-md:min-h-0 max-md:flex-1 max-md:overscroll-contain max-md:px-2 max-md:pb-[max(16px,env(safe-area-inset-bottom))] md:max-h-[65vh] [&_.cn-command-item-indicator]:hidden max-md:[&_[data-slot=command-item]]:min-h-11 max-md:[&_[data-slot=command-item]]:gap-3"
       >
         <!-- The page commands are local, so they stay usable while the library
@@ -554,16 +566,18 @@
           </Command.Group>
         {/if}
       </Command.List>
-      {#if catalogPreview.track}
-        <CatalogPreviewBar
-          class="border-border border-t px-3 pt-2 pb-3 max-md:pb-[max(12px,env(safe-area-inset-bottom))]"
-        />
-      {/if}
-      {#if catalogShown}
-        <p class="text-muted-foreground hidden border-t px-3 py-2 text-xs md:block">
-          ↵ to preview · {modifierHint} to add
-        </p>
-      {/if}
     </Command.Root>
+    <!-- Outside the command root: it takes Enter for its highlighted row, so a button in here
+         could not be pressed by key. -->
+    {#if catalogPreview.track}
+      <CatalogPreviewBar
+        class="border-border shrink-0 border-t px-3 pt-2 pb-3 max-md:pb-[max(12px,env(safe-area-inset-bottom))]"
+      />
+    {/if}
+    {#if catalogShown}
+      <p class="text-muted-foreground hidden shrink-0 border-t px-3 py-2 text-xs md:block">
+        {canPreview ? `↵ to preview · ${modifierHint} to add` : `↵ to add`}
+      </p>
+    {/if}
   </Dialog.Content>
 </Dialog.Root>

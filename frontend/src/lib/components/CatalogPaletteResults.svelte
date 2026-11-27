@@ -1,21 +1,22 @@
 <script lang="ts">
-  import { CircleCheck, Pause, Play, Plus, RotateCw, TriangleAlert } from '@lucide/svelte';
-  import { toast } from 'svelte-sonner';
+  import { CircleCheck, Pause, Play, RotateCw, TriangleAlert } from '@lucide/svelte';
   import * as Command from '#lib/components/ui/command/index.ts';
   import { Spinner } from '#lib/components/ui/spinner/index.ts';
   import Cover from '#lib/components/file-browser/Cover.svelte';
-  import { importTrack, searchCatalogTracks, type CatalogTrack } from '#lib/api-client.ts';
+  import { searchCatalogTracks, type CatalogTrack } from '#lib/api-client.ts';
   import { messageOf } from '#lib/artist-discography.ts';
+  import { catalogAdds } from '#lib/catalog-adds.svelte.ts';
   import { buildOwnedIndex, isInLibrary } from '#lib/catalog-match.ts';
   import { catalogPreview, previewAvailable } from '#lib/catalog-preview.svelte.ts';
-  import { isRetry, wishlistLabel } from '#lib/catalog-status.ts';
   import { formatDuration } from '#lib/formatters.ts';
   import { songsStore } from '#lib/stores/songs.svelte.ts';
   import { cn } from '#lib/utils.ts';
 
   // The palette's "From the catalog" group: one search for the query it was asked about, then a
-  // row per track. Choosing a row previews it; its Add button (or ⌘↵ on the row) queues the
-  // download. Where the page cannot play audio (the app shell) choosing a row adds it.
+  // row per track. Choosing a row previews it, and the preview bar under the list adds it; ⌘↵ on a
+  // row adds it at once. A row holds no button of its own: an option's content is flattened for a
+  // screen reader, and the list takes Enter from anything inside it. Where the page cannot play
+  // audio (the app shell), or the track has no clip, choosing a row adds it.
 
   let {
     query,
@@ -44,7 +45,9 @@
     search = { status: 'loading' };
     searchCatalogTracks(q, controller.signal).then(
       (tracks) => {
+        if (controller.signal.aborted) return;
         search = { status: 'ready', tracks };
+        catalogAdds.remember(tracks);
         if (tracks.length > 0) onhighlight(VALUE_PREFIX + tracks[0].deezerId);
       },
       (err: unknown) => {
@@ -58,44 +61,12 @@
 
   const owned = $derived(buildOwnedIndex(songsStore.builtSongs));
 
-  let adding = $state.raw<ReadonlySet<string>>(new Set());
-  let queued = $state.raw<ReadonlySet<string>>(new Set());
-
-  function canAdd(track: CatalogTrack): boolean {
-    return (
-      !adding.has(track.deezerId) &&
-      !queued.has(track.deezerId) &&
-      wishlistLabel(track.wishlistStatus) === null
-    );
-  }
-
-  async function add(track: CatalogTrack) {
-    if (!canAdd(track)) return;
-    adding = new Set([...adding, track.deezerId]);
-    try {
-      await importTrack({
-        deezerTrackId: track.deezerId,
-        title: track.title,
-        artist: track.artist,
-        album: track.album,
-        durationMs: track.durationMs,
-        coverUrl: track.coverUrl
-      });
-      queued = new Set([...queued, track.deezerId]);
-      toast.success(`Added ${track.title}`, { description: 'It downloads in the background.' });
-    } catch (err) {
-      toast.error(messageOf(err, 'Could not add that song.'));
-    } finally {
-      adding = new Set([...adding].filter((id) => id !== track.deezerId));
-    }
-  }
-
   /** ⌘↵ from the palette: add the highlighted row. False when the value is not one of these rows. */
   export function addByValue(value: string): boolean {
     if (search.status !== 'ready' || !value.startsWith(VALUE_PREFIX)) return false;
     const track = search.tracks.find((t) => VALUE_PREFIX + t.deezerId === value);
     if (!track) return false;
-    void add(track);
+    void catalogAdds.add(track);
     return true;
   }
 
@@ -103,7 +74,7 @@
     if (canPreview && track.hasPreview) {
       catalogPreview.toggle({ deezerId: track.deezerId, title: track.title, artist: track.artist });
     } else {
-      void add(track);
+      void catalogAdds.add(track);
     }
   }
 
@@ -139,9 +110,9 @@
   {:else}
     <!-- Bounded by the server: a catalog search answers at most 25 tracks. -->
     {#each search.tracks as track (track.deezerId)}
-      {@const label = queued.has(track.deezerId) ? 'Queued' : wishlistLabel(track.wishlistStatus)}
+      {@const label = catalogAdds.labelOf(track)}
+      {@const previews = canPreview && track.hasPreview}
       {@const icon = previewIcon(track.deezerId)}
-      {@const inLibrary = isInLibrary(owned, track)}
       <Command.Item value={VALUE_PREFIX + track.deezerId} onSelect={() => choose(track)}>
         <span class="relative shrink-0">
           <Cover
@@ -152,7 +123,7 @@
             corner={4}
             caption={false}
           />
-          {#if canPreview && track.hasPreview}
+          {#if previews}
             <!-- What choosing the row does, drawn on the cover: play, pause or loading. -->
             <span
               class="absolute inset-0 flex items-center justify-center rounded-[4px] bg-black/40 text-white"
@@ -191,13 +162,13 @@
                 track.durationMs / 1000
               )}</span
             >
-            {#if inLibrary}
+            {#if isInLibrary(owned, track)}
               <span class="shrink-0">· In library</span>
             {/if}
           </span>
         </span>
-        {#if adding.has(track.deezerId)}
-          <span class="flex size-11 shrink-0 items-center justify-center md:size-8" role="status">
+        {#if catalogAdds.isAdding(track.deezerId)}
+          <span class="flex shrink-0 items-center pl-2" role="status">
             <Spinner class="size-4" />
             <span class="sr-only">Adding {track.title}</span>
           </span>
@@ -208,23 +179,8 @@
             <CircleCheck class="text-primary size-4" aria-hidden="true" />
             {label}
           </span>
-        {:else}
-          <!-- A button inside the row, so a tap adds without previewing; the keyboard's way is ⌘↵. -->
-          <button
-            type="button"
-            class={cn(
-              'focus-visible:ring-ring hover:bg-accent flex size-11 shrink-0 items-center justify-center rounded-full focus-visible:ring-2 focus-visible:outline-hidden md:size-8',
-              inLibrary ? 'text-muted-foreground' : 'text-primary'
-            )}
-            aria-label={`${isRetry(track.wishlistStatus) ? 'Retry adding' : 'Add'} ${track.title} by ${track.artist} to your library`}
-            onpointerdown={(e) => e.stopPropagation()}
-            onclick={(e) => {
-              e.stopPropagation();
-              void add(track);
-            }}
-          >
-            <Plus class="size-5 md:size-4" aria-hidden="true" />
-          </button>
+        {:else if !previews}
+          <span class="text-primary text-footnote shrink-0 pl-2 md:text-xs">Add</span>
         {/if}
       </Command.Item>
     {/each}

@@ -146,6 +146,7 @@ describe('the full song', () => {
 
   it('becomes available once the lookup succeeds, then plays from the start', async () => {
     preview.toggle(one);
+    expect(preview.full.status).toBe('waiting');
     reach(2);
     expect(api.resolve).toHaveBeenCalledTimes(1);
     expect(preview.full.status).toBe('resolving');
@@ -166,6 +167,19 @@ describe('the full song', () => {
     expect(preview.full).toEqual({ status: 'failed', reason: 'No full version found.' });
     preview.playFull();
     expect(el().src).toBe(`/clip/${one.deezerId}`);
+  });
+
+  it('looks up again after coming back to a track whose lookup failed', async () => {
+    api.resolve.mockRejectedValueOnce(new Error('nope'));
+    preview.toggle(one);
+    reach(2);
+    await settle();
+    preview.toggle(two);
+    reach(1);
+    preview.toggle(one);
+    reach(2);
+    expect(api.resolve).toHaveBeenCalledTimes(2);
+    expect(api.resolve).toHaveBeenLastCalledWith(one.deezerId);
   });
 
   it('ignores a lookup that finishes after another track took over', async () => {

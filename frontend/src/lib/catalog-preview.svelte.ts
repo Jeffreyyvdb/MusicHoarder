@@ -9,8 +9,12 @@ import { localPlayback } from '#lib/stores/player.svelte.ts';
 export type PreviewState = 'idle' | 'loading' | 'playing' | 'paused' | 'error';
 export type PreviewSource = 'clip' | 'full';
 
-/** Whether the whole song can be played: the YouTube lookup is a warm-up that may still fail. */
+/**
+ * Whether the whole song can be played: the YouTube lookup is a warm-up that may still fail, and
+ * it has not started (`waiting`) until the clip has played a moment.
+ */
 export type FullSongState =
+  | { status: 'waiting' }
   | { status: 'resolving' }
   | { status: 'ready' }
   | { status: 'failed'; reason: string };
@@ -26,7 +30,7 @@ let audio: HTMLAudioElement | null = null;
 let state = $state<PreviewState>('idle');
 let source = $state<PreviewSource>('clip');
 let track = $state.raw<PreviewTrack | null>(null);
-let full = $state<FullSongState>({ status: 'resolving' });
+let full = $state<FullSongState>({ status: 'waiting' });
 let position = $state(0);
 let duration = $state(0);
 
@@ -152,7 +156,8 @@ function toggle(next: PreviewTrack): void {
   if (localPlayback.playing() || localPlayback.loading()) localPlayback.pause();
   track = next;
   source = 'clip';
-  full = resolved.has(next.deezerId) ? { status: 'ready' } : { status: 'resolving' };
+  warmed = null;
+  full = resolved.has(next.deezerId) ? { status: 'ready' } : { status: 'waiting' };
   load(el, catalogPreviewUrl(next.deezerId));
 }
 

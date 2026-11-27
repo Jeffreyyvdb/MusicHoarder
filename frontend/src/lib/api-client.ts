@@ -4265,6 +4265,8 @@ export interface ImportTrackResult {
   wishlistItemId: number;
   jobStarted: boolean;
   jobId: string | null;
+  /** The item's wishlist status after the import (absent from servers older than this field). */
+  status?: string;
 }
 
 /** Resolve a pasted Spotify/YouTube track URL into editable, download-ready metadata. */
