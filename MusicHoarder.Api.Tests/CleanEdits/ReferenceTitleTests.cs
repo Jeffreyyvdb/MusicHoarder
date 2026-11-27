@@ -37,6 +37,8 @@ public class ReferenceTitleTests
         Assert.NotEqual(ReferenceTitle.Normalize("दिन"), ReferenceTitle.Normalize("दीन"));
         Assert.Equal(ReferenceTitle.Normalize("Créme"), ReferenceTitle.Normalize("Creme"));
         Assert.Equal(ReferenceTitle.Normalize("Ёлка"), ReferenceTitle.Normalize("Елка"));
+        Assert.Equal("home", ReferenceTitle.Normalize("Home ❤️"));
+        Assert.Equal("", ReferenceTitle.Normalize("❤️"));
     }
 
     [Theory]

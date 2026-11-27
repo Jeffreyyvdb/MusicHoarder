@@ -147,7 +147,16 @@ internal sealed class CleanEditChecker(
                 logger.LogWarning(ex, "Could not stage preview {Reference} on the local disk", reference.Id);
                 return (null, true);
             }
-            var pcm = await decoder.DecodeAsync(file, ct);
+            float[]? pcm;
+            try
+            {
+                pcm = await decoder.DecodeAsync(file, ct);
+            }
+            catch (IOException ex)
+            {
+                logger.LogDebug(ex, "Could not decode preview {Reference}", reference.Id);
+                return (null, false);
+            }
             if (pcm is null)
                 return (null, false);
             var bands = BandSpectrogram.FromPcm(pcm);

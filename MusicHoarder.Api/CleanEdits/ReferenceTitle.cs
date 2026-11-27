@@ -51,7 +51,10 @@ internal static partial class ReferenceTitle
 
     private const int LastCyrillic = 0x0530;
 
-    /// <summary>Runs of letters, marks and digits, one space apart.</summary>
+    /// <summary>
+    /// Runs of letters and digits, with the marks that follow them, one space apart. A mark never
+    /// starts a word: an emoji's variation selector is not one.
+    /// </summary>
     private static string Words(string text)
     {
         var words = new StringBuilder();
@@ -59,8 +62,8 @@ internal static partial class ReferenceTitle
         foreach (var rune in text.EnumerateRunes())
         {
             var category = Rune.GetUnicodeCategory(rune);
-            var wordy = Rune.IsLetterOrDigit(rune)
-                || category is UnicodeCategory.NonSpacingMark or UnicodeCategory.SpacingCombiningMark or UnicodeCategory.EnclosingMark;
+            var mark = category is UnicodeCategory.NonSpacingMark or UnicodeCategory.SpacingCombiningMark or UnicodeCategory.EnclosingMark;
+            var wordy = Rune.IsLetterOrDigit(rune) || (mark && inWord);
             if (wordy)
             {
                 if (!inWord && words.Length > 0)
