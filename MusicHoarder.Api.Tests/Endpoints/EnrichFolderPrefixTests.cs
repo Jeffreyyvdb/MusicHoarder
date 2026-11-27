@@ -9,6 +9,7 @@ public class EnrichFolderPrefixTests
     [InlineData("/music/", "Artist/Album/", "/music/Artist/Album")]
     [InlineData("/music", "/music/Artist/Album", "/music/Artist/Album")]
     [InlineData("/music", "", "/music")]
+    [InlineData("/music", "/music-demo/Artist", "/music//music-demo/Artist")]
     [InlineData("/music", "Artist\\Album", "/music/Artist/Album")]
     public void ResolveFolderPrefix_BuildsNormalizedAbsolutePrefix(string source, string path, string expected)
     {

@@ -42,7 +42,7 @@ public static class DashboardEndpoints
 
         var root = BuildMatchTree(
             rows.Select(r => new MatchTreeRow(r.SourcePath, r.EnrichmentStatus, r.LibraryBuildStatus, r.FileSizeBytes)),
-            options.Value.SourceDirectory,
+            SourceRootFor(currentUser.User, options.Value),
             expectedLow,
             rootLabel: currentUser.User?.IsAdmin == true ? null : "/");
 
@@ -92,9 +92,11 @@ public static class DashboardEndpoints
     private static async Task<IResult> GetDirectoryFiles(
         string? path,
         MusicHoarderDbContext db,
-        IOptions<MusicEnricherOptions> options)
+        IOptions<MusicEnricherOptions> options,
+        ICurrentUserAccessor currentUser)
     {
-        var prefix = EnrichmentEndpoints.ResolveFolderPrefix(options.Value.SourceDirectory, path ?? string.Empty);
+        var prefix = EnrichmentEndpoints.ResolveFolderPrefix(
+            SourceRootFor(currentUser.User, options.Value), path ?? string.Empty);
         var prefixSlash = prefix.Length == 0 ? string.Empty : prefix + "/";
 
         // Narrow to the folder's subtree in SQL (translatable + InMemory-test friendly, same as the
@@ -211,6 +213,15 @@ public static class DashboardEndpoints
             ApplyExpectedLow(child, paths);
     }
 
+    /// <summary>
+    /// The folder a caller's source paths are shown relative to. The demo account's files live in
+    /// their own folder, outside the library's, so its tree and its folder lookups start there.
+    /// </summary>
+    internal static string SourceRootFor(CurrentUser? user, MusicEnricherOptions options) =>
+        user?.IsDemo == true && !string.IsNullOrWhiteSpace(options.DemoMediaDirectory)
+            ? options.DemoMediaDirectory
+            : options.SourceDirectory;
+
     private static string NormalizePath(string? path)
         => (path ?? string.Empty).Replace('\\', '/').TrimEnd('/');
 
@@ -218,10 +229,8 @@ public static class DashboardEndpoints
     {
         var lastSlash = fullPath.LastIndexOf('/');
         var directory = lastSlash >= 0 ? fullPath[..lastSlash] : string.Empty;
-        // Strip only on a path boundary: "/root/music-demo" starts with "/root/music" as a string,
-        // and stripping that non-boundary prefix would relativize a sibling directory against the
-        // configured source root, showing the tree as "-demo/…" and handing a non-admin the
-        // owner's source directory by arithmetic.
+        // Only on a folder boundary: "/music-demo" starts with "/music" as a string, and stripping
+        // that would show a sibling folder as "-demo/…", which gives the root away.
         if (sourceRoot.Length > 0
             && (directory.Equals(sourceRoot, StringComparison.OrdinalIgnoreCase)
                 || directory.StartsWith(sourceRoot + "/", StringComparison.OrdinalIgnoreCase)))

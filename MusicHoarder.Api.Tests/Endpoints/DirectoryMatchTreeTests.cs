@@ -1,5 +1,7 @@
 using MusicHoarder.Api.Endpoints;
+using MusicHoarder.Api.Options;
 using MusicHoarder.Api.Persistence;
+using MusicHoarder.Api.Tests.Auth;
 
 namespace MusicHoarder.Api.Tests.Endpoints;
 
@@ -180,9 +182,6 @@ public class DirectoryMatchTreeTests
     [Fact]
     public void BuildMatchTree_DoesNotRelativizeASiblingDirectoryThatSharesTheRootAsAPrefix()
     {
-        // "/root/music-demo" starts with "/root/music" as a string; relativizing it would strip a
-        // non-boundary prefix, show the sibling as "-demo/…", and hand a non-admin the owner's
-        // configured source directory by arithmetic. It must render as its own full path.
         var rows = new[]
         {
             Row("/root/music/Kanye West/Donda/01.mp3", EnrichmentStatus.Matched),
@@ -191,13 +190,27 @@ public class DirectoryMatchTreeTests
 
         var root = DashboardEndpoints.BuildMatchTree(rows, "/root/music");
 
-        var kanye = root.Children.Single(c => c.Name == "Kanye West");
-        Assert.Equal("Kanye West", kanye.Path);
+        Assert.Equal("Kanye West", root.Children.Single(c => c.Name == "Kanye West").Path);
+        Assert.DoesNotContain(root.Children, c => c.Name == "-demo");
+    }
 
-        var demoRoot = root.Children.Single(c => c.Name == "root");
-        var demo = demoRoot.Children.Single(c => c.Name == "music-demo");
-        var frank = demo.Children.Single(c => c.Name == "Frank Ocean");
-        Assert.Equal("root/music-demo/Frank Ocean", frank.Path);
-        Assert.Equal(1, frank.Total);
+    [Fact]
+    public void SourceRootFor_starts_the_demo_account_at_its_own_media_folder()
+    {
+        var options = new MusicEnricherOptions { SourceDirectory = "/root/music", DemoMediaDirectory = "/root/music-demo" };
+
+        var demoRoot = DashboardEndpoints.SourceRootFor(TestCurrentUserAccessor.DemoUser, options);
+        var tree = DashboardEndpoints.BuildMatchTree(
+            [Row("/root/music-demo/Frank Ocean/channel ORANGE/Bad Religion.flac", EnrichmentStatus.Matched)], demoRoot);
+
+        Assert.Equal("Frank Ocean", tree.Children.Single().Path);
+        Assert.Equal(
+            "/root/music-demo/Frank Ocean",
+            EnrichmentEndpoints.ResolveFolderPrefix(demoRoot, tree.Children.Single().Path));
+        Assert.Equal("/root/music", DashboardEndpoints.SourceRootFor(TestCurrentUserAccessor.OwnerUser, options));
+        Assert.Equal("/root/music", DashboardEndpoints.SourceRootFor(TestCurrentUserAccessor.FriendUser, options));
+        Assert.Equal(
+            "/root/music",
+            DashboardEndpoints.SourceRootFor(TestCurrentUserAccessor.DemoUser, new MusicEnricherOptions { SourceDirectory = "/root/music" }));
     }
 }

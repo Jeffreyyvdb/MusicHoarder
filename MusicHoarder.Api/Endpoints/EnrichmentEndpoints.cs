@@ -708,7 +708,9 @@ public static class EnrichmentEndpoints
         var rel = Normalize(path);
         if (rel.Length == 0)
             return root;
-        if (root.Length > 0 && rel.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+        if (root.Length > 0
+            && (rel.Equals(root, StringComparison.OrdinalIgnoreCase)
+                || rel.StartsWith(root + "/", StringComparison.OrdinalIgnoreCase)))
             return rel;
         return root.Length == 0 ? rel : $"{root}/{rel}";
     }
