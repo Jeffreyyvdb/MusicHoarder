@@ -6,12 +6,15 @@ namespace MusicHoarder.Api.Auth.Middleware;
 /// </summary>
 public sealed class RequireAuthMiddleware
 {
+    // An entry ending in "/" covers everything below it. Any other entry is one path and what
+    // lies below it, never a longer name: "/api/sync/check" must not also open a later
+    // "/api/sync/checkpoints".
     private static readonly string[] AllowlistedPrefixes =
     [
         "/api/auth/",
         "/api/share/", // anonymous shared-song links — token-scoped, does NOT cover the owner-only /api/shares
         "/api/invite/", // anonymous friend-invite peek/accept — token-scoped, does NOT cover the owner-only /api/friends/invites
-        "/api/version", // prefix match — also covers /api/version/latest (the update-check endpoint)
+        "/api/version", // also covers /api/version/latest (the update-check endpoint)
         // Machine-to-machine instance sync: no cookie session exists on these requests. The
         // allowlist entry is NOT the gate — SyncApiKeyFilter on the endpoints enforces the shared
         // X-Sync-Key (and 404s unless this instance is a configured receiver). /api/sync/status is
@@ -56,7 +59,9 @@ public sealed class RequireAuthMiddleware
     {
         foreach (var prefix in AllowlistedPrefixes)
         {
-            if (path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            if (!path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (prefix.EndsWith('/') || path.Length == prefix.Length || path[prefix.Length] == '/')
                 return true;
         }
         return false;
