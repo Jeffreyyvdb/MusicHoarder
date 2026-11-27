@@ -168,6 +168,18 @@ public class AuthServiceTests
     }
 
     [Fact]
+    public async Task StartDemoSession_stops_a_dropped_session_that_was_just_used()
+    {
+        var (svc, _) = MakeService(demoSessionLimit: 1);
+        var first = await svc.StartDemoSessionAsync(null, null, default);
+        Assert.NotNull(await svc.ResolveSessionAsync(first!.Id, default));
+
+        await svc.StartDemoSessionAsync(null, null, default);
+
+        Assert.Null(await svc.ResolveSessionAsync(first.Id, default));
+    }
+
+    [Fact]
     public async Task StartDemoSession_drops_ended_demo_sessions_and_leaves_other_accounts_alone()
     {
         var (svc, ctx) = MakeService(seedOwnerEmail: "me@example.com", demoSessionLimit: 3);

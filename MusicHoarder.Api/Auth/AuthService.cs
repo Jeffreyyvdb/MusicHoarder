@@ -21,6 +21,9 @@ public sealed class AuthService : IAuthService
 
     private readonly ConcurrentDictionary<Guid, (Session Session, User User, DateTime CachedAtUtc)> _sessionCache = new();
 
+    private const int DemoTrimBatch = 500;
+    private readonly SemaphoreSlim _demoTrimLock = new(1, 1);
+
     // Bumped by every invalidation. A resolution only goes into the cache when no invalidation
     // happened while it was reading: otherwise a read that saw the session just before a revoke
     // could put it back right after the revoke cleared it.
@@ -179,38 +182,41 @@ public sealed class AuthService : IAuthService
     /// <summary>
     /// Bounds the demo account's session rows: ended ones go, and so does every live one past the
     /// newest <see cref="AuthOptions.DemoSessionLimit"/>. Anyone can start a demo session without
-    /// signing in, so without this the table grows for as long as someone keeps asking.
+    /// signing in, so without this the table grows for as long as someone keeps asking. One trim
+    /// runs at a time and removes at most <see cref="DemoTrimBatch"/> rows of each kind, so a
+    /// backlog is worked off over several logins instead of holding one up.
     /// </summary>
     private async Task TrimDemoSessionsAsync(MusicHoarderDbContext db, DateTime nowUtc, CancellationToken ct)
     {
         var limit = Math.Max(1, _options.CurrentValue.DemoSessionLimit);
         var demoSessions = db.Sessions.Where(s => s.UserId == WellKnownUsers.DemoId);
 
-        var newestDropped = await demoSessions
-            .Where(s => s.RevokedAtUtc == null && s.ExpiresAtUtc > nowUtc)
-            .OrderByDescending(s => s.IssuedAtUtc).ThenByDescending(s => s.Id)
-            .Skip(limit)
-            .Select(s => (DateTime?)s.IssuedAtUtc)
-            .FirstOrDefaultAsync(ct).ConfigureAwait(false);
-
-        var dropped = await demoSessions
-            .Where(s => s.RevokedAtUtc != null || s.ExpiresAtUtc <= nowUtc
-                || (newestDropped != null && s.IssuedAtUtc <= newestDropped))
-            .ToListAsync(ct).ConfigureAwait(false);
-        if (dropped.Count == 0) return;
-
-        db.Sessions.RemoveRange(dropped);
+        await _demoTrimLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
-        }
-        catch (DbUpdateConcurrencyException)
-        {
-            // Another demo login trimmed the same rows first; the next one picks up what is left.
-        }
+            var ended = await demoSessions
+                .Where(s => s.RevokedAtUtc != null || s.ExpiresAtUtc <= nowUtc)
+                .Take(DemoTrimBatch)
+                .ToListAsync(ct).ConfigureAwait(false);
+            var overLimit = await demoSessions
+                .Where(s => s.RevokedAtUtc == null && s.ExpiresAtUtc > nowUtc)
+                .OrderByDescending(s => s.IssuedAtUtc).ThenByDescending(s => s.Id)
+                .Skip(limit)
+                .Take(DemoTrimBatch)
+                .ToListAsync(ct).ConfigureAwait(false);
+            if (ended.Count + overLimit.Count == 0) return;
 
-        // A dropped session must stop working on its next request, not after the cache TTL.
-        if (newestDropped != null) InvalidateUser(WellKnownUsers.DemoId);
+            db.Sessions.RemoveRange(ended);
+            db.Sessions.RemoveRange(overLimit);
+            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+
+            // A dropped session must stop working on its next request, not after the cache TTL.
+            foreach (var session in overLimit) InvalidateSession(session.Id);
+        }
+        finally
+        {
+            _demoTrimLock.Release();
+        }
     }
 
     public async Task<(Session Session, User User)?> ResolveSessionAsync(Guid sessionId, CancellationToken ct)
