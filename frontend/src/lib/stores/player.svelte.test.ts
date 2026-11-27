@@ -1168,6 +1168,38 @@ describe('remembered shuffle', () => {
     expect(playerStore.shuffleFor('album:a')).toBe(false);
   });
 
+  it("pausing the loaded song from another list's row leaves the queue alone", async () => {
+    const { playerStore, audio } = await loadPlayer();
+    playerStore.setShuffleFor('library', true);
+    await playerStore.startQueue(album, 0, { source: source('album:a') });
+    audio.playFrom(10);
+    expect(playerStore.shuffle).toBe(false);
+
+    const tracks = [...album].reverse();
+    await playerStore.playSong(album[0], tracks, 7, source('library')); // the row glyph: a pause
+    expect(audio.pause).toHaveBeenCalled();
+    expect(playerStore.shuffle).toBe(false);
+    expect(upNextIds(playerStore)).toEqual([2, 3, 4, 5, 6, 7, 8]);
+  });
+
+  it('carrying on with the loaded song keeps a shuffled queue and what Previous goes back to', async () => {
+    const { playerStore, audio } = await loadPlayer();
+    await playerStore.startQueue(album, 0, { shuffle: true, source: source('album:a') });
+    playerStore.playNext();
+    await vi.waitFor(() => expect(upNextIds(playerStore)).toHaveLength(6));
+    const queued = upNextIds(playerStore);
+    const playing = playerStore.currentSong!;
+    playerStore.pause();
+
+    // The album page's Play pill on its loaded track.
+    const at = album.findIndex((s) => s.id === playing.id);
+    await playerStore.startQueue(album, at, { resumeIfLoaded: true, source: source('album:a') });
+    expect(playerStore.currentSong?.id).toBe(playing.id);
+    expect(upNextIds(playerStore)).toEqual(queued); // re-seeding would put 7 songs after it
+    expect(playerStore.shuffle).toBe(true);
+    expect(audio.play).toHaveBeenCalled();
+  });
+
   it('leaves a list without a scope in its own order', async () => {
     const { playerStore } = await loadPlayer();
     playerStore.setShuffleFor('library', true);

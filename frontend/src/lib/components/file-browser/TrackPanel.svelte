@@ -477,8 +477,16 @@
     void playerStore.playSong(toPlayerSong(song, album.artist), queue, trackIndex, {
       label: album.title,
       href: albumHref,
-      shuffleScope: shuffleScopes.album(album.key)
+      shuffleScope: shuffleScopes.album(mergedAlbumKey())
     });
+  }
+
+  /**
+   * The album page's key for this song: `album` is its folder's own card, and a merged album's page
+   * (whose Shuffle this must share) is keyed by its first folder.
+   */
+  function mergedAlbumKey(): string {
+    return songsStore.albums.find((a) => a.songs.some((s) => s.id === song.id))?.key ?? album.key;
   }
 
   function go(href: string) {

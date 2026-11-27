@@ -1132,8 +1132,9 @@ async function playSong(
   // Matching streamUrl keeps a share link distinct from a library track with the same song id.
   const toggles =
     !remote && currentSong?.id === song.id && currentSong?.streamUrl === song.streamUrl;
-  // Pausing the loaded song from its row's glyph is not a new list: a shuffled queue stays as it is.
-  if (!(toggles && shuffleOn)) {
+  // Pausing or resuming the loaded song from its row's glyph is not a new list: the queue stays as
+  // it is, or the row's list would replace it (shuffled, when that list's setting is on).
+  if (!toggles) {
     seedQueue(song, contextQueue, index, { source });
   }
 
@@ -1201,7 +1202,10 @@ async function startQueue(contextQueue: PlayerSong[], index = 0, options: StartQ
   // Starting a list here while the session plays elsewhere takes the session (a local play
   // intent); the paused leftovers of a superseded device are not "already loaded".
   const leftovers = remote !== null;
-  seedQueue(song, contextQueue, index, options);
+  // Carrying on with the loaded song keeps its queue: re-seeding would reshuffle a shuffled one
+  // and drop what Previous goes back to.
+  const carriesOn = options.resumeIfLoaded && !leftovers && currentSong?.id === song.id;
+  if (!carriesOn) seedQueue(song, contextQueue, index, options);
   sync?.playIntent();
 
   if (!leftovers && currentSong?.id === song.id) {
