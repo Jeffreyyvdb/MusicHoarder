@@ -44,11 +44,11 @@ public sealed class DemoReadOnlyMiddleware
     // opens a share link carries the demo cookie along. The token-scoped /api/share/ surface is
     // anonymous (RequireAuthMiddleware), so allowing it here grants the demo nothing a stranger lacks.
     // Anchored per shape: it must not also cover the owner-only /api/shares.
-        new(@"^/api/share/[^/]+/visit/?$", RegexOptions.IgnoreCase),
-        new(@"^/api/share/[^/]+/songs/\d+/play/?$", RegexOptions.IgnoreCase),
+        new(@"^/api/share/[^/]+/visit/?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant),
+        new(@"^/api/share/[^/]+/songs/\d+/play/?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant),
     ];
 
-    private static Regex Exact(string path) => new($"^{Regex.Escape(path)}/?$", RegexOptions.IgnoreCase);
+    private static Regex Exact(string path) => new($"^{Regex.Escape(path)}/?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private readonly RequestDelegate _next;
 
