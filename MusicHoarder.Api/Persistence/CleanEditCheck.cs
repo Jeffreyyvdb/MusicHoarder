@@ -13,16 +13,22 @@ public enum CleanEditVerdict
     /// <summary>The file follows the label's clean edition where the two editions differ.</summary>
     CleanMaster = 1,
 
-    /// <summary>Words the explicit edition sings are silent in the file (a mute that is not the label's clean edit).</summary>
+    /// <summary>
+    /// Words the explicit edition sings are silent in the file. Checked first, so it also covers a label's
+    /// clean edit that silences words; it is the only verdict for a mute the label's clean edit lacks.
+    /// </summary>
     MutedWords = 2,
 
-    /// <summary>An explicit edition was found, but nothing in the preview window settles which one the file is.</summary>
+    /// <summary>
+    /// An explicit edition is listed, but nothing settles which edition the file is: no edited word in the
+    /// preview window, a listed preview that did not align, or previews that disagree.
+    /// </summary>
     Inconclusive = 3,
 
     /// <summary>Only an explicit edition is sold, so there is nothing clean to confuse the file with.</summary>
     NoCleanEdition = 4,
 
-    /// <summary>No explicit edition could be found and aligned, so there is nothing to compare with.</summary>
+    /// <summary>The catalogs list no explicit edition of the song, so there is nothing to compare with.</summary>
     NoReference = 5,
 
     /// <summary>A lookup, download or decode failed. The next run checks the song again.</summary>
