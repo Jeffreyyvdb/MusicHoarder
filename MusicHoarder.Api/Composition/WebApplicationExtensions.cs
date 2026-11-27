@@ -66,6 +66,7 @@ public static class WebApplicationExtensions
         app.MapWishlistEndpoints();
         app.MapDiscoverEndpoints();
         app.MapImportEndpoints();
+        app.MapCatalogEndpoints();
         app.MapSyncEndpoints();
         app.MapSoulseekEndpoints();
         app.MapPlaylistSyncEndpoints();

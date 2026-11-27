@@ -23,8 +23,31 @@ public sealed class FakeDeezerCatalogService : IDeezerCatalogService
     public Task<DeezerCatalogTrack?> LookupByIsrcAsync(string isrc, CancellationToken ct = default) =>
         Task.FromResult<DeezerCatalogTrack?>(null);
 
+    public List<DeezerCatalogTrack> SearchResults { get; } = [];
+
+    /// <summary>Thrown by search when set, as a transport failure would.</summary>
+    public Exception? SearchFailure { get; set; }
+
+    /// <summary>The fresh preview URL per track id.</summary>
+    public Dictionary<string, string> PreviewUrls { get; } = new(StringComparer.Ordinal);
+
+    public int PreviewUrlReads { get; private set; }
+
     public Task<IReadOnlyList<DeezerCatalogTrack>> SearchTracksAsync(string query, CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyList<DeezerCatalogTrack>>([]);
+        SearchTracksAsync(query, 10, ct);
+
+    public Task<IReadOnlyList<DeezerCatalogTrack>> SearchTracksAsync(string query, int limit, CancellationToken ct = default)
+    {
+        if (SearchFailure is not null)
+            throw SearchFailure;
+        return Task.FromResult<IReadOnlyList<DeezerCatalogTrack>>(SearchResults.Take(limit).ToList());
+    }
+
+    public Task<string?> GetPreviewUrlAsync(string id, CancellationToken ct = default)
+    {
+        PreviewUrlReads++;
+        return Task.FromResult(PreviewUrls.GetValueOrDefault(id));
+    }
 
     public Task<DeezerCatalogTrack?> LookupByIdAsync(string id, CancellationToken ct = default) =>
         Task.FromResult(TracksById.GetValueOrDefault(id));

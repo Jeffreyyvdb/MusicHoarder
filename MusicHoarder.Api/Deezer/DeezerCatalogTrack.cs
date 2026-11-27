@@ -16,7 +16,12 @@ public record DeezerCatalogTrack(
     string? Isrc,
     /// <summary>Discrete contributor names (';'-joined), from the full track detail's
     /// <c>contributors</c> array; null on search results and single-artist payloads.</summary>
-    string? Artists = null);
+    string? Artists = null,
+    /// <summary>Album cover (<c>album.cover_medium</c>, else <c>cover_big</c>).</summary>
+    string? CoverUrl = null,
+    /// <summary>The 30-second clip. Its URL carries an expiring token, so it is never stored or sent to a client.</summary>
+    string? PreviewUrl = null,
+    bool Explicit = false);
 
 /// <summary>A Deezer album with its full tracklist (from <c>GET /album/{id}</c>).</summary>
 public record DeezerAlbumDetail(

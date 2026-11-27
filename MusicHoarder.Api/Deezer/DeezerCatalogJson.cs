@@ -131,8 +131,25 @@ internal static class DeezerCatalogJson
             artists = ParseContributors(track);
         }
 
+        string? coverUrl = null;
+        if (track.TryGetProperty("album", out var coverAlbum) && coverAlbum.ValueKind == JsonValueKind.Object)
+            coverUrl = FirstString(coverAlbum, "cover_medium", "cover_big");
+
+        var preview = FirstString(track, "preview");
+        var isExplicit = track.TryGetProperty("explicit_lyrics", out var expl) && expl.ValueKind == JsonValueKind.True;
+
         return new DeezerCatalogTrack(id, title, artist, albumName, releaseYear, trackNumber, durationSec * 1000, isrc,
-            Artists: artists);
+            Artists: artists, CoverUrl: coverUrl, PreviewUrl: preview, Explicit: isExplicit);
+    }
+
+    private static string? FirstString(JsonElement el, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (el.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String && !string.IsNullOrEmpty(v.GetString()))
+                return v.GetString();
+        }
+        return null;
     }
 
     /// <summary>
