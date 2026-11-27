@@ -215,40 +215,6 @@ public class YtDlpDownloadProvider(
     internal static string? DirectUrl(DownloadRequest req) =>
         string.IsNullOrWhiteSpace(req.SourceUrl) ? null : req.SourceUrl.Trim();
 
-    /// <summary>How many YouTube results are considered before giving up on finding a non-clean one.</summary>
-    internal const int SearchResultCount = 5;
-
-    /// <summary>
-    /// The yt-dlp search argument: artist and title with the title's clean-edit label dropped, since
-    /// asking for the label would steer YouTube toward the very edit we are avoiding. The
-    /// <c>ytsearchN:</c> prefix means the value never starts with '-', so it cannot be read as a flag.
-    /// </summary>
-    internal static string BuildSearchQuery(DownloadRequest req)
-    {
-        var title = CleanEditLabel.Strip(req.Title);
-        if (title.Length == 0)
-            title = req.Title.Trim();
-        var terms = string.IsNullOrWhiteSpace(req.Artist) ? title : $"{req.Artist} {title}";
-        return $"ytsearch{SearchResultCount}:{terms.Trim()}";
-    }
-
-    /// <summary>
-    /// The first of <paramref name="candidates"/>, in YouTube's order, that is not an unrequested clean
-    /// edit of <paramref name="req"/>, plus the ones skipped on the way. Null when every hit is a clean edit.
-    /// </summary>
-    internal static (MusicVideoDownloader.SearchCandidate? Picked, List<MusicVideoDownloader.SearchCandidate> Skipped) PickCandidate(
-        IEnumerable<MusicVideoDownloader.SearchCandidate> candidates, DownloadRequest req)
-    {
-        var skipped = new List<MusicVideoDownloader.SearchCandidate>();
-        foreach (var candidate in candidates)
-        {
-            if (!CleanEditLabel.IsUnrequestedCleanEdit(candidate.Title, req.Artist, req.Title))
-                return (candidate, skipped);
-            skipped.Add(candidate);
-        }
-        return (null, skipped);
-    }
-
     /// <summary>
     /// Searches YouTube (flat, no per-video fetch) and picks the video to download. Returns the pick, or
     /// the result to hand back when there is nothing to download: Missing lets the next provider try.
@@ -256,35 +222,27 @@ public class YtDlpDownloadProvider(
     private async Task<(MusicVideoDownloader.SearchCandidate? Picked, DownloadResult? NothingToDownload)> ResolveSearchAsync(
         MusicEnricherOptions opts, DownloadRequest req, string? cookiesPath, CancellationToken ct)
     {
-        var query = BuildSearchQuery(req);
-        var psi = YtDlpProcess.Create(opts, cookiesPath, includeThrottle: false);
-        psi.ArgumentList.Add("--flat-playlist");
-        psi.ArgumentList.Add("-J");
-        psi.ArgumentList.Add(query);
+        var outcome = await YtDlpSearch.RunAsync(opts, req, cookiesPath, ct);
+        var query = YtDlpSearch.BuildQuery(req);
 
-        var (exitCode, stdout, stderr) = await YtDlpProcess.RunAsync(psi, ct);
-        var candidates = MusicVideoDownloader.ParseFlatSearch(stdout);
-
-        if (candidates.Count == 0)
+        switch (outcome.Status)
         {
-            if (exitCode == 0 || LooksLikeNoResults(stderr))
-            {
-                logger.LogInformation("yt-dlp found no result for '{Query}': {Error}", LogSanitizer.ForLog(query), LogSanitizer.ForLog(YtDlpErrors.Tail(stderr)));
-                return (null, DownloadResult.Missing(stderr.Length == 0 ? "no results" : YtDlpErrors.Tail(stderr)));
-            }
-            logger.LogWarning("yt-dlp search exited {Code} for '{Query}': {Error}", exitCode, LogSanitizer.ForLog(query), LogSanitizer.ForLog(YtDlpErrors.Tail(stderr)));
-            return (null, DownloadResult.Failed(YtDlpErrors.Describe(exitCode, stderr)));
+            case YtDlpSearchStatus.NoResults:
+                logger.LogInformation("yt-dlp found no result for '{Query}': {Error}", LogSanitizer.ForLog(query), LogSanitizer.ForLog(YtDlpErrors.Tail(outcome.Stderr)));
+                return (null, DownloadResult.Missing(outcome.Stderr.Length == 0 ? "no results" : YtDlpErrors.Tail(outcome.Stderr)));
+            case YtDlpSearchStatus.Failed:
+                logger.LogWarning("yt-dlp search exited {Code} for '{Query}': {Error}", outcome.ExitCode, LogSanitizer.ForLog(query), LogSanitizer.ForLog(YtDlpErrors.Tail(outcome.Stderr)));
+                return (null, DownloadResult.Failed(YtDlpErrors.Describe(outcome.ExitCode, outcome.Stderr)));
         }
 
-        var (picked, skipped) = PickCandidate(candidates, req);
-        foreach (var clean in skipped)
+        foreach (var clean in outcome.Skipped)
             logger.LogInformation(
                 "Skipping clean edit {VideoId} '{VideoTitle}' for '{Artist} - {Title}'",
                 clean.Id, LogSanitizer.ForLog(clean.Title), LogSanitizer.ForLog(req.Artist), LogSanitizer.ForLog(req.Title));
 
-        return picked is null
+        return outcome.Picked is null
             ? (null, DownloadResult.Missing("YouTube only has clean edits of this track"))
-            : (picked, null);
+            : (outcome.Picked, null);
     }
 
     /// <summary>
