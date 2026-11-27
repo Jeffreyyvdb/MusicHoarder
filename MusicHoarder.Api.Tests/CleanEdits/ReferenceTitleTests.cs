@@ -33,6 +33,10 @@ public class ReferenceTitleTests
         Assert.Equal("夜に駆ける", ReferenceTitle.Normalize("夜に駆ける (feat. ikura)"));
         Assert.NotEqual(ReferenceTitle.Normalize("夜に駆ける"), ReferenceTitle.Normalize("群青"));
         Assert.Equal("", ReferenceTitle.Normalize("!!!"));
+        Assert.Equal("𠮷野家", ReferenceTitle.Normalize("𠮷野家"));
+        Assert.NotEqual(ReferenceTitle.Normalize("दिन"), ReferenceTitle.Normalize("दीन"));
+        Assert.Equal(ReferenceTitle.Normalize("Créme"), ReferenceTitle.Normalize("Creme"));
+        Assert.Equal(ReferenceTitle.Normalize("Ёлка"), ReferenceTitle.Normalize("Елка"));
     }
 
     [Theory]
@@ -44,6 +48,7 @@ public class ReferenceTitleTests
     [InlineData("Kanye West", "The Weeknd", false)]
     [InlineData("Drake", "Drakeo the Ruler", false)]
     [InlineData("Drake", null, false)]
+    [InlineData("Michael Jackson", "Jackson", false)]
     public void A_catalog_credit_must_name_the_songs_lead_artist(string song, string? catalog, bool same)
     {
         Assert.Equal(same, ReferenceTitle.SameArtist(song, catalog));

@@ -95,6 +95,19 @@ public class CleanEditCheckerTests
     }
 
     [Fact]
+    public async Task A_clean_edition_listed_without_a_preview_is_not_called_unsold()
+    {
+        var withoutCleanAudio = Catalog(ExplicitPreview);
+        var listed = new FakeReferences(new ReferenceLookup([ExplicitPreview], false, [Edition.Explicit, Edition.Clean]));
+
+        var unlisted = await Checker(Explicit, withoutCleanAudio, Previews()).CheckAsync(Song, CancellationToken.None);
+        var outcome = await Checker(Explicit, listed, Previews()).CheckAsync(Song, CancellationToken.None);
+
+        Assert.Equal(CleanEditVerdict.NoCleanEdition, unlisted.Verdict);
+        Assert.Equal(CleanEditVerdict.Inconclusive, outcome.Verdict);
+    }
+
+    [Fact]
     public async Task A_file_that_cannot_be_decoded_is_a_failure()
     {
         var outcome = await Checker(null, Catalog(ExplicitPreview, CleanPreview), Previews())

@@ -120,8 +120,12 @@ internal sealed class CleanEditSweep(
                 Update(p => p with { Current = $"{song.Artist} - {song.Title}" });
                 var outcome = await CheckAsync(song, ct);
                 // A file replaced while it was being checked gets its verdict on the next run.
-                if (FileStamp(song.Path) == stamp)
-                    await SaveAsync(db, ownerUserId, song.Id, stamp, outcome, ct);
+                if (FileStamp(song.Path) != stamp)
+                {
+                    Update(p => p with { Processed = p.Processed + 1, Skipped = p.Skipped + 1 });
+                    continue;
+                }
+                await SaveAsync(db, ownerUserId, song.Id, stamp, outcome, ct);
 
                 failedInARow = outcome.Failure == CheckFailure.Catalog ? failedInARow + 1 : 0;
                 var failed = outcome.Verdict == CleanEditVerdict.Failed;

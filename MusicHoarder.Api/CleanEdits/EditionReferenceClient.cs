@@ -20,7 +20,15 @@ internal sealed record ReferenceQuery(string Artist, string Title, string? Isrc,
 internal sealed record EditionReference(Edition Edition, string Id, string PreviewUrl);
 
 /// <summary><see cref="Incomplete"/> is set when a catalog could not be asked, so an empty answer is not proof that the song has no references.</summary>
-internal sealed record ReferenceLookup(IReadOnlyList<EditionReference> References, bool Incomplete);
+/// <summary>
+/// The previews found, and every edition a matching catalog row names (<see cref="Listed"/>), with a
+/// preview or without: an edition listed without one still exists, so its absence decides nothing.
+/// </summary>
+internal sealed record ReferenceLookup(IReadOnlyList<EditionReference> References, bool Incomplete, IReadOnlyCollection<Edition>? Listed = null)
+{
+    public IReadOnlyCollection<Edition> ListedEditions =>
+        [.. (Listed ?? []).Concat(References.Select(r => r.Edition)).Distinct()];
+}
 
 /// <summary>Where the explicit and clean editions of a song come from.</summary>
 internal interface IEditionReferenceClient
@@ -78,6 +86,7 @@ internal sealed class EditionReferenceClient(
     public async Task<ReferenceLookup> FindAsync(ReferenceQuery query, CancellationToken ct)
     {
         var found = new List<EditionReference>();
+        var listed = new HashSet<Edition>();
         var incomplete = false;
         var wanted = ReferenceTitle.Normalize(query.Title);
         if (wanted.Length == 0)
@@ -85,7 +94,7 @@ internal sealed class EditionReferenceClient(
 
         try
         {
-            found.AddRange(await SearchITunesAsync(query, wanted, ct));
+            found.AddRange(await SearchITunesAsync(query, wanted, listed, ct));
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
@@ -95,7 +104,7 @@ internal sealed class EditionReferenceClient(
 
         try
         {
-            var (deezer, complete) = await SearchDeezerAsync(query, wanted, ct);
+            var (deezer, complete) = await SearchDeezerAsync(query, wanted, listed, ct);
             found.AddRange(deezer);
             incomplete |= !complete;
         }
@@ -105,7 +114,7 @@ internal sealed class EditionReferenceClient(
             logger.LogDebug(ex, "Deezer reference lookup failed");
         }
 
-        return new ReferenceLookup(found, incomplete);
+        return new ReferenceLookup(found, incomplete, listed);
     }
 
     public async Task<byte[]?> DownloadPreviewAsync(string url, CancellationToken ct)
@@ -138,7 +147,8 @@ internal sealed class EditionReferenceClient(
         }
     }
 
-    private async Task<List<EditionReference>> SearchITunesAsync(ReferenceQuery query, string wanted, CancellationToken ct)
+    private async Task<List<EditionReference>> SearchITunesAsync(
+        ReferenceQuery query, string wanted, HashSet<Edition> listed, CancellationToken ct)
     {
         var term = Uri.EscapeDataString($"{ReferenceTitle.LeadArtist(query.Artist)} {ReferenceTitle.WithoutBrackets(query.Title)}");
         using var json = await GetITunesJsonAsync($"https://itunes.apple.com/search?term={term}&entity=song&limit=50&country=US", ct);
@@ -154,11 +164,13 @@ internal sealed class EditionReferenceClient(
                 "cleaned" => Edition.Clean,
                 _ => null,
             };
-            var preview = Text(track, "previewUrl");
-            if (edition is null || string.IsNullOrEmpty(preview)
+            if (edition is null
                 || ReferenceTitle.Normalize(Text(track, "trackName") ?? "") != wanted
                 || !ReferenceTitle.SameArtist(query.Artist, Text(track, "artistName"))
                 || !query.Fits(Number(track, "trackTimeMillis") / 1000))
+                continue;
+            listed.Add(edition.Value);
+            if (Text(track, "previewUrl") is not { Length: > 0 } preview)
                 continue;
             found.Add(new EditionReference(edition.Value, $"itunes:{Number(track, "trackId").ToString("0", CultureInfo.InvariantCulture)}", preview));
         }
@@ -166,7 +178,7 @@ internal sealed class EditionReferenceClient(
     }
 
     private async Task<(List<EditionReference> References, bool Complete)> SearchDeezerAsync(
-        ReferenceQuery query, string wanted, CancellationToken ct)
+        ReferenceQuery query, string wanted, HashSet<Edition> listed, CancellationToken ct)
     {
         if (Interlocked.Read(ref _deezerBackoffUntilUtcTicks) > DateTime.UtcNow.Ticks)
             return ([], false);
@@ -210,10 +222,13 @@ internal sealed class EditionReferenceClient(
                     3 => Edition.Clean,
                     _ => null,
                 };
-                if (!seen.Add(id) || string.IsNullOrEmpty(preview) || edition is null
+                if (!seen.Add(id) || edition is null
                     || !query.Fits(Number(track, "duration"))
                     || ReferenceTitle.Normalize(Text(track, "title") ?? "") != wanted
                     || !ReferenceTitle.SameArtist(query.Artist, ArtistName(track)))
+                    continue;
+                listed.Add(edition.Value);
+                if (string.IsNullOrEmpty(preview))
                     continue;
                 found.Add(new EditionReference(edition.Value, $"deezer:{id}", preview));
             }

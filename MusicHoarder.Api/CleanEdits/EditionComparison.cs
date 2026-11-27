@@ -155,7 +155,7 @@ internal static class EditionComparison
     }
 
     /// <summary>Where, in the file's own frames, it is quiet against one explicit preview.</summary>
-    private sealed record QuietFrames(string ReferenceId, int From, bool[] Quiet)
+    internal sealed record QuietFrames(string ReferenceId, int From, bool[] Quiet)
     {
         private const int Slack = 2;
 
@@ -191,20 +191,26 @@ internal static class EditionComparison
             quietFrames >= MinimumMutedFrames && 2 * quietFrames >= end - start;
 
         /// <summary>
-        /// True when this preview does not cover the run, or hears the file go quiet for at least half
-        /// of it too. A lone quiet frame is a framing blip, not agreement.
+        /// True when this preview does not cover the run, or hears the file go quiet for at least half of
+        /// it too, under one alignment within <see cref="Slack"/> frames of the run. Each shift is counted
+        /// on its own, so quiet frames on both sides of a run cannot add up to agreement.
         /// </summary>
         public bool Agrees(int start, int end)
         {
             if (start < From || end > From + Quiet.Length)
                 return true;
-            var quiet = 0;
-            for (var f = Math.Max(start - Slack, From); f < Math.Min(end + Slack, From + Quiet.Length); f++)
+            for (var shift = -Slack; shift <= Slack; shift++)
             {
-                if (Quiet[f - From])
-                    quiet++;
+                var quiet = 0;
+                for (var f = Math.Max(start + shift, From); f < Math.Min(end + shift, From + Quiet.Length); f++)
+                {
+                    if (Quiet[f - From])
+                        quiet++;
+                }
+                if (2 * quiet >= end - start)
+                    return true;
             }
-            return 2 * quiet >= end - start;
+            return false;
         }
     }
 
