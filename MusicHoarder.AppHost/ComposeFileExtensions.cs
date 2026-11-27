@@ -672,6 +672,25 @@ internal static class ComposeFileExtensions
 
         // Optional cookies bind: harmless /dev/null when YTDLP_COOKIES_HOST_PATH is unset.
         api.AddVolume(new Volume { Name = "youtube-cookies", Type = "bind", Source = "${YTDLP_COOKIES_HOST_PATH:-/dev/null}", Target = "/data/cookies/youtube.txt", ReadOnly = true });
+
+        file.ConfigureAudioStorage(api);
+    }
+
+    /// <summary>
+    /// Storage mode and audio assets. <c>Folders</c> and adoption off are the defaults, so this is inert
+    /// until the deploy env opts in (<c>STORAGE_MODE=Hosted</c>, <c>ENABLE_AUDIO_ASSET_ADOPTION=true</c>).
+    /// The content store is its own named volume, mounted inside the downloads volume because the API
+    /// requires it under <c>DownloadDirectory</c>: the scanner indexes stored files from there.
+    /// </summary>
+    private static void ConfigureAudioStorage(this ComposeFile file, Service api)
+    {
+        api.Environment["MusicEnricher__StorageMode"] = "${STORAGE_MODE:-Folders}";
+        api.Environment["MusicEnricher__ContentStoreDirectory"] = "/data/downloads/content";
+        api.Environment["MusicEnricher__EnableAudioAssetAdoption"] = "${ENABLE_AUDIO_ASSET_ADOPTION:-false}";
+        api.Environment["MusicEnricher__AudioAssetAdoptionConcurrency"] = "${AUDIO_ASSET_ADOPTION_CONCURRENCY:-2}";
+
+        api.AddVolume(new Volume { Name = "musichoarder-content", Type = "volume", Source = "musichoarder-content", Target = "/data/downloads/content" });
+        file.Volumes["musichoarder-content"] = new Volume { Name = "musichoarder-content", Driver = "local" };
     }
 
     /// <summary>
