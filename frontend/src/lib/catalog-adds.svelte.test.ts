@@ -104,6 +104,32 @@ describe('adding a catalog track', () => {
     expect(api.importTrack).toHaveBeenCalledOnce();
   });
 
+  it('lets a track be added again once a newer search shows its download found nothing', async () => {
+    api.importTrack.mockResolvedValue({
+      wishlistItemId: 1,
+      jobStarted: true,
+      jobId: null,
+      status: 'Pending'
+    });
+    const track = trackWith();
+    await adds.add(track);
+    expect(adds.canAdd(track)).toBe(false);
+
+    const later = { ...track, wishlistStatus: 'NotFound' };
+    adds.remember([later]);
+
+    expect(adds.canAdd(later)).toBe(true);
+  });
+
+  it('keeps a track known after a later search that does not list it', () => {
+    const first = trackWith();
+    const second = trackWith();
+    adds.remember([first]);
+    adds.remember([second]);
+    expect(adds.track(first.deezerId)).toBe(first);
+    expect(adds.track(second.deezerId)).toBe(second);
+  });
+
   it('finds the last search’s tracks by id for the preview bar', () => {
     const track = trackWith();
     adds.remember([track]);

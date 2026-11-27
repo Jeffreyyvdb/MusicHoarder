@@ -136,6 +136,15 @@
       : 'Ctrl ↵'
   );
 
+  // Asked for once, for exactly that text: editing the field forgets it, so typing back to the same
+  // words does not search the catalog again unasked.
+  $effect(() => {
+    const typed = query.trim();
+    untrack(() => {
+      if (catalogQuery !== null && catalogQuery !== typed) catalogQuery = null;
+    });
+  });
+
   function searchCatalog() {
     if (!offersCatalog) return;
     rememberSearch();

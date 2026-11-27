@@ -12,8 +12,16 @@ let adding = $state.raw<ReadonlySet<string>>(new Set());
 /** The wishlist status each track was left in by an add made here. */
 let added = $state.raw<ReadonlyMap<string, string>>(new Map());
 
+/**
+ * A search's tracks. They are added to what is known rather than replacing it, so the track the
+ * preview bar is playing stays addable after a search that no longer lists it. A track's fresh
+ * wishlist status also replaces the one an earlier add left here (a queued download may since
+ * have found nothing, and must be addable again), unless an add for it is still under way.
+ */
 function remember(tracks: readonly CatalogTrack[]): void {
-  known = new Map(tracks.map((t) => [t.deezerId, t]));
+  known = new Map([...known, ...tracks.map((t) => [t.deezerId, t] as const)]);
+  const fresh = new Set(tracks.map((t) => t.deezerId));
+  added = new Map([...added].filter(([id]) => !fresh.has(id) || adding.has(id)));
 }
 
 /** The word shown instead of Add (a status, or "Queued"), or null when the track can be added. */
