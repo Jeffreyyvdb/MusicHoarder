@@ -21,33 +21,33 @@ public static class BackgroundWorkEndpoints
         CancellationToken ct)
     {
         var jobs = await ReadSummariesAsync(insights, logger, ct);
-        return Results.Json(new BackgroundWorkSummaryDto(DateTime.UtcNow, jobs), Json);
+        return Results.Json(new BackgroundWorkSummaryDto(DateTime.UtcNow, [.. jobs.Select(j => j.Summary)]), Json);
     }
 
     /// <summary>
     /// Every job's row in the Pipeline page's order. One job that cannot be read becomes an "unknown" row
-    /// instead of blanking the list. The endpoint and the metrics sampler both call this, so the page and
-    /// the exported gauges cannot disagree.
+    /// instead of blanking the list, flagged so the metrics do not export its placeholder figures as real
+    /// ones. The endpoint and the metrics sampler both call this, so the page and the gauges cannot disagree.
     /// </summary>
-    internal static async Task<IReadOnlyList<BackgroundJobSummaryDto>> ReadSummariesAsync(
+    internal static async Task<IReadOnlyList<BackgroundJobRead>> ReadSummariesAsync(
         IEnumerable<IBackgroundJobInsight> insights,
         ILogger logger,
         CancellationToken ct)
     {
         var byId = insights.ToDictionary(i => i.Id);
-        var jobs = new List<BackgroundJobSummaryDto>();
+        var jobs = new List<BackgroundJobRead>();
         foreach (var id in BackgroundJobIds.All)
         {
             if (!byId.TryGetValue(id, out var insight))
                 continue;
             try
             {
-                jobs.Add(await insight.SummarizeAsync(ct));
+                jobs.Add(new BackgroundJobRead(await insight.SummarizeAsync(ct), Readable: true));
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 logger.LogWarning(ex, "Background work: could not summarize job {JobId}", id);
-                jobs.Add(Unreadable(id));
+                jobs.Add(new BackgroundJobRead(Unreadable(id), Readable: false));
             }
         }
 
@@ -75,3 +75,5 @@ public static class BackgroundWorkEndpoints
             new double[TimeBuckets.TrendDays], "");
     }
 }
+
+internal sealed record BackgroundJobRead(BackgroundJobSummaryDto Summary, bool Readable);

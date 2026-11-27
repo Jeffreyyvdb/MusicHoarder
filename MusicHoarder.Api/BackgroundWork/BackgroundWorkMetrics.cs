@@ -5,7 +5,7 @@ namespace MusicHoarder.Api.BackgroundWork;
 
 /// <summary>
 /// The Pipeline page's job rows as OpenTelemetry gauges. They read one snapshot that a collection
-/// refreshes in the background when it is older than <see cref="MaxAge"/>, so an instance with no OTLP
+/// refreshes in the background at most once per <see cref="MaxAge"/>, so an instance with no OTLP
 /// reader (nothing collects) runs no extra queries. Tags are the job's wire id and, for the state gauge,
 /// the state: never a label, caption or reason, which are free text. The job tag is not named <c>job</c>
 /// because Prometheus's OTLP ingestion sets its own <c>job</c> label.
@@ -17,20 +17,28 @@ public sealed class BackgroundWorkMetrics
 
     public const string JobTag = "background_job";
     public static readonly TimeSpan MaxAge = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan RefreshTimeout = TimeSpan.FromMinutes(2);
 
-    private sealed record Snapshot(IReadOnlyList<BackgroundJobSummaryDto> Jobs, DateTimeOffset TakenAt);
+    private sealed record Snapshot(IReadOnlyList<BackgroundJobRead> Jobs);
 
     private readonly IServiceScopeFactory _scopes;
     private readonly TimeProvider _clock;
+    private readonly CancellationToken _stopping;
     private readonly ILogger<BackgroundWorkMetrics> _logger;
     private volatile Snapshot? _snapshot;
     private int _refreshing;
+    private DateTimeOffset? _lastAttempt;
 
     public BackgroundWorkMetrics(
-        IMeterFactory meterFactory, IServiceScopeFactory scopes, TimeProvider clock, ILogger<BackgroundWorkMetrics> logger)
+        IMeterFactory meterFactory,
+        IServiceScopeFactory scopes,
+        TimeProvider clock,
+        IHostApplicationLifetime lifetime,
+        ILogger<BackgroundWorkMetrics> logger)
     {
         _scopes = scopes;
         _clock = clock;
+        _stopping = lifetime.ApplicationStopping;
         _logger = logger;
         var meter = meterFactory.Create(MeterName);
 
@@ -51,25 +59,44 @@ public sealed class BackgroundWorkMetrics
     /// <summary>The latest refresh, running or finished. Tests await it.</summary>
     internal Task? Refresh { get; private set; }
 
-    private IReadOnlyList<BackgroundJobSummaryDto>? Jobs()
+    private IReadOnlyList<BackgroundJobRead> Jobs()
     {
-        var snapshot = _snapshot;
-        var stale = snapshot is null || _clock.GetUtcNow() - snapshot.TakenAt > MaxAge;
-        if (stale && Interlocked.CompareExchange(ref _refreshing, 1, 0) == 0)
+        StartRefreshIfDue();
+        return _snapshot?.Jobs ?? [];
+    }
+
+    private void StartRefreshIfDue()
+    {
+        if (_stopping.IsCancellationRequested || Interlocked.CompareExchange(ref _refreshing, 1, 0) != 0)
+            return;
+
+        // Due from the last attempt, not the last success, so a failing refresh is retried once per
+        // MaxAge instead of by every gauge of every collection.
+        var now = _clock.GetUtcNow();
+        if (_lastAttempt is { } last && now - last <= MaxAge)
+        {
+            Volatile.Write(ref _refreshing, 0);
+            return;
+        }
+
+        _lastAttempt = now;
+        // The refresh must not inherit a caller's HttpContext, or a request's user would win over ActAs.
+        using (ExecutionContext.SuppressFlow())
             Refresh = Task.Run(RefreshAsync);
-        return snapshot?.Jobs;
     }
 
     private async Task RefreshAsync()
     {
         try
         {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(_stopping);
+            cts.CancelAfter(RefreshTimeout);
             await using var scope = _scopes.CreateAsyncScope();
             scope.ServiceProvider.GetRequiredService<HttpContextCurrentUserAccessor>()
                 .ActAs(new CurrentUser(WellKnownUsers.OwnerId, "", UserRole.Admin, null));
             var jobs = await BackgroundWorkEndpoints.ReadSummariesAsync(
-                scope.ServiceProvider.GetServices<IBackgroundJobInsight>(), _logger, CancellationToken.None);
-            _snapshot = new Snapshot(jobs, _clock.GetUtcNow());
+                scope.ServiceProvider.GetServices<IBackgroundJobInsight>(), _logger, cts.Token);
+            _snapshot = new Snapshot(jobs);
         }
         catch (Exception ex)
         {
@@ -83,19 +110,20 @@ public sealed class BackgroundWorkMetrics
 
     private IEnumerable<Measurement<double>> StateMeasurements()
     {
-        foreach (var job in Jobs() ?? [])
+        foreach (var job in Jobs())
             foreach (var state in BackgroundJobState.All)
                 yield return new Measurement<double>(
-                    state == job.State ? 1 : 0,
-                    new KeyValuePair<string, object?>(JobTag, job.Id),
+                    state == job.Summary.State ? 1 : 0,
+                    new KeyValuePair<string, object?>(JobTag, job.Summary.Id),
                     new KeyValuePair<string, object?>("state", state));
     }
 
+    /// <summary>A job that could not be read reports only its state: its row's figures are placeholders.</summary>
     private IEnumerable<Measurement<double>> PerJob(Func<BackgroundJobSummaryDto, double?> value)
     {
-        foreach (var job in Jobs() ?? [])
-            if (value(job) is { } v)
-                yield return new Measurement<double>(v, new KeyValuePair<string, object?>(JobTag, job.Id));
+        foreach (var job in Jobs())
+            if (job.Readable && value(job.Summary) is { } v)
+                yield return new Measurement<double>(v, new KeyValuePair<string, object?>(JobTag, job.Summary.Id));
     }
 
     private static double? UnixSeconds(DateTime? utc) =>

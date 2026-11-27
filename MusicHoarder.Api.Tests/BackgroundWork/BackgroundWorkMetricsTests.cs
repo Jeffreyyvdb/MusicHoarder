@@ -1,6 +1,8 @@
 using System.Diagnostics.Metrics;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Hosting.Internal;
 using Microsoft.Extensions.Logging;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.BackgroundWork;
@@ -17,6 +19,8 @@ public sealed class BackgroundWorkMetricsTests : IDisposable
     private readonly List<BackgroundJobSummaryDto> _rows = [];
     private readonly HashSet<string> _broken = [];
     private readonly List<string> _readsAs = [];
+    private TaskCompletionSource? _gate;
+    private bool _insightsUnresolvable;
     private ServiceProvider? _provider;
 
     public void Dispose() => _provider?.Dispose();
@@ -27,13 +31,16 @@ public sealed class BackgroundWorkMetricsTests : IDisposable
         services.AddLogging();
         services.AddMetrics();
         services.AddSingleton<TimeProvider>(_clock);
+        services.AddSingleton<IHostApplicationLifetime, ApplicationLifetime>();
         services.AddHttpContextAccessor();
         services.AddScoped<HttpContextCurrentUserAccessor>();
         services.AddScoped<ICurrentUserAccessor>(sp => sp.GetRequiredService<HttpContextCurrentUserAccessor>());
         var options = new DbContextOptionsBuilder<MusicHoarderDbContext>().UseInMemoryDatabase(_database).Options;
         services.AddScoped(sp => new MusicHoarderDbContext(options, sp.GetRequiredService<ICurrentUserAccessor>()));
         foreach (var id in BackgroundJobIds.All)
-            services.AddScoped<IBackgroundJobInsight>(sp => new FakeInsight(id, this, sp.GetRequiredService<ICurrentUserAccessor>()));
+            services.AddScoped<IBackgroundJobInsight>(sp => _insightsUnresolvable
+                ? throw new InvalidOperationException("no scope")
+                : new FakeInsight(id, this, sp.GetRequiredService<ICurrentUserAccessor>()));
         services.AddSingleton<BackgroundWorkMetrics>();
         _provider = services.BuildServiceProvider();
         return _provider.GetRequiredService<BackgroundWorkMetrics>();
@@ -43,12 +50,14 @@ public sealed class BackgroundWorkMetricsTests : IDisposable
     {
         public string Id => id;
 
-        public Task<BackgroundJobSummaryDto> SummarizeAsync(CancellationToken ct)
+        public async Task<BackgroundJobSummaryDto> SummarizeAsync(CancellationToken ct)
         {
             owner._readsAs.Add(user.UserId.ToString());
+            if (owner._gate is { } gate)
+                await gate.Task;
             if (owner._broken.Contains(id))
                 throw new InvalidOperationException("boom");
-            return Task.FromResult(owner._rows.Single(r => r.Id == id));
+            return owner._rows.Single(r => r.Id == id);
         }
 
         public Task<BackgroundJobDetailDto> DescribeAsync(CancellationToken ct) => throw new NotSupportedException();
@@ -74,13 +83,14 @@ public sealed class BackgroundWorkMetricsTests : IDisposable
 
     private sealed record Point(string Instrument, double Value, Dictionary<string, string?> Tags);
 
-    private static List<Point> Collect(BackgroundWorkMetrics _)
+    private List<Point> Collect(BackgroundWorkMetrics _)
     {
         var points = new List<Point>();
+        var factory = _provider!.GetRequiredService<IMeterFactory>();
         using var listener = new MeterListener();
         listener.InstrumentPublished = (instrument, l) =>
         {
-            if (instrument.Meter.Name == BackgroundWorkMetrics.MeterName)
+            if (instrument.Meter.Name == BackgroundWorkMetrics.MeterName && instrument.Meter.Scope == factory)
                 l.EnableMeasurementEvents(instrument);
         };
         listener.SetMeasurementEventCallback<double>((instrument, value, tags, _) =>
@@ -100,9 +110,11 @@ public sealed class BackgroundWorkMetricsTests : IDisposable
     public async Task Nothing_is_reported_until_the_first_refresh_finishes_then_every_job_is()
     {
         SeedRows();
+        _gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var metrics = Build();
 
         Assert.Empty(Collect(metrics));
+        _gate.SetResult();
         await Refreshed(metrics);
         var points = Collect(metrics);
 
@@ -151,9 +163,11 @@ public sealed class BackgroundWorkMetricsTests : IDisposable
         Collect(metrics);
         await Refreshed(metrics);
         var reads = _readsAs.Count;
+        var firstRefresh = metrics.Refresh;
 
         _clock.Advance(TimeSpan.FromMinutes(4));
         Collect(metrics);
+        Assert.Same(firstRefresh, metrics.Refresh);
         Assert.Equal(reads, _readsAs.Count);
 
         _rows[0] = Row(BackgroundJobIds.All[0], BackgroundJobState.Working, 11);
@@ -168,7 +182,7 @@ public sealed class BackgroundWorkMetricsTests : IDisposable
     }
 
     [Fact]
-    public async Task A_job_that_cannot_be_read_is_reported_as_unknown_not_dropped()
+    public async Task A_job_that_cannot_be_read_reports_unknown_and_no_placeholder_figures()
     {
         SeedRows();
         _broken.Add(BackgroundJobIds.CoverArt);
@@ -181,7 +195,47 @@ public sealed class BackgroundWorkMetricsTests : IDisposable
         var unknown = points.Single(p => p.Instrument == "mh.background.job.state"
             && p.Tags["background_job"] == BackgroundJobIds.CoverArt && p.Tags["state"] == BackgroundJobState.Unknown);
         Assert.Equal(1, unknown.Value);
-        Assert.Equal(BackgroundJobIds.All.Count, points.Count(p => p.Instrument == "mh.background.job.headline"));
+        Assert.DoesNotContain(points, p => p.Instrument != "mh.background.job.state" && p.Tags["background_job"] == BackgroundJobIds.CoverArt);
+        Assert.Equal(BackgroundJobIds.All.Count - 1, points.Count(p => p.Instrument == "mh.background.job.headline"));
+    }
+
+    [Fact]
+    public async Task A_refresh_in_flight_is_not_started_again()
+    {
+        SeedRows();
+        _gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var metrics = Build();
+        Collect(metrics);
+        var inFlight = metrics.Refresh;
+
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        Collect(metrics);
+
+        Assert.Same(inFlight, metrics.Refresh);
+        _gate.SetResult();
+        await Refreshed(metrics);
+        Assert.Equal(BackgroundJobIds.All.Count, _readsAs.Count);
+    }
+
+    [Fact]
+    public async Task A_failed_refresh_is_retried_once_five_minutes_have_passed_not_on_every_collection()
+    {
+        SeedRows();
+        _insightsUnresolvable = true;
+        var metrics = Build();
+        Collect(metrics);
+        await Refreshed(metrics);
+        var failed = metrics.Refresh;
+
+        Assert.Empty(Collect(metrics));
+        Assert.Same(failed, metrics.Refresh);
+
+        _insightsUnresolvable = false;
+        _clock.Advance(TimeSpan.FromMinutes(6));
+        Collect(metrics);
+        Assert.NotSame(failed, metrics.Refresh);
+        await Refreshed(metrics);
+        Assert.NotEmpty(Collect(metrics));
     }
 
     [Fact]
@@ -235,6 +289,17 @@ public sealed class BackgroundWorkMetricsTests : IDisposable
         accessor.ActAs(new CurrentUser(WellKnownUsers.OwnerId, "", UserRole.Admin, null));
 
         Assert.Equal(requestUser.Id, accessor.UserId);
+    }
+
+    [Fact]
+    public void An_anonymous_request_is_not_given_the_ActAs_user()
+    {
+        var accessor = new HttpContextCurrentUserAccessor(
+            new Microsoft.AspNetCore.Http.HttpContextAccessor { HttpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext() });
+
+        accessor.ActAs(new CurrentUser(WellKnownUsers.OwnerId, "", UserRole.Admin, null));
+
+        Assert.Null(accessor.User);
     }
 
     private sealed class MutableClock(DateTime now) : TimeProvider
