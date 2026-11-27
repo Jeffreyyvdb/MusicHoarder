@@ -60,6 +60,11 @@ let two = { deezerId: '', title: 'Two', artist: 'B' };
 let preview: typeof catalogPreview;
 const el = () => FakeAudio.instances.at(-1)!;
 const settle = () => new Promise((r) => setTimeout(r, 0));
+/** The current clip reaches a second, as the element would report it. */
+const reach = (seconds: number) => {
+  el().currentTime = seconds;
+  el().emit('timeupdate');
+};
 
 beforeEach(() => {
   FakeAudio.instances = [];
@@ -131,8 +136,18 @@ describe('the main player', () => {
 });
 
 describe('the full song', () => {
+  it('is not looked up for a clip skipped within its first seconds', () => {
+    preview.toggle(one);
+    reach(1);
+    preview.toggle(two);
+    reach(1.5);
+    expect(api.resolve).not.toHaveBeenCalled();
+  });
+
   it('becomes available once the lookup succeeds, then plays from the start', async () => {
     preview.toggle(one);
+    reach(2);
+    expect(api.resolve).toHaveBeenCalledTimes(1);
     expect(preview.full.status).toBe('resolving');
     preview.playFull();
     expect(el().src).toBe(`/clip/${one.deezerId}`);
@@ -146,6 +161,7 @@ describe('the full song', () => {
   it('explains a failed lookup and never plays the full song', async () => {
     api.resolve.mockRejectedValue(new Error('No full version found.'));
     preview.toggle(one);
+    reach(2);
     await settle();
     expect(preview.full).toEqual({ status: 'failed', reason: 'No full version found.' });
     preview.playFull();
@@ -159,7 +175,9 @@ describe('the full song', () => {
     );
     api.resolve.mockRejectedValueOnce(new Error('nope'));
     preview.toggle(one);
+    reach(2);
     preview.toggle(two);
+    reach(2);
     finish();
     await settle();
     expect(preview.full.status).toBe('failed');
@@ -175,6 +193,43 @@ describe('leaving the page', () => {
     expect(preview.state).toBe('idle');
     expect(audio.paused).toBe(true);
     expect(audio.src).toBe('');
+  });
+});
+
+describe('interruptions', () => {
+  it('a resume cut short by a pause is not an error', async () => {
+    preview.toggle(one);
+    el().emit('playing');
+    preview.togglePause();
+    let reject!: (err: unknown) => void;
+    vi.spyOn(el(), 'play').mockImplementationOnce(() => new Promise((_, r) => (reject = r)));
+    preview.togglePause();
+    preview.togglePause();
+    reject(new DOMException('interrupted by pause()', 'AbortError'));
+    await settle();
+    expect(preview.state).toBe('paused');
+  });
+
+  it('a failed play() of an earlier track does not mark the next one', async () => {
+    let reject!: (err: unknown) => void;
+    preview.toggle(one);
+    vi.spyOn(el(), 'play').mockImplementationOnce(() => new Promise((_, r) => (reject = r)));
+    preview.togglePause();
+    preview.togglePause();
+    preview.toggle(two);
+    reject(new DOMException('not supported', 'NotSupportedError'));
+    await settle();
+    expect(preview.state).toBe('loading');
+  });
+
+  it("a released element firing late leaves the next page's preview alone", () => {
+    preview.toggle(one);
+    const old = el();
+    preview.release();
+    preview.toggle(two);
+    el().emit('playing');
+    old.emit('error');
+    expect(preview.state).toBe('playing');
   });
 });
 

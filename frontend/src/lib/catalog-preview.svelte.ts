@@ -34,6 +34,16 @@ let duration = $state(0);
 const resolved = new Set<string>();
 
 /**
+ * The full song is looked up once a clip has played this long, not on the tap: each lookup is a
+ * yt-dlp run on the server, and skimming a list would start one per row.
+ */
+export const WARM_AFTER_SECONDS = 2;
+let warmed: string | null = null;
+
+/** Bumped by every load and stop, so a late play() rejection from an earlier one changes nothing. */
+let generation = 0;
+
+/**
  * In the app shell the web view shares the app's audio session with the native player, and page
  * audio there took the session from it. Previews are simply not offered.
  */
@@ -57,39 +67,60 @@ function ensureAudio(): HTMLAudioElement {
   if (audio) return audio;
   const el = new Audio();
   el.preload = 'none';
-  el.addEventListener('playing', () => (state = 'playing'));
-  el.addEventListener('waiting', () => {
+  // A released element can still fire late events; only the current one may change the state.
+  const on = (type: string, handler: () => void) =>
+    el.addEventListener(type, () => {
+      if (el === audio) handler();
+    });
+  on('playing', () => (state = 'playing'));
+  on('waiting', () => {
     if (state === 'playing') state = 'loading';
   });
-  el.addEventListener('pause', () => {
+  on('pause', () => {
     // The event arrives a task late: a track started since then has the element playing again.
     if (el.paused && (state === 'playing' || state === 'loading')) state = 'paused';
   });
-  el.addEventListener('ended', () => {
+  on('ended', () => {
     state = 'paused';
     position = 0;
   });
-  el.addEventListener('error', () => {
+  on('error', () => {
     if (track) state = 'error';
   });
-  el.addEventListener('timeupdate', () => {
+  on('timeupdate', () => {
     position = el.currentTime;
     duration = Number.isFinite(el.duration) ? el.duration : 0;
+    if (
+      track &&
+      source === 'clip' &&
+      warmed !== track.deezerId &&
+      el.currentTime >= WARM_AFTER_SECONDS
+    ) {
+      warmed = track.deezerId;
+      warmFull(track);
+    }
   });
   audio = el;
 
   return el;
 }
 
-function load(el: HTMLAudioElement, url: string): void {
-  reset();
-  state = 'loading';
-  el.src = url;
+/** play(), whose rejection counts only while nothing newer has happened and it is not an interruption. */
+function startPlaying(el: HTMLAudioElement): void {
+  const mine = generation;
   el.play().catch((err: unknown) => {
-    // A newer load interrupts this one: that is not a failure.
+    if (mine !== generation || !track) return;
     if (err instanceof DOMException && err.name === 'AbortError') return;
     state = 'error';
   });
+}
+
+function load(el: HTMLAudioElement, url: string): void {
+  generation++;
+  reset();
+  state = 'loading';
+  el.src = url;
+  startPlaying(el);
 }
 
 function warmFull(forTrack: PreviewTrack): void {
@@ -121,8 +152,8 @@ function toggle(next: PreviewTrack): void {
   if (localPlayback.playing() || localPlayback.loading()) localPlayback.pause();
   track = next;
   source = 'clip';
+  full = resolved.has(next.deezerId) ? { status: 'ready' } : { status: 'resolving' };
   load(el, catalogPreviewUrl(next.deezerId));
-  warmFull(next);
 }
 
 function togglePause(): void {
@@ -139,8 +170,9 @@ function togglePause(): void {
     );
     return;
   }
+  generation++;
   state = 'loading';
-  audio.play().catch(() => (state = 'error'));
+  startPlaying(audio);
 }
 
 /** Switch the current track from its clip to the whole song, from the start. */
@@ -151,6 +183,8 @@ function playFull(): void {
 }
 
 function stop(): void {
+  generation++;
+  warmed = null;
   audio?.pause();
   track = null;
   state = 'idle';

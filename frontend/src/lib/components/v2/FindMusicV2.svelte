@@ -104,16 +104,18 @@
     Pending: 'In wishlist',
     Downloading: 'Downloading',
     Downloaded: 'Downloaded',
-    SkippedOwned: 'In library',
-    NotFound: 'Not found'
+    SkippedOwned: 'In library'
   };
+
+  /** A download that ended without a file: adding again requeues it. */
+  const RETRYABLE = new Set(['Failed', 'NotFound']);
 
   /** What the Add control shows: a word once the song is queued or known, else the plus. */
   function addState(track: CatalogTrack): { label: string | null; disabled: boolean } {
     if (adding.has(track.deezerId)) return { label: null, disabled: true };
     if (queued.has(track.deezerId)) return { label: 'Queued', disabled: true };
     const status = track.wishlistStatus;
-    if (status != null && status !== 'Failed') {
+    if (status != null && !RETRYABLE.has(status)) {
       return { label: WISHLIST_LABELS[status] ?? 'In wishlist', disabled: true };
     }
     return { label: null, disabled: false };
@@ -196,7 +198,7 @@
         'size-11 shrink-0 rounded-full p-0',
         isInLibrary(owned, track) ? 'text-muted-foreground' : 'text-primary'
       )}
-      aria-label={`${track.wishlistStatus === 'Failed' ? 'Retry adding' : 'Add'} ${track.title} by ${track.artist} to your library`}
+      aria-label={`${RETRYABLE.has(track.wishlistStatus ?? '') ? 'Retry adding' : 'Add'} ${track.title} by ${track.artist} to your library`}
       onclick={() => void add(track)}
     >
       <Plus class="size-5" aria-hidden="true" />
