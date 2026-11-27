@@ -36,6 +36,7 @@
   import { IsMobile } from '#lib/hooks/is-mobile.svelte.ts';
   import { NAV_GROUPS, navGroupsFor } from '#lib/nav.ts';
   import { playerStore } from '#lib/stores/player.svelte.ts';
+  import { shuffleScopes } from '#lib/shuffle-prefs.ts';
   import { playlistsStore } from '#lib/stores/playlists.svelte.ts';
   import { songsStore } from '#lib/stores/songs.svelte.ts';
   import { titleOf } from '#lib/track-list-view.svelte.ts';
@@ -177,7 +178,11 @@
   function fallbackArtist(s: ApiSong): string {
     return (s.albumArtist ?? s.artist ?? '').trim() || 'Unknown Artist';
   }
-  const favouritesSource = { label: 'Favourite tracks', href: '/tracks?f=mh-liked' };
+  const favouritesSource = {
+    label: 'Favourite tracks',
+    href: '/tracks?f=mh-liked',
+    shuffleScope: shuffleScopes.library
+  };
 
   /** The favourites from `target`; never pauses (the phone's tap rule, a menu's Play). */
   function playFavorite(target: ApiSong) {

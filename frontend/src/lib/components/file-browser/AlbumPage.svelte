@@ -20,7 +20,6 @@
     Search,
     Send,
     Share,
-    Shuffle,
     Sparkles,
     TriangleAlert,
     Users,
@@ -34,6 +33,8 @@
   import * as GroupedList from '#lib/components/ui/grouped-list/index.ts';
   import { Badge } from '#lib/components/ui/badge/index.ts';
   import { Button } from '#lib/components/ui/button/index.ts';
+  import ShuffleToggle from '#lib/components/v2/ShuffleToggle.svelte';
+  import { shuffleScopes } from '#lib/shuffle-prefs.ts';
   import Cover from '#lib/components/file-browser/Cover.svelte';
   import AlbumTimelineDialog from '#lib/components/file-browser/AlbumTimelineDialog.svelte';
   import ProvenanceSheet from '#lib/components/file-browser/ProvenanceSheet.svelte';
@@ -489,9 +490,14 @@
     }
   }
 
+  const shuffleScope = $derived(album ? shuffleScopes.album(album.key) : null);
   const playbackSource = $derived(
-    album
-      ? { label: album.title, href: `/library?album=${encodeURIComponent(album.key)}` }
+    album && shuffleScope
+      ? {
+          label: album.title,
+          href: `/library?album=${encodeURIComponent(album.key)}`,
+          shuffleScope
+        }
       : undefined
   );
 
@@ -514,22 +520,12 @@
 
   // The pill reads Pause while one of this album's tracks is playing, so only then does it pause;
   // as Play it resumes that track — wherever it is loaded, the account's session on another device
-  // included — else starts track 1.
+  // included — else starts track 1, or a random track with the album's Shuffle on.
   function playAlbumStart() {
     if (!album || tracks.length === 0) return;
     if (playerStore.isPlaying && currentlyPlaying) playerStore.pause();
     else if (currentlyPlaying) playFrom(currentlyPlaying, { resumeIfLoaded: true });
-    else playFrom(tracks[0]);
-  }
-
-  // Shuffle never pauses, even when the shuffle happens to start on the song already playing.
-  function playAlbumShuffle() {
-    if (!album || tracks.length === 0) return;
-    void playerStore.startQueue(
-      tracks.map((t) => toPlayerSong(t, album.artist)),
-      0,
-      { shuffle: true, source: playbackSource }
-    );
+    else playFrom(tracks[0], { shuffle: !!shuffleScope && playerStore.shuffleFor(shuffleScope) });
   }
 
   /** The desktop row's glyph shows Play/Pause for its own song, so it is the one that toggles. */
@@ -856,10 +852,10 @@
             </p>
           {/if}
 
-          <!-- Play / Shuffle. Phone: two equal gray capsules (tint glyph + label). md+: the same
-               treatment as Tracks and an artist — Play the prominent button, Shuffle gray. Play
-               resumes the album track that is playing, else starts track 1; its glyph shows the
-               live state. -->
+          <!-- Play / Shuffle. Phone: two equal capsules (tint glyph + label). md+: the same
+               treatment as Tracks and an artist — Play the prominent button. Play resumes the
+               album track that is playing, else starts the album; its glyph shows the live state.
+               Shuffle is the album's own remembered toggle, off until turned on. -->
           {#if compact}
             <div class="mt-4 flex w-full gap-3">
               <Button
@@ -874,14 +870,9 @@
                   <Play fill="currentColor" /> Play
                 {/if}
               </Button>
-              <Button
-                variant="gray"
-                size="pill"
-                class="text-primary flex-1"
-                onclick={playAlbumShuffle}
-              >
-                <Shuffle /> Shuffle
-              </Button>
+              {#if shuffleScope}
+                <ShuffleToggle scope={shuffleScope} appearance="pill" class="flex-1" />
+              {/if}
             </div>
           {:else}
             <div class="mt-4 flex gap-2">
@@ -892,14 +883,9 @@
                   <Play class="size-4" fill="currentColor" /> Play
                 {/if}
               </Button>
-              <Button
-                variant="gray"
-                size="sm"
-                class="h-8 gap-1.5 rounded-full px-3"
-                onclick={playAlbumShuffle}
-              >
-                <Shuffle class="size-4" /> Shuffle
-              </Button>
+              {#if shuffleScope}
+                <ShuffleToggle scope={shuffleScope} appearance="sm" />
+              {/if}
             </div>
           {/if}
 

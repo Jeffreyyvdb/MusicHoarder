@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlayerSong } from './player.svelte';
+import type { ShuffleScope } from '#lib/shuffle-prefs.ts';
 
 /**
  * Background playback in the installed iOS app hangs on three things this store does, none of
@@ -1099,6 +1100,110 @@ describe('shuffle', () => {
     await playerStore.startQueue(album, 0);
     playerStore.toggleShuffle();
     playerStore.stop();
+    expect(playerStore.shuffle).toBe(false);
+  });
+});
+
+describe('remembered shuffle', () => {
+  const album = [1, 2, 3, 4, 5, 6, 7, 8].map((id) => song(id));
+  const upNextIds = (store: { upNext: readonly PlayerSong[] }) => store.upNext.map((s) => s.id);
+  const source = (shuffleScope: ShuffleScope) => ({ label: 'List', href: '/x', shuffleScope });
+
+  it('starts a list in the state its scope remembers, from the tapped song', async () => {
+    const { playerStore } = await loadPlayer();
+    playerStore.setShuffleFor('album:a', true);
+
+    await playerStore.startQueue(album, 2, { source: source('album:a') });
+    expect(playerStore.shuffle).toBe(true);
+    expect(playerStore.currentSong?.id).toBe(3);
+    expect([...upNextIds(playerStore)].sort((a, b) => a - b)).toEqual([1, 2, 4, 5, 6, 7, 8]);
+
+    // Another album, and Tracks, keep their own (off) setting.
+    await playerStore.startQueue(album, 2, { source: source('album:b') });
+    expect(playerStore.shuffle).toBe(false);
+    expect(upNextIds(playerStore)).toEqual([4, 5, 6, 7, 8]);
+    expect(playerStore.shuffleFor('library')).toBe(false);
+    expect(playerStore.shuffleFor('album:a')).toBe(true);
+  });
+
+  it("remembers Now Playing's toggle for the list the queue came from", async () => {
+    const { playerStore } = await loadPlayer();
+    await playerStore.startQueue(album, 0, { source: source('playlist:7') });
+    playerStore.toggleShuffle();
+    expect(playerStore.shuffleFor('playlist:7')).toBe(true);
+    expect(playerStore.shuffleFor('library')).toBe(false);
+
+    await playerStore.startQueue(album, 0, { source: source('library') });
+    expect(playerStore.shuffle).toBe(false);
+    await playerStore.startQueue(album, 0, { source: source('playlist:7') });
+    expect(playerStore.shuffle).toBe(true);
+  });
+
+  it('remembers what a Play button asked for', async () => {
+    const { playerStore } = await loadPlayer();
+    await playerStore.startQueue(album, 0, { shuffle: true, source: source('album:a') });
+    expect(playerStore.shuffleFor('album:a')).toBe(true);
+    await playerStore.startQueue(album, 0, { shuffle: false, source: source('album:a') });
+    expect(playerStore.shuffleFor('album:a')).toBe(false);
+  });
+
+  it("a list's toggle only remembers, unless that list is what is playing", async () => {
+    const { playerStore, audio } = await loadPlayer();
+    await playerStore.startQueue(album, 2, { source: source('album:a') });
+    const src = audio.src;
+
+    playerStore.setShuffleFor('album:b', true);
+    expect(playerStore.shuffle).toBe(false);
+    expect(upNextIds(playerStore)).toEqual([4, 5, 6, 7, 8]);
+
+    playerStore.setShuffleFor('album:a', true);
+    expect(playerStore.shuffle).toBe(true);
+    expect(playerStore.currentSong?.id).toBe(3);
+    expect(audio.src).toBe(src);
+    expect([...upNextIds(playerStore)].sort((a, b) => a - b)).toEqual([4, 5, 6, 7, 8]);
+
+    playerStore.setShuffleFor('album:a', false);
+    expect(playerStore.shuffle).toBe(false);
+    expect(upNextIds(playerStore)).toEqual([4, 5, 6, 7, 8]);
+    expect(playerStore.shuffleFor('album:a')).toBe(false);
+  });
+
+  it("pausing the loaded song from another list's row leaves the queue alone", async () => {
+    const { playerStore, audio } = await loadPlayer();
+    playerStore.setShuffleFor('library', true);
+    await playerStore.startQueue(album, 0, { source: source('album:a') });
+    audio.playFrom(10);
+    expect(playerStore.shuffle).toBe(false);
+
+    const tracks = [...album].reverse();
+    await playerStore.playSong(album[0], tracks, 7, source('library')); // the row glyph: a pause
+    expect(audio.pause).toHaveBeenCalled();
+    expect(playerStore.shuffle).toBe(false);
+    expect(upNextIds(playerStore)).toEqual([2, 3, 4, 5, 6, 7, 8]);
+  });
+
+  it('carrying on with the loaded song keeps a shuffled queue and what Previous goes back to', async () => {
+    const { playerStore, audio } = await loadPlayer();
+    await playerStore.startQueue(album, 0, { shuffle: true, source: source('album:a') });
+    playerStore.playNext();
+    await vi.waitFor(() => expect(upNextIds(playerStore)).toHaveLength(6));
+    const queued = upNextIds(playerStore);
+    const playing = playerStore.currentSong!;
+    playerStore.pause();
+
+    // The album page's Play pill on its loaded track.
+    const at = album.findIndex((s) => s.id === playing.id);
+    await playerStore.startQueue(album, at, { resumeIfLoaded: true, source: source('album:a') });
+    expect(playerStore.currentSong?.id).toBe(playing.id);
+    expect(upNextIds(playerStore)).toEqual(queued); // re-seeding would put 7 songs after it
+    expect(playerStore.shuffle).toBe(true);
+    expect(audio.play).toHaveBeenCalled();
+  });
+
+  it('leaves a list without a scope in its own order', async () => {
+    const { playerStore } = await loadPlayer();
+    playerStore.setShuffleFor('library', true);
+    await playerStore.startQueue(album, 0);
     expect(playerStore.shuffle).toBe(false);
   });
 });

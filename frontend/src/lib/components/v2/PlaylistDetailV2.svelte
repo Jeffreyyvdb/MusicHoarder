@@ -8,12 +8,13 @@
     Loader2,
     Pencil,
     Play,
-    Shuffle,
     Trash2
   } from '@lucide/svelte';
   import { toast } from 'svelte-sonner';
   import * as AlertDialog from '#lib/components/ui/alert-dialog/index.ts';
   import { Button } from '#lib/components/ui/button/index.ts';
+  import ShuffleToggle from '#lib/components/v2/ShuffleToggle.svelte';
+  import { shuffleScopes } from '#lib/shuffle-prefs.ts';
   import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.ts';
   import { EmptyState } from '#lib/components/ui/empty-state/index.ts';
   import { ScrollArea } from '#lib/components/ui/scroll-area/index.ts';
@@ -102,14 +103,23 @@
   function fallbackArtist(s: ApiSong): string {
     return (s.albumArtist ?? s.artist ?? '').trim() || 'Unknown Artist';
   }
-  /** Plays `list` from `from`. Never pauses: every caller is labelled Play or Shuffle, or is a tap. */
-  function playQueue(list: ApiSong[], from = 0, shuffle = false) {
+  // Each playlist remembers its own Shuffle, off until turned on.
+  const shuffleScope = $derived(shuffleScopes.playlist(id));
+  /**
+   * Plays `list` from `from`, in the playlist's remembered shuffle state. Never pauses: every caller
+   * is labelled Play, or is a tap. `shuffle` is Play's: shuffled, it starts at a random song.
+   */
+  function playQueue(list: ApiSong[], from = 0, shuffle?: boolean) {
     if (!playlist) return;
     void playerStore.startQueue(
       list.map((s) => toPlayerSong(s, fallbackArtist(s))),
       from,
-      { shuffle, source: { label: playlist.name, href: `/playlists/${id}` } }
+      { shuffle, source: { label: playlist.name, href: `/playlists/${id}`, shuffleScope } }
     );
+  }
+  /** Play: the playlist from the top, or from a random song with its Shuffle on. */
+  function playAll() {
+    playQueue(songs, 0, playerStore.shuffleFor(shuffleScope));
   }
   function activate(song: ApiSong, index: number) {
     if (compact) {
@@ -182,36 +192,17 @@
 {#snippet playButtons()}
   {#if compact}
     <div class="flex w-full gap-3">
-      <Button
-        variant="gray"
-        size="pill"
-        class="text-primary flex-1"
-        onclick={() => playQueue(songs)}
-      >
+      <Button variant="gray" size="pill" class="text-primary flex-1" onclick={playAll}>
         <Play fill="currentColor" /> Play
       </Button>
-      <Button
-        variant="gray"
-        size="pill"
-        class="text-primary flex-1"
-        onclick={() => playQueue(songs, 0, true)}
-      >
-        <Shuffle /> Shuffle
-      </Button>
+      <ShuffleToggle scope={shuffleScope} appearance="pill" class="flex-1" />
     </div>
   {:else}
     <div class="flex shrink-0 gap-2">
-      <Button size="sm" class="h-8 gap-1.5 rounded-full px-3" onclick={() => playQueue(songs)}>
+      <Button size="sm" class="h-8 gap-1.5 rounded-full px-3" onclick={playAll}>
         <Play class="size-4" fill="currentColor" /> Play
       </Button>
-      <Button
-        variant="gray"
-        size="sm"
-        class="h-8 gap-1.5 rounded-full px-3"
-        onclick={() => playQueue(songs, 0, true)}
-      >
-        <Shuffle class="size-4" /> Shuffle
-      </Button>
+      <ShuffleToggle scope={shuffleScope} appearance="sm" />
     </div>
   {/if}
 {/snippet}

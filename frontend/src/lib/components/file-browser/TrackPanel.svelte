@@ -57,6 +57,7 @@
   import { createLyricsDoc } from '#lib/lyrics/lyrics-doc.svelte.ts';
   import { lyricsSourceUrl } from '#lib/lyrics-source.ts';
   import { playerStore } from '#lib/stores/player.svelte.ts';
+  import { shuffleScopes } from '#lib/shuffle-prefs.ts';
   import { playbackSync } from '#lib/stores/playback-sync.svelte.ts';
   import { songsStore } from '#lib/stores/songs.svelte.ts';
   import { featuresStore } from '#lib/stores/features.svelte.ts';
@@ -475,8 +476,17 @@
     const queue = album.songs.map((s) => toPlayerSong(s, album.artist));
     void playerStore.playSong(toPlayerSong(song, album.artist), queue, trackIndex, {
       label: album.title,
-      href: albumHref
+      href: albumHref,
+      shuffleScope: shuffleScopes.album(mergedAlbumKey())
     });
+  }
+
+  /**
+   * The album page's key for this song: `album` is its folder's own card, and a merged album's page
+   * (whose Shuffle this must share) is keyed by its first folder.
+   */
+  function mergedAlbumKey(): string {
+    return songsStore.albums.find((a) => a.songs.some((s) => s.id === song.id))?.key ?? album.key;
   }
 
   function go(href: string) {
