@@ -71,13 +71,21 @@ public sealed class StreamingFlacDownloadProvider(
             }
 
             string? explicitIsrc = null;
+            var requestedTrackId = trackId;
             if (options.CurrentValue.PreferExplicit)
                 (trackId, explicitIsrc) = await PreferExplicitEditionAsync(trackId, clientId, clientSecret, ct);
+
+            // The sidecar's own ISRC lookup can come back empty, and it then picks by title, which
+            // can land on the clean edition. Only an ISRC of the id actually sent may go with it: after
+            // a swap, the request's ISRC names the clean edition.
+            var isrc = trackId == requestedTrackId
+                ? ProviderIdentity.NormalizeIsrc(req.Isrc) is { Length: > 0 } own ? own : null
+                : explicitIsrc;
 
             Directory.CreateDirectory(req.DestinationDirectory);
             var stem = Guid.NewGuid().ToString("N");
 
-            var result = await sidecar.AcquireAsync(TrackUrl(trackId), req.DestinationDirectory, stem, ct);
+            var result = await sidecar.AcquireAsync(TrackUrl(trackId), isrc, req.DestinationDirectory, stem, ct);
             switch (result.Status)
             {
                 case AcquireStatus.Ok:

@@ -227,6 +227,40 @@ public class StreamingFlacDownloadProviderTests : IDisposable
         Assert.Equal("track:Title artist:Artist", catalog.LastQuery);
     }
 
+    [Theory]
+    [InlineData(" usabc1234567 ", "USABC1234567")]
+    [InlineData(null, null)]
+    public async Task Acquire_SendsTheTracksOwnIsrc(string? requestIsrc, string? expected)
+    {
+        string? sentBody = null;
+        var handler = new FakeSidecarHandler { AcquireResponder = body => { sentBody = body; return NotFound("stop"); } };
+        var provider = CreateProvider(handler);
+
+        await provider.DownloadAsync(Request(trackId: "abc", isrc: requestIsrc), default);
+
+        Assert.Equal(expected, ReadIsrc(sentBody!));
+    }
+
+    [Theory]
+    [InlineData("USEXP0000001", "USEXP0000001")]
+    [InlineData(null, null)]
+    public async Task SwappedEdition_SendsOnlyThatEditionsIsrc(string? editionIsrc, string? expected)
+    {
+        string? sentBody = null;
+        var handler = new FakeSidecarHandler { AcquireResponder = body => { sentBody = body; return NotFound("stop"); } };
+        var catalog = new FakeCatalog(null)
+        {
+            Tracks = { ["clean1"] = Track("clean1", isExplicit: false, isrc: "USCLN0000001") },
+            SearchResults = [Track("explicit1", isExplicit: true, isrc: editionIsrc)],
+        };
+        var provider = CreateProvider(handler, catalog: catalog, spotifyClientId: "id", spotifyClientSecret: "secret");
+
+        await provider.DownloadAsync(Request(trackId: "clean1", isrc: "USCLN0000001"), default);
+
+        Assert.Equal("https://open.spotify.com/track/explicit1", ReadSpotifyUrl(sentBody!));
+        Assert.Equal(expected, ReadIsrc(sentBody!));
+    }
+
     [Fact]
     public async Task ExplicitTrack_IsKept_WithoutSearching()
     {
@@ -359,6 +393,7 @@ public class StreamingFlacDownloadProviderTests : IDisposable
 
     private static string ReadStem(string body) => JsonDocument.Parse(body).RootElement.GetProperty("filename_stem").GetString()!;
     private static string ReadSpotifyUrl(string body) => JsonDocument.Parse(body).RootElement.GetProperty("spotify_url").GetString()!;
+    private static string? ReadIsrc(string body) => JsonDocument.Parse(body).RootElement.GetProperty("isrc").GetString();
 
     private static string Ok(string file, string provider) =>
         JsonSerializer.Serialize(new { status = "ok", file, provider });
