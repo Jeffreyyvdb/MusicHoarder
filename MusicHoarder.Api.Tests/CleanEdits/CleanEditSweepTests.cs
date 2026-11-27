@@ -28,7 +28,7 @@ public sealed class CleanEditSweepTests : IDisposable
     {
         var services = new ServiceCollection();
         services.AddScoped(_ => new MusicHoarderDbContext(_options));
-        var checker = new CleanEditChecker(new FileDecoder(), _references, NullLogger<CleanEditChecker>.Instance);
+        var checker = new CleanEditChecker(new SilentDecoder(), _references, NullLogger<CleanEditChecker>.Instance);
         return new CleanEditSweep(
             services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
             checker,
@@ -185,40 +185,5 @@ public sealed class CleanEditSweepTests : IDisposable
         Assert.Equal(file, song.DestinationPath);
         Assert.Equal(4, song.FileSizeBytes);
         Assert.Equal(before, await File.ReadAllBytesAsync(file));
-    }
-
-    private sealed class FileDecoder : IMonoDecoder
-    {
-        public Task<float[]?> DecodeAsync(string path, CancellationToken ct) =>
-            Task.FromResult<float[]?>(new float[BandSpectrogram.SampleRate * 5]);
-    }
-
-    private sealed class ScriptedReferences : IEditionReferenceClient
-    {
-        private readonly TaskCompletionSource _asked = new();
-        public int Lookups;
-        public bool Incomplete;
-        public TaskCompletionSource? Block;
-
-        public Task WaitUntilAskedAsync() => _asked.Task;
-
-        public async Task<ReferenceLookup> FindAsync(ReferenceQuery query, CancellationToken ct)
-        {
-            Interlocked.Increment(ref Lookups);
-            _asked.TrySetResult();
-            if (Block is not null)
-                await Block.Task.WaitAsync(ct);
-            return new ReferenceLookup([], Incomplete);
-        }
-
-        public Task<byte[]?> DownloadPreviewAsync(string url, CancellationToken ct) => Task.FromResult<byte[]?>(null);
-    }
-
-    private sealed class Lifetime(CancellationToken stopping) : IHostApplicationLifetime
-    {
-        public CancellationToken ApplicationStarted => CancellationToken.None;
-        public CancellationToken ApplicationStopping => stopping;
-        public CancellationToken ApplicationStopped => CancellationToken.None;
-        public void StopApplication() { }
     }
 }

@@ -70,11 +70,16 @@ internal sealed class FfmpegMonoDecoder(IOptions<MusicEnricherOptions> options, 
         }
     }
 
+    // An hour-long mix would decode to about 300 MB of samples. The first 15 minutes hold any track a
+    // catalog sells two editions of.
+    internal const int MaxSeconds = 900;
+
     internal static IReadOnlyList<string> Arguments(string path) =>
     [
         "-nostdin", "-v", "error",
         "-i", path,
         "-map", "0:a:0",
+        "-t", MaxSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
         "-ac", "1",
         "-ar", BandSpectrogram.SampleRate.ToString(System.Globalization.CultureInfo.InvariantCulture),
         "-f", "f32le",
