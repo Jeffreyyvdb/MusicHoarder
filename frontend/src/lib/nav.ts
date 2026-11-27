@@ -33,6 +33,7 @@ import Tags from '@lucide/svelte/icons/tags';
 import TrendingUp from '@lucide/svelte/icons/trending-up';
 import UserCheck from '@lucide/svelte/icons/user-check';
 import Users from '@lucide/svelte/icons/users';
+import VolumeX from '@lucide/svelte/icons/volume-x';
 import Workflow from '@lucide/svelte/icons/workflow';
 import { APP_HOME } from '#lib/app-home.ts';
 import { isAdmin, isDemo } from '#lib/auth/capabilities.ts';
@@ -382,6 +383,15 @@ export const NAV_GROUPS: NavGroup[] = [
         keywords: 'album quality matches reconcile tracklist'
       },
       {
+        // Built songs that are a label's clean edit (or have muted words) although the explicit
+        // original exists, found by comparing each file with the editions' free previews.
+        id: 'clean-edits',
+        label: 'Clean edits',
+        href: '/clean-edits',
+        icon: VolumeX,
+        keywords: 'clean explicit censored muted radio edit swear words version original'
+      },
+      {
         id: 'grader-trial',
         label: 'Grader trial',
         href: '/grader-trial',
@@ -466,6 +476,7 @@ export function navGroupsFor(user: NavAudience): NavGroup[] {
  * not see, and the API keeps it admin-only:
  * - `playlist-sync`: lists the Spotify account the instance is connected to.
  * - `grader-trial`: admin-only by design (the trial's costs and models).
+ * - `clean-edits`: runs against the instance's files and third-party catalogs, admin-only.
  * - `performance`: snapshots record the instance's pipeline configuration.
  * - `following`: reads a third-party catalog for the instance, and following queues downloads.
  *
@@ -476,6 +487,7 @@ export const DEMO_HIDDEN_ITEMS: ReadonlySet<string> = new Set([
   'following',
   'playlist-sync',
   'grader-trial',
+  'clean-edits',
   'performance'
 ]);
 
@@ -861,6 +873,7 @@ const GROUPED_PAGES: readonly string[] = [
   '/pipeline',
   '/quality',
   '/album-quality',
+  '/clean-edits',
   '/grader-trial',
   '/performance',
   '/stats',
