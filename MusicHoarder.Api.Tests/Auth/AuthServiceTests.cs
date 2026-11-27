@@ -6,6 +6,8 @@ using Microsoft.Extensions.Options;
 using MusicHoarder.Api.Auth;
 using MusicHoarder.Api.Persistence;
 
+using MusicHoarder.Api.Tests.Persistence;
+
 namespace MusicHoarder.Api.Tests.Auth;
 
 public class AuthServiceTests
@@ -220,6 +222,67 @@ public class AuthServiceTests
         await using var after = ctx();
         var stored = await after.Sessions.Select(s => s.Id).ToListAsync();
         Assert.Equal(new[] { owner.Id, live!.Id }.Order(), stored.Order());
+    }
+
+    [PostgresFact]
+    public async Task Revoke_all_still_ends_the_sessions_left_when_others_vanish_mid_save()
+    {
+        await using var database = await PostgresTestDatabase.CreateAsync();
+        var now = DateTime.UtcNow;
+        var sessions = Enumerable.Range(0, 14).Select(i => new Session
+        {
+            Id = Guid.NewGuid(),
+            UserId = WellKnownUsers.DemoId,
+            IssuedAtUtc = now.AddMinutes(-i),
+            ExpiresAtUtc = now.AddDays(30),
+        }).ToList();
+        await using (var seed = database.NewContext())
+        {
+            seed.Sessions.AddRange(sessions);
+            await seed.SaveChangesAsync();
+        }
+
+        // What a demo login's trim does to a sign-out that has already loaded the rows: twelve of
+        // them are gone by the time it saves.
+        var vanish = new RunOnceBeforeSave(async () =>
+        {
+            await using var other = database.NewContext();
+            var gone = sessions.Take(12).Select(s => s.Id).ToList();
+            await other.Sessions.Where(s => gone.Contains(s.Id)).ExecuteDeleteAsync();
+        });
+        var services = new ServiceCollection();
+        services.AddScoped(_ => database.NewContext(null, vanish));
+        var svc = new AuthService(
+            services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
+            new ConsoleMagicLinkSender(NullLogger<ConsoleMagicLinkSender>.Instance),
+            new TestHostEnvironment("Development"),
+            new TestOptionsMonitor<AuthOptions>(new AuthOptions()),
+            NullLogger<AuthService>.Instance);
+
+        await svc.RevokeAsync(sessions[13].Id, allForUser: true, default);
+
+        await using var after = database.NewContext();
+        var left = await after.Sessions.Where(s => s.UserId == WellKnownUsers.DemoId).ToListAsync();
+        Assert.Equal(2, left.Count);
+        Assert.All(left, s => Assert.NotNull(s.RevokedAtUtc));
+    }
+
+    private sealed class RunOnceBeforeSave(Func<Task> action) : Microsoft.EntityFrameworkCore.Diagnostics.SaveChangesInterceptor
+    {
+        private bool _ran;
+
+        public override async ValueTask<Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int>> SavingChangesAsync(
+            Microsoft.EntityFrameworkCore.Diagnostics.DbContextEventData eventData,
+            Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (!_ran)
+            {
+                _ran = true;
+                await action();
+            }
+            return result;
+        }
     }
 
     [Fact]

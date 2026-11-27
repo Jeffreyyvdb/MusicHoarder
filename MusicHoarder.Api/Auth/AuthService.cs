@@ -242,14 +242,16 @@ public sealed class AuthService : IAuthService
     /// </summary>
     private static async Task SaveSkippingVanishedRowsAsync(MusicHoarderDbContext db, CancellationToken ct)
     {
-        for (var attempt = 0; ; attempt++)
+        // Postgres names one vanished row per failed save, so this goes round once per such row.
+        // It ends because every round takes at least one tracked row out.
+        while (true)
         {
             try
             {
                 await db.SaveChangesAsync(ct).ConfigureAwait(false);
                 return;
             }
-            catch (DbUpdateConcurrencyException ex) when (attempt < 8 && ex.Entries.Count > 0)
+            catch (DbUpdateConcurrencyException ex) when (ex.Entries.Count > 0)
             {
                 foreach (var entry in ex.Entries) entry.State = EntityState.Detached;
             }
