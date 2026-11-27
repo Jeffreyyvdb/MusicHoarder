@@ -464,13 +464,11 @@ public static class ServiceCollectionExtensions
 
         // The clean-edit check: compares built files with the free iTunes and Deezer previews of both
         // editions. Singletons, so the two catalogs' pacing is shared by every run.
-        services.AddHttpClient(EditionReferenceClient.HttpClientName, client =>
-        {
-            client.Timeout = TimeSpan.FromSeconds(20);
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("MusicHoarder-EditionCheck");
-        });
+        // Its own client, outside the factory's defaults: their resilience handler would retry a 429
+        // against a throttled catalog, and the reference client keeps its own backoff. Pooled
+        // connections still rotate, so DNS changes are picked up.
         services.AddSingleton<IEditionReferenceClient>(sp => new EditionReferenceClient(
-            sp.GetRequiredService<IHttpClientFactory>().CreateClient(EditionReferenceClient.HttpClientName),
+            EditionReferenceClient.CreateHttpClient(),
             sp.GetRequiredService<IOptions<MusicEnricherOptions>>(),
             sp.GetRequiredService<ILogger<EditionReferenceClient>>()));
         services.AddSingleton<IMonoDecoder, FfmpegMonoDecoder>();

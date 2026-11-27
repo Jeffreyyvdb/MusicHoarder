@@ -9,9 +9,15 @@ namespace MusicHoarder.Api.CleanEdits;
 /// <summary>Decodes an audio file to the mono 22.05 kHz float samples the spectrogram reads.</summary>
 internal interface IMonoDecoder
 {
-    /// <summary>The samples, or null when the file cannot be decoded.</summary>
+    /// <summary>
+    /// The samples, or null when the file cannot be decoded. Throws <see cref="FfmpegNotFoundException"/>
+    /// when there is no decoder to run, which no file can fix.
+    /// </summary>
     Task<float[]?> DecodeAsync(string path, CancellationToken ct);
 }
+
+internal sealed class FfmpegNotFoundException(string ffmpeg, Exception inner)
+    : Exception($"ffmpeg was not found ('{ffmpeg}'). Put it on PATH or set MusicEnricher:FfmpegPath.", inner);
 
 internal sealed class FfmpegMonoDecoder(IOptions<MusicEnricherOptions> options, ILogger<FfmpegMonoDecoder> logger) : IMonoDecoder
 {
@@ -37,8 +43,7 @@ internal sealed class FfmpegMonoDecoder(IOptions<MusicEnricherOptions> options, 
         }
         catch (Win32Exception ex)
         {
-            logger.LogWarning(ex, "ffmpeg not found ('{Ffmpeg}'); put it on PATH or set MusicEnricher:FfmpegPath", ffmpeg);
-            return null;
+            throw new FfmpegNotFoundException(ffmpeg, ex);
         }
 
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -49,9 +54,10 @@ internal sealed class FfmpegMonoDecoder(IOptions<MusicEnricherOptions> options, 
             using var samples = new MemoryStream();
             await process.StandardOutput.BaseStream.CopyToAsync(samples, limit.Token);
             await process.WaitForExitAsync(limit.Token);
+            var errors = await stderr;
             if (process.ExitCode != 0)
             {
-                logger.LogDebug("ffmpeg could not decode {Path}: {Error}", path, await stderr);
+                logger.LogDebug("ffmpeg could not decode {Path}: {Error}", path, errors);
                 return null;
             }
             var bytes = samples.GetBuffer().AsSpan(0, (int)samples.Length);

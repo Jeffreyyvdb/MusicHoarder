@@ -19,23 +19,24 @@ public class EditionReferenceClientTests
 
     private const string ITunesSearch = """
         {"results":[
-          {"trackId":1,"trackName":"Stronger","trackExplicitness":"explicit","trackTimeMillis":311500,"previewUrl":"https://a/1.m4a"},
-          {"trackId":2,"trackName":"Stronger","trackExplicitness":"cleaned","trackTimeMillis":311500,"previewUrl":"https://a/2.m4a"},
-          {"trackId":3,"trackName":"Stronger","trackExplicitness":"notExplicit","trackTimeMillis":311500,"previewUrl":"https://a/3.m4a"},
-          {"trackId":4,"trackName":"Stronger (Live)","trackExplicitness":"explicit","trackTimeMillis":311500,"previewUrl":"https://a/4.m4a"},
-          {"trackId":5,"trackName":"Stronger","trackExplicitness":"explicit","trackTimeMillis":400000,"previewUrl":"https://a/5.m4a"},
-          {"trackId":6,"trackName":"Stronger","trackExplicitness":"cleaned","trackTimeMillis":311500}
+          {"trackId":1,"artistName":"Kanye West","trackName":"Stronger","trackExplicitness":"explicit","trackTimeMillis":311500,"previewUrl":"https://a/1.m4a"},
+          {"trackId":2,"artistName":"Kanye West","trackName":"Stronger","trackExplicitness":"cleaned","trackTimeMillis":311500,"previewUrl":"https://a/2.m4a"},
+          {"trackId":3,"artistName":"Kanye West","trackName":"Stronger","trackExplicitness":"notExplicit","trackTimeMillis":311500,"previewUrl":"https://a/3.m4a"},
+          {"trackId":4,"artistName":"Kanye West","trackName":"Stronger (Live)","trackExplicitness":"explicit","trackTimeMillis":311500,"previewUrl":"https://a/4.m4a"},
+          {"trackId":5,"artistName":"Kanye West","trackName":"Stronger","trackExplicitness":"explicit","trackTimeMillis":400000,"previewUrl":"https://a/5.m4a"},
+          {"trackId":6,"artistName":"Kanye West","trackName":"Stronger","trackExplicitness":"cleaned","trackTimeMillis":311500},
+          {"trackId":7,"artistName":"Kelly Clarkson","trackName":"Stronger","trackExplicitness":"explicit","trackTimeMillis":311500,"previewUrl":"https://a/7.m4a"}
         ]}
         """;
 
-    private const string DeezerByIsrc = """{"id":10,"title":"Stronger","duration":313,"preview":"https://d/10.mp3","explicit_content_lyrics":1}""";
+    private const string DeezerByIsrc = """{"id":10,"artist":{"name":"Kanye West"},"title":"Stronger","duration":313,"preview":"https://d/10.mp3","explicit_content_lyrics":1}""";
 
     private const string DeezerSearch = """
         {"data":[
-          {"id":10,"title":"Stronger","duration":313,"preview":"https://d/10.mp3","explicit_content_lyrics":1},
-          {"id":11,"title":"Stronger","duration":313,"preview":"https://d/11.mp3","explicit_content_lyrics":3},
-          {"id":12,"title":"Stronger","duration":313,"preview":"https://d/12.mp3","explicit_content_lyrics":0},
-          {"id":13,"title":"Stronger","duration":200,"preview":"https://d/13.mp3","explicit_content_lyrics":1}
+          {"id":10,"artist":{"name":"Kanye West"},"title":"Stronger","duration":313,"preview":"https://d/10.mp3","explicit_content_lyrics":1},
+          {"id":11,"artist":{"name":"Kanye West"},"title":"Stronger","duration":313,"preview":"https://d/11.mp3","explicit_content_lyrics":3},
+          {"id":12,"artist":{"name":"Kanye West"},"title":"Stronger","duration":313,"preview":"https://d/12.mp3","explicit_content_lyrics":0},
+          {"id":13,"artist":{"name":"Kanye West"},"title":"Stronger","duration":200,"preview":"https://d/13.mp3","explicit_content_lyrics":1}
         ]}
         """;
 
@@ -65,7 +66,7 @@ public class EditionReferenceClientTests
                 (Edition.Explicit, "deezer:10"),
                 (Edition.Clean, "deezer:11"),
             ],
-            lookup.References.Select(r => (r.Edition, r.Id)).ToArray());
+            lookup.References.Select(r => (r.Edition, r.Id)).OrderBy(r => r.Id.StartsWith("deezer") ? 1 : 0).ThenBy(r => r.Id).ToArray());
     }
 
     [Fact]
@@ -74,8 +75,8 @@ public class EditionReferenceClientTests
         var lookup = await Client(Healthy).FindAsync(Query with { DurationsSeconds = [200, 313] }, CancellationToken.None);
 
         Assert.Equal(
-            ["itunes:1", "itunes:2", "deezer:10", "deezer:11", "deezer:13"],
-            lookup.References.Select(r => r.Id).ToArray());
+            ["deezer:10", "deezer:11", "deezer:13", "itunes:1", "itunes:2"],
+            lookup.References.Select(r => r.Id).Order().ToArray());
     }
 
     [Fact]

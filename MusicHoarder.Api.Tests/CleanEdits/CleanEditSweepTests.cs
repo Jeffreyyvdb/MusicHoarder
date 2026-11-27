@@ -170,6 +170,19 @@ public sealed class CleanEditSweepTests : IDisposable
     }
 
     [Fact]
+    public async Task Without_ffmpeg_the_run_stops_and_says_so()
+    {
+        await AddSongAsync("a");
+        await AddSongAsync("b");
+        _decoder.FfmpegMissing = true;
+
+        var progress = await RunToEndAsync(NewSweep());
+
+        Assert.Contains("ffmpeg was not found", progress.StoppedReason);
+        Assert.Empty(await ChecksAsync());
+    }
+
+    [Fact]
     public async Task A_file_replaced_with_one_of_the_same_size_is_checked_again()
     {
         await AddSongAsync("same-size");

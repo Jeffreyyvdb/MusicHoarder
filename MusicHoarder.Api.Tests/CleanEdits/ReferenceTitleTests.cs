@@ -25,6 +25,28 @@ public class ReferenceTitleTests
     }
 
     [Fact]
+    public void A_title_in_another_script_matches_only_itself()
+    {
+        Assert.Equal("夜に駆ける", ReferenceTitle.Normalize("夜に駆ける (feat. ikura)"));
+        Assert.NotEqual(ReferenceTitle.Normalize("夜に駆ける"), ReferenceTitle.Normalize("群青"));
+        Assert.Equal("", ReferenceTitle.Normalize("!!!"));
+    }
+
+    [Theory]
+    [InlineData("Denzel Curry, TiaCorine, A$AP Ferg", "Denzel Curry, TiaCorine & A$AP Ferg", true)]
+    [InlineData("Kid Cudi, Kanye West, Common", "Kid Cudi", true)]
+    [InlineData("Tyler, The Creator", "Tyler, The Creator", true)]
+    [InlineData("Beyoncé", "Beyonce", true)]
+    [InlineData("Kanye West", "Kanye West Tribute Band", true)]
+    [InlineData("Kanye West", "The Weeknd", false)]
+    [InlineData("Drake", "Drakeo the Ruler", false)]
+    [InlineData("Drake", null, false)]
+    public void A_catalog_credit_must_name_the_songs_lead_artist(string song, string? catalog, bool same)
+    {
+        Assert.Equal(same, ReferenceTitle.SameArtist(song, catalog));
+    }
+
+    [Fact]
     public void The_search_uses_the_lead_artist_and_the_title_without_brackets()
     {
         Assert.Equal("Denzel Curry", ReferenceTitle.LeadArtist("Denzel Curry, TiaCorine"));

@@ -72,16 +72,11 @@ internal sealed class CleanEditChecker(
 {
     public async Task<CleanEditOutcome> CheckAsync(CleanEditSubject subject, CancellationToken ct)
     {
-        var pcm = await decoder.DecodeAsync(subject.Path, ct);
-        if (pcm is null)
+        if (await DecodeAsync(subject.Path, ct) is not { } decoded)
             return CleanEditOutcome.UnreadableFile;
-        var test = BandSpectrogram.FromPcm(pcm);
-        if (test.Frames == 0)
-            return CleanEditOutcome.UnreadableFile;
+        var (test, fileSeconds) = decoded;
 
-        double[] durations = subject.RequestedDurationSeconds is { } requested
-            ? [requested, (double)pcm.Length / BandSpectrogram.SampleRate]
-            : [(double)pcm.Length / BandSpectrogram.SampleRate];
+        double[] durations = subject.RequestedDurationSeconds is { } requested ? [requested, fileSeconds] : [fileSeconds];
         var lookup = await references.FindAsync(new ReferenceQuery(subject.Artist, subject.Title, subject.Isrc, durations), ct);
 
         var located = new List<LocatedReference>();
@@ -110,6 +105,19 @@ internal sealed class CleanEditChecker(
             analysis.Pairwise is { } pair ? $"{pair.ExplicitId}~{pair.CleanId}" : null,
             analysis.MutedWords?.SpanStartSeconds ?? []);
         return new CleanEditOutcome(analysis.Verdict, analysis.Pairwise?.Margin, analysis.Pairwise?.EditedSeconds, evidence);
+    }
+
+    /// <summary>
+    /// The file's spectrogram and length. The samples stay in this method, so they are not held across
+    /// the catalog calls that follow.
+    /// </summary>
+    private async Task<(BandSpectrogram Bands, double Seconds)?> DecodeAsync(string path, CancellationToken ct)
+    {
+        var pcm = await decoder.DecodeAsync(path, ct);
+        if (pcm is null)
+            return null;
+        var bands = BandSpectrogram.FromPcm(pcm);
+        return bands.Frames > 0 ? (bands, (double)pcm.Length / BandSpectrogram.SampleRate) : null;
     }
 
     private async Task<BandSpectrogram?> LoadPreviewAsync(EditionReference reference, CancellationToken ct)

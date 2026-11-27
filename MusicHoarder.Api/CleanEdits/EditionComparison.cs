@@ -37,6 +37,12 @@ internal static class EditionComparison
     private const double EditMedianFactor = 4.0;
     private const double MinimumEditedSeconds = 0.1;
 
+    /// <summary>
+    /// An edit changes a few words. Two previews that differ over more of their overlap than this are
+    /// different mixes or masters, and comparing a file with them says nothing about edits.
+    /// </summary>
+    private const double MaximumEditedShare = 0.25;
+
     /// <summary>Muted-word detection trusts only a tight alignment.</summary>
     private const double MutedMinimumCorrelation = 0.85;
     private const int VocalFirstBand = 3;
@@ -44,6 +50,9 @@ internal static class EditionComparison
     private const double MutedDropDb = -12.0;
     private const double VocalFloorPercentile = 30;
     private const int MinimumMutedFrames = 5;
+
+    /// <summary>A loud frame this short inside a mute is a flicker across the threshold, not a word.</summary>
+    private const int MaximumFlickerFrames = 5;
 
     /// <summary>
     /// Over every explicit and clean preview that overlap, finds the frames where the two previews
@@ -94,6 +103,9 @@ internal static class EditionComparison
             explicitSum += toExplicit[f];
             cleanSum += toClean[f];
         }
+
+        if (edited > MaximumEditedShare * editions.Length)
+            return null;
 
         var editedSeconds = edited * BandSpectrogram.FrameSeconds;
         var rounded = Math.Round(editedSeconds, 2);
@@ -147,21 +159,30 @@ internal static class EditionComparison
     {
         private const int Slack = 2;
 
+        /// <summary>
+        /// Runs of quiet frames, joined across a loud flicker of up to <see cref="MaximumFlickerFrames"/>.
+        /// A run counts when its quiet frames, not its extent, reach <see cref="MinimumMutedFrames"/>.
+        /// </summary>
         public IEnumerable<(int Start, int End)> Runs()
         {
-            var runStart = -1;
-            for (var f = 0; f <= Quiet.Length; f++)
+            int runStart = -1, runEnd = -1, quietFrames = 0;
+            for (var f = 0; f < Quiet.Length; f++)
             {
-                var quiet = f < Quiet.Length && Quiet[f];
-                if (quiet && runStart < 0)
-                    runStart = f;
-                if (!quiet && runStart >= 0)
+                if (!Quiet[f])
+                    continue;
+                if (runStart >= 0 && f - runEnd > MaximumFlickerFrames)
                 {
-                    if (f - runStart >= MinimumMutedFrames)
-                        yield return (From + runStart, From + f);
+                    if (quietFrames >= MinimumMutedFrames)
+                        yield return (From + runStart, From + runEnd);
                     runStart = -1;
                 }
+                if (runStart < 0)
+                    (runStart, quietFrames) = (f, 0);
+                runEnd = f + 1;
+                quietFrames++;
             }
+            if (runStart >= 0 && quietFrames >= MinimumMutedFrames)
+                yield return (From + runStart, From + runEnd);
         }
 
         /// <summary>

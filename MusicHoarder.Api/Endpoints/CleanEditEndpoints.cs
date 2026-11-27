@@ -14,7 +14,7 @@ namespace MusicHoarder.Api.Endpoints;
 public static class CleanEditEndpoints
 {
     private const int DefaultLimit = 200;
-    private const int MaxLimit = 500;
+    private const int MaxLimit = 2000;
 
     /// <summary>The verdicts that mean "this file is not the explicit original".</summary>
     private static readonly CleanEditVerdict[] FoundVerdicts = [CleanEditVerdict.CleanMaster, CleanEditVerdict.MutedWords];
@@ -25,13 +25,13 @@ public static class CleanEditEndpoints
 
         group.MapGet("", List)
             .WithName("ListCleanEdits")
-            .WithSummary("Counts per verdict and the songs found to be clean edits or muted, newest check first.");
+            .WithSummary("Counts per verdict and the songs found to be clean edits or muted, A to Z by artist.");
         group.MapPost("/check", Start)
             .WithName("StartCleanEditCheck")
             .WithSummary("Check every built song that has no current check. Resumes where a stopped run left off.");
         group.MapPost("/stop", Stop)
             .WithName("StopCleanEditCheck")
-            .WithSummary("Stop the running check after the song it is on.");
+            .WithSummary("Stop the running check now. The song it was on is checked again next run.");
         group.MapGet("/progress", GetProgress)
             .WithName("GetCleanEditProgress")
             .WithSummary("Progress of the running (or last) check.");
@@ -62,7 +62,9 @@ public static class CleanEditEndpoints
     internal static async Task<IResult> List(
         MusicHoarderDbContext db, int? limit, int? offset, CancellationToken ct)
     {
-        var checks = db.CleanEditChecks.AsNoTracking().Where(c => c.Song.DeletedAtUtc == null);
+        // The same songs the eligible count reads: a check outlives a song whose build was reset.
+        var checks = db.CleanEditChecks.AsNoTracking().Where(c => c.Song.DeletedAtUtc == null
+            && c.Song.DestinationPath != null && c.Song.Artist != null && c.Song.Title != null);
 
         var counts = (await checks.GroupBy(c => c.Verdict)
                 .Select(g => new { Verdict = g.Key, Count = g.Count() })

@@ -139,9 +139,14 @@ internal sealed class CleanEditSweep(
             }
             Finish(null);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             Finish(lifetime.ApplicationStopping.IsCancellationRequested ? "The server is shutting down." : "Stopped.");
+        }
+        catch (FfmpegNotFoundException ex)
+        {
+            logger.LogWarning(ex, "Clean-edit sweep cannot decode audio");
+            Finish(ex.Message);
         }
         catch (Exception ex)
         {
@@ -161,7 +166,7 @@ internal sealed class CleanEditSweep(
             return await checker.CheckAsync(
                 new CleanEditSubject(song.Artist, song.Title, song.Isrc, song.RequestedDurationMs / 1000.0, song.Path), ct);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException and not FfmpegNotFoundException)
         {
             logger.LogWarning(ex, "Clean-edit check failed for song {SongId}", song.Id);
             return CleanEditOutcome.UnreadableFile;

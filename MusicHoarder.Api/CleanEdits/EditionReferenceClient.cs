@@ -44,7 +44,15 @@ internal sealed class EditionReferenceClient(
     IOptions<MusicEnricherOptions> options,
     ILogger<EditionReferenceClient> logger) : IEditionReferenceClient
 {
-    public const string HttpClientName = "edition-references";
+    public static HttpClient CreateHttpClient()
+    {
+        var client = new HttpClient(new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(5) })
+        {
+            Timeout = TimeSpan.FromSeconds(20),
+        };
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("MusicHoarder-EditionCheck");
+        return client;
+    }
     public const double DurationToleranceSeconds = 4;
 
     internal static readonly TimeSpan DeezerInterval = TimeSpan.FromMilliseconds(350);
@@ -56,6 +64,9 @@ internal sealed class EditionReferenceClient(
     internal static readonly TimeSpan PreviewTimeout = TimeSpan.FromSeconds(30);
 
     private const int MaxPreviewBytes = 4 * 1024 * 1024;
+
+    /// <summary>Previews kept per catalog and edition: compilations re-list one recording many times.</summary>
+    internal const int MaxPreviewsPerEdition = 3;
     private const int DeezerQuotaErrorCode = 4;
 
     private readonly RequestRateGate _deezerGate = new();
@@ -66,6 +77,8 @@ internal sealed class EditionReferenceClient(
         var found = new List<EditionReference>();
         var incomplete = false;
         var wanted = ReferenceTitle.Normalize(query.Title);
+        if (wanted.Length == 0)
+            return new ReferenceLookup([], false);
 
         try
         {
@@ -141,11 +154,12 @@ internal sealed class EditionReferenceClient(
             var preview = Text(track, "previewUrl");
             if (edition is null || string.IsNullOrEmpty(preview)
                 || ReferenceTitle.Normalize(Text(track, "trackName") ?? "") != wanted
+                || !ReferenceTitle.SameArtist(query.Artist, Text(track, "artistName"))
                 || !query.Fits(Number(track, "trackTimeMillis") / 1000))
                 continue;
             found.Add(new EditionReference(edition.Value, $"itunes:{Number(track, "trackId").ToString("0", CultureInfo.InvariantCulture)}", preview));
         }
-        return found;
+        return Capped(found);
     }
 
     private async Task<(List<EditionReference> References, bool Complete)> SearchDeezerAsync(
@@ -170,7 +184,7 @@ internal sealed class EditionReferenceClient(
             }
 
             var q = Uri.EscapeDataString(
-                $"artist:\"{ReferenceTitle.LeadArtist(query.Artist)}\" track:\"{ReferenceTitle.WithoutBrackets(query.Title).Trim()}\"");
+                $"artist:\"{Unquoted(ReferenceTitle.LeadArtist(query.Artist))}\" track:\"{Unquoted(ReferenceTitle.WithoutBrackets(query.Title)).Trim()}\"");
             var search = await GetJsonAsync($"https://api.deezer.com/search?q={q}", _deezerGate, DeezerInterval, ct);
             documents.Add(search);
             complete &= !IsQuotaError(search.RootElement);
@@ -191,13 +205,14 @@ internal sealed class EditionReferenceClient(
                 };
                 if (!seen.Add(id) || string.IsNullOrEmpty(preview) || edition is null
                     || !query.Fits(Number(track, "duration"))
-                    || ReferenceTitle.Normalize(Text(track, "title") ?? "") != wanted)
+                    || ReferenceTitle.Normalize(Text(track, "title") ?? "") != wanted
+                    || !ReferenceTitle.SameArtist(query.Artist, ArtistName(track)))
                     continue;
                 found.Add(new EditionReference(edition.Value, $"deezer:{id}", preview));
             }
             if (!complete)
                 Interlocked.Exchange(ref _deezerBackoffUntilUtcTicks, (DateTime.UtcNow + DeezerQuotaBackoff).Ticks);
-            return (found, complete);
+            return (Capped(found), complete);
         }
         finally
         {
@@ -242,6 +257,14 @@ internal sealed class EditionReferenceClient(
         && error.TryGetProperty("code", out var code)
         && code.TryGetInt32(out var value)
         && value == DeezerQuotaErrorCode;
+
+    private static List<EditionReference> Capped(List<EditionReference> found) =>
+        [.. found.GroupBy(r => r.Edition).SelectMany(g => g.Take(MaxPreviewsPerEdition))];
+
+    private static string Unquoted(string value) => value.Replace("\"", "", StringComparison.Ordinal);
+
+    private static string? ArtistName(JsonElement track) =>
+        track.TryGetProperty("artist", out var artist) && artist.ValueKind == JsonValueKind.Object ? Text(artist, "name") : null;
 
     private static string? Text(JsonElement element, string name) =>
         element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;

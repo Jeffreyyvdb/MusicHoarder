@@ -7,9 +7,11 @@ namespace MusicHoarder.Api.Tests.CleanEdits;
 internal sealed class SilentDecoder : IMonoDecoder
 {
     public Func<string, bool> Unreadable { get; set; } = _ => false;
+    public bool FfmpegMissing { get; set; }
 
-    public Task<float[]?> DecodeAsync(string path, CancellationToken ct) =>
-        Task.FromResult(Unreadable(path) ? null : new float[BandSpectrogram.SampleRate * 5]);
+    public Task<float[]?> DecodeAsync(string path, CancellationToken ct) => FfmpegMissing
+        ? throw new FfmpegNotFoundException("ffmpeg", new System.ComponentModel.Win32Exception())
+        : Task.FromResult(Unreadable(path) ? null : new float[BandSpectrogram.SampleRate * 5]);
 }
 
 internal sealed class ScriptedReferences : IEditionReferenceClient
