@@ -200,7 +200,8 @@ public static class EnrichmentEndpoints
                             scope.ServiceProvider.GetRequiredService<IDownloadArtworkEmbedder>(),
                             ids => channel.EnqueueRange(ids, label: "Re-stamp wishlist downloads"),
                             logger,
-                            lifetime.ApplicationStopping);
+                            lifetime.ApplicationStopping,
+                            scope.ServiceProvider.GetRequiredService<Assets.AudioAssetRegistry>());
                     }
                     catch (Exception ex)
                     {
@@ -583,7 +584,8 @@ public static class EnrichmentEndpoints
         IDownloadArtworkEmbedder artworkEmbedder,
         Action<IReadOnlyList<int>> enqueue,
         ILogger logger,
-        CancellationToken ct)
+        CancellationToken ct,
+        Assets.AudioAssetRegistry? assetRegistry = null)
     {
         // Map each linked song to its WishlistItem identity (a song satisfies at most one item via the
         // unique (owner, track) index; if several point at the same song, any is fine).
@@ -633,7 +635,9 @@ public static class EnrichmentEndpoints
                 using (await Assets.AudioAssetRegistry.ClaimAsync(ct))
                 {
                     var sourcePath = song.SourcePath;
+                    // A content-store file is named by its hash even before its asset row is saved.
                     var stored = song.AudioAssetId is not null
+                        || assetRegistry?.ContentStoreSha(sourcePath) is not null
                         || await db.AudioAssets.AnyAsync(a => a.PurgedAtUtc == null && a.StoragePath == sourcePath, ct);
                     if (!stored && DownloadTagWriter.Stamp(song.SourcePath, id.Artist, id.Title, album, id.Isrc, logger))
                         fileStamped++;

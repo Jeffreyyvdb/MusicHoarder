@@ -131,11 +131,11 @@ public sealed class AudioAssetRegistry(
 
     /// <summary>
     /// Points <paramref name="song"/> at an asset whose bytes are those of <paramref name="filePath"/>.
-    /// A purged asset is live again, stored at that file. Does not save.
+    /// A purged asset, or one whose file has gone, is stored at that file from now on. Does not save.
     /// </summary>
     public void Link(SongMetadata song, AudioAsset asset, string filePath)
     {
-        if (asset.PurgedAtUtc is not null)
+        if (asset.PurgedAtUtc is not null || !File.Exists(asset.StoragePath))
         {
             asset.PurgedAtUtc = null;
             asset.StoragePath = NormalizePath(filePath);
@@ -193,9 +193,9 @@ public sealed class AudioAssetRegistry(
     }
 
     /// <summary>
-    /// Before removing a song deletes its file: false when an asset stored there is played by another
-    /// live song, in any library. Otherwise every asset stored at the path is marked purged, to be saved
-    /// with the caller's other changes, and the caller may delete the file.
+    /// Before removing a song deletes its file: false when another live song, in any library, plays it,
+    /// through an asset stored there or as its own source. Otherwise every asset stored at the path is
+    /// marked purged, to be saved with the caller's other changes, and the caller may delete the file.
     /// </summary>
     public async Task<bool> TryPurgeForSongAsync(MusicHoarderDbContext db, string path, int songId, CancellationToken ct)
     {
@@ -203,14 +203,12 @@ public sealed class AudioAssetRegistry(
         var assets = await db.AudioAssets
             .Where(a => a.StoragePath == normalized && a.PurgedAtUtc == null)
             .ToListAsync(ct);
-        if (assets.Count == 0)
-            return true;
 
         var ids = assets.Select(a => a.Id).ToList();
         var shared = await db.Songs
             .IgnoreQueryFilters()
-            .AnyAsync(s => s.AudioAssetId != null && ids.Contains(s.AudioAssetId.Value)
-                && s.Id != songId && s.DeletedAtUtc == null, ct);
+            .AnyAsync(s => s.Id != songId && s.DeletedAtUtc == null
+                && (s.SourcePath == normalized || (s.AudioAssetId != null && ids.Contains(s.AudioAssetId.Value))), ct);
         if (shared)
             return false;
 
