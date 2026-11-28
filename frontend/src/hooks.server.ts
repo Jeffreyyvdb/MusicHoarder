@@ -22,10 +22,6 @@ import {
   markdownSiblingPath,
   notFoundMarkdown
 } from '#lib/content/site-markdown.ts';
-import {
-  SKIN_STYLESHEET_HREF,
-  SKIN_STYLESHEET_PLACEHOLDER
-} from '#lib/hardware/skin-stylesheet.ts';
 
 const MARKDOWN_TYPE = 'text/markdown; charset=utf-8';
 
@@ -81,7 +77,6 @@ function withPageFills(
       transformPageChunk: async (chunk) => {
         let html = opts?.transformPageChunk ? await opts.transformPageChunk(chunk) : chunk.html;
         if (!html) return html;
-        html = html.replace(SKIN_STYLESHEET_PLACEHOLDER, SKIN_STYLESHEET_HREF);
         // A share link created with SPEC-01 on emits `data-mh-share-skin="hardware"` on its SSR
         // stylesheet link; hoist `data-mh-skin="hardware"` onto <html> so the first paint (and
         // no-JS visitors) render the hardware skin immediately with no layout flash.

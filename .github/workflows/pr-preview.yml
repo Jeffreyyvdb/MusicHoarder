@@ -122,7 +122,9 @@ jobs:
         if: steps.pre.outputs.configured == 'true'
         uses: docker/build-push-action@v7
         with:
-          context: ./frontend
+          # Repo root, not ./frontend: the /docs pages prerender docs/ Markdown at build time and
+          # frontend/Dockerfile is written for a repo-root context (see its header).
+          context: .
           file: frontend/Dockerfile
           push: true
           tags: ${{ steps.vars.outputs.frontend_image }}

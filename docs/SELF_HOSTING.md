@@ -246,8 +246,11 @@ Two named volumes hold state worth backing up:
   Back it up next to the database, but keep the two apart: a database dump alone holds no usable
   Spotify token.
 
-Your **source** library is read-only and never touched. The **destination** library is fully
-regenerable from the source + catalog, so it doesn't strictly need backing up.
+Your **source** library is read-only and never touched. The **destination** library is
+regenerable from the source + catalog only for tracks that came from the source: tracks the
+download chain acquired (wishlist, YouTube, Soulseek) never had a source file, and once
+staged-source release is enabled their staged copy is deleted after the library copy is verified —
+leaving the destination as the only copy. Back the destination up alongside the database.
 
 ## Build from source
 
