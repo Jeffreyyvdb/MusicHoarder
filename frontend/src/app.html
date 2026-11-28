@@ -2,13 +2,6 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <!-- The first-paint boot script (Looping's setup, the theme marker, the installed-app and
-         Dynamic Type markers) lives in src/routes/boot.js, served as an external same-origin
-         script: inline it would need a CSP nonce, and a template carrying the nonce placeholder
-         cannot prerender (SvelteKit's prerender_template_nonce) — which the
-         /docs pages do. As a parser-blocking head script it still runs before the first frame.
-         First in <head> so it sees the page's earliest errors. -->
-    <script src="%sveltekit.assets%/boot.js"></script>
     <link rel="icon" type="image/svg+xml" href="%sveltekit.assets%/icon.svg" />
     <link rel="apple-touch-icon" sizes="180x180" href="%sveltekit.assets%/apple-icon.png" />
     <link rel="manifest" href="%sveltekit.assets%/manifest.webmanifest" />
@@ -21,6 +14,14 @@
          (surfaceFor + the theme-surface store) — so a cold load of a grouped page shows one white
          status-bar frame, accepted like the light launch. -->
     <meta name="theme-color" content="#ffffff" />
+    <!-- The first-paint boot script (Looping's setup, the theme marker, the installed-app and
+         Dynamic Type markers) lives in src/routes/boot.js, served as an external same-origin
+         script: inline it would need a CSP nonce, and a template carrying the nonce placeholder
+         cannot prerender (SvelteKit's prerender_template_nonce) — which the
+         /docs pages do. As a parser-blocking head script it still runs before the first frame.
+         It must come after the viewport and theme-color metas, which it rewrites (a missing one
+         throws and skips the dark class), and before the head SvelteKit injects. -->
+    <script src="%sveltekit.assets%/boot.js"></script>
     <!-- Installed (home-screen) app. The manifest's `display: standalone` already launches without
          browser chrome on iOS; these Apple-specific tags cover what the manifest cannot. The status
          bar style is `default` on purpose: with `black-translucent` iOS moves the web view up under
